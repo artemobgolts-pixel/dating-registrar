@@ -44,11 +44,14 @@
   var PRESS_DISS = 0.8;
   var SPLAT_R    = 0.00045;            // размер зоны у курсора (uv²) — с курсор
   var FORCE      = 6000;               // сила толчка течения
-  var STEP_SCALE = -0.012;             // вклад скорости в накопление (знак «-» = расталкивание)
-  var PERSIST    = 0.997;              // как держится накопленное смещение (1=навсегда)
-  var DISP_MAX   = 0.18;               // максимум перекоса фона (защита от «взрыва»)
+  var STEP_SCALE = -0.016;             // вклад скорости в накопление (знак «-» = расталкивание)
+  var PERSIST    = 1.0;                // 1=след не затягивается совсем (дым остаётся раздвинут)
+  var DISP_MAX   = 0.22;               // максимум перекоса фона (защита от «взрыва»)
   var MASK_R     = 0.011;              // радиус² пятна деформации у курсора (маска)
   var IDLE_HOLD  = 2.2;                // сек: сколько ещё считать жидкость после движения
+  var TINT_GAIN    = 0.05;             // насыщенность красноватого следа (накопление за кадр)
+  var TINT_PERSIST = 0.96;             // как быстро след тает, когда курсор стоит (меньше=быстрее)
+  var TINT_MAX     = 0.7;              // потолок подкраски (×0.14 в выводе → итог «чуть-чуть»)
 
   // --- шейдеры -------------------------------------------------------------
   var BASE_VS = `#version 300 es
@@ -166,7 +169,8 @@ void main(){
   vec2 uv = vUv;
   uv.x *= res.x/res.y;
   float tt = t * 0.016;
-  uv += texture(uDisp, vUv).xy;          // накопленное смещение фона
+  vec3 dsp = texture(uDisp, vUv).xyz;
+  uv += dsp.xy;                          // накопленное смещение фона
   vec2 mo = vec2(sin(tt*0.7), cos(tt*0.6)) * 0.7;
   vec2 q = vec2(fbm(uv*1.6 + mo + vec2(0.0, tt)), fbm(uv*1.6 - mo + vec2(5.2, -tt)));
   vec2 r = vec2(fbm(uv*1.6 + 4.0*q + vec2(1.7, 9.2) + tt*0.9),
@@ -178,24 +182,29 @@ void main(){
   col = mix(col, PEACH, smoothstep(0.45, 0.95, q.x*q.x) * 0.38);
   col = mix(col, BERRY, smoothstep(0.74, 1.12, f*1.1) * 0.5);
   col = mix(col, BG, smoothstep(0.55, 1.0, 1.0 - vUv.y*res.y/res.x) * 0.25);
+  col = mix(col, ROSE, clamp(dsp.z, 0.0, 1.0) * 0.14);   // тёплый след курсора (чуть-чуть)
   o = vec4(col, 1.0);
 }`;
 
   // НАКОПЛЕНИЕ смещения: у курсора добавляем вклад поля скоростей, остальное
-  // бережно сохраняем (persist≈1) — дым остаётся раздвинутым, не возвращается.
+  // бережно сохраняем (persist=1) — дым остаётся раздвинутым, не возвращается.
+  // Канал z — тёплая подкраска: копится ТОЛЬКО при движении (moving), в покое тает.
   var ACCUM_FS = `#version 300 es
 precision highp float; in vec2 vUv; out vec4 o;
 uniform sampler2D uDisp; uniform sampler2D uVelocity;
 uniform vec2 ptr; uniform float maskR; uniform float aspect;
 uniform float stepScale; uniform float persist; uniform float dispMax;
+uniform float moving; uniform float tintGain; uniform float tintPersist; uniform float tintMax;
 void main(){
-  vec2 old = texture(uDisp, vUv).xy;
+  vec3 old = texture(uDisp, vUv).xyz;
   vec2 dp = vUv - ptr; dp.x *= aspect;
   float mask = exp(-dot(dp,dp)/max(maskR,1e-4));
-  vec2 nd = old * persist + texture(uVelocity, vUv).xy * stepScale * mask;
+  vec2 nd = old.xy * persist + texture(uVelocity, vUv).xy * stepScale * mask;
   float L = length(nd);
   if (L > dispMax) nd *= dispMax / L;    // ограничиваем перекос, без «взрыва»
-  o = vec4(nd, 0.0, 1.0);
+  float tint = old.z * tintPersist + moving * mask * tintGain;
+  tint = min(tint, tintMax);
+  o = vec4(nd, tint, 1.0);
 }`;
 
   // --- компиляция/линковка -------------------------------------------------
@@ -239,7 +248,7 @@ void main(){
   }
 
   // --- буферы кадра (FBO): только скорость/давление, краски нет -------------
-  var RG = gl.RG16F, R = gl.R16F;
+  var RG = gl.RG16F, R = gl.R16F, RGBA = gl.RGBA16F;
   function makeFBO(w, h, internal, format, filter) {
     var tex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, tex);
@@ -266,9 +275,10 @@ void main(){
   var divergence = makeFBO(SIM_RES, SIM_RES, R, gl.RED, gl.NEAREST);
   var curlFbo = makeFBO(SIM_RES, SIM_RES, R, gl.RED, gl.NEAREST);
   var pressure = makeDouble(SIM_RES, SIM_RES, R, gl.RED, gl.NEAREST);
-  // накопленное смещение фона (persist между кадрами) — своя сетка, чуть крупнее
+  // накопленное смещение фона + тёплая подкраска (xy=смещение, z=tint).
+  // persist между кадрами — своя сетка, чуть крупнее
   var DISP_RES = SMALL ? 160 : 220;
-  var disp = makeDouble(DISP_RES, DISP_RES, RG, gl.RG, LIN);
+  var disp = makeDouble(DISP_RES, DISP_RES, RGBA, gl.RGBA, LIN);
 
   // --- один шаг симуляции скорости (без краски) ---------------------------
   var simTexel = [1 / SIM_RES, 1 / SIM_RES];
@@ -388,12 +398,14 @@ void main(){
     resize();
 
     // ввод курсора → толчок течения; держим симуляцию активной ещё IDLE_HOLD сек
+    var moving = 0.0;
     if (pointer.moved) {
       var dx = (pointer.x - pointer.px) * FORCE;
       var dy = (pointer.y - pointer.py) * FORCE;
       splat(pointer.x, pointer.y, dx * dt, dy * dt);
       pointer.px = pointer.x; pointer.py = pointer.y;
       pointer.moved = false;
+      moving = 1.0;
       activeUntil = (now - start) / 1000 + IDLE_HOLD;
     }
     // пока течение живо: шаг жидкости + накопление смещения у курсора.
@@ -411,6 +423,10 @@ void main(){
       gl.uniform1f(ac.u.stepScale, STEP_SCALE);
       gl.uniform1f(ac.u.persist, PERSIST);
       gl.uniform1f(ac.u.dispMax, DISP_MAX);
+      gl.uniform1f(ac.u.moving, moving);
+      gl.uniform1f(ac.u.tintGain, TINT_GAIN);
+      gl.uniform1f(ac.u.tintPersist, TINT_PERSIST);
+      gl.uniform1f(ac.u.tintMax, TINT_MAX);
       blit(disp.write); disp.swap();
     }
 
