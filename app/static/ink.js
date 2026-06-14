@@ -44,8 +44,10 @@
   var PRESS_DISS = 0.8;
   var SPLAT_R    = 0.00045;            // размер зоны у курсора (uv²) — с курсор
   var FORCE      = 6000;               // сила толчка течения
-  var DISP_SCALE = -0.07;              // знак «-»: фон расталкивается от курсора (не втягивается)
-  var MASK_R     = 0.009;              // радиус² пятна деформации у курсора (маска)
+  var STEP_SCALE = -0.012;             // вклад скорости в накопление (знак «-» = расталкивание)
+  var PERSIST    = 0.997;              // как держится накопленное смещение (1=навсегда)
+  var DISP_MAX   = 0.18;               // максимум перекоса фона (защита от «взрыва»)
+  var MASK_R     = 0.011;              // радиус² пятна деформации у курсора (маска)
   var IDLE_HOLD  = 2.2;                // сек: сколько ещё считать жидкость после движения
 
   // --- шейдеры -------------------------------------------------------------
@@ -140,13 +142,12 @@ void main(){
   o = vec4(vel,0.0,1.0);
 }`;
 
-  // ВЫВОД: наш прежний fbm-фон, локально смещённый полем скоростей жидкости.
-  // Краску не рисуем — фон остаётся нашим, деформация живёт у курсора.
+  // ВЫВОД: наш прежний fbm-фон, смещённый НАКОПЛЕННЫМ полем (uDisp). Поле
+  // копится вдоль пути курсора и не откатывается — дым остаётся раздвинутым.
   var DISP_FS = `#version 300 es
 precision highp float;
 in vec2 vUv; out vec4 o;
-uniform sampler2D uVelocity; uniform vec2 res; uniform float t; uniform float dispScale;
-uniform vec2 ptr; uniform float maskR;
+uniform sampler2D uDisp; uniform vec2 res; uniform float t;
 const vec3 BG    = vec3(0.984, 0.949, 0.945);
 const vec3 ROSE  = vec3(0.713, 0.372, 0.435);
 const vec3 BERRY = vec3(0.560, 0.290, 0.345);
@@ -165,11 +166,7 @@ void main(){
   vec2 uv = vUv;
   uv.x *= res.x/res.y;
   float tt = t * 0.016;
-  // деформация фона полем скоростей — ТОЛЬКО в маленьком пятне у курсора.
-  // маска гасит любой остаточный шум поля по краям экрана.
-  vec2 dp = vUv - ptr; dp.x *= res.x/res.y;
-  float mask = exp(-dot(dp,dp)/max(maskR,1e-4));
-  uv += texture(uVelocity, vUv).xy * dispScale * mask;
+  uv += texture(uDisp, vUv).xy;          // накопленное смещение фона
   vec2 mo = vec2(sin(tt*0.7), cos(tt*0.6)) * 0.7;
   vec2 q = vec2(fbm(uv*1.6 + mo + vec2(0.0, tt)), fbm(uv*1.6 - mo + vec2(5.2, -tt)));
   vec2 r = vec2(fbm(uv*1.6 + 4.0*q + vec2(1.7, 9.2) + tt*0.9),
@@ -182,6 +179,23 @@ void main(){
   col = mix(col, BERRY, smoothstep(0.74, 1.12, f*1.1) * 0.5);
   col = mix(col, BG, smoothstep(0.55, 1.0, 1.0 - vUv.y*res.y/res.x) * 0.25);
   o = vec4(col, 1.0);
+}`;
+
+  // НАКОПЛЕНИЕ смещения: у курсора добавляем вклад поля скоростей, остальное
+  // бережно сохраняем (persist≈1) — дым остаётся раздвинутым, не возвращается.
+  var ACCUM_FS = `#version 300 es
+precision highp float; in vec2 vUv; out vec4 o;
+uniform sampler2D uDisp; uniform sampler2D uVelocity;
+uniform vec2 ptr; uniform float maskR; uniform float aspect;
+uniform float stepScale; uniform float persist; uniform float dispMax;
+void main(){
+  vec2 old = texture(uDisp, vUv).xy;
+  vec2 dp = vUv - ptr; dp.x *= aspect;
+  float mask = exp(-dot(dp,dp)/max(maskR,1e-4));
+  vec2 nd = old * persist + texture(uVelocity, vUv).xy * stepScale * mask;
+  float L = length(nd);
+  if (L > dispMax) nd *= dispMax / L;    // ограничиваем перекос, без «взрыва»
+  o = vec4(nd, 0.0, 1.0);
 }`;
 
   // --- компиляция/линковка -------------------------------------------------
@@ -207,7 +221,7 @@ void main(){
     adv: makeProg(BASE_VS, ADV_FS), div: makeProg(BASE_VS, DIV_FS),
     curl: makeProg(BASE_VS, CURL_FS), vort: makeProg(BASE_VS, VORT_FS),
     press: makeProg(BASE_VS, PRESS_FS), grad: makeProg(BASE_VS, GRAD_FS),
-    disp: makeProg(BASE_VS, DISP_FS),
+    disp: makeProg(BASE_VS, DISP_FS), accum: makeProg(BASE_VS, ACCUM_FS),
   };
   for (var k in progs) { if (!progs[k]) { teardown(); return; } }
 
@@ -252,6 +266,9 @@ void main(){
   var divergence = makeFBO(SIM_RES, SIM_RES, R, gl.RED, gl.NEAREST);
   var curlFbo = makeFBO(SIM_RES, SIM_RES, R, gl.RED, gl.NEAREST);
   var pressure = makeDouble(SIM_RES, SIM_RES, R, gl.RED, gl.NEAREST);
+  // накопленное смещение фона (persist между кадрами) — своя сетка, чуть крупнее
+  var DISP_RES = SMALL ? 160 : 220;
+  var disp = makeDouble(DISP_RES, DISP_RES, RG, gl.RG, LIN);
 
   // --- один шаг симуляции скорости (без краски) ---------------------------
   var simTexel = [1 / SIM_RES, 1 / SIM_RES];
@@ -379,21 +396,35 @@ void main(){
       pointer.moved = false;
       activeUntil = (now - start) / 1000 + IDLE_HOLD;
     }
-    // считаем жидкость только пока есть что показывать (после движения)
-    if ((now - start) / 1000 < activeUntil) step(dt);
+    // пока течение живо: шаг жидкости + накопление смещения у курсора.
+    // когда курсор ушёл и поле затухло — накопленное поле остаётся как есть.
+    var active = (now - start) / 1000 < activeUntil;
+    if (active) {
+      step(dt);
+      var ac = progs.accum;
+      gl.useProgram(ac.prog);
+      gl.uniform1i(ac.u.uDisp, disp.read.attach(0));
+      gl.uniform1i(ac.u.uVelocity, velocity.read.attach(1));
+      gl.uniform2f(ac.u.ptr, pointer.x, pointer.y);
+      gl.uniform1f(ac.u.maskR, MASK_R);
+      gl.uniform1f(ac.u.aspect, canvas.width / canvas.height);
+      gl.uniform1f(ac.u.stepScale, STEP_SCALE);
+      gl.uniform1f(ac.u.persist, PERSIST);
+      gl.uniform1f(ac.u.dispMax, DISP_MAX);
+      blit(disp.write); disp.swap();
+    }
 
-    // вывод: наш fbm-фон, локально смещённый полем скоростей
+    // вывод: наш fbm-фон, смещённый НАКОПЛЕННЫМ полем
     gl.disable(gl.BLEND);
     var dp = progs.disp;
     gl.useProgram(dp.prog);
     gl.uniform2f(dp.u.res, canvas.width, canvas.height);
     gl.uniform1f(dp.u.t, (now - start) / 1000);
-    gl.uniform1f(dp.u.dispScale, DISP_SCALE);
-    gl.uniform2f(dp.u.ptr, pointer.x, pointer.y);
-    gl.uniform1f(dp.u.maskR, MASK_R);
-    gl.uniform1i(dp.u.uVelocity, velocity.read.attach(0));
+    gl.uniform1i(dp.u.uDisp, disp.read.attach(0));
     blit(null);
 
+    // фон сам по себе анимирован всегда; даже без курсора крутим цикл,
+    // чтобы fbm жил. (раньше при затухании жидкости цикл засыпал)
     if (!document.hidden) raf = requestAnimationFrame(render);
   }
 
@@ -408,15 +439,12 @@ void main(){
   resize();
 
   if (reduce) {
-    // статичный «красивый» кадр без анимации и без жидкости
+    // статичный «красивый» кадр без анимации и без жидкости (uDisp = 0)
     var dpr2 = progs.disp;
     gl.useProgram(dpr2.prog);
     gl.uniform2f(dpr2.u.res, canvas.width, canvas.height);
     gl.uniform1f(dpr2.u.t, 8.0);
-    gl.uniform1f(dpr2.u.dispScale, 0.0);
-    gl.uniform2f(dpr2.u.ptr, 0.5, 0.5);
-    gl.uniform1f(dpr2.u.maskR, MASK_R);
-    gl.uniform1i(dpr2.u.uVelocity, velocity.read.attach(0));
+    gl.uniform1i(dpr2.u.uDisp, disp.read.attach(0));
     blit(null);
   } else {
     document.addEventListener("visibilitychange", function () {
