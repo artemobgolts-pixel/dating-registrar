@@ -11,7 +11,7 @@
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <input name="name" value="{{ cat['name'] }}" required maxlength="200">
     <textarea name="description" maxlength="1000" rows="2"
-      placeholder="Описание — гости увидят его под заголовком. Можно **жирный**, *курсив*, __подчёркнутый__">{{ cat['description'] or '' }}</textarea>
+      placeholder="Описание — она увидит его под заголовком. Можно **жирный**, *курсив*, __подчёркнутый__">{{ cat['description'] or '' }}</textarea>
     <div><button class="btn primary">Сохранить</button></div>
   </form>
 </div>
@@ -25,7 +25,7 @@
     <a class="btn small" href="/c/{{ cat['link_token'] }}" target="_blank" rel="noopener">Открыть</a>
   </div>
   {% else %}
-  <p class="muted" style="margin:10px 0 0">Ссылка отключена — страница недоступна гостям.</p>
+  <p class="muted" style="margin:10px 0 0">Ссылка отключена — страница недоступна.</p>
   {% endif %}
   <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
     <form class="inline" method="post" action="/admin/categories/{{ cat['id'] }}/toggle">
@@ -41,12 +41,12 @@
 </div>
 
 <div class="card">
-  <b>Предложения гостей</b>
+  <b>Предложения</b>
   <p class="muted" style="margin:8px 0 10px;font-size:13.5px">
     {% if cat['moderate_proposals'] %}
     Сейчас: новые предложения попадают на вкладку «Черновики» и публикуются после твоей проверки. Автор видит своё предложение с пометкой «ждёт проверки».
     {% else %}
-    Сейчас: новые предложения сразу появляются на странице у всех гостей.
+    Сейчас: новые предложения сразу появляются на странице.
     {% endif %}
   </p>
   <form class="inline" method="post" action="/admin/categories/{{ cat['id'] }}/moderation">
@@ -72,7 +72,7 @@
       <td>
         <a href="/admin/dates/{{ d['id'] }}/edit">{{ d['name'] }}</a>
         {% if d['is_draft'] %}<span class="badge amber">{{ 'на модерации' if d['origin'] == 'guest' else 'черновик' }}</span>{% endif %}
-        {% if d['origin'] == 'guest' %}<span class="badge">💡 от гостя</span>{% endif %}
+        {% if d['origin'] == 'guest' %}<span class="badge">💡 предложено</span>{% endif %}
         {% if d['archived_at'] %}<span class="badge">архив</span>{% endif %}
       </td>
       <td class="muted">{{ d['starts_at'] | when(d['ends_at']) or '—' }}</td>
@@ -82,7 +82,7 @@
       </td>
       <td>
         <form class="inline" method="post" action="/admin/categories/{{ cat['id'] }}/detach"
-              data-confirm="Убрать свидание из категории? Брони гостей по нему в этой категории удалятся.">
+              data-confirm="Убрать свидание из категории? Брони по нему в этой категории удалятся.">
           <input type="hidden" name="csrf" value="{{ csrf }}">
           <input type="hidden" name="date_id" value="{{ d['id'] }}">
           <button class="btn small">Убрать</button>
@@ -93,7 +93,7 @@
     </tbody>
   </table>
   </div>
-  <p class="muted" style="font-size:12.5px;margin:8px 0 0">Перетащи строку за ⋮⋮ — этот порядок увидят гости.</p>
+  <p class="muted" style="font-size:12.5px;margin:8px 0 0">Перетащи строку за ⋮⋮ — этот порядок увидят на странице.</p>
   {% else %}
   <p class="muted">В категории пока нет свиданий.</p>
   {% endif %}
@@ -112,7 +112,7 @@
 
 <div class="card">
   <form method="post" action="/admin/categories/{{ cat['id'] }}/delete"
-        data-confirm="Удалить категорию? Свидания останутся, но брони гостей в этой категории удалятся, а ссылка перестанет работать.">
+        data-confirm="Удалить категорию? Свидания останутся, но брони в этой категории удалятся, а ссылка перестанет работать.">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <button class="btn danger">Удалить категорию</button>
   </form>

@@ -16,13 +16,13 @@
 
 {% if date and booked %}
 <div class="card" style="background:rgba(253,244,246,.85);border-color:#f0d9de">
-  <b>💝 Выбор гостей</b>
+  <b>💝 Кто выбрал</b>
   <div style="margin-top:8px;display:grid;gap:6px">
     {% for b in booked %}
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
       <span>{{ b['name'] }} <span class="muted">— «{{ b['cat'] }}»</span></span>
       <form class="inline" method="post" action="/admin/bookings/{{ b['bid'] }}/delete"
-            data-confirm="Снять выбор гостя «{{ b['name'] }}»? Свидание снова станет свободным.">
+            data-confirm="Снять выбор «{{ b['name'] }}»? Свидание снова станет свободным.">
         <input type="hidden" name="csrf" value="{{ csrf }}">
         <input type="hidden" name="next" value="/admin/dates/{{ date['id'] }}/edit">
         <button class="btn small danger" type="submit">✕ снять</button>
@@ -118,7 +118,9 @@
             <button type="button" class="s" data-wrap="~~|~~" title="Зачёркнутый">З</button>
             <button type="button" data-wrap="[|](https://)" title="Ссылка">🔗</button>
           </div>
-          <textarea name="comment" id="descInput" maxlength="2000" data-bind="desc">{{ (date['comment'] or '') if date else '' }}</textarea>
+          <div class="rich-ed" id="descEditable" contenteditable="true"
+               role="textbox" aria-multiline="true" data-placeholder="Расскажи, чем хорошо это свидание…"></div>
+          <textarea name="comment" id="descInput" maxlength="2000" data-bind="desc" hidden>{{ (date['comment'] or '') if date else '' }}</textarea>
           <div class="descprev" id="descPreview"></div>
         </div>
         <label class="toggle">
@@ -137,7 +139,7 @@
         <label class="toggle">
           <input type="checkbox" name="draft" value="1" {% if date and date['is_draft'] %}checked{% endif %}>
           <span class="sw"></span>
-          <span class="tcol"><span class="t">Черновик</span><span class="d">скрыто от гостьи, пока не опубликуешь</span></span>
+          <span class="tcol"><span class="t">Черновик</span><span class="d">скрыто от неё, пока не опубликуешь</span></span>
         </label>
         <label style="margin-top:6px">Категории</label>
         <div class="chips-cat">
@@ -157,14 +159,22 @@
 
   <!-- ПРАВО: живой предпросмотр -->
   <div class="preview-col">
-    <div class="preview-cap">так увидит гостья</div>
+    <div class="preview-cap">так увидит она</div>
     <div class="pcard">
-      <div class="photo"><div class="ph" id="pvPhoto">{% if date and photos %}{{ photos|length }} фото{% else %}фото появится здесь{% endif %}</div></div>
+      <div class="photo">
+        <img data-preview="cover" alt=""
+             src="{% if date and photos %}/admin/uploads/{{ photos[0]['filename'] }}{% endif %}"
+             style="object-position:{{ (photos[0]['focus'] or '50% 50%') if (date and photos) else '50% 50%' }}"
+             {% if not (date and photos) %}hidden{% endif %}>
+        <div class="ph" data-preview="cover-ph" {% if date and photos %}hidden{% endif %}>фото появится здесь</div>
+        <span class="vbadge" data-preview="vbadge" {% if not (date and videos) %}hidden{% endif %}>🎬 видео</span>
+      </div>
       <div class="body">
         <h3 class="ttl"><span data-preview="title">{{ date['name'] if date else 'Без названия' }}</span>
           <span class="pay" data-preview="pay" {% if not (date and date['pay_split']) %}hidden{% endif %}>💸 50/50</span></h3>
-        <p class="desc" data-preview="desc"></p>
         <div class="pmeta" data-preview="meta"></div>
+        <p class="desc" data-preview="desc"></p>
+        <div class="plinks" data-preview="links"></div>
         <div class="acts"><button type="button" class="bk">Выбрать ♥</button><button type="button" class="ak">Спросить 💬</button></div>
       </div>
     </div>
@@ -174,11 +184,13 @@
 {% if date and photos %}
 <div class="card">
   <b>Фотографии</b>
-  <p class="muted" style="margin:4px 0 0;font-size:13px">первое фото — обложка карточки; перетащи плитку, чтобы поменять порядок</p>
+  <p class="muted" style="margin:4px 0 0;font-size:13px">первое фото — обложка карточки; перетащи плитку, чтобы поменять порядок · кликни по фото, чтобы выбрать зону для карточки</p>
   <div class="thumbs" id="thumbs" data-did="{{ date['id'] }}" style="margin-top:10px">
     {% for p in photos %}
     <div class="thumb" data-pid="{{ p['id'] }}">
-      <img src="/admin/uploads/{{ p['filename'] }}" alt="" draggable="false">
+      <img src="/admin/uploads/{{ p['filename'] }}" alt="" draggable="false"
+           class="focusable" data-focus="{{ p['focus'] or '50% 50%' }}"
+           style="object-position:{{ p['focus'] or '50% 50%' }}">
       <div class="thumb-btns">
         <a class="btn small" href="/admin/uploads/{{ p['filename'] }}" target="_blank" rel="noopener" title="Открыть">⤢</a>
         <form class="inline" method="post" action="/admin/dates/{{ date['id'] }}/images/{{ p['id'] }}/delete"
@@ -190,7 +202,7 @@
     </div>
     {% endfor %}
   </div>
-  <p class="muted" id="orderStatus" style="font-size:12.5px;margin:8px 0 0;visibility:hidden">Порядок сохранён ✓</p>
+  <p class="muted" id="orderStatus" style="font-size:12.5px;margin:8px 0 0;visibility:hidden">Сохранено ✓</p>
 </div>
 {% endif %}
 
@@ -247,8 +259,22 @@
   var end = document.getElementById('fEnd');
   if (form && start) UI.dateChips(form, start, end);
 
-  // тулбар форматирования + живой предпросмотр карточки
-  if (form && window.UI && UI.editorPreview) UI.editorPreview(form);
+  // WYSIWYG-редактор описания: форматирование видно прямо в поле,
+  // в скрытую textarea пишется markdown (его рендерит сервер).
+  if (window.UI && UI.richEditor) {
+    UI.richEditor({
+      textarea: document.getElementById('descInput'),
+      editable: document.getElementById('descEditable'),
+      toolbar: document.getElementById('descToolbar')
+    });
+  }
+
+  // живой предпросмотр карточки (дата, место, ссылки, фото, видео)
+  var preview = null;
+  if (form && window.UI && UI.editorPreview) preview = UI.editorPreview(form);
+
+  // есть ли уже сохранённые фото (обложка остаётся за первым из них)
+  var hasExistingCover = {{ 'true' if (date and photos) else 'false' }};
 
   var inp = document.getElementById('imagesInput');
   if (inp) {
@@ -257,7 +283,18 @@
       input: inp,
       preview: document.getElementById('newTiles'),
       max: {{ slots if slots and slots > 0 else 0 }},
-      keptCount: function () { return 0; }
+      keptCount: function () { return 0; },
+      onChange: function (files) {
+        // если своей обложки ещё нет — показываем первое новое фото как обложку
+        if (preview && !hasExistingCover) {
+          if (files && files.length) {
+            var u = URL.createObjectURL(files[0]);
+            preview.setCover(u);
+          } else {
+            preview.setCover(null);
+          }
+        }
+      }
     });
   }
 
@@ -269,7 +306,10 @@
       preview: document.getElementById('newVidTiles'),
       kind: 'video',
       max: {{ 2 - (videos | length) if videos else 2 }},
-      keptCount: function () { return 0; }
+      keptCount: function () { return 0; },
+      onChange: function (files) {
+        if (preview) preview.setVideo({{ 'true' if (date and videos) else 'false' }} || (files && files.length > 0));
+      }
     });
   }
 
@@ -295,7 +335,37 @@
         })
         .catch(function () { alert('Нет связи — порядок не сохранён'); });
     }});
+
+    // выбор зоны фокуса: клик по фото → object-position в процентах, сохраняем
+    th.addEventListener('click', function (e) {
+      var img = e.target.closest('img.focusable');
+      if (!img) return;
+      var thumb = img.closest('.thumb');
+      var rect = img.getBoundingClientRect();
+      var x = Math.round(Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)) * 100);
+      var y = Math.round(Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height)) * 100);
+      var focus = x + '% ' + y + '%';
+      img.style.objectPosition = focus;
+      img.dataset.focus = focus;
+      // если это обложка (первая плитка) — отражаем фокус и в предпросмотре
+      if (preview && thumb === th.querySelector('.thumb') && pv_cover()) {
+        pv_cover().style.objectPosition = focus;
+      }
+      var fd = new FormData();
+      fd.append('csrf', document.body.dataset.csrf);
+      fd.append('focus', focus);
+      fetch('/admin/dates/' + th.dataset.did + '/images/' + thumb.dataset.pid + '/focus',
+            { method: 'POST', body: fd })
+        .then(function (r) {
+          var s = document.getElementById('orderStatus');
+          if (r.ok) { s.style.visibility = 'visible'; setTimeout(function () { s.style.visibility = 'hidden'; }, 1600); }
+          else { alert('Не удалось сохранить зону фокуса'); }
+        })
+        .catch(function () { alert('Нет связи — зона не сохранена'); });
+    });
   }
+
+  function pv_cover() { return document.querySelector('[data-preview="cover"]'); }
 })();
 </script>
 {% endblock %}

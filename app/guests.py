@@ -32,5 +32,5 @@ def require_name(conn, guest: str | None) -> str:
 
 
 def gname(conn, guest: str | None) -> str:
-    """Имя гостя для админки и Telegram (с фолбэком на короткий токен)."""
-    return get_guest_name(conn, guest) or f"Гость #{fmt_short(guest)}"
+    """Имя для админки и Telegram (с фолбэком на короткий токен)."""
+    return get_guest_name(conn, guest) or f"Человек #{fmt_short(guest)}"

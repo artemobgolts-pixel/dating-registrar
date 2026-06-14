@@ -22,7 +22,7 @@
     </select>
     <select name="f" data-autosubmit>
       <option value="">Все свидания</option>
-      <option value="guest" {{ 'selected' if flt == 'guest' }}>Только от гостей</option>
+      <option value="guest" {{ 'selected' if flt == 'guest' }}>Только предложенные</option>
       <option value="booked" {{ 'selected' if flt == 'booked' }}>С бронью 💝</option>
       <option value="nodate" {{ 'selected' if flt == 'nodate' }}>Без даты</option>
     </select>
@@ -44,10 +44,11 @@
   {% for r in rows %}
   <div class="dcard{{ ' archived' if r['archived_at'] else '' }}">
     <div class="ph g{{ r['id'] % 4 }}">
-      {% if r['cover'] %}<img src="/admin/uploads/{{ r['cover'] }}" alt="" loading="lazy">{% endif %}
+      {% if r['cover'] %}<img src="/admin/uploads/{{ r['cover'] }}" alt="" loading="lazy"
+        {% if r['cover_focus'] %}style="object-position:{{ r['cover_focus'] }}"{% endif %}>{% endif %}
       <div class="badges">
         {% if r['pay_split'] %}<span class="bdg pay">💸 50/50</span>{% endif %}
-        {% if r['origin'] == 'guest' %}<span class="bdg guest">💡 от гостя</span>{% endif %}
+        {% if r['origin'] == 'guest' %}<span class="bdg guest">💡 предложено</span>{% endif %}
         {% if r['is_draft'] %}<span class="bdg draft">{{ 'на модерации' if r['origin'] == 'guest' else 'черновик' }}</span>{% endif %}
         {% if r['booked_names'] %}<span class="bdg book">💝 {{ r['booked_names'] }}</span>{% endif %}
       </div>
@@ -60,7 +61,9 @@
       </div>
       <div class="foot">
         <a class="edit" href="/admin/dates/{{ r['id'] }}/edit">Редактировать</a>
-        <button type="button" class="more" aria-label="Ещё действия">⋯<div class="menu">
+        <div class="menu-wrap">
+        <button type="button" class="more" aria-label="Ещё действия" aria-haspopup="true" aria-expanded="false">⋯</button>
+        <div class="menu">
           {% if r['is_draft'] and not r['archived_at'] %}
           <form method="post" action="/admin/dates/{{ r['id'] }}/publish">
             <input type="hidden" name="csrf" value="{{ csrf }}">
@@ -84,62 +87,67 @@
             <input type="hidden" name="csrf" value="{{ csrf }}">
             <button type="submit" class="danger">🗑 Удалить</button>
           </form>
-        </div></button>
+        </div>
+        </div>
       </div>
     </div>
   </div>
   {% endfor %}
 </div>
 {% else %}
-<div class="card">
-<div class="table-wrap">
-<table>
-  <tr><th>Название</th><th>Когда</th><th>Категории</th><th>Брони</th><th>Действия</th></tr>
+<div class="dlist">
   {% for r in rows %}
-  <tr>
-    <td>
-      <a href="/admin/dates/{{ r['id'] }}/edit">{{ r['name'] }}</a>
-      {% if r['is_draft'] %}<span class="badge amber">{{ 'на модерации' if r['origin'] == 'guest' else 'черновик' }}</span>{% endif %}
-      {% if r['origin'] == 'guest' %}<span class="badge">💡 от гостя</span>{% endif %}
-      {% if r['pay_split'] %}<span class="badge rose">💸 50/50</span>{% endif %}
-    </td>
-    <td class="muted">{{ r['starts_at'] | when(r['ends_at']) or 'дата гибкая' }}</td>
-    <td class="muted">{{ r['cats'] or '—' }}</td>
-    <td>
-      {{ r['books'] or '—' }}
-      {% if r['booked_names'] %}<div class="muted tiny">{{ r['booked_names'] }}</div>{% endif %}
-    </td>
-    <td>
-      <div class="actions-cell">
-        <a class="btn small" href="/admin/dates/{{ r['id'] }}/edit">Редактировать</a>
+  <div class="drow{{ ' archived' if r['archived_at'] else '' }}">
+    <a class="drow-cover g{{ r['id'] % 4 }}" href="/admin/dates/{{ r['id'] }}/edit" aria-label="Редактировать">
+      {% if r['cover'] %}<img src="/admin/uploads/{{ r['cover'] }}" alt="" loading="lazy"
+        {% if r['cover_focus'] %}style="object-position:{{ r['cover_focus'] }}"{% endif %}>{% endif %}
+    </a>
+    <div class="drow-main">
+      <div class="drow-ttl">
+        <a href="/admin/dates/{{ r['id'] }}/edit" class="serif">{{ r['name'] }}</a>
+        {% if r['is_draft'] %}<span class="badge amber">{{ 'на модерации' if r['origin'] == 'guest' else 'черновик' }}</span>{% endif %}
+        {% if r['origin'] == 'guest' %}<span class="badge">💡 предложено</span>{% endif %}
+        {% if r['pay_split'] %}<span class="badge rose">💸 50/50</span>{% endif %}
+      </div>
+      <div class="drow-meta">
+        <span>{{ r['starts_at'] | when(r['ends_at']) or 'дата гибкая' }}</span>
+        {% if r['cats'] %}<span>· {{ r['cats'] }}</span>{% endif %}
+        {% if r['books'] %}<span>· 💝 {{ r['booked_names'] }}</span>{% endif %}
+      </div>
+    </div>
+    <div class="drow-act">
+      <a class="btn small" href="/admin/dates/{{ r['id'] }}/edit">Редактировать</a>
+      <div class="menu-wrap">
+      <button type="button" class="more" aria-label="Ещё действия" aria-haspopup="true" aria-expanded="false">⋯</button>
+      <div class="menu">
         {% if r['is_draft'] and not r['archived_at'] %}
-        <form class="inline" method="post" action="/admin/dates/{{ r['id'] }}/publish">
+        <form method="post" action="/admin/dates/{{ r['id'] }}/publish">
           <input type="hidden" name="csrf" value="{{ csrf }}">
           <input type="hidden" name="next" value="/admin/dates?view={{ view }}{{ qs_keep }}">
-          <button class="btn small primary">Опубликовать</button>
+          <button type="submit">✓ Опубликовать</button>
         </form>
         {% endif %}
-        <form class="inline" method="post" action="/admin/dates/{{ r['id'] }}/archive">
+        <form method="post" action="/admin/dates/{{ r['id'] }}/clone">
           <input type="hidden" name="csrf" value="{{ csrf }}">
           <input type="hidden" name="next" value="/admin/dates?view={{ view }}{{ qs_keep }}">
-          <button class="btn small">{{ 'Вернуть' if r['archived_at'] else 'В архив' }}</button>
+          <button type="submit">📋 Дублировать</button>
         </form>
-        <form class="inline" method="post" action="/admin/dates/{{ r['id'] }}/clone">
+        <form method="post" action="/admin/dates/{{ r['id'] }}/archive">
           <input type="hidden" name="csrf" value="{{ csrf }}">
           <input type="hidden" name="next" value="/admin/dates?view={{ view }}{{ qs_keep }}">
-          <button class="btn small">Дублировать</button>
+          <button type="submit">{{ '↩ Вернуть из архива' if r['archived_at'] else '🗄 В архив' }}</button>
         </form>
-        <form class="inline" method="post" action="/admin/dates/{{ r['id'] }}/delete"
+        <div class="sepa"></div>
+        <form method="post" action="/admin/dates/{{ r['id'] }}/delete"
               data-confirm="Удалить свидание безвозвратно? Фото, брони и вопросы к нему тоже удалятся.">
           <input type="hidden" name="csrf" value="{{ csrf }}">
-          <button class="btn small danger">Удалить</button>
+          <button type="submit" class="danger">🗑 Удалить</button>
         </form>
       </div>
-    </td>
-  </tr>
+      </div>
+    </div>
+  </div>
   {% endfor %}
-</table>
-</div>
 </div>
 {% endif %}
 
@@ -159,7 +167,7 @@
     <p>Архив пуст. Сюда уезжают прошедшие свидания.</p>
     {% elif view == 'drafts' %}
     <div class="big">📝</div>
-    <p>Черновиков нет. Сюда попадают скрытые от гостьи свидания и предложения на модерации.</p>
+    <p>Черновиков нет. Сюда попадают скрытые свидания и предложения на модерации.</p>
     <a class="btn primary" href="/admin/dates/new">+ Создать свидание</a>
     {% else %}
     <div class="big">🌷</div>

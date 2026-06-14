@@ -1004,10 +1004,10 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert "дата гибкая" in lp                       # вместо «—»
     # карточки несут CSRF в формах действий (меню ⋯)
     assert lp.count('name="csrf"') >= 3
-    # переключение вида через cookie → SSR рисует таблицу
+    # переключение вида через cookie → SSR рисует стеклянный список (.dlist)
     c.cookies.set("layout", "list")
     lt = c.get("/admin/dates").text
-    assert "<table" in lt and 'class="grid"' not in lt
+    assert 'class="dlist"' in lt and 'class="grid"' not in lt
     c.cookies.set("layout", "cards")
     assert 'class="grid"' in c.get("/admin/dates").text
 
@@ -1016,7 +1016,33 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert "Поделиться" in sh and "<svg" in sh        # QR нарисован на сервере
     assert "/c/" in sh and "Копировать" in sh
     assert "date4you" in c.get("/admin/dates").text   # ребренд в шапке
+    # терминология: «гость/гостья» в админке заменены
+    assert "Вопросы гостей" not in c.get("/admin/questions").text
     step("редизайн: сплит-форма с превью, список карточками + переключатель, QR на дашборде")
+
+    # ---------- выбор зоны фокуса фото (v7) ----------
+    pk = db_one("SELECT id, link_token FROM categories WHERE name='Поделись-кат'")
+    pk_cid, pk_tok = pk["id"], pk["link_token"]
+    r = apost(c, "/admin/dates/new", {"name": "С фокусом", "categories": str(pk_cid)},
+              files=[("images", ("f.png", png((120, 90, 160)), "image/png"))])
+    assert r.status_code == 303
+    fdid = db_one("SELECT id FROM dates WHERE name='С фокусом'")["id"]
+    fimg = db_one("SELECT id, focus FROM date_images WHERE date_id=?", (fdid,))
+    assert fimg["focus"] is None                       # по умолчанию центр (NULL)
+    # форма правки отдаёт кликабельное фото с data-focus
+    ef = c.get(f"/admin/dates/{fdid}/edit").text
+    assert 'class="focusable"' in ef and 'data-focus=' in ef
+    # сохраняем точку фокуса
+    r = apost(c, f"/admin/dates/{fdid}/images/{fimg['id']}/focus", {"focus": "20% 80%"})
+    assert r.status_code == 200 and r.json()["focus"] == "20% 80%"
+    assert db_one("SELECT focus FROM date_images WHERE id=?", (fimg["id"],))["focus"] == "20% 80%"
+    # кривой формат — отбой
+    r = apost(c, f"/admin/dates/{fdid}/images/{fimg['id']}/focus", {"focus": "lol"})
+    assert r.status_code in (400, 303)
+    # гостевая применяет object-position к фото
+    gp = c.get(f"/c/{pk_tok}").text
+    assert "object-position:20% 80%" in gp
+    step("v7: зона фокуса фото сохраняется и применяется в карточке у гостьи")
 
     # ---------- выход только по POST ----------
     assert c.get("/admin/logout").status_code == 405
@@ -1093,6 +1119,8 @@ ccols = {r[1] for r in conn.execute("PRAGMA table_info(categories)")}
 assert "description" in ccols
 dccols = {r[1] for r in conn.execute("PRAGMA table_info(date_categories)")}
 assert "position" in dccols
+dicols = {r[1] for r in conn.execute("PRAGMA table_info(date_images)")}
+assert "focus" in dicols          # v7: точка фокуса фото для карточки
 assert not conn.execute(
     "SELECT 1 FROM sqlite_master WHERE type='table' AND name='votes'").fetchone()
 for t in ("guests", "bookings", "date_links", "date_images", "date_categories",

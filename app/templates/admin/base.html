@@ -10,9 +10,35 @@
 <link rel="stylesheet" href="/static/admin.css">
 </head>
 <body data-csrf="{{ csrf }}">
-<!-- Спокойный тёплый фон редактора: статичный градиент в палитре (как в макетах).
-     Тяжёлый WebGL-фон гостевой здесь не нужен — он мешал бы заполнять форму. -->
-<div class="bg-warm" aria-hidden="true"></div>
+<!-- Фон «растекающиеся чернила» — тот же WebGL-шейдер, что на гостевой и
+     заглушках (/static/ink.js). CSS-дым ниже — фолбэк без WebGL2. -->
+<div class="bg-smoke" aria-hidden="true">
+  <svg class="turb" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice">
+    <defs>
+      <radialGradient id="smokeFade" cx="50%" cy="42%" r="62%">
+        <stop offset="0%" stop-color="#b65f6f" stop-opacity="0.5"/>
+        <stop offset="55%" stop-color="#cf7d92" stop-opacity="0.28"/>
+        <stop offset="100%" stop-color="#cf7d92" stop-opacity="0"/>
+      </radialGradient>
+      <filter id="smokeWisp" x="-30%" y="-30%" width="160%" height="160%">
+        <feTurbulence type="fractalNoise" baseFrequency="0.006 0.011" numOctaves="4"
+                      seed="11" stitchTiles="stitch" result="noise">
+          <animate attributeName="baseFrequency" dur="42s"
+                   values="0.006 0.011;0.008 0.014;0.006 0.011" repeatCount="indefinite"/>
+        </feTurbulence>
+        <feDisplacementMap in="SourceGraphic" in2="noise" scale="230"
+                           xChannelSelector="R" yChannelSelector="G"/>
+        <feGaussianBlur stdDeviation="7"/>
+      </filter>
+    </defs>
+    <g filter="url(#smokeWisp)">
+      <ellipse class="plume p1" cx="30%" cy="28%" rx="24%" ry="40%" fill="url(#smokeFade)"/>
+      <ellipse class="plume p2" cx="72%" cy="40%" rx="22%" ry="42%" fill="url(#smokeFade)"/>
+      <ellipse class="plume p3" cx="48%" cy="68%" rx="28%" ry="44%" fill="url(#smokeFade)"/>
+    </g>
+  </svg>
+  <span></span><span></span><span></span>
+</div>
 
 <!-- Фильтр преломления для «жидкого стекла» карточек (backdrop-filter: url).
      Тот же, что на гостевой; чистый SVG без скриптов — под нашу CSP. -->
@@ -27,7 +53,7 @@
   </filter>
 </svg>
 <header class="top">
-  <a class="brand serif" href="/admin/">♥ date4you</a>
+  <a class="brand serif" href="/admin/">♥ date<span class="d4">4</span>you</a>
   <nav>
     <a href="/admin/" class="{{ 'on' if active == 'dash' else '' }}">Главная</a>
     <a href="/admin/categories" class="{{ 'on' if active == 'cats' else '' }}">Категории</a>
@@ -44,6 +70,7 @@
 {% if m %}<div class="flash{{ ' err' if m.startswith('⚠') else '' }}">{{ m }}</div>{% endif %}
 {% block content %}{% endblock %}
 </main>
+<script src="/static/ink.js" defer></script>
 <script src="/static/ui.js"></script>
 <script nonce="{{ csp_nonce }}">
 function copyText(t, btn) {

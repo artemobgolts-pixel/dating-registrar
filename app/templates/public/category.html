@@ -99,7 +99,8 @@
         {% for im in d.images %}
         <img src="/c/{{ token }}/image/{{ im['filename'] }}" alt=""
              loading="{{ 'eager' if loop.first else 'lazy' }}"
-             {% if loop.first %}fetchpriority="high"{% endif %} decoding="async">
+             {% if loop.first %}fetchpriority="high"{% endif %} decoding="async"
+             {% if im['focus'] %}style="object-position:{{ im['focus'] }}"{% endif %}>
         {% endfor %}
         {% for v in d.videos %}
         <video src="/c/{{ token }}/video/{{ v['filename'] }}" controls playsinline

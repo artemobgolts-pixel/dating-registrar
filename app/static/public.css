@@ -833,20 +833,20 @@ details.endtime[open] summary { margin-bottom: 10px; }
 .home-card {
   position: relative;
   text-align: center;
-  /* та же прозрачность, что у гостевых карточек — фон преломляется и просвечивает */
+  /* как у гостевых карточек, но ещё прозрачнее — фон чернил отчётливо просвечивает */
   background:
-    linear-gradient(150deg, rgba(255,252,251,.22), rgba(255,246,246,.12)) padding-box,
+    linear-gradient(150deg, rgba(255,252,251,.12), rgba(255,246,246,.06)) padding-box,
     linear-gradient(135deg, var(--rose), var(--peach) 60%, var(--rose)) border-box;
-  -webkit-backdrop-filter: blur(7px) saturate(1.9) brightness(1.08);
-  backdrop-filter: url(#glassWarp) blur(7px) saturate(1.9) brightness(1.08);
+  -webkit-backdrop-filter: blur(5px) saturate(1.7) brightness(1.05);
+  backdrop-filter: url(#glassWarp) blur(5px) saturate(1.7) brightness(1.05);
   border: 1.6px solid transparent;
   border-radius: 28px;
   padding: 54px 44px 46px;
   max-width: 520px;
   box-shadow:
-    0 24px 60px rgba(150, 80, 95, .18),
-    inset 0 2px 1px rgba(255, 255, 255, .9),
-    inset 0 0 0 1px rgba(255, 255, 255, .25);
+    0 24px 60px rgba(150, 80, 95, .16),
+    inset 0 1.5px 0 rgba(255, 255, 255, .55),
+    inset 0 0 0 1px rgba(255, 255, 255, .14);
   animation: fade-up .7s var(--ease) both;
 }
 .home-heart {
@@ -870,6 +870,8 @@ details.endtime[open] summary { margin-bottom: 10px; }
   -webkit-text-fill-color: transparent; color: var(--rose);
 }
 .home-card p { margin: 0; color: var(--muted); font-size: 15.5px; }
+/* цифра «4» в date4you чуть приподнята — смотрится эстетичнее */
+.home-card h1 .d4 { display: inline-block; transform: translateY(-0.1em); }
 .home-dots { margin-top: 18px; color: var(--rose); opacity: .55; letter-spacing: 10px; font-size: 12px; }
 /* эмодзи 💔 на странице «ссылка не действует»: своя типографика, чтобы
    цветной глиф сидел ровно по центру кружка (у emoji иные метрики, чем у ♥) */

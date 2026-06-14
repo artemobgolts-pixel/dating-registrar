@@ -113,7 +113,7 @@ def logout(request: Request):
     return RedirectResponse("/admin/login", status_code=303)
 
 
-GNAME_SQL = "COALESCE(g.name, 'Гость #' || substr(COALESCE({t}, '??????'), 1, 6))"
+GNAME_SQL = "COALESCE(g.name, 'Человек #' || substr(COALESCE({t}, '??????'), 1, 6))"
 
 FEED_SQL = f"""
 SELECT * FROM (
@@ -495,6 +495,8 @@ def dates_list(request: Request, conn=Depends(get_db)):
         f" WHERE b.date_id=d.id) AS booked_names, "
         f"(SELECT filename FROM date_images di WHERE di.date_id=d.id "
         f" ORDER BY di.position, di.id LIMIT 1) AS cover, "
+        f"(SELECT focus FROM date_images di WHERE di.date_id=d.id "
+        f" ORDER BY di.position, di.id LIMIT 1) AS cover_focus, "
         f"(SELECT GROUP_CONCAT(c.name, ', ') FROM date_categories dc "
         f" JOIN categories c ON c.id=dc.category_id WHERE dc.date_id=d.id) AS cats "
         f"FROM dates d WHERE {where} ORDER BY {SORT_ORDER[sort]} "
@@ -753,14 +755,14 @@ def date_clone(did: int, next: str = Form("/admin/dates"), conn=Depends(get_db))
     copied: list[str] = []
     try:
         for r in conn.execute(
-                "SELECT filename, position FROM date_images WHERE date_id=? "
+                "SELECT filename, position, focus FROM date_images WHERE date_id=? "
                 "ORDER BY position, id", (did,)).fetchall():
             fn = images.copy_file(r["filename"])
             if fn:
                 copied.append(fn)
                 conn.execute(
-                    "INSERT INTO date_images(date_id, filename, position) VALUES(?,?,?)",
-                    (new_id, fn, r["position"]))
+                    "INSERT INTO date_images(date_id, filename, position, focus) VALUES(?,?,?,?)",
+                    (new_id, fn, r["position"], r["focus"]))
         for r in conn.execute(
                 "SELECT filename, position FROM date_videos WHERE date_id=? "
                 "ORDER BY position, id", (did,)).fetchall():
@@ -783,7 +785,7 @@ def date_clone(did: int, next: str = Form("/admin/dates"), conn=Depends(get_db))
 def booking_delete(bid: int, next: str = Form("/admin/dates"), conn=Depends(get_db)):
     """Снять чужой выбор со свидания (например, по просьбе гостя)."""
     row = conn.execute(
-        "SELECT b.id, COALESCE(g.name, 'гость') AS nm FROM bookings b "
+        "SELECT b.id, COALESCE(g.name, 'человек') AS nm FROM bookings b "
         "LEFT JOIN guests g ON g.token=b.guest_token WHERE b.id=?", (bid,)).fetchone()
     if not row:
         raise HTTPException(404, "Выбор не найден")
@@ -830,6 +832,23 @@ def date_images_reorder(did: int, order: str = Form(...), conn=Depends(get_db)):
         conn.execute("UPDATE date_images SET position=? WHERE id=?", (pos, iid))
     conn.commit()
     return JSONResponse({"ok": True})
+
+
+@router.post("/dates/{did}/images/{img_id}/focus")
+def date_image_focus(did: int, img_id: int, focus: str = Form(...), conn=Depends(get_db)):
+    """Точка фокуса фото для обрезки в карточке: «X% Y%» (X,Y 0..100)."""
+    import re as _re
+    m = _re.fullmatch(r"\s*(\d{1,3})%\s+(\d{1,3})%\s*", focus or "")
+    if not m or int(m.group(1)) > 100 or int(m.group(2)) > 100:
+        raise HTTPException(400, "Некорректная точка фокуса")
+    value = f"{int(m.group(1))}% {int(m.group(2))}%"
+    row = conn.execute(
+        "SELECT 1 FROM date_images WHERE id=? AND date_id=?", (img_id, did)).fetchone()
+    if not row:
+        raise HTTPException(404, "Фото не найдено")
+    conn.execute("UPDATE date_images SET focus=? WHERE id=?", (value, img_id))
+    conn.commit()
+    return JSONResponse({"ok": True, "focus": value})
 
 
 # ----- Вопросы ---------------------------------------------------------------

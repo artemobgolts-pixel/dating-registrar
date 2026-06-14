@@ -49,6 +49,8 @@ a { color: var(--accent); }
   color: var(--rose-2);
   text-decoration: none;
 }
+/* цифра «4» в date4you чуть приподнята — смотрится эстетичнее */
+.brand .d4 { display: inline-block; transform: translateY(-0.08em); }
 
 nav { display: flex; gap: 4px; flex-wrap: wrap; }
 
@@ -598,24 +600,59 @@ tr.drag-row { touch-action: none; }
 tr.drag-row.dragging { background: #fdf1f4; box-shadow: 0 10px 24px rgba(120, 70, 80, .18); }
 
 /* ============================================================
-   ФОН РЕДАКТОРА — спокойный тёплый градиент в палитре (как в макетах).
-   Тяжёлый WebGL-фон гостевой здесь намеренно не используется: редактор
-   нужен для работы, движение не должно отвлекать.
+   ФОН «чернила» в кабинете — тот же WebGL-шейдер, что на гостевой и
+   заглушках (/static/ink.js). CSS-дым ниже — фолбэк без WebGL2. Контент
+   поднят над фоном; карточки/панель — «жидкое стекло», фон просвечивает.
    ============================================================ */
-.bg-warm {
+.bg-smoke {
   position: fixed; inset: 0;
   pointer-events: none;
   z-index: 0;
-  background:
-    radial-gradient(60% 50% at 18% 12%, rgba(231, 120, 145, .20), transparent 60%),
-    radial-gradient(55% 50% at 85% 8%, rgba(226, 176, 138, .18), transparent 62%),
-    radial-gradient(70% 60% at 50% 100%, rgba(206, 170, 222, .22), transparent 65%),
-    linear-gradient(180deg, #fdf3f1, #f7eef0);
+  overflow: hidden;
 }
+.bg-smoke svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.bg-smoke .turb { width: 100%; height: 100%; opacity: .5; mix-blend-mode: multiply; }
+.bg-smoke .plume { transform-box: fill-box; transform-origin: center; }
+.bg-smoke .plume.p1 { animation: a-plume-a 24s ease-in-out infinite alternate; }
+.bg-smoke .plume.p2 { animation: a-plume-b 30s ease-in-out infinite alternate; }
+.bg-smoke .plume.p3 { animation: a-plume-c 27s ease-in-out infinite alternate; }
+.bg-smoke span {
+  position: absolute; border-radius: 50%;
+  filter: blur(80px); will-change: transform;
+}
+.bg-smoke span:nth-child(2) {
+  width: 80vw; height: 80vw; left: -16vw; top: -18vh;
+  background: radial-gradient(46% 48% at 40% 40%, rgba(231, 120, 145, .4), transparent 66%);
+  animation: a-smoke-a 22s ease-in-out infinite alternate;
+}
+.bg-smoke span:nth-child(3) {
+  width: 70vw; height: 70vw; right: -18vw; top: 16vh;
+  background: radial-gradient(46% 44% at 56% 40%, rgba(214, 150, 200, .34), transparent 66%);
+  animation: a-smoke-b 26s ease-in-out infinite alternate;
+}
+.bg-smoke span:nth-child(4) {
+  width: 86vw; height: 86vw; left: 0; bottom: -32vh;
+  background: radial-gradient(46% 46% at 44% 50%, rgba(226, 176, 138, .32), transparent 66%);
+  animation: a-smoke-c 30s ease-in-out infinite alternate;
+}
+@keyframes a-plume-a { 0% { transform: translate(0,0) rotate(-4deg) scale(1); } 100% { transform: translate(4%,-8%) rotate(6deg) scale(1.1); } }
+@keyframes a-plume-b { 0% { transform: translate(0,0) rotate(3deg) scale(1.05); } 100% { transform: translate(-5%,-6%) rotate(-5deg) scale(1.12); } }
+@keyframes a-plume-c { 0% { transform: translate(0,0) rotate(2deg) scale(1); } 100% { transform: translate(3%,-7%) rotate(-4deg) scale(1.14); } }
+@keyframes a-smoke-a { 0% { transform: translate(0,0) rotate(0) scale(1); } 50% { transform: translate(5vw,4vh) rotate(60deg) scale(1.12); } 100% { transform: translate(-3vw,6vh) rotate(110deg) scale(1.05); } }
+@keyframes a-smoke-b { 0% { transform: translate(0,0) rotate(0) scale(1.05); } 50% { transform: translate(-6vw,5vh) rotate(-70deg) scale(1.14); } 100% { transform: translate(3vw,-3vh) rotate(-120deg) scale(1); } }
+@keyframes a-smoke-c { 0% { transform: translate(0,0) rotate(0) scale(1.1); } 50% { transform: translate(6vw,-6vh) rotate(110deg) scale(1.25); } 100% { transform: translate(-5vw,-2vh) rotate(200deg) scale(1.08); } }
+
+.ink-canvas {
+  position: fixed; inset: 0;
+  width: 100%; height: 100%;
+  display: block; z-index: 0; pointer-events: none;
+}
+.bg-smoke.has-ink .turb,
+.bg-smoke.has-ink span { display: none; }   /* шейдер вместо CSS-дыма */
 
 /* контент над фоном; панель и карточки — «жидкое стекло», как на гостевой */
 .top { position: sticky; z-index: 10;
-  background: linear-gradient(180deg, rgba(255,253,254,.72), rgba(255,250,251,.56));
+  background: linear-gradient(180deg, rgba(255,253,254,.7), rgba(255,250,251,.52));
   -webkit-backdrop-filter: blur(14px) saturate(1.6); backdrop-filter: blur(14px) saturate(1.6);
   border-bottom: 1px solid rgba(255, 255, 255, .55); }
 .wrap { position: relative; z-index: 1; }
@@ -623,14 +660,25 @@ tr.drag-row.dragging { background: #fdf1f4; box-shadow: 0 10px 24px rgba(120, 70
 /* карточки: морозное стекло — фон преломляется и размывается сквозь них */
 .card {
   position: relative;
-  background: linear-gradient(150deg, rgba(255,253,252,.62), rgba(255,246,246,.46));
-  -webkit-backdrop-filter: blur(16px) saturate(1.5) brightness(1.04);
-  backdrop-filter: url(#glassWarp) blur(16px) saturate(1.5) brightness(1.04);
-  border: 1px solid rgba(255, 255, 255, .65);
+  background: linear-gradient(150deg, rgba(255,252,251,.5), rgba(255,246,246,.38));
+  -webkit-backdrop-filter: blur(12px) saturate(1.7) brightness(1.04);
+  backdrop-filter: url(#glassWarp) blur(12px) saturate(1.7) brightness(1.04);
+  border: 1px solid rgba(255, 255, 255, .6);
   box-shadow:
-    0 14px 36px rgba(150, 80, 95, .12),
-    0 3px 12px rgba(150, 80, 95, .06),
-    inset 0 1.5px 0 rgba(255, 255, 255, .9);
+    0 18px 48px rgba(150, 80, 95, .16),
+    0 3px 12px rgba(150, 80, 95, .08),
+    inset 0 2px 1px rgba(255, 255, 255, .95),
+    inset 2px 0 1px rgba(255, 255, 255, .5),
+    inset 0 0 0 1px rgba(255, 255, 255, .22),
+    inset -2px -2px 2px rgba(150, 80, 95, .1);
+}
+/* лёгкий цветной перелив стекла (как в референсе гостевой) */
+.card::after {
+  content: ""; position: absolute; inset: 0;
+  border-radius: inherit; pointer-events: none; z-index: 0;
+  background: linear-gradient(125deg,
+    rgba(231, 120, 145, .08) 0%, rgba(226, 176, 138, .05) 45%, rgba(214, 150, 200, .1) 100%);
+  mix-blend-mode: screen; opacity: .8;
 }
 /* содержимое карточки — над переливом, чтобы текст/таблицы были чёткими */
 .card > * { position: relative; z-index: 1; }
@@ -643,7 +691,7 @@ input, textarea, select {
   -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
 }
 @media (prefers-reduced-motion: reduce) {
-  * { scroll-behavior: auto; }
+  .bg-smoke .plume, .bg-smoke span { animation: none !important; }
 }
 
 
@@ -832,7 +880,9 @@ input, textarea, select {
 .controls {
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 18px;
 }
-.controls .filters { margin-bottom: 0; }
+.controls .filters { margin-bottom: 0; flex-wrap: nowrap; align-items: center; }
+.controls .filters select { min-width: 0; }
+.controls .tabs { align-items: center; }
 .viewtog {
   margin-left: auto; display: flex;
   border: 1px solid var(--line); border-radius: 11px; overflow: hidden;
@@ -846,8 +896,8 @@ input, textarea, select {
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
-  gap: 18px;
+  grid-template-columns: repeat(auto-fill, minmax(208px, 1fr));
+  gap: 16px;
 }
 .dcard {
   position: relative;
@@ -862,7 +912,7 @@ input, textarea, select {
 }
 .dcard:hover { transform: translateY(-2px); box-shadow: 0 16px 38px rgba(150, 80, 95, .14); }
 .dcard .ph {
-  height: 128px; position: relative;
+  height: 112px; position: relative;
   background: linear-gradient(135deg, #caa094, #9c6f6a);
 }
 .dcard .ph img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -872,20 +922,21 @@ input, textarea, select {
 .dcard .ph.g2 { background: linear-gradient(135deg, #cbb38f, #9c8154); }
 .dcard .ph.g3 { background: linear-gradient(135deg, #b98a86, #7a514d); }
 .dcard.archived .ph img { filter: saturate(.5) brightness(.99); }
-.dcard .b { padding: 13px 15px 15px; display: flex; flex-direction: column; flex: 1; }
+.dcard .b { padding: 11px 13px 13px; display: flex; flex-direction: column; flex: 1; }
 .dcard .ttl {
-  font-family: var(--serif); font-size: 19px; color: var(--ink);
-  margin: 0 0 5px; line-height: 1.2;
+  font-family: var(--serif); font-size: 17.5px; color: var(--ink);
+  margin: 0 0 4px; line-height: 1.18;
 }
 .dcard .ttl a { color: inherit; text-decoration: none; }
 .dcard .ttl a:hover { color: var(--rose); }
-.dcard .meta { font-size: 12.5px; color: var(--muted); margin-bottom: 13px; flex: 1; }
+.dcard .meta { font-size: 12px; color: var(--muted); margin-bottom: 11px; flex: 1; }
 
 /* бейджи поверх миниатюры */
-.badges { position: absolute; top: 10px; left: 10px; display: flex; gap: 6px; flex-wrap: wrap; z-index: 2; }
+.badges { position: absolute; top: 8px; left: 8px; display: flex; gap: 5px; flex-wrap: wrap; z-index: 2; max-width: calc(100% - 16px); }
 .bdg {
-  font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 20px;
+  font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 20px;
   color: #fff; -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
 }
 .bdg.pay   { background: linear-gradient(90deg, #34b36b, #15734a); }
 .bdg.draft { background: rgba(180, 140, 60, .9); }
@@ -893,24 +944,26 @@ input, textarea, select {
 .bdg.book  { background: rgba(182, 95, 111, .92); }
 
 /* подвал карточки: «Редактировать» + меню ⋯ */
-.dcard .foot { display: flex; align-items: center; gap: 8px; }
+.dcard .foot { display: flex; align-items: center; gap: 7px; }
 .dcard .edit {
-  flex: 1; text-align: center; padding: 9px; border-radius: 11px;
-  text-decoration: none; font-size: 14px; font-weight: 600;
+  flex: 1; text-align: center; padding: 8px; border-radius: 10px;
+  text-decoration: none; font-size: 13.5px; font-weight: 600;
   background: rgba(255, 255, 255, .7); border: 1px solid var(--line); color: var(--rose-2);
 }
 .dcard .edit:hover { background: var(--rose-soft); border-color: var(--rose); }
+.menu-wrap { position: relative; flex: none; }
 .more {
-  width: 38px; height: 38px; border-radius: 11px; flex: none; position: relative;
+  width: 36px; height: 36px; border-radius: 10px;
   border: 1px solid var(--line); background: rgba(255, 255, 255, .7);
   cursor: pointer; font-size: 18px; color: var(--muted); line-height: 1;
+  display: grid; place-items: center;
 }
 .more:hover { background: var(--rose-soft); }
 .menu {
-  position: absolute; right: 0; bottom: 46px;
+  position: absolute; right: 0; bottom: 44px;
   background: #fff; border: 1px solid var(--line); border-radius: 13px;
   box-shadow: 0 14px 36px rgba(120, 70, 80, .22);
-  padding: 6px; min-width: 178px; z-index: 9; display: none;
+  padding: 6px; min-width: 178px; z-index: 20; display: none;
 }
 .menu.open { display: block; }
 .menu button, .menu a {
@@ -973,5 +1026,80 @@ input, textarea, select {
 .empty-state p { margin: 0 0 16px; font-size: 15px; }
 .empty-state .btn.primary { font-size: 14.5px; }
 
-/* числа дашборда — серифом, в тон гостевой */
-.stat b { font-family: var(--serif); color: var(--rose-2); }
+/* числа дашборда — крупные, серифом, в тон гостевой */
+.stat { padding: 18px 16px; }
+.stat b { font-family: var(--serif); color: var(--rose-2); font-size: 42px; line-height: 1.05; }
+.stat span { font-size: 13.5px; }
+.stat-grid { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+
+/* ---------- WYSIWYG-редактор описания ---------- */
+.rich-ed {
+  min-height: 86px;
+  border: 1px solid var(--line); border-radius: 12px;
+  padding: 10px 13px; font: inherit; color: var(--ink);
+  background: rgba(255, 255, 255, .8);
+  -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
+  line-height: 1.5; outline: none;
+}
+.rich-ed:focus { border-color: var(--rose); box-shadow: 0 0 0 3px rgba(182, 95, 111, .16); }
+.rich-ed:empty::before { content: attr(data-placeholder); color: var(--muted); }
+.rich-ed a { color: var(--rose-2); }
+
+/* предпросмотр карточки: мета (когда/место), ссылки, видео-бейдж */
+.pcard .pmeta { display: grid; gap: 4px; }
+.pcard .pmeta span { display: block; }
+.pcard .plinks { display: flex; flex-wrap: wrap; gap: 6px 12px; margin: 0 0 14px; }
+.pcard .plinks:empty { display: none; }
+.pcard .plink { font-size: 12.5px; color: var(--rose-2); }
+.pcard .photo .vbadge {
+  position: absolute; right: 10px; bottom: 10px;
+  font-size: 11.5px; font-weight: 700; color: #fff;
+  background: rgba(60, 35, 40, .6); padding: 3px 9px; border-radius: 20px;
+  -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+}
+.pcard .photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* ---------- вид «Список»: стеклянные строки ---------- */
+.dlist { display: flex; flex-direction: column; gap: 10px; }
+.drow {
+  display: flex; align-items: center; gap: 14px;
+  padding: 10px 14px;
+  background: linear-gradient(150deg, rgba(255,253,252,.6), rgba(255,246,246,.44));
+  -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  backdrop-filter: blur(14px) saturate(1.4);
+  border: 1px solid rgba(255, 255, 255, .65);
+  border-radius: 14px;
+  box-shadow: 0 8px 22px rgba(150, 80, 95, .07), inset 0 1px 0 rgba(255, 255, 255, .8);
+  transition: transform .15s ease, box-shadow .2s ease;
+}
+.drow:hover { transform: translateY(-1px); box-shadow: 0 12px 28px rgba(150, 80, 95, .12); }
+.drow-cover {
+  width: 64px; height: 48px; border-radius: 10px; flex: none; overflow: hidden;
+  display: block; background: linear-gradient(135deg, #caa094, #9c6f6a);
+}
+.drow-cover.g1 { background: linear-gradient(135deg, #9c8bb0, #6f5f8c); }
+.drow-cover.g2 { background: linear-gradient(135deg, #cbb38f, #9c8154); }
+.drow-cover.g3 { background: linear-gradient(135deg, #b98a86, #7a514d); }
+.drow-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.drow.archived .drow-cover img { filter: saturate(.5); }
+.drow-main { flex: 1; min-width: 0; }
+.drow-ttl { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.drow-ttl a { font-size: 17px; color: var(--ink); text-decoration: none; }
+.drow-ttl a:hover { color: var(--rose); }
+.drow-meta { font-size: 12.5px; color: var(--muted); margin-top: 3px;
+  display: flex; gap: 6px; flex-wrap: wrap; }
+.drow-act { display: flex; align-items: center; gap: 8px; flex: none; }
+@media (max-width: 600px) {
+  .drow { flex-wrap: wrap; }
+  .drow-act { width: 100%; }
+  .drow-act .btn { flex: 1; }
+}
+
+/* выбор зоны фокуса: фото в форме кликабельно */
+.thumb { position: relative; }
+.thumb img.focusable {
+  cursor: crosshair;
+  pointer-events: auto;          /* перебиваем .thumb img { pointer-events:none } */
+  object-fit: cover;             /* фокус имеет смысл только при cover-обрезке */
+  background: #f5edef;
+}

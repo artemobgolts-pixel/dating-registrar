@@ -15,6 +15,8 @@
        UNIQUE(категория, гость)); описание категории; видео у свиданий
        (date_videos); ручной порядок в категории (date_categories.position);
        модификатор оплаты «50/50» и распознанные ссылки на карты у свиданий.
+  v7 — date_images.focus: точка фокуса фото (object-position) для обрезки
+       в карточке; NULL = центр.
 
 Свежая база создаётся сразу по последней схеме. Существующая —
 докатывается миграциями при старте приложения.
@@ -28,7 +30,7 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "app.db"
 
-LATEST_VERSION = 6
+LATEST_VERSION = 7
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS categories (
@@ -69,7 +71,8 @@ CREATE TABLE IF NOT EXISTS date_images (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     date_id INTEGER NOT NULL REFERENCES dates(id) ON DELETE CASCADE,
     filename TEXT NOT NULL,
-    position INTEGER NOT NULL DEFAULT 0
+    position INTEGER NOT NULL DEFAULT 0,
+    focus TEXT          -- точка фокуса для обрезки в карточке, напр. "50% 30%"
 );
 
 CREATE TABLE IF NOT EXISTS date_categories (
@@ -225,6 +228,20 @@ MIGRATIONS: dict[int, str] = {
         CREATE UNIQUE INDEX idx_book_date ON bookings(date_id);
         CREATE INDEX idx_book_cat ON bookings(category_id);
         CREATE INDEX idx_book_guest ON bookings(category_id, guest_token);
+    """,
+    7: """
+        -- точка фокуса фото для обрезки в карточке (object-position), напр. "50% 30%".
+        -- NULL = центр (как было раньше). date_images в очень старых базах могла
+        -- создаваться только idempotent-прогоном SCHEMA в конце init_db, а не
+        -- миграцией, — поэтому к моменту v7 её может не быть. Создаём при
+        -- необходимости, затем добавляем колонку.
+        CREATE TABLE IF NOT EXISTS date_images (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date_id INTEGER NOT NULL REFERENCES dates(id) ON DELETE CASCADE,
+            filename TEXT NOT NULL,
+            position INTEGER NOT NULL DEFAULT 0
+        );
+        ALTER TABLE date_images ADD COLUMN focus TEXT;
     """,
 }
 

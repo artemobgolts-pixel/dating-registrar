@@ -48,19 +48,20 @@
   var STEP_SCALE = -0.016;             // вклад скорости в накопление (знак «-» = расталкивание)
   var PERSIST    = 0.999;              // деформация почти не возвращается (медленно зарастает ~20с)
   var DISP_MAX   = 0.22;               // максимум перекоса фона (защита от «взрыва»)
-  var MASK_R     = 0.00275;            // радиус² пятна деформации у курсора (вдвое меньше радиус)
+  var MASK_R     = 0.003033;            // радиус² пятна деформации у курсора (+5% радиус: ×1.05²)
   var IDLE_HOLD  = 2.6;                // сек: сколько ещё считать жидкость после движения
+  var CLICK_HOLD = 5.0;                // сек: считать жидкость+адвекцию после клика (чернила раскручиваются в тендрилы)
   var DECAY_HOLD = 22;                 // сек: сколько крутить затухание следа (до полного зарастания)
   // --- чернила (dye): реальная краска, которую несёт и закручивает течение ---
   var DYE_DISS    = 0.7;               // затухание чернил при активной симуляции (выше=быстрее тают)
   var DYE_FADE    = 0.985;             // дотаивание чернил в покое (×за кадр; меньше=быстрее)
   var DYE_SPREAD  = 0.16;              // диффузия чернил в покое (расползаются как в воде)
-  var DYE_R_MOVE  = 0.0000619;         // радиус² капли чернил от движения (в 1.5× больше радиус)
+  var DYE_R_MOVE  = 0.0000396;         // радиус² капли-следа от движения (толщина −20%: ×0.8²)
   var DYE_R_CLICK = 0.0012;            // радиус² впрыска по клику — крупнее, чтобы был заметен
   var DYE_AMT     = 0.3;               // насыщенность тёплой капли от движения (тоньше=прозрачнее)
   var DYE_CLICK   = 1.2;               // насыщенность чёрного впрыска по клику (заметный)
-  var BURST_N     = 10;                // сколько вихревых толчков по клику (ink-bloom)
-  var BURST_FORCE = 3.2;               // сила вихрей клика (раскручивает чернила в тендрилы)
+  var BURST_N     = 12;                // сколько вихревых толчков по клику (ink-bloom)
+  var BURST_FORCE = 4.0;               // сила вихрей клика (раскручивает чернила в тендрилы)
 
 
   // --- шейдеры -------------------------------------------------------------
@@ -212,9 +213,11 @@ void main(){
   // прозрачнее, чтоб не било в глаза). Чёрный впрыск (G) по клику — заметный.
   float warm = clamp(texture(uDye, vUv).x, 0.0, 1.4);
   float blk  = clamp(texture(uDye, vUv).y, 0.0, 2.0);
-  col = mix(col, EMBER, smoothstep(0.015, 0.35, warm) * 0.80);   // оранжевая обводка (плотнее ×2)
-  col = mix(col, EMBHI, smoothstep(0.45, 1.15, warm) * 0.18);    // светлое ядро — еле заметное
-  col = mix(col, INKBLK, smoothstep(0.02, 0.7, blk) * 0.60);     // чёрный клик-впрыск
+  col = mix(col, EMBER, smoothstep(0.015, 0.35, warm) * 0.45);   // оранжевая обводка (ощутимо прозрачнее)
+  col = mix(col, EMBHI, smoothstep(0.45, 1.15, warm) * 0.10);    // светлое ядро — едва уловимое
+  // чёрный клик-впрыск: рваный край через fbm → читается как чернила в воде, а не круг
+  float inkEdge = 0.45 + 0.7 * fbm(uv*3.4 + 2.0*r);
+  col = mix(col, INKBLK, smoothstep(0.02, 0.7, blk) * 0.62 * clamp(inkEdge, 0.0, 1.15));
   o = vec4(col, 1.0);
 }`;
 
@@ -438,7 +441,7 @@ void main(){
     clickX = cx / window.innerWidth;
     clickY = 1.0 - cy / window.innerHeight;
     clickPending = true;
-    activeUntil = (performance.now() - start) / 1000 + IDLE_HOLD;
+    activeUntil = (performance.now() - start) / 1000 + CLICK_HOLD;
     play();
   }
   if (!reduce) {
@@ -492,16 +495,19 @@ void main(){
     // вихрей, толкающих наружу из точек на крошечном кольце → краска
     // выплёскивается короной-тендрилами (всплеск «бульк»), а не ровным кругом.
     if (clickPending) {
-      dyeSplat(clickX, clickY, 0.0, DYE_CLICK, DYE_R_CLICK);   // чёрный впрыск (G) по клику
       var aspect = canvas.width / canvas.height;
+      dyeSplat(clickX, clickY, 0.0, DYE_CLICK, DYE_R_CLICK);   // плотное ядро чёрных чернил (G) по клику
       for (var bi = 0; bi < BURST_N; bi++) {
         var ang = (bi + 0.35 * Math.sin(bi * 12.9898)) / BURST_N * 6.2832;
         var jit = 0.6 + 0.7 * (0.5 + 0.5 * Math.sin(bi * 78.233));  // неровная сила спиц
         var ca = Math.cos(ang), sa = Math.sin(ang);
         var ox = clickX + ca * 0.012 / aspect, oy = clickY + sa * 0.012; // точка на кольце
         splat(ox, oy, ca * BURST_FORCE * jit, sa * BURST_FORCE * jit);    // импульс наружу
+        // капельки чернил по кольцу: течение растащит их в тендрилы (чернила в воде)
+        dyeSplat(ox, oy, 0.0, DYE_CLICK * 0.5, DYE_R_CLICK * 0.45);
       }
       clickPending = false;
+      activeUntil = Math.max(activeUntil, nowS + CLICK_HOLD);
       decayUntil = nowS + DECAY_HOLD;
     }
     // жидкость + чернила считаем пока активна симуляция (дёшево). Накопительное

@@ -7,14 +7,14 @@
   <a class="btn primary" href="/admin/dates/new">+ Создать свидание</a>
   {% if share %}
   <button type="button" class="btn ghost" data-copy="{{ share_url }}">🔗 Ссылка для неё</button>
-  <a class="btn ghost" href="/c/{{ share['link_token'] }}" target="_blank" rel="noopener">👀 Открыть глазами гостьи</a>
+  <a class="btn ghost" href="/c/{{ share['link_token'] }}" target="_blank" rel="noopener">👀 Открыть её глазами</a>
   {% endif %}
 </div>
 
 {% if share %}
 <div class="card">
   <b>🔗 Поделиться</b>
-  <p class="muted" style="margin:6px 0 14px;font-size:13.5px">Отправь эту секретную ссылку — по ней гостья откроет твою подборку свиданий.</p>
+  <p class="muted" style="margin:6px 0 14px;font-size:13.5px">Отправь эту секретную ссылку — по ней она откроет твою подборку свиданий.</p>
   <div class="share-grid">
     <div>
       {% if share_cats | length > 1 %}
@@ -65,7 +65,7 @@
 </div>
 
 <div class="card">
-  <b>Последние действия гостей</b>
+  <b>Последние действия</b>
   <ul class="feed">
   {% for it in feed %}
     <li>

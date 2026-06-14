@@ -254,6 +254,7 @@ window.UI = (() => {
     const pad = (n) => String(n).padStart(2, "0");
     const dstr = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
     const flash = (el) => { el.classList.add("flash"); setTimeout(() => el.classList.remove("flash"), 450); };
+    const touch = (el) => { flash(el); el.dispatchEvent(new Event("input", { bubbles: true })); };
 
     root.querySelectorAll("[data-day]").forEach((ch) => {
       ch.addEventListener("click", () => {
@@ -264,24 +265,29 @@ window.UI = (() => {
         if (kind === "sun") d.setDate(d.getDate() + ((0 - d.getDay() + 7) % 7 || 7));
         const t = (startInput.value.split("T")[1]) || "19:00";
         startInput.value = `${dstr(d)}T${t}`;
-        flash(startInput);
+        touch(startInput);
       });
     });
     root.querySelectorAll("[data-time]").forEach((ch) => {
       ch.addEventListener("click", () => {
         const day = (startInput.value.split("T")[0]) || dstr(new Date());
         startInput.value = `${day}T${ch.dataset.time}`;
-        flash(startInput);
+        touch(startInput);
       });
     });
     root.querySelectorAll("[data-dur]").forEach((ch) => {
       ch.addEventListener("click", () => {
         if (!endInput) return;
         if (!startInput.value) { flash(startInput); return; }
-        const d = new Date(startInput.value);
+        // накопительно: прибавляем к уже выбранному концу, иначе — к началу.
+        // конец не может быть раньше начала.
+        const base = (endInput.value && endInput.value > startInput.value)
+          ? endInput.value : startInput.value;
+        const d = new Date(base);
         d.setMinutes(d.getMinutes() + Number(ch.dataset.dur) * 60);
         endInput.value = `${dstr(d)}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
         flash(endInput);
+        endInput.dispatchEvent(new Event("input", { bubbles: true }));  // обновить предпросмотр
       });
     });
   }
@@ -308,6 +314,29 @@ window.UI = (() => {
     return s;
   }
 
+  var RU_MONTHS = ["января", "февраля", "марта", "апреля", "мая", "июня",
+    "июля", "августа", "сентября", "октября", "ноября", "декабря"];
+
+  // Форматирование даты как на сервере (helpers.fmt_when), вход — "YYYY-MM-DDTHH:MM".
+  function fmtPoint(s, withYear) {
+    var p = s.split("T"); var d = p[0].split("-"); var t = p[1] || "00:00";
+    var day = parseInt(d[2], 10), mon = parseInt(d[1], 10) - 1, year = d[0];
+    var base = day + " " + (RU_MONTHS[mon] || "");
+    if (withYear !== false) base += " " + year;
+    return base + ", " + t.slice(0, 5);
+  }
+  function fmtWhen(starts, ends) {
+    if (!starts) return "";
+    if (!ends) return fmtPoint(starts);
+    var ds = starts.split("T")[0], de = ends.split("T")[0];
+    if (ds === de) return fmtPoint(starts) + "–" + (ends.split("T")[1] || "").slice(0, 5);
+    return fmtPoint(starts) + " — " + fmtPoint(ends);
+  }
+  function hostOf(u) {
+    try { return new URL(/^https?:\/\//.test(u) ? u : "https://" + u).host; }
+    catch (_) { return u.slice(0, 40); }
+  }
+
   function editorPreview(form) {
     var pv = {};
     var scope = form.closest(".split") || document;
@@ -315,8 +344,14 @@ window.UI = (() => {
       pv[el.getAttribute("data-preview")] = el;
     });
     var descPrev = document.getElementById("descPreview");
-
     function field(name) { return form.querySelector('[data-bind="' + name + '"]'); }
+
+    function setCover(url) {
+      if (!pv.cover) return;
+      if (url) { pv.cover.src = url; pv.cover.hidden = false; if (pv["cover-ph"]) pv["cover-ph"].hidden = true; }
+      else { pv.cover.removeAttribute("src"); pv.cover.hidden = true; if (pv["cover-ph"]) pv["cover-ph"].hidden = false; }
+    }
+    function setVideo(has) { if (pv.vbadge) pv.vbadge.hidden = !has; }
 
     function sync() {
       var title = field("title");
@@ -330,62 +365,140 @@ window.UI = (() => {
       var pay = field("pay");
       if (pay && pv.pay) pv.pay.hidden = !pay.checked;
 
-      var place = field("place");
-      if (place && pv.meta) {
-        var v = (place.value || "").trim();
-        if (!v) { pv.meta.textContent = ""; }
-        else if (/^https?:\/\//.test(v)) { pv.meta.textContent = "📍 Место на карте"; }
-        else { pv.meta.textContent = "📍 " + v; }
+      // мета: когда (🕐) + место (📍)
+      if (pv.meta) {
+        var bits = [];
+        var fs = document.getElementById("fStart"), fe = document.getElementById("fEnd");
+        var when = fs && fs.value ? fmtWhen(fs.value, fe && fe.value) : "";
+        if (when) bits.push('<span>🕐 ' + escapeHTML(when) + "</span>");
+        var place = field("place");
+        var pvv = place ? (place.value || "").trim() : "";
+        if (pvv) bits.push('<span>📍 ' + (/^https?:\/\//.test(pvv) ? "Место на карте" : escapeHTML(pvv)) + "</span>");
+        pv.meta.innerHTML = bits.join("");
+      }
+
+      // ссылки (textarea name="links", по одной на строку)
+      if (pv.links) {
+        var la = form.querySelector('[name="links"]');
+        var out = "";
+        if (la) {
+          la.value.split("\n").forEach(function (line) {
+            var u = line.trim();
+            if (u) out += '<span class="plink">🔗 ' + escapeHTML(hostOf(u)) + "</span>";
+          });
+        }
+        pv.links.innerHTML = out;
       }
     }
 
-    // один делегированный слушатель ввода на всю форму
     form.addEventListener("input", sync);
     form.addEventListener("change", sync);
+    sync();
+    return { sync: sync, setCover: setCover, setVideo: setVideo };
+  }
 
-    // тулбар: оборачиваем ВЫДЕЛЕННЫЙ текст маркерами data-wrap="до|после"
-    form.querySelectorAll(".toolbar [data-wrap]").forEach(function (btn) {
+  /* --- WYSIWYG-редактор описания: форматирование видно прямо в поле -------
+     contenteditable показывает жирный/курсив/подчёркнутый/зачёркнутый/ссылки
+     как настоящее оформление, а в скрытую <textarea> синхронно пишется
+     markdown — сервер по-прежнему рендерит его helpers.rich(). Под нашу CSP:
+     весь код здесь, никаких инлайнов. execCommand для b/i/u/strike ещё
+     поддержан во всех браузерах; для нас этого достаточно. */
+  function htmlToMarkdown(node) {
+    var out = "";
+    node.childNodes.forEach(function (n) {
+      if (n.nodeType === 3) { out += n.nodeValue; return; }      // текст
+      if (n.nodeType !== 1) return;
+      var tag = n.nodeName.toLowerCase();
+      if (tag === "br") { out += "\n"; return; }
+      if (tag === "div" || tag === "p") {                        // перевод строки между блоками
+        if (out && !/\n$/.test(out)) out += "\n";
+        out += htmlToMarkdown(n);
+        return;
+      }
+      var inner = htmlToMarkdown(n);
+      var style = n.getAttribute && n.getAttribute("style") || "";
+      if (tag === "b" || tag === "strong" || /font-weight\s*:\s*(bold|[6-9]00)/.test(style)) out += "**" + inner + "**";
+      else if (tag === "i" || tag === "em" || /font-style\s*:\s*italic/.test(style)) out += "*" + inner + "*";
+      else if (tag === "u" || /text-decoration[^;]*underline/.test(style)) out += "__" + inner + "__";
+      else if (tag === "s" || tag === "strike" || tag === "del" || /line-through/.test(style)) out += "~~" + inner + "~~";
+      else if (tag === "a" && n.getAttribute("href")) out += "[" + inner + "](" + n.getAttribute("href") + ")";
+      else out += inner;
+    });
+    return out;
+  }
+
+  function richEditor(opts) {
+    var ta = opts.textarea, ed = opts.editable, toolbar = opts.toolbar;
+    if (!ta || !ed) return null;
+
+    // начальное наполнение: markdown из textarea → видимый HTML
+    ed.innerHTML = renderMarkup(ta.value) || "";
+
+    var syncing = false;
+    function toTextarea() {
+      syncing = true;
+      var md = htmlToMarkdown(ed).replace(/ /g, " ").replace(/\n{3,}/g, "\n\n").trim();
+      ta.value = md;
+      ta.dispatchEvent(new Event("input", { bubbles: true }));   // обновить живой предпросмотр
+      syncing = false;
+    }
+    ed.addEventListener("input", toTextarea);
+    ed.addEventListener("blur", toTextarea);
+
+    // тулбар: применяем оформление к ВЫДЕЛЕНИЮ прямо в редакторе
+    var CMD = { "**|**": "bold", "*|*": "italic", "__|__": "underline", "~~|~~": "strikeThrough" };
+    if (toolbar) toolbar.querySelectorAll("[data-wrap]").forEach(function (btn) {
+      btn.addEventListener("mousedown", function (e) { e.preventDefault(); });  // не терять выделение
       btn.addEventListener("click", function () {
-        var bar = btn.closest(".toolbar");
-        var ta = document.getElementById(bar.getAttribute("data-target"));
-        if (!ta) return;
-        var parts = btn.getAttribute("data-wrap").split("|");
-        var a = parts[0], b = parts[1] || "";
-        var s = ta.selectionStart, e = ta.selectionEnd, v = ta.value;
-        var sel = v.slice(s, e);
-        ta.value = v.slice(0, s) + a + sel + b + v.slice(e);
-        if (sel) { ta.selectionStart = s + a.length; ta.selectionEnd = e + a.length; }
-        else { ta.selectionStart = ta.selectionEnd = s + a.length; }
-        ta.focus();
-        sync();
+        ed.focus();
+        var w = btn.getAttribute("data-wrap");
+        if (CMD[w]) { try { document.execCommand(CMD[w], false, null); } catch (_) {} }
+        else {                                                   // ссылка
+          var sel = window.getSelection();
+          var text = sel && sel.toString();
+          var url = window.prompt("Ссылка (https://…):", "https://");
+          if (url) {
+            if (text) { try { document.execCommand("createLink", false, url); } catch (_) {} }
+            else { try { document.execCommand("insertHTML", false,
+              '<a href="' + url.replace(/"/g, "&quot;") + '">' + escapeHTML(url) + "</a>"); } catch (_) {} }
+          }
+        }
+        toTextarea();
       });
     });
 
-    sync();
+    // если форма сабмитится — на всякий случай добиваем актуальный markdown
+    if (ta.form) ta.form.addEventListener("submit", function () { if (!syncing) toTextarea(); });
+    return { toTextarea: toTextarea };
   }
 
   /* --- Меню «⋯» на карточках списка (делегированно, клик-вне закрывает) -- */
   function cardMenu(root) {
     root = root || document;
+    function closeAll() {
+      root.querySelectorAll(".menu.open").forEach(function (m) {
+        m.classList.remove("open");
+        var b = m.parentNode && m.parentNode.querySelector(".more");
+        if (b) b.setAttribute("aria-expanded", "false");
+      });
+    }
     root.addEventListener("click", function (e) {
       var btn = e.target.closest(".more");
       if (btn && root.contains(btn)) {
         e.stopPropagation();
-        var menu = btn.querySelector(".menu");
+        var wrap = btn.closest(".menu-wrap") || btn.parentNode;
+        var menu = wrap.querySelector(".menu");
         var wasOpen = menu && menu.classList.contains("open");
-        root.querySelectorAll(".menu.open").forEach(function (m) { m.classList.remove("open"); });
-        if (menu && !wasOpen) menu.classList.add("open");
+        closeAll();
+        if (menu && !wasOpen) { menu.classList.add("open"); btn.setAttribute("aria-expanded", "true"); }
         return;
       }
-      // клик по пункту меню не должен его закрывать раньше времени —
-      // но любой клик вне кнопки ⋯ закрывает все открытые меню
-      if (!e.target.closest(".menu")) {
-        root.querySelectorAll(".menu.open").forEach(function (m) { m.classList.remove("open"); });
-      }
+      // клик по пункту меню (submit) не трогаем — форма уходит как обычно;
+      // любой клик вне меню закрывает открытые
+      if (!e.target.closest(".menu")) closeAll();
     });
     document.addEventListener("keydown", function (e) {
-      if (e.key === "Escape")
-        root.querySelectorAll(".menu.open").forEach(function (m) { m.classList.remove("open"); });
+      if (e.key === "Escape") closeAll();
     });
   }
 
@@ -409,5 +522,5 @@ window.UI = (() => {
   }
 
   return { sortable, burst, uploader, dateChips, postWithProgress,
-           editorPreview, cardMenu, renderMarkup };
+           editorPreview, richEditor, cardMenu, renderMarkup };
 })();
