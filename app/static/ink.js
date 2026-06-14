@@ -39,12 +39,13 @@
   var SMALL = Math.min(window.innerWidth, window.innerHeight) < 700;
   var SIM_RES    = SMALL ? 110 : 150;  // сетка скоростей/давления
   var ITER       = 20;                 // итерации давления (несжимаемость)
-  var CURL       = 30;                 // завихрённость — «жилки» течения
-  var VEL_DISS   = 0.9;                 // затухание скорости (выше — быстрее тает)
+  var CURL       = 0;                  // завихрённость ВЫКЛ — давала зерно по экрану
+  var VEL_DISS   = 1.6;                 // затухание скорости (выше — спокойнее, без шума)
   var PRESS_DISS = 0.8;
   var SPLAT_R    = 0.00045;            // размер зоны у курсора (uv²) — с курсор
   var FORCE      = 6000;               // сила толчка течения
   var DISP_SCALE = 0.07;               // насколько поле скоростей смещает фон
+  var MASK_R     = 0.006;              // радиус² пятна деформации у курсора (маска)
   var IDLE_HOLD  = 2.2;                // сек: сколько ещё считать жидкость после движения
 
   // --- шейдеры -------------------------------------------------------------
@@ -145,6 +146,7 @@ void main(){
 precision highp float;
 in vec2 vUv; out vec4 o;
 uniform sampler2D uVelocity; uniform vec2 res; uniform float t; uniform float dispScale;
+uniform vec2 ptr; uniform float maskR;
 const vec3 BG    = vec3(0.984, 0.949, 0.945);
 const vec3 ROSE  = vec3(0.713, 0.372, 0.435);
 const vec3 BERRY = vec3(0.560, 0.290, 0.345);
@@ -163,8 +165,11 @@ void main(){
   vec2 uv = vUv;
   uv.x *= res.x/res.y;
   float tt = t * 0.016;
-  // локальная деформация фона полем скоростей жидкости (у курсора)
-  uv += texture(uVelocity, vUv).xy * dispScale;
+  // деформация фона полем скоростей — ТОЛЬКО в маленьком пятне у курсора.
+  // маска гасит любой остаточный шум поля по краям экрана.
+  vec2 dp = vUv - ptr; dp.x *= res.x/res.y;
+  float mask = exp(-dot(dp,dp)/max(maskR,1e-4));
+  uv += texture(uVelocity, vUv).xy * dispScale * mask;
   vec2 mo = vec2(sin(tt*0.7), cos(tt*0.6)) * 0.7;
   vec2 q = vec2(fbm(uv*1.6 + mo + vec2(0.0, tt)), fbm(uv*1.6 - mo + vec2(5.2, -tt)));
   vec2 r = vec2(fbm(uv*1.6 + 4.0*q + vec2(1.7, 9.2) + tt*0.9),
@@ -254,20 +259,24 @@ void main(){
   function step(dt) {
     gl.disable(gl.BLEND);
 
-    var c = progs.curl;
-    gl.useProgram(c.prog);
-    gl.uniform2f(c.u.texel, simTexel[0], simTexel[1]);
-    gl.uniform1i(c.u.uVelocity, velocity.read.attach(0));
-    blit(curlFbo);
+    // завихрённость (vorticity confinement) — только если включена; на грубой
+    // сетке она шумит, поэтому по умолчанию CURL=0 и блок пропускается
+    if (CURL > 0) {
+      var c = progs.curl;
+      gl.useProgram(c.prog);
+      gl.uniform2f(c.u.texel, simTexel[0], simTexel[1]);
+      gl.uniform1i(c.u.uVelocity, velocity.read.attach(0));
+      blit(curlFbo);
 
-    var v = progs.vort;
-    gl.useProgram(v.prog);
-    gl.uniform2f(v.u.texel, simTexel[0], simTexel[1]);
-    gl.uniform1i(v.u.uVelocity, velocity.read.attach(0));
-    gl.uniform1i(v.u.uCurl, curlFbo.attach(1));
-    gl.uniform1f(v.u.curl, CURL);
-    gl.uniform1f(v.u.dt, dt);
-    blit(velocity.write); velocity.swap();
+      var v = progs.vort;
+      gl.useProgram(v.prog);
+      gl.uniform2f(v.u.texel, simTexel[0], simTexel[1]);
+      gl.uniform1i(v.u.uVelocity, velocity.read.attach(0));
+      gl.uniform1i(v.u.uCurl, curlFbo.attach(1));
+      gl.uniform1f(v.u.curl, CURL);
+      gl.uniform1f(v.u.dt, dt);
+      blit(velocity.write); velocity.swap();
+    }
 
     var d = progs.div;
     gl.useProgram(d.prog);
@@ -380,6 +389,8 @@ void main(){
     gl.uniform2f(dp.u.res, canvas.width, canvas.height);
     gl.uniform1f(dp.u.t, (now - start) / 1000);
     gl.uniform1f(dp.u.dispScale, DISP_SCALE);
+    gl.uniform2f(dp.u.ptr, pointer.x, pointer.y);
+    gl.uniform1f(dp.u.maskR, MASK_R);
     gl.uniform1i(dp.u.uVelocity, velocity.read.attach(0));
     blit(null);
 
@@ -403,6 +414,8 @@ void main(){
     gl.uniform2f(dpr2.u.res, canvas.width, canvas.height);
     gl.uniform1f(dpr2.u.t, 8.0);
     gl.uniform1f(dpr2.u.dispScale, 0.0);
+    gl.uniform2f(dpr2.u.ptr, 0.5, 0.5);
+    gl.uniform1f(dpr2.u.maskR, MASK_R);
     gl.uniform1i(dpr2.u.uVelocity, velocity.read.attach(0));
     blit(null);
   } else {
