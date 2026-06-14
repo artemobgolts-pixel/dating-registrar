@@ -395,7 +395,7 @@ def public_ics(token: str, date_id: int, conn=Depends(get_db)):
         "SELECT url FROM date_links WHERE date_id=? ORDER BY position, id", (date_id,))]
 
     lines = [
-        "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//boris-i-love-you//RU",
+        "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//date4you//RU",
         "CALSCALE:GREGORIAN", "METHOD:PUBLISH", "BEGIN:VEVENT",
         f"UID:date-{d['id']}-{cat['id']}@{DOMAIN}",
         "DTSTAMP:" + datetime.now(timezone.utc).strftime(f),

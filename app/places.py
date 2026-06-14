@@ -79,7 +79,7 @@ def resolve_name(url: str) -> str | None:
         return None
     try:
         r = httpx.get(url, follow_redirects=True, timeout=5,
-                      headers={"User-Agent": "Mozilla/5.0 (boris-i-love-you)"})
+                      headers={"User-Agent": "Mozilla/5.0 (date4you)"})
         m = _TITLE.search(r.text[:30000])
         if not m:
             return None

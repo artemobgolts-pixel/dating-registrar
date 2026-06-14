@@ -54,7 +54,8 @@
   // --- чернила (dye): реальная краска, которую несёт и закручивает течение ---
   var DYE_DISS    = 0.7;               // затухание чернил при активной симуляции (выше=быстрее тают)
   var DYE_FADE    = 0.985;             // дотаивание чернил в покое (×за кадр; меньше=быстрее)
-  var DYE_R_MOVE  = 0.0000275;         // радиус² капли чернил от движения (вдвое меньше радиус)
+  var DYE_SPREAD  = 0.16;              // диффузия чернил в покое (расползаются как в воде)
+  var DYE_R_MOVE  = 0.0000619;         // радиус² капли чернил от движения (в 1.5× больше радиус)
   var DYE_R_CLICK = 0.0012;            // радиус² впрыска по клику — крупнее, чтобы был заметен
   var DYE_AMT     = 0.3;               // насыщенность тёплой капли от движения (тоньше=прозрачнее)
   var DYE_CLICK   = 1.2;               // насыщенность чёрного впрыска по клику (заметный)
@@ -78,6 +79,19 @@ void main(){
   var CLEAR_FS = `#version 300 es
 precision highp float; in vec2 vUv; out vec4 o; uniform sampler2D uTex; uniform float val;
 void main(){ o = val*texture(uTex,vUv); }`;
+
+  // ДИФФУЗИЯ чернил: лёгкое расползание к соседям (как капля в воде растекается),
+  // + общее дотаивание (fade). Работает и без поля скоростей, в покое.
+  var DIFFUSE_FS = `#version 300 es
+precision highp float; in vec2 vUv; in vec2 vL; in vec2 vR; in vec2 vT; in vec2 vB;
+out vec4 o; uniform sampler2D uTex; uniform float spread; uniform float fade;
+void main(){
+  vec2 c = texture(uTex,vUv).xy;
+  vec2 n = texture(uTex,vL).xy + texture(uTex,vR).xy
+         + texture(uTex,vT).xy + texture(uTex,vB).xy;
+  vec2 v = mix(c, n*0.25, spread);   // тянемся к среднему по соседям → размытие/расплыв
+  o = vec4(v*fade, 0.0, 1.0);
+}`;
 
   var SPLAT_FS = `#version 300 es
 precision highp float; in vec2 vUv; out vec4 o;
@@ -198,8 +212,8 @@ void main(){
   // прозрачнее, чтоб не било в глаза). Чёрный впрыск (G) по клику — заметный.
   float warm = clamp(texture(uDye, vUv).x, 0.0, 1.4);
   float blk  = clamp(texture(uDye, vUv).y, 0.0, 2.0);
-  col = mix(col, EMBER, smoothstep(0.015, 0.35, warm) * 0.40);   // оранжевая обводка
-  col = mix(col, EMBHI, smoothstep(0.55, 1.25, warm) * 0.15);    // светлое ядро — прозрачнее
+  col = mix(col, EMBER, smoothstep(0.015, 0.35, warm) * 0.80);   // оранжевая обводка (плотнее ×2)
+  col = mix(col, EMBHI, smoothstep(0.45, 1.15, warm) * 0.18);    // светлое ядро — еле заметное
   col = mix(col, INKBLK, smoothstep(0.02, 0.7, blk) * 0.60);     // чёрный клик-впрыск
   o = vec4(col, 1.0);
 }`;
@@ -255,6 +269,7 @@ void main(){
     curl: makeProg(BASE_VS, CURL_FS), vort: makeProg(BASE_VS, VORT_FS),
     press: makeProg(BASE_VS, PRESS_FS), grad: makeProg(BASE_VS, GRAD_FS),
     disp: makeProg(BASE_VS, DISP_FS), accum: makeProg(BASE_VS, ACCUM_FS),
+    diffuse: makeProg(BASE_VS, DIFFUSE_FS),
   };
   for (var k in progs) { if (!progs[k]) { teardown(); return; } }
 
@@ -307,6 +322,7 @@ void main(){
 
   // --- один шаг симуляции скорости (без краски) ---------------------------
   var simTexel = [1 / SIM_RES, 1 / SIM_RES];
+  var dyeTexel = [1 / DYE_RES, 1 / DYE_RES];
 
   function step(dt) {
     gl.disable(gl.BLEND);
@@ -507,14 +523,15 @@ void main(){
       gl.uniform1f(ac.u.inject, inject);
       blit(disp.write); disp.swap();
 
-      // дотаивание чернил в покое: лёгкое затухание плотности (без сети скоростей)
-      if (nowS >= activeUntil) {
-        var cf = progs.clear;
-        gl.useProgram(cf.prog);
-        gl.uniform1i(cf.u.uTex, dye.read.attach(0));
-        gl.uniform1f(cf.u.val, DYE_FADE);
-        blit(dye.write); dye.swap();
-      }
+      // расползание + дотаивание чернил: всегда (и в движении, и в покое), чтобы
+      // и след, и клик-капля мягко растекались по воде, а не стояли чётким пятном.
+      var df = progs.diffuse;
+      gl.useProgram(df.prog);
+      gl.uniform2f(df.u.texel, dyeTexel[0], dyeTexel[1]);
+      gl.uniform1i(df.u.uTex, dye.read.attach(0));
+      gl.uniform1f(df.u.spread, DYE_SPREAD);
+      gl.uniform1f(df.u.fade, nowS >= activeUntil ? DYE_FADE : 1.0);
+      blit(dye.write); dye.swap();
     }
 
     // вывод: наш fbm-фон, смещённый накопл. полем + настоящие чернила (uDye)
