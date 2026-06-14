@@ -831,15 +831,21 @@ details.endtime[open] summary { margin-bottom: 10px; }
   padding: 24px;
 }
 .home-card {
+  position: relative;
   text-align: center;
   background:
-    linear-gradient(var(--card), var(--card)) padding-box,
+    linear-gradient(150deg, rgba(255,252,251,.42), rgba(255,246,246,.3)) padding-box,
     linear-gradient(135deg, var(--rose), var(--peach) 60%, var(--rose)) border-box;
+  -webkit-backdrop-filter: blur(12px) saturate(1.7) brightness(1.04);
+  backdrop-filter: url(#glassWarp) blur(12px) saturate(1.7) brightness(1.04);
   border: 1.6px solid transparent;
   border-radius: 28px;
   padding: 54px 44px 46px;
   max-width: 520px;
-  box-shadow: 0 24px 60px rgba(150, 80, 95, .16);
+  box-shadow:
+    0 24px 60px rgba(150, 80, 95, .18),
+    inset 0 2px 1px rgba(255, 255, 255, .9),
+    inset 0 0 0 1px rgba(255, 255, 255, .25);
   animation: fade-up .7s var(--ease) both;
 }
 .home-heart {
