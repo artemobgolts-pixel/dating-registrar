@@ -11,6 +11,8 @@ import secrets
 import tempfile
 import zipfile
 
+import segno
+
 from fastapi import (APIRouter, BackgroundTasks, Depends, File, Form,
                      HTTPException, Request, UploadFile)
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
@@ -20,7 +22,7 @@ from urllib.parse import urlencode
 import backup
 import images
 import places
-from config import ADMIN_PASSWORD, ADMIN_USERNAME
+from config import ADMIN_PASSWORD, ADMIN_USERNAME, BASE_URL
 from guests import gname
 from helpers import clean_text, normalize_period, now_iso, now_naive, parse_dt_local, parse_links
 from fastapi.responses import JSONResponse
@@ -166,9 +168,39 @@ def dashboard(request: Request, conn=Depends(get_db)):
             "SELECT COUNT(*) FROM questions WHERE is_read=0").fetchone()[0],
     }
     feed = conn.execute(FEED_SQL).fetchall()
+
+    # Блок «Поделиться»: категории с включённой секретной ссылкой.
+    # Для выбранной (или первой) рисуем QR прямо на сервере — инлайновый SVG,
+    # под CSP не нужен ни внешний скрипт, ни data:-картинка.
+    share_cats = conn.execute(
+        "SELECT id, name, link_token FROM categories "
+        "WHERE link_enabled=1 AND link_token IS NOT NULL ORDER BY created_at DESC"
+    ).fetchall()
+    sel = request.query_params.get("share")
+    share = next((c for c in share_cats if str(c["id"]) == sel), None) \
+        or (share_cats[0] if share_cats else None)
+    share_url = qr_svg = None
+    if share:
+        share_url = f"{BASE_URL}/c/{share['link_token']}"
+        qr_svg = _qr_svg(share_url)
+
     return templates.TemplateResponse(
         request, "admin/dashboard.html",
-        actx(request, conn, active="dash", stats=stats, feed=feed))
+        actx(request, conn, active="dash", stats=stats, feed=feed,
+             share_cats=share_cats, share=share, share_url=share_url, qr_svg=qr_svg))
+
+
+def _qr_svg(data: str) -> str:
+    """QR-код ссылки как инлайновый SVG (без внешних запросов и без PIL).
+
+    Прозрачный фон, цвет — роза палитры; omitsize сохраняет viewBox, поэтому
+    SVG масштабируется под контейнер. Под нашу CSP инлайновый SVG безопасен.
+    """
+    buf = io.BytesIO()
+    segno.make(data, error="m").save(
+        buf, kind="svg", scale=4, border=2,
+        dark="#8f4a58", svgclass=None, omitsize=True, xmldecl=False)
+    return buf.getvalue().decode("utf-8")
 
 
 @router.get("/uploads/{filename}")
@@ -217,7 +249,7 @@ def export_json(conn=Depends(get_db)):
     return Response(json.dumps(data, ensure_ascii=False, indent=2),
                     media_type="application/json; charset=utf-8",
                     headers={"Content-Disposition":
-                             f'attachment; filename="boris-export-{day}.json"'})
+                             f'attachment; filename="date4you-export-{day}.json"'})
 
 
 @router.get("/export/csv")
@@ -244,7 +276,7 @@ def export_csv(conn=Depends(get_db)):
     return Response("\ufeff" + buf.getvalue(),       # BOM — чтобы Excel понял UTF-8
                     media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition":
-                             f'attachment; filename="boris-dates-{day}.csv"'})
+                             f'attachment; filename="date4you-dates-{day}.csv"'})
 
 
 @router.get("/export/archive")
@@ -262,7 +294,7 @@ def export_archive(conn=Depends(get_db)):
                 z.write(p, arcname=f"uploads/{p.name}")
     day = now_naive().strftime("%Y-%m-%d")
     return FileResponse(tmp.name, media_type="application/zip",
-                        filename=f"boris-export-{day}.zip",
+                        filename=f"date4you-export-{day}.zip",
                         background=BackgroundTask(os.unlink, tmp.name))
 
 
@@ -461,6 +493,8 @@ def dates_list(request: Request, conn=Depends(get_db)):
         f"(SELECT GROUP_CONCAT(COALESCE(g.name, '#' || substr(b.guest_token,1,6)), ', ') "
         f" FROM bookings b LEFT JOIN guests g ON g.token=b.guest_token "
         f" WHERE b.date_id=d.id) AS booked_names, "
+        f"(SELECT filename FROM date_images di WHERE di.date_id=d.id "
+        f" ORDER BY di.position, di.id LIMIT 1) AS cover, "
         f"(SELECT GROUP_CONCAT(c.name, ', ') FROM date_categories dc "
         f" JOIN categories c ON c.id=dc.category_id WHERE dc.date_id=d.id) AS cats "
         f"FROM dates d WHERE {where} ORDER BY {SORT_ORDER[sort]} "
@@ -477,11 +511,15 @@ def dates_list(request: Request, conn=Depends(get_db)):
         keep.append(("cat", cat))
     qs_keep = ("&" + urlencode(keep)) if keep else ""
 
+    # вид списка (карточки/таблица) — cookie, читается на сервере для SSR
+    layout = request.cookies.get("layout")
+    layout = layout if layout in ("cards", "list") else "cards"
+
     return templates.TemplateResponse(
         request, "admin/dates.html",
         actx(request, conn, active="dates", rows=rows, view=view, sort=sort,
              flt=flt, cat=cat, cats=_all_cats(conn), drafts_n=drafts_n,
-             qs_keep=qs_keep, page=page, pages=pages))
+             qs_keep=qs_keep, page=page, pages=pages, layout=layout))
 
 
 def _all_cats(conn):

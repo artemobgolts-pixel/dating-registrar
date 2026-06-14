@@ -1,7 +1,59 @@
 {% extends "admin/base.html" %}
 {% block title %}Главная{% endblock %}
 {% block content %}
-<h1>Главная</h1>
+<h1 class="serif">Главная</h1>
+
+<div class="quick">
+  <a class="btn primary" href="/admin/dates/new">+ Создать свидание</a>
+  {% if share %}
+  <button type="button" class="btn ghost" data-copy="{{ share_url }}">🔗 Ссылка для неё</button>
+  <a class="btn ghost" href="/c/{{ share['link_token'] }}" target="_blank" rel="noopener">👀 Открыть глазами гостьи</a>
+  {% endif %}
+</div>
+
+{% if share %}
+<div class="card">
+  <b>🔗 Поделиться</b>
+  <p class="muted" style="margin:6px 0 14px;font-size:13.5px">Отправь эту секретную ссылку — по ней гостья откроет твою подборку свиданий.</p>
+  <div class="share-grid">
+    <div>
+      {% if share_cats | length > 1 %}
+      <form method="get" action="/admin/" class="share-pick">
+        <label>Категория</label>
+        <select name="share" data-autosubmit>
+          {% for c in share_cats %}<option value="{{ c['id'] }}" {{ 'selected' if c['id'] == share['id'] }}>{{ c['name'] }}</option>{% endfor %}
+        </select>
+      </form>
+      {% else %}
+      <div class="share-cat">{{ share['name'] }}</div>
+      {% endif %}
+      <div class="linkbox">
+        <code>{{ share_url }}</code>
+        <button type="button" class="btn small" data-copy="{{ share_url }}">Копировать</button>
+        <a class="btn small" href="/c/{{ share['link_token'] }}" target="_blank" rel="noopener">Открыть</a>
+      </div>
+      <div class="og-preview" aria-label="так ссылка выглядит при отправке">
+        <img class="og-img" src="/static/og.png" alt="">
+        <div class="og-text">
+          <div class="og-title">Тебя ждёт сюрприз ♥</div>
+          <div class="og-desc">Открой — внутри кое-что приятное</div>
+          <div class="og-host">date4you.online</div>
+        </div>
+      </div>
+      <p class="muted" style="margin:10px 0 0;font-size:12.5px">Можно отключить или сменить ссылку на странице <a href="/admin/categories/{{ share['id'] }}">категории</a>.</p>
+    </div>
+    <div class="share-qr">{{ qr_svg | safe }}</div>
+  </div>
+</div>
+{% else %}
+<div class="card">
+  <div class="empty-state" style="padding:30px 20px">
+    <div class="big">🔗</div>
+    <p>Чтобы поделиться подборкой, создай категорию с секретной ссылкой.</p>
+    <a class="btn primary" href="/admin/categories">К категориям</a>
+  </div>
+</div>
+{% endif %}
 
 <div class="stat-grid">
   <div class="stat"><b>{{ stats['cats'] }}</b><span>категорий</span></div>
@@ -10,16 +62,6 @@
   <div class="stat"><b>{{ stats['archived'] }}</b><span>в архиве</span></div>
   <div class="stat"><b>{{ stats['bookings'] }}</b><span>броней сейчас</span></div>
   <div class="stat"><b>{{ stats['unread_q'] }}</b><span>непрочит. вопросов</span></div>
-</div>
-
-<div class="card">
-  <b>Экспорт</b>
-  <p class="muted" style="margin:6px 0 10px;font-size:13.5px">CSV — таблица свиданий для Excel · JSON — все данные · архив — снимок базы, все фото, видео и export.json одним zip.</p>
-  <div style="display:flex;gap:8px;flex-wrap:wrap">
-    <a class="btn small" href="/admin/export/csv">Скачать CSV</a>
-    <a class="btn small" href="/admin/export/json">Скачать JSON</a>
-    <a class="btn small" href="/admin/export/archive">Полный архив (zip)</a>
-  </div>
 </div>
 
 <div class="card">
@@ -44,5 +86,15 @@
     <li style="border:none" class="muted">Пока тихо… 🌙</li>
   {% endfor %}
   </ul>
+</div>
+
+<div class="card">
+  <b>Данные</b>
+  <p class="muted" style="margin:6px 0 10px;font-size:13.5px">CSV — таблица свиданий для Excel · JSON — все данные · архив — снимок базы, все фото, видео и export.json одним zip.</p>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <a class="btn small" href="/admin/export/csv">Скачать CSV</a>
+    <a class="btn small" href="/admin/export/json">Скачать JSON</a>
+    <a class="btn small" href="/admin/export/archive">Полный архив (zip)</a>
+  </div>
 </div>
 {% endblock %}

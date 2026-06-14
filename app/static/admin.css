@@ -5,11 +5,16 @@
 :root {
   --bg: #f6f4f5;
   --card: #ffffff;
-  --ink: #2e272b;
-  --muted: #8d8390;
+  --ink: #43373a;
+  --muted: #9a8a8c;
   --accent: #b65f6f;
-  --line: #e9e2e6;
+  --rose: #b65f6f;
+  --rose-2: #8f4a58;
+  --peach: #e2b08a;
+  --rose-soft: #f7e9e7;
+  --line: #f0e4e1;
   --r: 14px;
+  --serif: "Cormorant Garamond", Georgia, "Times New Roman", serif;
 }
 
 * { box-sizing: border-box; }
@@ -40,7 +45,8 @@ a { color: var(--accent); }
 
 .brand {
   font-weight: 700;
-  color: var(--accent);
+  font-size: 19px;
+  color: var(--rose-2);
   text-decoration: none;
 }
 
@@ -70,9 +76,9 @@ nav a.exit { color: var(--muted); margin-left: 4px; }
 /* ---------- контент ---------- */
 
 .wrap {
-  max-width: 980px;
+  max-width: 1180px;
   margin: 0 auto;
-  padding: 20px 16px 60px;
+  padding: 24px 18px 70px;
 }
 
 h1 { font-size: 22px; margin: 6px 0 16px; }
@@ -592,60 +598,24 @@ tr.drag-row { touch-action: none; }
 tr.drag-row.dragging { background: #fdf1f4; box-shadow: 0 10px 24px rgba(120, 70, 80, .18); }
 
 /* ============================================================
-   ФОН «чернила» в админке — тот же WebGL-шейдер, что на гостевой
-   (/static/ink.js). CSS-дым ниже — фолбэк без WebGL2. Контент
-   поднят над фоном; карточки/панель — полупрозрачные, чтобы фон
-   просвечивал, но плотные таблицы и формы оставались читаемыми.
+   ФОН РЕДАКТОРА — спокойный тёплый градиент в палитре (как в макетах).
+   Тяжёлый WebGL-фон гостевой здесь намеренно не используется: редактор
+   нужен для работы, движение не должно отвлекать.
    ============================================================ */
-.bg-smoke {
+.bg-warm {
   position: fixed; inset: 0;
   pointer-events: none;
   z-index: 0;
-  overflow: hidden;
+  background:
+    radial-gradient(60% 50% at 18% 12%, rgba(231, 120, 145, .20), transparent 60%),
+    radial-gradient(55% 50% at 85% 8%, rgba(226, 176, 138, .18), transparent 62%),
+    radial-gradient(70% 60% at 50% 100%, rgba(206, 170, 222, .22), transparent 65%),
+    linear-gradient(180deg, #fdf3f1, #f7eef0);
 }
-.bg-smoke svg { position: absolute; inset: 0; width: 100%; height: 100%; }
-.bg-smoke .turb { width: 100%; height: 100%; opacity: .5; mix-blend-mode: multiply; }
-.bg-smoke .plume { transform-box: fill-box; transform-origin: center; }
-.bg-smoke .plume.p1 { animation: a-plume-a 24s ease-in-out infinite alternate; }
-.bg-smoke .plume.p2 { animation: a-plume-b 30s ease-in-out infinite alternate; }
-.bg-smoke .plume.p3 { animation: a-plume-c 27s ease-in-out infinite alternate; }
-.bg-smoke span {
-  position: absolute; border-radius: 50%;
-  filter: blur(80px); will-change: transform;
-}
-.bg-smoke span:nth-child(2) {
-  width: 80vw; height: 80vw; left: -16vw; top: -18vh;
-  background: radial-gradient(46% 48% at 40% 40%, rgba(231, 120, 145, .4), transparent 66%);
-  animation: a-smoke-a 22s ease-in-out infinite alternate;
-}
-.bg-smoke span:nth-child(3) {
-  width: 70vw; height: 70vw; right: -18vw; top: 16vh;
-  background: radial-gradient(46% 44% at 56% 40%, rgba(214, 150, 200, .34), transparent 66%);
-  animation: a-smoke-b 26s ease-in-out infinite alternate;
-}
-.bg-smoke span:nth-child(4) {
-  width: 86vw; height: 86vw; left: 0; bottom: -32vh;
-  background: radial-gradient(46% 46% at 44% 50%, rgba(226, 176, 138, .32), transparent 66%);
-  animation: a-smoke-c 30s ease-in-out infinite alternate;
-}
-@keyframes a-plume-a { 0% { transform: translate(0,0) rotate(-4deg) scale(1); } 100% { transform: translate(4%,-8%) rotate(6deg) scale(1.1); } }
-@keyframes a-plume-b { 0% { transform: translate(0,0) rotate(3deg) scale(1.05); } 100% { transform: translate(-5%,-6%) rotate(-5deg) scale(1.12); } }
-@keyframes a-plume-c { 0% { transform: translate(0,0) rotate(2deg) scale(1); } 100% { transform: translate(3%,-7%) rotate(-4deg) scale(1.14); } }
-@keyframes a-smoke-a { 0% { transform: translate(0,0) rotate(0) scale(1); } 50% { transform: translate(5vw,4vh) rotate(60deg) scale(1.12); } 100% { transform: translate(-3vw,6vh) rotate(110deg) scale(1.05); } }
-@keyframes a-smoke-b { 0% { transform: translate(0,0) rotate(0) scale(1.05); } 50% { transform: translate(-6vw,5vh) rotate(-70deg) scale(1.14); } 100% { transform: translate(3vw,-3vh) rotate(-120deg) scale(1); } }
-@keyframes a-smoke-c { 0% { transform: translate(0,0) rotate(0) scale(1.1); } 50% { transform: translate(6vw,-6vh) rotate(110deg) scale(1.25); } 100% { transform: translate(-5vw,-2vh) rotate(200deg) scale(1.08); } }
-
-.ink-canvas {
-  position: fixed; inset: 0;
-  width: 100%; height: 100%;
-  display: block; z-index: 0; pointer-events: none;
-}
-.bg-smoke.has-ink .turb,
-.bg-smoke.has-ink span { display: none; }   /* шейдер вместо CSS-дыма */
 
 /* контент над фоном; панель и карточки — «жидкое стекло», как на гостевой */
 .top { position: sticky; z-index: 10;
-  background: linear-gradient(180deg, rgba(255,253,254,.7), rgba(255,250,251,.52));
+  background: linear-gradient(180deg, rgba(255,253,254,.72), rgba(255,250,251,.56));
   -webkit-backdrop-filter: blur(14px) saturate(1.6); backdrop-filter: blur(14px) saturate(1.6);
   border-bottom: 1px solid rgba(255, 255, 255, .55); }
 .wrap { position: relative; z-index: 1; }
@@ -653,25 +623,14 @@ tr.drag-row.dragging { background: #fdf1f4; box-shadow: 0 10px 24px rgba(120, 70
 /* карточки: морозное стекло — фон преломляется и размывается сквозь них */
 .card {
   position: relative;
-  background: linear-gradient(150deg, rgba(255,252,251,.5), rgba(255,246,246,.38));
-  -webkit-backdrop-filter: blur(12px) saturate(1.7) brightness(1.04);
-  backdrop-filter: url(#glassWarp) blur(12px) saturate(1.7) brightness(1.04);
-  border: 1px solid rgba(255, 255, 255, .6);
+  background: linear-gradient(150deg, rgba(255,253,252,.62), rgba(255,246,246,.46));
+  -webkit-backdrop-filter: blur(16px) saturate(1.5) brightness(1.04);
+  backdrop-filter: url(#glassWarp) blur(16px) saturate(1.5) brightness(1.04);
+  border: 1px solid rgba(255, 255, 255, .65);
   box-shadow:
-    0 18px 48px rgba(150, 80, 95, .16),
-    0 3px 12px rgba(150, 80, 95, .08),
-    inset 0 2px 1px rgba(255, 255, 255, .95),
-    inset 2px 0 1px rgba(255, 255, 255, .5),
-    inset 0 0 0 1px rgba(255, 255, 255, .22),
-    inset -2px -2px 2px rgba(150, 80, 95, .1);
-}
-/* лёгкий цветной перелив стекла (как в референсе гостевой) */
-.card::after {
-  content: ""; position: absolute; inset: 0;
-  border-radius: inherit; pointer-events: none; z-index: 0;
-  background: linear-gradient(125deg,
-    rgba(231, 120, 145, .08) 0%, rgba(226, 176, 138, .05) 45%, rgba(214, 150, 200, .1) 100%);
-  mix-blend-mode: screen; opacity: .8;
+    0 14px 36px rgba(150, 80, 95, .12),
+    0 3px 12px rgba(150, 80, 95, .06),
+    inset 0 1.5px 0 rgba(255, 255, 255, .9);
 }
 /* содержимое карточки — над переливом, чтобы текст/таблицы были чёткими */
 .card > * { position: relative; z-index: 1; }
@@ -684,5 +643,335 @@ input, textarea, select {
   -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
 }
 @media (prefers-reduced-motion: reduce) {
-  .bg-smoke .plume, .bg-smoke span { animation: none !important; }
+  * { scroll-behavior: auto; }
 }
+
+
+/* ============================================================
+   РЕДИЗАЙН КАБИНЕТА (date4you) — общий визуальный язык
+   Cormorant в заголовках, мягкое стекло, палитра роза/персик.
+   Источник правды по виду — макеты form.html / list.html.
+   ============================================================ */
+
+.serif { font-family: var(--serif); }
+
+/* крошки над заголовком страницы */
+.crumb { font-size: 13px; color: var(--muted); margin: 2px 0 2px; }
+
+/* ---------- сплит форма ↔ живой предпросмотр ---------- */
+.split {
+  display: grid;
+  grid-template-columns: 1fr 420px;
+  gap: 26px;
+  align-items: start;
+}
+.preview-col { position: sticky; top: 90px; }
+.preview-cap {
+  font-size: 12px; color: var(--muted); text-align: center;
+  margin-bottom: 10px; letter-spacing: .05em; text-transform: uppercase;
+}
+@media (max-width: 920px) {
+  .split { grid-template-columns: 1fr; }
+  .preview-col { position: static; }
+}
+
+/* ---------- секции-карточки формы ---------- */
+.sec {
+  position: relative;
+  background: linear-gradient(150deg, rgba(255,253,252,.62), rgba(255,246,246,.46));
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  backdrop-filter: blur(16px) saturate(1.4);
+  border: 1px solid rgba(255, 255, 255, .65);
+  border-radius: 20px;
+  padding: 20px 22px;
+  margin-bottom: 18px;
+  box-shadow: 0 12px 30px rgba(150, 80, 95, .08), inset 0 1px 0 rgba(255, 255, 255, .8);
+}
+.sec > h2 {
+  font-family: var(--serif);
+  margin: 0 0 14px;
+  font-size: 21px;
+  color: var(--rose-2);
+  display: flex; align-items: center; gap: 9px;
+  -webkit-text-fill-color: currentColor;   /* перебиваем градиентный h1 */
+  background: none;
+}
+.sec > h2 .n {
+  font-family: inherit;
+  font-size: 12px; font-weight: 700;
+  background: var(--rose-soft); color: var(--rose-2);
+  width: 23px; height: 23px; border-radius: 50%;
+  display: grid; place-items: center; flex: none;
+}
+.sec .hint {
+  font-size: 12px; color: var(--rose-2); margin-top: 5px;
+  display: flex; align-items: center; gap: 6px; min-height: 16px;
+}
+.sec .hint:empty { display: none; }
+
+/* ---------- тулбар форматирования над описанием ---------- */
+.toolbar { display: flex; gap: 4px; margin-bottom: 6px; flex-wrap: wrap; }
+.toolbar button {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, .7);
+  border-radius: 9px;
+  width: 34px; height: 32px;
+  cursor: pointer; font-size: 14px; color: var(--ink);
+  transition: background .15s, border-color .15s;
+}
+.toolbar button:hover { background: var(--rose-soft); border-color: var(--rose); }
+.toolbar .b { font-weight: 800; }
+.toolbar .i { font-style: italic; }
+.toolbar .u { text-decoration: underline; }
+.toolbar .s { text-decoration: line-through; }
+.descprev {
+  font-size: 13px; color: var(--muted);
+  margin-top: 7px; min-height: 18px;
+}
+.descprev b { color: var(--ink); }
+.descprev a { color: var(--rose-2); }
+
+/* ---------- переключатели-тумблеры (черновик, 50/50) ---------- */
+.toggle {
+  display: flex; align-items: center; gap: 11px;
+  padding: 11px 13px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, .55);
+  margin-bottom: 10px;
+}
+.toggle .sw {
+  width: 40px; height: 24px; border-radius: 20px;
+  background: #e6d4d3; position: relative; transition: background .2s; flex: none;
+}
+.toggle .sw::after {
+  content: ""; position: absolute; top: 3px; left: 3px;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: #fff; transition: left .2s; box-shadow: 0 1px 3px rgba(0, 0, 0, .2);
+}
+/* состояние «включено» зеркалит checkbox через :has (без JS) */
+.toggle:has(input:checked) .sw { background: linear-gradient(90deg, #34b36b, #15734a); }
+.toggle:has(input:checked) .sw::after { left: 19px; }
+.toggle .tcol { display: flex; flex-direction: column; }
+.toggle .t { font-size: 14.5px; color: var(--ink); }
+.toggle .d { font-size: 12px; color: var(--muted); }
+.toggle input { position: absolute; opacity: 0; width: 0; height: 0; }
+.toggle:focus-within { border-color: var(--rose); box-shadow: 0 0 0 3px rgba(182, 95, 111, .14); }
+
+/* чипы-категории на форме */
+.chips-cat { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.chip-cat {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 14px; border-radius: 20px;
+  border: 1px solid var(--line); background: rgba(255, 255, 255, .6);
+  font-size: 13.5px; color: var(--ink); cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s;
+}
+.chip-cat input { position: absolute; opacity: 0; width: 0; height: 0; }
+.chip-cat:has(input:checked) {
+  background: var(--rose); color: #fff; border-color: var(--rose);
+}
+.chip-cat:focus-within { box-shadow: 0 0 0 3px rgba(182, 95, 111, .14); }
+
+/* строка сохранения */
+.savebar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 4px; }
+.savebar .autosave { font-size: 12px; color: var(--muted); margin-left: auto; }
+.btn.ghost {
+  background: rgba(255, 255, 255, .6);
+  color: var(--rose-2);
+  border: 1px solid var(--line);
+}
+.btn.ghost:hover { background: var(--rose-soft); }
+
+/* ---------- карточка живого предпросмотра («так увидит гостья») ---------- */
+/* Переиспускаем визуальный язык гостевой .card, но это статичный предпросмотр. */
+.pcard {
+  border-radius: 22px; overflow: hidden; position: relative;
+  background: linear-gradient(150deg, rgba(255,252,251,.6), rgba(255,246,246,.42));
+  -webkit-backdrop-filter: blur(20px) saturate(1.6) brightness(1.05);
+  backdrop-filter: blur(20px) saturate(1.6) brightness(1.05);
+  border: 1px solid rgba(255, 255, 255, .7);
+  box-shadow: 0 18px 46px rgba(150, 80, 95, .18), inset 0 1.5px 0 rgba(255, 255, 255, .9);
+}
+.pcard .photo {
+  height: 200px; position: relative;
+  background: linear-gradient(135deg, #caa094, #9c6f6a) center/cover;
+}
+.pcard .photo .ph {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  color: rgba(255, 255, 255, .85); font-size: 13px;
+}
+.pcard .body { padding: 18px 18px 20px; position: relative; }
+.pcard .ttl {
+  font-family: var(--serif); font-size: 23px; color: var(--ink);
+  margin: 0 0 6px; line-height: 1.15;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.pcard .pay {
+  font-size: 12px; font-weight: 700; color: #fff;
+  background: linear-gradient(90deg, #34b36b, #15734a);
+  padding: 3px 10px; border-radius: 20px; box-shadow: 0 2px 6px rgba(20, 115, 74, .3);
+}
+.pcard .desc { font-size: 14px; color: #6b5b5e; margin: 0 0 12px; min-height: 18px; }
+.pcard .desc b { color: var(--ink); }
+.pcard .desc a { color: var(--rose-2); }
+.pcard .pmeta { font-size: 12.5px; color: var(--muted); margin-bottom: 14px; min-height: 16px; }
+.pcard .pmeta:empty { display: none; }
+.pcard .acts { display: flex; gap: 10px; }
+.pcard .acts .bk {
+  flex: 1; padding: 10px; border-radius: 12px; border: none;
+  font-size: 14px; font-weight: 600; color: #fff;
+  background: linear-gradient(135deg, var(--rose), var(--rose-2));
+}
+.pcard .acts .ak {
+  flex: 1; padding: 10px; border-radius: 12px; border: 1px solid var(--line);
+  background: rgba(255, 255, 255, .6); color: var(--rose-2); font-size: 14px;
+}
+
+/* ---------- список свиданий: сетка карточек ---------- */
+.controls {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 18px;
+}
+.controls .filters { margin-bottom: 0; }
+.viewtog {
+  margin-left: auto; display: flex;
+  border: 1px solid var(--line); border-radius: 11px; overflow: hidden;
+  background: rgba(255, 255, 255, .6);
+}
+.viewtog a {
+  border: none; background: transparent; padding: 8px 13px;
+  cursor: pointer; font-size: 14px; color: var(--muted); text-decoration: none;
+}
+.viewtog a.on { background: var(--rose); color: #fff; }
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+  gap: 18px;
+}
+.dcard {
+  position: relative;
+  display: flex; flex-direction: column;
+  background: linear-gradient(150deg, rgba(255,253,252,.62), rgba(255,246,246,.46));
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  backdrop-filter: blur(16px) saturate(1.4);
+  border: 1px solid rgba(255, 255, 255, .65);
+  border-radius: 18px; overflow: hidden;
+  box-shadow: 0 12px 30px rgba(150, 80, 95, .08), inset 0 1px 0 rgba(255, 255, 255, .8);
+  transition: transform .18s ease, box-shadow .2s ease;
+}
+.dcard:hover { transform: translateY(-2px); box-shadow: 0 16px 38px rgba(150, 80, 95, .14); }
+.dcard .ph {
+  height: 128px; position: relative;
+  background: linear-gradient(135deg, #caa094, #9c6f6a);
+}
+.dcard .ph img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* варианты градиента-плейсхолдера — разнообразим по id свидания */
+.dcard .ph.g0 { background: linear-gradient(135deg, #caa094, #9c6f6a); }
+.dcard .ph.g1 { background: linear-gradient(135deg, #9c8bb0, #6f5f8c); }
+.dcard .ph.g2 { background: linear-gradient(135deg, #cbb38f, #9c8154); }
+.dcard .ph.g3 { background: linear-gradient(135deg, #b98a86, #7a514d); }
+.dcard.archived .ph img { filter: saturate(.5) brightness(.99); }
+.dcard .b { padding: 13px 15px 15px; display: flex; flex-direction: column; flex: 1; }
+.dcard .ttl {
+  font-family: var(--serif); font-size: 19px; color: var(--ink);
+  margin: 0 0 5px; line-height: 1.2;
+}
+.dcard .ttl a { color: inherit; text-decoration: none; }
+.dcard .ttl a:hover { color: var(--rose); }
+.dcard .meta { font-size: 12.5px; color: var(--muted); margin-bottom: 13px; flex: 1; }
+
+/* бейджи поверх миниатюры */
+.badges { position: absolute; top: 10px; left: 10px; display: flex; gap: 6px; flex-wrap: wrap; z-index: 2; }
+.bdg {
+  font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 20px;
+  color: #fff; -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+}
+.bdg.pay   { background: linear-gradient(90deg, #34b36b, #15734a); }
+.bdg.draft { background: rgba(180, 140, 60, .9); }
+.bdg.guest { background: rgba(143, 74, 88, .9); }
+.bdg.book  { background: rgba(182, 95, 111, .92); }
+
+/* подвал карточки: «Редактировать» + меню ⋯ */
+.dcard .foot { display: flex; align-items: center; gap: 8px; }
+.dcard .edit {
+  flex: 1; text-align: center; padding: 9px; border-radius: 11px;
+  text-decoration: none; font-size: 14px; font-weight: 600;
+  background: rgba(255, 255, 255, .7); border: 1px solid var(--line); color: var(--rose-2);
+}
+.dcard .edit:hover { background: var(--rose-soft); border-color: var(--rose); }
+.more {
+  width: 38px; height: 38px; border-radius: 11px; flex: none; position: relative;
+  border: 1px solid var(--line); background: rgba(255, 255, 255, .7);
+  cursor: pointer; font-size: 18px; color: var(--muted); line-height: 1;
+}
+.more:hover { background: var(--rose-soft); }
+.menu {
+  position: absolute; right: 0; bottom: 46px;
+  background: #fff; border: 1px solid var(--line); border-radius: 13px;
+  box-shadow: 0 14px 36px rgba(120, 70, 80, .22);
+  padding: 6px; min-width: 178px; z-index: 9; display: none;
+}
+.menu.open { display: block; }
+.menu button, .menu a {
+  display: block; width: 100%; text-align: left;
+  padding: 9px 12px; border-radius: 9px; border: none; background: none;
+  text-decoration: none; color: var(--ink); font-size: 14px;
+  font-family: inherit; cursor: pointer;
+}
+.menu button:hover, .menu a:hover { background: var(--rose-soft); }
+.menu .danger { color: #b3261e; }
+.menu .danger:hover { background: #fdeceb; }
+.menu form { margin: 0; }
+.menu .sepa { height: 1px; background: var(--line); margin: 5px 2px; }
+
+/* ---------- дашборд: быстрые действия и «Поделиться» ---------- */
+.quick { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
+.quick .btn { font-size: 14.5px; padding: 10px 16px; }
+
+.share-grid { display: grid; grid-template-columns: 1fr auto; gap: 20px; align-items: center; }
+@media (max-width: 640px) { .share-grid { grid-template-columns: 1fr; } }
+.share-qr {
+  width: 156px; height: 156px; flex: none;
+  background: #fff; border: 1px solid var(--line); border-radius: 14px;
+  padding: 10px; display: grid; place-items: center;
+}
+.share-qr svg { width: 100%; height: 100%; display: block; }
+.share-cat { font-weight: 600; margin-bottom: 8px; }
+.share-pick { margin-bottom: 12px; }
+.share-pick select { width: auto; min-width: 200px; }
+
+/* мини-превью ссылки «как увидит она при отправке» (в духе карточки мессенджера) */
+.og-preview {
+  display: flex; align-items: stretch;
+  margin-top: 14px; max-width: 380px;
+  border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
+  background: rgba(255, 255, 255, .7);
+}
+.og-preview .og-img {
+  width: 84px; height: 84px; object-fit: cover; flex: none; display: block;
+}
+.og-preview .og-text { padding: 10px 12px; min-width: 0; align-self: center; }
+.og-preview .og-title {
+  font-weight: 600; font-size: 14px; color: var(--ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.og-preview .og-desc {
+  font-size: 12.5px; color: var(--muted); margin-top: 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.og-preview .og-host {
+  font-size: 11.5px; color: var(--muted); margin-top: 4px; text-transform: lowercase;
+}
+
+/* ---------- дружелюбные пустые состояния ---------- */
+.empty-state {
+  text-align: center; padding: 46px 20px;
+  color: var(--muted);
+}
+.empty-state .big { font-size: 46px; margin-bottom: 10px; }
+.empty-state p { margin: 0 0 16px; font-size: 15px; }
+.empty-state .btn.primary { font-size: 14.5px; }
+
+/* числа дашборда — серифом, в тон гостевой */
+.stat b { font-family: var(--serif); color: var(--rose-2); }

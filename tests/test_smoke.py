@@ -985,6 +985,39 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert "Лист 01" in p2 and "Ужин на крыше" in p2
     step("пагинация: 30 на страницу, старые уезжают на следующую")
 
+    # ---------- редизайн кабинета (date4you): форма, список, дашборд ----------
+    main._rates.clear()
+    apost(c, "/admin/categories/create", {"name": "Поделись-кат"})
+    # форма создания: сплит-превью, тулбар разметки, узлы предпросмотра
+    nf = c.get("/admin/dates/new").text
+    assert 'class="split"' in nf and 'class="preview-col"' in nf
+    assert 'id="descToolbar"' in nf and 'data-wrap="**|**"' in nf
+    assert 'data-preview="title"' in nf and 'data-preview="desc"' in nf
+    assert 'data-bind="title"' in nf and 'data-bind="pay"' in nf
+    # форма по-прежнему шлёт те же поля + CSRF (роут не сломан)
+    assert 'name="name"' in nf and 'name="csrf"' in nf and 'name="categories"' in nf
+
+    # список карточками по умолчанию: сетка, бейджи, меню ⋯, переключатель вида
+    lp = c.get("/admin/dates").text
+    assert 'class="grid"' in lp and 'class="dcard' in lp
+    assert 'class="more"' in lp and 'id="viewtog"' in lp
+    assert "дата гибкая" in lp                       # вместо «—»
+    # карточки несут CSRF в формах действий (меню ⋯)
+    assert lp.count('name="csrf"') >= 3
+    # переключение вида через cookie → SSR рисует таблицу
+    c.cookies.set("layout", "list")
+    lt = c.get("/admin/dates").text
+    assert "<table" in lt and 'class="grid"' not in lt
+    c.cookies.set("layout", "cards")
+    assert 'class="grid"' in c.get("/admin/dates").text
+
+    # дашборд: блок «Поделиться» с QR-кодом (инлайновый SVG) и ссылкой
+    sh = c.get("/admin/").text
+    assert "Поделиться" in sh and "<svg" in sh        # QR нарисован на сервере
+    assert "/c/" in sh and "Копировать" in sh
+    assert "date4you" in c.get("/admin/dates").text   # ребренд в шапке
+    step("редизайн: сплит-форма с превью, список карточками + переключатель, QR на дашборде")
+
     # ---------- выход только по POST ----------
     assert c.get("/admin/logout").status_code == 405
     r = apost(c, "/admin/logout", {})

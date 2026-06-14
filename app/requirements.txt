@@ -9,3 +9,4 @@ httpx==0.28.1
 pillow==12.1.1
 tzdata==2026.2
 pillow-heif==1.4.0    # HEIC/HEIF с айфонов «как есть»
+segno==1.6.6          # QR-код ссылки на сервере (чистый Python, без PIL)

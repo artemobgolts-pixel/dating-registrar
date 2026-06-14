@@ -286,9 +286,111 @@ window.UI = (() => {
     });
   }
 
+  /* --- Редактор свидания: тулбар разметки + живой предпросмотр ---------- */
+  /* Делегированно, без инлайнов. renderMarkup повторяет helpers.rich():
+     сначала экранируем HTML, затем те же правила в том же порядке —
+     ссылки, **жирный**, __подчёркнутый__, ~~зачёркнутый~~, *курсив*. */
+  function escapeHTML(s) {
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+            .replace(/"/g, "&#34;").replace(/'/g, "&#39;");
+  }
+
+  function renderMarkup(text) {
+    if (!text) return "";
+    var s = escapeHTML(text);
+    // [текст](https://…) — как _RICH_LINK на сервере (текст ≤100, url ≤500)
+    s = s.replace(/\[([^\]\n]{1,100})\]\((https?:\/\/[^\s)]{1,500})\)/g,
+                  '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    s = s.replace(/\*\*([\s\S]+?)\*\*/g, "<b>$1</b>");
+    s = s.replace(/__([\s\S]+?)__/g, "<u>$1</u>");
+    s = s.replace(/~~([\s\S]+?)~~/g, "<s>$1</s>");
+    s = s.replace(/\*([\s\S]+?)\*/g, "<i>$1</i>");
+    return s;
+  }
+
+  function editorPreview(form) {
+    var pv = {};
+    var scope = form.closest(".split") || document;
+    scope.querySelectorAll("[data-preview]").forEach(function (el) {
+      pv[el.getAttribute("data-preview")] = el;
+    });
+    var descPrev = document.getElementById("descPreview");
+
+    function field(name) { return form.querySelector('[data-bind="' + name + '"]'); }
+
+    function sync() {
+      var title = field("title");
+      if (title && pv.title) pv.title.textContent = title.value || "Без названия";
+
+      var desc = field("desc");
+      var html = desc ? renderMarkup(desc.value) : "";
+      if (pv.desc) pv.desc.innerHTML = html;
+      if (descPrev) descPrev.innerHTML = desc && desc.value ? "превью: " + html : "";
+
+      var pay = field("pay");
+      if (pay && pv.pay) pv.pay.hidden = !pay.checked;
+
+      var place = field("place");
+      if (place && pv.meta) {
+        var v = (place.value || "").trim();
+        if (!v) { pv.meta.textContent = ""; }
+        else if (/^https?:\/\//.test(v)) { pv.meta.textContent = "📍 Место на карте"; }
+        else { pv.meta.textContent = "📍 " + v; }
+      }
+    }
+
+    // один делегированный слушатель ввода на всю форму
+    form.addEventListener("input", sync);
+    form.addEventListener("change", sync);
+
+    // тулбар: оборачиваем ВЫДЕЛЕННЫЙ текст маркерами data-wrap="до|после"
+    form.querySelectorAll(".toolbar [data-wrap]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var bar = btn.closest(".toolbar");
+        var ta = document.getElementById(bar.getAttribute("data-target"));
+        if (!ta) return;
+        var parts = btn.getAttribute("data-wrap").split("|");
+        var a = parts[0], b = parts[1] || "";
+        var s = ta.selectionStart, e = ta.selectionEnd, v = ta.value;
+        var sel = v.slice(s, e);
+        ta.value = v.slice(0, s) + a + sel + b + v.slice(e);
+        if (sel) { ta.selectionStart = s + a.length; ta.selectionEnd = e + a.length; }
+        else { ta.selectionStart = ta.selectionEnd = s + a.length; }
+        ta.focus();
+        sync();
+      });
+    });
+
+    sync();
+  }
+
+  /* --- Меню «⋯» на карточках списка (делегированно, клик-вне закрывает) -- */
+  function cardMenu(root) {
+    root = root || document;
+    root.addEventListener("click", function (e) {
+      var btn = e.target.closest(".more");
+      if (btn && root.contains(btn)) {
+        e.stopPropagation();
+        var menu = btn.querySelector(".menu");
+        var wasOpen = menu && menu.classList.contains("open");
+        root.querySelectorAll(".menu.open").forEach(function (m) { m.classList.remove("open"); });
+        if (menu && !wasOpen) menu.classList.add("open");
+        return;
+      }
+      // клик по пункту меню не должен его закрывать раньше времени —
+      // но любой клик вне кнопки ⋯ закрывает все открытые меню
+      if (!e.target.closest(".menu")) {
+        root.querySelectorAll(".menu.open").forEach(function (m) { m.classList.remove("open"); });
+      }
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape")
+        root.querySelectorAll(".menu.open").forEach(function (m) { m.classList.remove("open"); });
+    });
+  }
+
   /* --- POST с прогрессом загрузки (fetch не умеет upload-progress) ------- */
-  function postWithProgress(url, formData, onProgress) {
-    return new Promise((resolve) => {
+  function postWithProgress(url, formData, onProgress) {    return new Promise((resolve) => {
       const xhr = new XMLHttpRequest();
       xhr.open("POST", url);
       if (xhr.upload && onProgress) {
@@ -306,5 +408,6 @@ window.UI = (() => {
     });
   }
 
-  return { sortable, burst, uploader, dateChips, postWithProgress };
+  return { sortable, burst, uploader, dateChips, postWithProgress,
+           editorPreview, cardMenu, renderMarkup };
 })();

@@ -2,36 +2,95 @@
 {% block title %}Свидания{% endblock %}
 {% block content %}
 <div class="bar">
-  <h1 style="margin:0">Свидания</h1>
+  <h1 class="serif" style="margin:0">Свидания</h1>
   <a class="btn primary" href="/admin/dates/new">+ Новое свидание</a>
 </div>
 
-<div class="tabs">
-  <a href="/admin/dates?view=active{{ qs_keep }}" class="{{ 'on' if view == 'active' else '' }}">Активные</a>
-  <a href="/admin/dates?view=drafts{{ qs_keep }}" class="{{ 'on' if view == 'drafts' else '' }}">Черновики{% if drafts_n %} <span class="pill">{{ drafts_n }}</span>{% endif %}</a>
-  <a href="/admin/dates?view=archived{{ qs_keep }}" class="{{ 'on' if view == 'archived' else '' }}">Архив</a>
+<div class="controls">
+  <div class="tabs">
+    <a href="/admin/dates?view=active{{ qs_keep }}" class="{{ 'on' if view == 'active' else '' }}">Активные</a>
+    <a href="/admin/dates?view=drafts{{ qs_keep }}" class="{{ 'on' if view == 'drafts' else '' }}">Черновики{% if drafts_n %} <span class="pill">{{ drafts_n }}</span>{% endif %}</a>
+    <a href="/admin/dates?view=archived{{ qs_keep }}" class="{{ 'on' if view == 'archived' else '' }}">Архив</a>
+  </div>
+
+  <form method="get" action="/admin/dates" class="filters">
+    <input type="hidden" name="view" value="{{ view }}">
+    <select name="sort" data-autosubmit>
+      <option value="new" {{ 'selected' if sort == 'new' }}>Сначала новые</option>
+      <option value="when" {{ 'selected' if sort == 'when' }}>По дате свидания</option>
+      <option value="book" {{ 'selected' if sort == 'book' }}>По броням 💝</option>
+    </select>
+    <select name="f" data-autosubmit>
+      <option value="">Все свидания</option>
+      <option value="guest" {{ 'selected' if flt == 'guest' }}>Только от гостей</option>
+      <option value="booked" {{ 'selected' if flt == 'booked' }}>С бронью 💝</option>
+      <option value="nodate" {{ 'selected' if flt == 'nodate' }}>Без даты</option>
+    </select>
+    <select name="cat" data-autosubmit>
+      <option value="">Все категории</option>
+      {% for c in cats %}<option value="{{ c['id'] }}" {{ 'selected' if cat == c['id'] | string }}>{{ c['name'] }}</option>{% endfor %}
+    </select>
+  </form>
+
+  <div class="viewtog" id="viewtog">
+    <a href="#" data-layout="cards" class="{{ 'on' if layout == 'cards' else '' }}">🪟 Карточки</a>
+    <a href="#" data-layout="list" class="{{ 'on' if layout == 'list' else '' }}">☰ Список</a>
+  </div>
 </div>
 
-<form method="get" action="/admin/dates" class="filters">
-  <input type="hidden" name="view" value="{{ view }}">
-  <select name="sort" data-autosubmit>
-    <option value="new" {{ 'selected' if sort == 'new' }}>Сначала новые</option>
-    <option value="when" {{ 'selected' if sort == 'when' }}>По дате свидания</option>
-    <option value="book" {{ 'selected' if sort == 'book' }}>По броням 💝</option>
-  </select>
-  <select name="f" data-autosubmit>
-    <option value="">Все свидания</option>
-    <option value="guest" {{ 'selected' if flt == 'guest' }}>Только от гостей</option>
-    <option value="booked" {{ 'selected' if flt == 'booked' }}>С бронью 💝</option>
-    <option value="nodate" {{ 'selected' if flt == 'nodate' }}>Без даты</option>
-  </select>
-  <select name="cat" data-autosubmit>
-    <option value="">Все категории</option>
-    {% for c in cats %}<option value="{{ c['id'] }}" {{ 'selected' if cat == c['id'] | string }}>{{ c['name'] }}</option>{% endfor %}
-  </select>
-</form>
-
 {% if rows %}
+{% if layout == 'cards' %}
+<div class="grid">
+  {% for r in rows %}
+  <div class="dcard{{ ' archived' if r['archived_at'] else '' }}">
+    <div class="ph g{{ r['id'] % 4 }}">
+      {% if r['cover'] %}<img src="/admin/uploads/{{ r['cover'] }}" alt="" loading="lazy">{% endif %}
+      <div class="badges">
+        {% if r['pay_split'] %}<span class="bdg pay">💸 50/50</span>{% endif %}
+        {% if r['origin'] == 'guest' %}<span class="bdg guest">💡 от гостя</span>{% endif %}
+        {% if r['is_draft'] %}<span class="bdg draft">{{ 'на модерации' if r['origin'] == 'guest' else 'черновик' }}</span>{% endif %}
+        {% if r['booked_names'] %}<span class="bdg book">💝 {{ r['booked_names'] }}</span>{% endif %}
+      </div>
+    </div>
+    <div class="b">
+      <h3 class="ttl serif"><a href="/admin/dates/{{ r['id'] }}/edit">{{ r['name'] }}</a></h3>
+      <div class="meta">
+        {{ r['starts_at'] | when(r['ends_at']) or 'дата гибкая' }}{% if r['books'] %} · {{ r['books'] }} {{ r['books'] | plural('бронь', 'брони', 'броней') }}{% endif %}
+        {% if not cat and r['cats'] %}<br>{{ r['cats'] }}{% endif %}
+      </div>
+      <div class="foot">
+        <a class="edit" href="/admin/dates/{{ r['id'] }}/edit">Редактировать</a>
+        <button type="button" class="more" aria-label="Ещё действия">⋯<div class="menu">
+          {% if r['is_draft'] and not r['archived_at'] %}
+          <form method="post" action="/admin/dates/{{ r['id'] }}/publish">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <input type="hidden" name="next" value="/admin/dates?view={{ view }}{{ qs_keep }}">
+            <button type="submit">✓ Опубликовать</button>
+          </form>
+          {% endif %}
+          <form method="post" action="/admin/dates/{{ r['id'] }}/clone">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <input type="hidden" name="next" value="/admin/dates?view={{ view }}{{ qs_keep }}">
+            <button type="submit">📋 Дублировать</button>
+          </form>
+          <form method="post" action="/admin/dates/{{ r['id'] }}/archive">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <input type="hidden" name="next" value="/admin/dates?view={{ view }}{{ qs_keep }}">
+            <button type="submit">{{ '↩ Вернуть из архива' if r['archived_at'] else '🗄 В архив' }}</button>
+          </form>
+          <div class="sepa"></div>
+          <form method="post" action="/admin/dates/{{ r['id'] }}/delete"
+                data-confirm="Удалить свидание безвозвратно? Фото, брони и вопросы к нему тоже удалятся.">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <button type="submit" class="danger">🗑 Удалить</button>
+          </form>
+        </div></button>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
 <div class="card">
 <div class="table-wrap">
 <table>
@@ -42,8 +101,9 @@
       <a href="/admin/dates/{{ r['id'] }}/edit">{{ r['name'] }}</a>
       {% if r['is_draft'] %}<span class="badge amber">{{ 'на модерации' if r['origin'] == 'guest' else 'черновик' }}</span>{% endif %}
       {% if r['origin'] == 'guest' %}<span class="badge">💡 от гостя</span>{% endif %}
+      {% if r['pay_split'] %}<span class="badge rose">💸 50/50</span>{% endif %}
     </td>
-    <td class="muted">{{ r['starts_at'] | when(r['ends_at']) or '—' }}</td>
+    <td class="muted">{{ r['starts_at'] | when(r['ends_at']) or 'дата гибкая' }}</td>
     <td class="muted">{{ r['cats'] or '—' }}</td>
     <td>
       {{ r['books'] or '—' }}
@@ -81,6 +141,8 @@
 </table>
 </div>
 </div>
+{% endif %}
+
 {% if pages > 1 %}
 <div class="pager">
   {% if page > 1 %}<a class="btn small" href="/admin/dates?view={{ view }}{{ qs_keep }}&page={{ page - 1 }}">← Назад</a>{% endif %}
@@ -88,11 +150,44 @@
   {% if page < pages %}<a class="btn small" href="/admin/dates?view={{ view }}{{ qs_keep }}&page={{ page + 1 }}">Вперёд →</a>{% endif %}
 </div>
 {% endif %}
+
 {% else %}
-<p class="muted">
-  {% if view == 'archived' %}Архив пуст.
-  {% elif view == 'drafts' %}Черновиков нет. Сюда попадают скрытые от гостей свидания и предложения на модерации.
-  {% else %}Пока нет свиданий — создай первое.{% endif %}
-</p>
+<div class="card">
+  <div class="empty-state">
+    {% if view == 'archived' %}
+    <div class="big">🗄</div>
+    <p>Архив пуст. Сюда уезжают прошедшие свидания.</p>
+    {% elif view == 'drafts' %}
+    <div class="big">📝</div>
+    <p>Черновиков нет. Сюда попадают скрытые от гостьи свидания и предложения на модерации.</p>
+    <a class="btn primary" href="/admin/dates/new">+ Создать свидание</a>
+    {% else %}
+    <div class="big">🌷</div>
+    <p>Пока нет ни одного свидания — давай создадим первое.</p>
+    <a class="btn primary" href="/admin/dates/new">+ Создать свидание</a>
+    {% endif %}
+  </div>
+</div>
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+(function () {
+  if (window.UI && UI.cardMenu) UI.cardMenu(document);
+
+  // переключатель вида: cookie + перезагрузка (SSR сразу рисует нужный вид)
+  var tog = document.getElementById('viewtog');
+  if (tog) {
+    tog.addEventListener('click', function (e) {
+      var a = e.target.closest('[data-layout]');
+      if (!a) return;
+      e.preventDefault();
+      var v = a.getAttribute('data-layout');
+      document.cookie = 'layout=' + v + ';path=/admin;max-age=31536000;samesite=lax';
+      location.reload();
+    });
+  }
+})();
+</script>
 {% endblock %}
