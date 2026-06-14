@@ -1,0 +1,11 @@
+# Нормализация переводов строк: в репозитории всегда LF.
+# Без этого Windows-клиент закоммитит CRLF, и на проде (Linux) сломается
+# docker-entrypoint.sh («bad interpreter: /bin/sh^M»).
+* text=auto eol=lf
+
+# Бинарники не трогаем
+*.woff2 binary
+*.png   binary
+*.ico   binary
+*.jpg   binary
+*.webp  binary

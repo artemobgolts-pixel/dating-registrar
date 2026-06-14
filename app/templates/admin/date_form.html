@@ -1,0 +1,240 @@
+{% extends "admin/base.html" %}
+{% block title %}{{ 'Редактировать свидание' if date else 'Новое свидание' }}{% endblock %}
+{% block content %}
+<div class="bar">
+  <h1 style="margin:0">{{ 'Редактировать свидание' if date else 'Новое свидание' }}</h1>
+  <a class="btn" href="/admin/dates">← К списку</a>
+</div>
+
+{% if date and date['origin'] == 'guest' %}
+<div class="card" style="background:#fdf8f1;border-color:#f1e2c8">
+  💡 Это свидание предложил(а) <b>{{ proposer }}</b>.
+  {% if date['is_draft'] %}<br>⏳ Оно ждёт модерации: сними галочку «Черновик» и сохрани — или нажми «Опубликовать» ниже.{% endif %}
+</div>
+{% endif %}
+
+{% if date and booked %}
+<div class="card" style="background:#fdf4f6;border-color:#f0d9de">
+  <b>💝 Выбор гостей</b>
+  <div style="margin-top:8px;display:grid;gap:6px">
+    {% for b in booked %}
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <span>{{ b['name'] }} <span class="muted">— «{{ b['cat'] }}»</span></span>
+      <form class="inline" method="post" action="/admin/bookings/{{ b['bid'] }}/delete"
+            data-confirm="Снять выбор гостя «{{ b['name'] }}»? Свидание снова станет свободным.">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="next" value="/admin/dates/{{ date['id'] }}/edit">
+        <button class="btn small danger" type="submit">✕ снять</button>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<form method="post" enctype="multipart/form-data" class="card">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <div class="field">
+    <label>Название *</label>
+    <input name="name" required maxlength="200" value="{{ date['name'] if date else '' }}">
+  </div>
+  <div class="field">
+    <label>Место — адрес или ссылка на карты (название подтянется само)</label>
+    <input name="place" maxlength="500" value="{{ (date['place'] or '') if date else '' }}">
+  </div>
+  <div class="field">
+    <label>Когда (мск)</label>
+    <div class="chips">
+      <button type="button" class="chip" data-day="today">Сегодня</button>
+      <button type="button" class="chip" data-day="tomorrow">Завтра</button>
+      <button type="button" class="chip" data-time="12:00">12:00</button>
+      <button type="button" class="chip" data-time="15:00">15:00</button>
+      <button type="button" class="chip" data-time="19:00">19:00</button>
+      <button type="button" class="chip" data-time="21:00">21:00</button>
+    </div>
+    <div class="grid2">
+      <div class="field" style="margin-bottom:0">
+        <label>Начало</label>
+        <input type="datetime-local" name="starts_at" id="fStart" value="{{ (date['starts_at'] or '') if date else '' }}">
+      </div>
+      <div class="field" style="margin-bottom:0">
+        <label>Конец — если это диапазон</label>
+        <input type="datetime-local" name="ends_at" id="fEnd" value="{{ (date['ends_at'] or '') if date else '' }}">
+        <div class="chips" style="margin:8px 0 0">
+          <button type="button" class="chip" data-dur="1">+1 час</button>
+          <button type="button" class="chip" data-dur="2">+2 часа</button>
+          <button type="button" class="chip" data-dur="3">+3 часа</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="field">
+    <label>Ссылки — каждая с новой строки</label>
+    <textarea name="links" placeholder="https://…">{{ links_text }}</textarea>
+  </div>
+  <div class="field">
+    <label>Комментарий <span class="muted" style="font-weight:400">— можно **жирный**, *курсив*, __подчёркнутый__, ~~зачёркнутый~~</span></label>
+    <textarea name="comment" maxlength="2000">{{ (date['comment'] or '') if date else '' }}</textarea>
+  </div>
+  <div class="field">
+    <label>Категории</label>
+    {% for c in cats %}
+    <label class="chk"><input type="checkbox" name="categories" value="{{ c['id'] }}" {% if c['id'] in checked %}checked{% endif %}> {{ c['name'] }}</label>
+    {% else %}
+    <span class="muted">категорий пока нет — <a href="/admin/categories">создать</a></span>
+    {% endfor %}
+  </div>
+  <div class="field">
+    <label>Добавить фото — осталось мест: {{ slots }} (до 10 МБ каждое)</label>
+    {% if slots > 0 %}
+    <div class="dropzone" id="adminZone">
+      <div class="dz-ico">📷</div>
+      <div class="dz-hint">нажми или перетащи фото сюда · плитки можно менять местами</div>
+      <input type="file" name="images" id="imagesInput" accept="image/*" multiple>
+      <div class="ptiles" id="newTiles"></div>
+    </div>
+    {% else %}
+    <p class="muted" style="margin:4px 0 0">Достигнут максимум — удали лишние фото ниже.</p>
+    {% endif %}
+  </div>
+  <div class="field">
+    <label>Видео — до 2 шт (mp4/webm, до 60 МБ каждое)</label>
+    <div class="dropzone" id="adminVidZone">
+      <div class="dz-ico">🎬</div>
+      <div class="dz-hint">нажми или перетащи видео сюда</div>
+      <input type="file" name="videos" id="videosInput" accept="video/mp4,video/webm" multiple>
+      <div class="ptiles" id="newVidTiles"></div>
+    </div>
+  </div>
+  <label class="chk"><input type="checkbox" name="pay" value="1" {% if date and date['pay_split'] %}checked{% endif %}> 💸 Оплата 50/50</label>
+  <label class="chk"><input type="checkbox" name="draft" value="1" {% if date and date['is_draft'] %}checked{% endif %}> Черновик — не показывать гостям</label>
+  <div style="margin-top:14px">
+    <button class="btn primary">Сохранить</button>
+  </div>
+</form>
+
+{% if date and photos %}
+<div class="card">
+  <b>Фотографии</b>
+  <p class="muted" style="margin:4px 0 0;font-size:13px">первое фото — обложка карточки; перетащи плитку, чтобы поменять порядок</p>
+  <div class="thumbs" id="thumbs" data-did="{{ date['id'] }}" style="margin-top:10px">
+    {% for p in photos %}
+    <div class="thumb" data-pid="{{ p['id'] }}">
+      <img src="/admin/uploads/{{ p['filename'] }}" alt="" draggable="false">
+      <div class="thumb-btns">
+        <a class="btn small" href="/admin/uploads/{{ p['filename'] }}" target="_blank" rel="noopener" title="Открыть">⤢</a>
+        <form class="inline" method="post" action="/admin/dates/{{ date['id'] }}/images/{{ p['id'] }}/delete"
+              data-confirm="Удалить фото?">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button class="btn small danger">✕</button>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  <p class="muted" id="orderStatus" style="font-size:12.5px;margin:8px 0 0;visibility:hidden">Порядок сохранён ✓</p>
+</div>
+{% endif %}
+
+{% if date and videos %}
+<div class="card">
+  <b>Видео</b>
+  <div style="margin-top:10px;display:grid;gap:10px">
+    {% for v in videos %}
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <video src="/admin/uploads/{{ v['filename'] }}" controls preload="metadata"
+             style="width:min(100%,360px);border-radius:12px;background:#000"></video>
+      <form class="inline" method="post"
+            action="/admin/dates/{{ date['id'] }}/videos/{{ v['id'] }}/delete"
+            data-confirm="Удалить видео?">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button class="btn small danger">✕ удалить</button>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{% if date %}
+<div class="card">
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    {% if date['is_draft'] %}
+    <form class="inline" method="post" action="/admin/dates/{{ date['id'] }}/publish">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="next" value="/admin/dates/{{ date['id'] }}/edit">
+      <button class="btn primary">Опубликовать</button>
+    </form>
+    {% endif %}
+    <form class="inline" method="post" action="/admin/dates/{{ date['id'] }}/archive">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="next" value="/admin/dates/{{ date['id'] }}/edit">
+      <button class="btn">{{ 'Вернуть из архива' if date['archived_at'] else 'В архив' }}</button>
+    </form>
+    <form class="inline" method="post" action="/admin/dates/{{ date['id'] }}/delete"
+          data-confirm="Удалить свидание безвозвратно? Фото, брони и вопросы к нему тоже удалятся.">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button class="btn danger">Удалить свидание</button>
+    </form>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+(function () {
+  var form = document.querySelector('form.card');
+  var start = document.getElementById('fStart');
+  var end = document.getElementById('fEnd');
+  if (form && start) UI.dateChips(form, start, end);
+
+  var inp = document.getElementById('imagesInput');
+  if (inp) {
+    UI.uploader({
+      zone: document.getElementById('adminZone'),
+      input: inp,
+      preview: document.getElementById('newTiles'),
+      max: {{ slots if slots and slots > 0 else 0 }},
+      keptCount: function () { return 0; }
+    });
+  }
+
+  var vinp = document.getElementById('videosInput');
+  if (vinp) {
+    UI.uploader({
+      zone: document.getElementById('adminVidZone'),
+      input: vinp,
+      preview: document.getElementById('newVidTiles'),
+      kind: 'video',
+      max: {{ 2 - (videos | length) if videos else 2 }},
+      keptCount: function () { return 0; }
+    });
+  }
+
+  var th = document.getElementById('thumbs');
+  if (th) {
+    UI.sortable(th, { selector: '.thumb', onChange: function () {
+      var order = Array.prototype.map.call(
+        th.querySelectorAll('.thumb'),
+        function (t) { return t.dataset.pid; }
+      ).join(',');
+      var fd = new FormData();
+      fd.append('csrf', document.body.dataset.csrf);
+      fd.append('order', order);
+      fetch('/admin/dates/' + th.dataset.did + '/images/reorder', { method: 'POST', body: fd })
+        .then(function (r) {
+          var s = document.getElementById('orderStatus');
+          if (r.ok) {
+            s.style.visibility = 'visible';
+            setTimeout(function () { s.style.visibility = 'hidden'; }, 1600);
+          } else {
+            alert('Не удалось сохранить порядок — обнови страницу');
+          }
+        })
+        .catch(function () { alert('Нет связи — порядок не сохранён'); });
+    }});
+  }
+})();
+</script>
+{% endblock %}

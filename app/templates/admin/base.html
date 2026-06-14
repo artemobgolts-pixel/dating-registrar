@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>{% block title %}Админка{% endblock %} · boris-i-love-you</title>
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='80' font-size='80'&gt;%E2%9D%A4&lt;/text&gt;&lt;/svg&gt;">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<link rel="stylesheet" href="/static/admin.css">
+</head>
+<body data-csrf="{{ csrf }}">
+<div class="bg-smoke" aria-hidden="true">
+  <svg class="turb" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice">
+    <defs>
+      <radialGradient id="smokeFade" cx="50%" cy="42%" r="62%">
+        <stop offset="0%" stop-color="#b65f6f" stop-opacity="0.5"/>
+        <stop offset="55%" stop-color="#cf7d92" stop-opacity="0.28"/>
+        <stop offset="100%" stop-color="#cf7d92" stop-opacity="0"/>
+      </radialGradient>
+      <filter id="smokeWisp" x="-30%" y="-30%" width="160%" height="160%">
+        <feTurbulence type="fractalNoise" baseFrequency="0.006 0.011" numOctaves="4"
+                      seed="11" stitchTiles="stitch" result="noise">
+          <animate attributeName="baseFrequency" dur="42s"
+                   values="0.006 0.011;0.008 0.014;0.006 0.011" repeatCount="indefinite"/>
+        </feTurbulence>
+        <feDisplacementMap in="SourceGraphic" in2="noise" scale="230"
+                           xChannelSelector="R" yChannelSelector="G"/>
+        <feGaussianBlur stdDeviation="7"/>
+      </filter>
+    </defs>
+    <g filter="url(#smokeWisp)">
+      <ellipse class="plume p1" cx="30%" cy="28%" rx="24%" ry="40%" fill="url(#smokeFade)"/>
+      <ellipse class="plume p2" cx="72%" cy="40%" rx="22%" ry="42%" fill="url(#smokeFade)"/>
+      <ellipse class="plume p3" cx="48%" cy="68%" rx="28%" ry="44%" fill="url(#smokeFade)"/>
+    </g>
+  </svg>
+  <span></span><span></span><span></span>
+</div>
+<header class="top">
+  <a class="brand" href="/admin/">♥ админка</a>
+  <nav>
+    <a href="/admin/" class="{{ 'on' if active == 'dash' else '' }}">Главная</a>
+    <a href="/admin/categories" class="{{ 'on' if active == 'cats' else '' }}">Категории</a>
+    <a href="/admin/dates" class="{{ 'on' if active == 'dates' else '' }}">Свидания</a>
+    <a href="/admin/questions" class="{{ 'on' if active == 'q' else '' }}">Вопросы{% if unread %} <span class="pill">{{ unread }}</span>{% endif %}</a>
+    <form class="inline" method="post" action="/admin/logout">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button class="linklike exit">Выйти</button>
+    </form>
+  </nav>
+</header>
+<main class="wrap">
+{% set m = request.query_params.get('msg') %}
+{% if m %}<div class="flash{{ ' err' if m.startswith('⚠') else '' }}">{{ m }}</div>{% endif %}
+{% block content %}{% endblock %}
+</main>
+<script src="/static/ink.js" defer></script>
+<script src="/static/ui.js"></script>
+<script nonce="{{ csp_nonce }}">
+function copyText(t, btn) {
+  navigator.clipboard.writeText(t).then(function () {
+    var o = btn.textContent;
+    btn.textContent = 'Скопировано ✓';
+    setTimeout(function () { btn.textContent = o; }, 1500);
+  });
+}
+/* CSP без 'unsafe-inline': бывшие inline-обработчики — через делегирование */
+document.addEventListener('submit', function (e) {
+  var msg = e.target.getAttribute('data-confirm');
+  if (msg && !confirm(msg)) e.preventDefault();
+});
+document.addEventListener('click', function (e) {
+  var b = e.target.closest('[data-copy]');
+  if (b) copyText(b.getAttribute('data-copy'), b);
+});
+document.addEventListener('change', function (e) {
+  if (e.target.matches('[data-autosubmit]')) e.target.form.submit();
+});
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

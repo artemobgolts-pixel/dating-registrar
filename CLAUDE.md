@@ -1,0 +1,57 @@
+# CLAUDE.md — памятка для Claude Code
+
+Сайт планирования свиданий для двоих. Production: https://boris-i-love-you.online
+Язык интерфейса, комментариев и коммитов — **русский**.
+
+## Стек и структура
+
+FastAPI + SQLite (WAL) + Jinja2 + Pillow. Деплой: Docker Compose + Caddy 2 (TLS сам).
+
+```
+app/
+  main.py        — все роуты (публичные /c/<токен>/... и админка /admin/...)
+  db.py          — схема и миграции (PRAGMA user_version)
+  images.py      — приём фото (WebP, лимиты), backup.py — снимки базы, notify.py — Telegram
+  docker-entrypoint.sh — чинит права на /data и понижает привилегии до appuser
+  static/        — public.css (гостевая), admin.css, ui.js (sortable/uploader/чипы/конфетти)
+  templates/     — public/ и admin/ (Jinja2)
+tests/test_smoke.py — смоук-тесты (httpx ASGI, без сети)
+data/            — база, фото, бэкапы; НЕ в гите, никогда не трогать и не коммитить
+```
+
+## Команды
+
+```bash
+# локальный запуск (из app/)
+DATA_DIR=../data-dev COOKIE_SECURE=false SECRET_KEY=dev ADMIN_PASSWORD=dev uvicorn main:app --reload
+
+# тесты (из корня репозитория)
+python tests/test_smoke.py
+```
+
+Перед коммитом тесты должны быть зелёные. Зависимости: `pip install -r app/requirements.txt`.
+
+## Правила проекта
+
+- **Миграции.** Любое изменение схемы = новая запись в `MIGRATIONS` в `db.py`
+  + увеличить `LATEST_VERSION` + продублировать изменение в `SCHEMA` (для свежих баз).
+  Старые базы докатываются автоматически при старте — миграции не редактировать задним числом.
+- **Один воркер uvicorn.** Лимиты запросов и троттлинг входа живут в памяти процесса.
+  Не добавлять `--workers N`.
+- **Фото** не отдаются напрямую: только через `/c/<токен>/image/<файл>` (с проверками)
+  и `/admin/uploads/<файл>`. Не монтировать `/uploads` в StaticFiles.
+- **CSRF**: каждая POST-форма админки несёт `<input type="hidden" name="csrf" value="{{ csrf }}">`;
+  fetch-запросы админки берут токен из `document.body.dataset.csrf`.
+- **Гости**: перед любым действием требуется имя (сервер отвечает 412 `{need_name: true}`,
+  фронт открывает диалог). Бронь — одна на гостя в категории (UNIQUE в `bookings`).
+- **Стиль**: «романтический минимализм» — крем `#faf5f2`, роза `#b65f6f`/`#8f4a58`,
+  Cormorant Garamond (self-hosted, Google Fonts не подключать). Анимации уважают
+  `prefers-reduced-motion`.
+- **CSP без `unsafe-inline` для скриптов.** Любой инлайновый `<script>` обязан нести
+  `nonce="{{ csp_nonce }}"`. Атрибуты `onclick`/`onsubmit`/`onchange` запрещены —
+  есть `data-confirm`, `data-copy`, `data-autosubmit` (делегирование в `admin/base.html`)
+  или `addEventListener`.
+- **IP клиента** для лимитов — только через `client_ip()` (читает `X-Real-IP`,
+  который перезаписывает Caddy). `request.client` напрямую не использовать.
+- Правки делай точечными и минимальными; не переименовывай публичные URL без необходимости.
+- Версии зависимостей в `requirements.txt` запинены — обновлять осознанно, прогоняя тесты.

@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>{{ cat.name }}</title>
+  <meta property="og:title" content="Тебя ждёт сюрприз ♥">
+  <meta property="og:description" content="Открой — внутри кое-что приятное">
+  <meta property="og:image" content="{{ BASE_URL }}/static/og.png">
+  <meta property="og:type" content="website">
+  <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>♥</text></svg>">
+  <link rel="stylesheet" href="/static/public.css">
+</head>
+<body data-token="{{ token }}" data-name="{{ guest_name or '' }}">
+
+<div class="bg-hearts" aria-hidden="true">
+  <span>♥</span><span>♡</span><span>♥</span><span>♡</span><span>♥</span><span>♡</span><span>♥</span>
+</div>
+<div class="bg-smoke" aria-hidden="true">
+  <svg class="turb" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice">
+    <defs>
+      <radialGradient id="smokeFade" cx="50%" cy="42%" r="62%">
+        <stop offset="0%" stop-color="#b65f6f" stop-opacity="0.55"/>
+        <stop offset="55%" stop-color="#cf7d92" stop-opacity="0.32"/>
+        <stop offset="100%" stop-color="#cf7d92" stop-opacity="0"/>
+      </radialGradient>
+      <filter id="smokeWisp" x="-30%" y="-30%" width="160%" height="160%">
+        <feTurbulence type="fractalNoise" baseFrequency="0.006 0.011" numOctaves="4"
+                      seed="11" stitchTiles="stitch" result="noise">
+          <animate attributeName="baseFrequency" dur="42s"
+                   values="0.006 0.011;0.008 0.014;0.006 0.011" repeatCount="indefinite"/>
+        </feTurbulence>
+        <feDisplacementMap in="SourceGraphic" in2="noise" scale="230"
+                           xChannelSelector="R" yChannelSelector="G"/>
+        <feGaussianBlur stdDeviation="7"/>
+      </filter>
+    </defs>
+    <!-- мягкие плюмы дыма: размытый овал прогоняется через турбулентное
+         смещение → получаются вьющиеся струйки, как от сигареты -->
+    <g filter="url(#smokeWisp)">
+      <ellipse class="plume p1" cx="30%" cy="28%" rx="24%" ry="40%" fill="url(#smokeFade)"/>
+      <ellipse class="plume p2" cx="72%" cy="40%" rx="22%" ry="42%" fill="url(#smokeFade)"/>
+      <ellipse class="plume p3" cx="48%" cy="68%" rx="28%" ry="44%" fill="url(#smokeFade)"/>
+    </g>
+  </svg>
+  <span></span><span></span><span></span>
+</div>
+
+<!-- Фильтр преломления для «жидкого стекла» карточек (backdrop-filter: url).
+     Чистый SVG, без скриптов — под нашу CSP. Браузеры без поддержки
+     backdrop-filter: url() просто получают матовое стекло без искажения. -->
+<svg class="glass-defs" aria-hidden="true" focusable="false" width="0" height="0">
+  <filter id="glassWarp" x="-20%" y="-20%" width="140%" height="140%"
+          color-interpolation-filters="sRGB">
+    <feTurbulence type="fractalNoise" baseFrequency="0.011 0.013"
+                  numOctaves="2" seed="7" stitchTiles="stitch" result="n"/>
+    <feGaussianBlur in="n" stdDeviation="1.2" result="nb"/>
+    <feDisplacementMap in="SourceGraphic" in2="nb" scale="22"
+                       xChannelSelector="R" yChannelSelector="G"/>
+  </filter>
+</svg>
+
+<div class="wrap">
+  <header class="hero">
+    <h1>{{ cat.name }}</h1>
+    <div class="hearts" aria-hidden="true"><span>♥</span><span>♥</span><span>♥</span></div>
+    <div class="greet" id="greet" {% if not guest_name %}hidden{% endif %}>
+      <span class="g-heart" aria-hidden="true">♥</span>
+      <b id="greetName">{{ guest_name or '' }}</b>
+      <button type="button" id="greetEdit" aria-label="Изменить имя" title="Изменить имя">✎</button>
+    </div>
+    {% if cat['description'] %}<p class="cat-desc">{{ cat['description'] | rich }}</p>{% endif %}
+    {% if regular or past %}
+    <div class="count-line">{{ regular|length }} {{ regular|length | plural('свидание', 'свидания', 'свиданий') }}{% if past %} · {{ past|length }} в архиве{% endif %}</div>
+    {% endif %}
+  </header>
+
+  {% macro datecard(d) -%}
+  {% set badges %}
+    {%- if d.pending %}<span class="badge wait">⏳ ждёт проверки</span>
+    {%- elif d.origin == 'guest' and not d.past %}<span class="badge guest">💡 идея гостя</span>{% endif -%}
+    {%- if d.pay_split %}<span class="badge pay">💸 50/50</span>{% endif -%}
+  {% endset %}
+  <article class="card{% if d.past %} past{% endif %}{% if d.booked_by_me and not d.past %} booked-me{% endif %}{% if d.booked_others_list and not d.past and not d.booked_by_me %} booked-other{% endif %}"
+           id="date-{{ d.id }}" data-others="{{ d.booked_others }}">
+    {% if d.past %}{# архив: без капсулы-штампа, статус показывает оверлей «Было» #}
+    {% else %}<div class="seal"{% if not d.booked_by_me %} hidden{% endif %}>♥</div>{% endif %}
+    {% if d.images or d.videos %}
+    <div class="gal-wrap">
+      {% if badges | trim %}<div class="badges">{{ badges }}</div>{% endif %}
+      <div class="booked-overlay" aria-hidden="true">
+        <div class="bo-inner"><span class="bo-heart">{% if d.past %}♡{% else %}♥{% endif %}</span><span class="bo-text">{% if d.past %}Было{% else %}Забронировано{% endif %}</span>
+          <span class="bo-who">{% if d.booked_by_me %}{{ guest_name or 'ты ♥' }}{% elif d.booked_others_list %}{{ d.booked_others_list[0] }}{% endif %}</span>
+        </div>
+      </div>
+      <div class="gallery">
+        {% for im in d.images %}
+        <img src="/c/{{ token }}/image/{{ im['filename'] }}" alt=""
+             loading="{{ 'eager' if loop.first else 'lazy' }}"
+             {% if loop.first %}fetchpriority="high"{% endif %} decoding="async">
+        {% endfor %}
+        {% for v in d.videos %}
+        <video src="/c/{{ token }}/video/{{ v['filename'] }}" controls playsinline
+               preload="metadata"></video>
+        {% endfor %}
+      </div>
+    </div>
+    {% else %}
+    <div class="accent" aria-hidden="true"></div>
+    <div class="booked-overlay flat" aria-hidden="true">
+      <div class="bo-inner"><span class="bo-heart">{% if d.past %}♡{% else %}♥{% endif %}</span><span class="bo-text">{% if d.past %}Было{% else %}Забронировано{% endif %}</span>
+        <span class="bo-who">{% if d.booked_by_me %}{{ guest_name or 'ты ♥' }}{% elif d.booked_others_list %}{{ d.booked_others_list[0] }}{% endif %}</span>
+      </div>
+    </div>
+    {% endif %}
+    <div class="body">
+      {% if not d.images and badges | trim %}<div class="badges inflow">{{ badges }}</div>{% endif %}
+      <h2 class="title">{{ d.name }}</h2>
+      <div class="meta">
+        {% if d.starts_at %}
+        <div class="when"><span aria-hidden="true">🕐</span>
+          <span>{{ d.starts_at | when(d.ends_at) }}</span>
+          {% if not d.past and d.gcal %}
+          <a href="#" class="cal-link" data-gcal="{{ d.gcal }}"
+             data-ics="/c/{{ token }}/ics/{{ d.id }}">в календарь</a>
+          {% endif %}
+        </div>
+        {% elif not d.past and not d.pending %}
+        <div class="when">
+          <button type="button" class="chip-suggest suggest"
+                  data-id="{{ d.id }}" data-name="{{ d.name }}">📅 предложить дату</button>
+        </div>
+        {% endif %}
+        {% if d.place %}
+        <div class="place"><span aria-hidden="true">📍</span>
+          <span><a href="{{ d.place_url or (d.place | ymaps) }}" target="_blank" rel="noopener">{{ d.place | placename }}</a></span>
+        </div>
+        {% endif %}
+      </div>
+      {% if d.comment %}<p class="comment">{{ d.comment | rich }}</p>{% endif %}
+      {% if d.links %}
+      <div class="links">
+        {% for l in d.links %}<a href="{{ l.url }}" target="_blank" rel="noopener">🔗 {{ l.url | host }}</a>{% endfor %}
+      </div>
+      {% endif %}
+
+      {% if d.past %}
+        {% if d.booked_label %}
+        <div class="booked">
+          <span class="avs">
+            {% if d.booked_by_me %}<span class="av me">♥</span>{% endif %}
+            {% for nm in d.booked_others_list %}<span class="av">{{ nm[:1] | upper }}</span>{% endfor %}
+          </span>
+          <span class="who">было: {{ d.booked_label }}</span>
+        </div>
+        {% endif %}
+      {% endif %}
+
+      {% if not d.past %}
+        {% if d.pending %}
+          <p class="note-pending">⏳ Предложение видно только тебе, пока его не проверили.</p>
+        {% else %}
+        <div class="actions">
+          {% if d.booked_by_me %}
+          <button class="btn book on" data-id="{{ d.id }}">Твой выбор ♥ · отменить</button>
+          {% elif d.booked_others_list %}
+          <button class="btn book" data-id="{{ d.id }}" disabled>Уже занято</button>
+          {% else %}
+          <button class="btn book" data-id="{{ d.id }}">Выбрать ♥</button>
+          {% endif %}
+          <button class="btn ghost ask" data-id="{{ d.id }}" data-name="{{ d.name }}">Спросить 💬</button>
+        </div>
+        {% endif %}
+        {% if d.editable %}
+        <div class="mine-actions">
+          <button class="edit" data-meta="{{ d.meta_json | e }}">✏️ изменить</button>
+          <button class="del" data-id="{{ d.id }}" data-name="{{ d.name }}">🗑 удалить</button>
+        </div>
+        {% endif %}
+        {% if d.my_questions %}
+        <div class="qa">
+          {% for q in d.my_questions %}
+          <div class="qa-item">
+            <div class="qa-q">{{ q.text }}</div>
+            {% if q.answer %}<div class="qa-a">{{ q.answer }}</div>
+            {% else %}<div class="qa-wait">пока без ответа…</div>{% endif %}
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+      {% endif %}
+    </div>
+  </article>
+  {%- endmacro %}
+
+  {% if regular or past %}
+  <section class="cards">
+    {% for d in regular %}{{ datecard(d) }}{% endfor %}
+  </section>
+  {% if past %}
+  <details class="archive-fold">
+    <summary>
+      <span class="af-label">Архив</span>
+      <span class="af-count">{{ past|length }} {{ past|length | plural('свидание', 'свидания', 'свиданий') }}</span>
+      <span class="af-chev" aria-hidden="true"></span>
+    </summary>
+    <section class="cards archive-cards">
+      {% for d in past %}{{ datecard(d) }}{% endfor %}
+    </section>
+  </details>
+  {% endif %}
+  {% else %}
+  <div class="empty">
+    <div class="big">🌷</div>
+    Здесь пока пусто.<br>Предложи первое свидание — кнопка внизу ♥
+  </div>
+  {% endif %}
+
+  <footer>
+    <div class="hearts">♥ ♥ ♥</div>
+    сделано с любовью
+  </footer>
+</div>
+
+<button class="fab" id="fabPropose" aria-label="Предложить свидание">
+  <span class="plus" aria-hidden="true">+</span>
+</button>
+
+<!-- Имя гостя -->
+<dialog id="nameDlg">
+  <h3 class="dlg-head">Как тебя зовут? ♥</h3>
+  <p class="dlg-sub">Имя увидят рядом с твоей бронью и предложениями.</p>
+  <form id="nameForm">
+    <div class="field">
+      <input type="text" name="name" id="nameInput" maxlength="40" required
+             placeholder="Например, Маша" autocomplete="name">
+    </div>
+    <div class="dlg-actions">
+      <button type="button" class="btn ghost" id="nameCancel">Позже</button>
+      <button type="submit" class="btn book">Это я ♥</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Вопрос -->
+<dialog id="askDlg">
+  <h3 class="dlg-head">Спросить про «<span id="askTitle"></span>»</h3>
+  <p class="dlg-sub">Увидит только организатор — ответ появится прямо здесь&nbsp;♥</p>
+  <form id="askForm">
+    <input type="hidden" name="date_id" id="askDateId">
+    <div class="field">
+      <textarea name="text" id="askText" maxlength="2000" required
+                placeholder="Например: а можно прийти с пледом?"></textarea>
+    </div>
+    <div class="dlg-actions">
+      <button type="button" class="btn ghost" id="askCancel">Отмена</button>
+      <button type="submit" class="btn book">Отправить 💌</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Предложить время для свидания без даты -->
+<dialog id="timeDlg">
+  <h3 class="dlg-head">Когда удобно?</h3>
+  <p class="dlg-sub">Предложишь время для «<span id="timeTitle"></span>» — организатор увидит&nbsp;♥</p>
+  <form id="timeForm">
+    <input type="hidden" name="date_id" id="timeDateId">
+    <div class="field">
+      <div class="chips">
+        <button type="button" class="chip" data-day="today">Сегодня</button>
+        <button type="button" class="chip" data-day="tomorrow">Завтра</button>
+      </div>
+      <div class="chips">
+        <button type="button" class="chip" data-time="12:00">12:00</button>
+        <button type="button" class="chip" data-time="15:00">15:00</button>
+        <button type="button" class="chip" data-time="19:00">19:00</button>
+        <button type="button" class="chip" data-time="21:00">21:00</button>
+      </div>
+      <label class="alt-time" for="timeStart">или выбери другое время</label>
+      <input type="datetime-local" name="starts_at" id="timeStart" required>
+    </div>
+    <details class="endtime">
+      <summary>и время окончания</summary>
+      <div class="field">
+        <div class="chips">
+          <button type="button" class="chip" data-dur="1">+1 час</button>
+          <button type="button" class="chip" data-dur="2">+2 часа</button>
+          <button type="button" class="chip" data-dur="3">+3 часа</button>
+        </div>
+        <input type="datetime-local" name="ends_at" id="timeEnd">
+      </div>
+    </details>
+    <div class="dlg-actions">
+      <button type="button" class="btn ghost" id="timeCancel">Отмена</button>
+      <button type="submit" class="btn book">Предложить 📅</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Предложение / редактирование -->
+<dialog id="propDlg">
+  <h3 class="dlg-head" id="propHead">Предложить свидание</h3>
+  <p class="dlg-sub">Идею увидят все&nbsp;♥</p>
+  <form id="propForm">
+    <div class="field">
+      <label>Название *</label>
+      <input type="text" name="name" maxlength="200" required placeholder="Пикник на крыше">
+    </div>
+    <div class="field">
+      <label>Место</label>
+      <input type="text" name="place" maxlength="300" placeholder="Адрес или название места">
+    </div>
+    <div class="field">
+      <label>Когда</label>
+      <div class="chips">
+        <button type="button" class="chip" data-day="today">Сегодня</button>
+        <button type="button" class="chip" data-day="tomorrow">Завтра</button>
+      </div>
+      <div class="chips">
+        <button type="button" class="chip" data-time="12:00">12:00</button>
+        <button type="button" class="chip" data-time="15:00">15:00</button>
+        <button type="button" class="chip" data-time="19:00">19:00</button>
+        <button type="button" class="chip" data-time="21:00">21:00</button>
+      </div>
+      <input type="datetime-local" name="starts_at" id="propStart">
+    </div>
+    <details class="endtime" id="propEndWrap">
+      <summary>указать время окончания</summary>
+      <div class="field">
+        <div class="chips">
+          <button type="button" class="chip" data-dur="1">+1 час</button>
+          <button type="button" class="chip" data-dur="2">+2 часа</button>
+          <button type="button" class="chip" data-dur="3">+3 часа</button>
+        </div>
+        <input type="datetime-local" name="ends_at" id="propEnd">
+      </div>
+    </details>
+    <div class="field">
+      <label>Ссылки (каждая с новой строки)</label>
+      <textarea name="links" placeholder="https://..."></textarea>
+    </div>
+    <div class="field">
+      <label>Комментарий</label>
+      <textarea name="comment" maxlength="2000"
+        placeholder="Почему это будет здорово. Можно **жирный**, *курсив*, __подчёркнутый__"></textarea>
+    </div>
+    <div class="field">
+      <label>Фото (до 5 штук) — перетащи, чтобы поменять местами</label>
+      <div class="dropzone" id="propZone">
+        <div class="dz-ico">📷</div>
+        <div class="dz-hint">нажми или перетащи фото сюда</div>
+        <input type="file" name="images" id="propFiles" accept="image/*" multiple>
+        <div class="ptiles" id="propTiles"></div>
+      </div>
+    </div>
+    <div class="field">
+      <label>Видео (mp4 или webm, до 60 МБ) — перетащи сюда</label>
+      <div class="dropzone" id="propVidZone">
+        <div class="dz-ico">🎬</div>
+        <div class="dz-hint">нажми или перетащи видео сюда</div>
+        <input type="file" name="video" id="propVideo" accept="video/mp4,video/webm">
+        <div class="ptiles" id="propVidTiles"></div>
+      </div>
+      <div class="vid-cur" id="propVidCur" hidden>
+        <span>🎬 <span id="propVidName">видео прикреплено</span></span>
+        <button type="button" id="propVidRm" aria-label="Убрать видео">✕</button>
+      </div>
+    </div>
+    <label class="chk-line"><input type="checkbox" name="pay" value="1" id="propPay"> 💸 оплата 50/50</label>
+    <div class="upbar" id="propBar" hidden><i></i></div>
+    <div class="dlg-actions">
+      <button type="button" class="btn ghost" id="propCancel">Отмена</button>
+      <button type="submit" class="btn book" id="propSubmit">Предложить 💡</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- В календарь -->
+<dialog id="calDlg">
+  <h3 class="dlg-head">Добавить в календарь</h3>
+  <div class="cal-btns">
+    <a id="calGoogle" href="#" target="_blank" rel="noopener">
+      <span class="ico">🗓</span>
+      <span>Google Календарь<br><small>откроется страница добавления</small></span>
+    </a>
+    <a id="calIcs" href="#">
+      <span class="ico">📎</span>
+      <span>Файл .ics<br><small>Apple Calendar, Outlook и другие</small></span>
+    </a>
+  </div>
+  <div class="dlg-actions">
+    <button type="button" class="btn ghost" id="calCancel">Закрыть</button>
+  </div>
+</dialog>
+
+<div class="lightbox" id="lightbox">
+  <button class="lb-x" id="lbX" aria-label="Закрыть">✕</button>
+  <button class="lb-prev" id="lbPrev" aria-label="Предыдущее фото">‹</button>
+  <img alt="">
+  <button class="lb-next" id="lbNext" aria-label="Следующее фото">›</button>
+  <div class="lb-count" id="lbCount"></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script src="/static/ink.js" defer></script>
+<script src="/static/ui.js"></script>
+<script src="/static/guest.js" defer></script>
+</body>
+</html>

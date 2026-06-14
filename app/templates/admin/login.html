@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Вход · boris-i-love-you</title>
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='80' font-size='80'&gt;%E2%9D%A4&lt;/text&gt;&lt;/svg&gt;">
+<link rel="stylesheet" href="/static/admin.css">
+</head>
+<body>
+<div class="login-page">
+  <div class="login-card">
+    <h1>♥</h1>
+    {% if error %}<div class="err">{{ error }}</div>{% endif %}
+    <form method="post" action="/admin/login">
+      <div class="field">
+        <label>Логин</label>
+        <input name="username" required autofocus autocomplete="username">
+      </div>
+      <div class="field">
+        <label>Пароль</label>
+        <input type="password" name="password" required autocomplete="current-password">
+      </div>
+      <button class="btn primary" style="width:100%">Войти</button>
+    </form>
+  </div>
+</div>
+</body>
+</html>

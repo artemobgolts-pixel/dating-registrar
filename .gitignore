@@ -1,0 +1,27 @@
+# секреты и данные — никогда не коммитим
+.env
+.env.*
+!.env.example
+data/
+data-dev/
+*.db
+*.sqlite
+*.sqlite3
+*.db-wal
+*.db-shm
+
+# архивы и бэкапы
+*.tar.gz
+*.zip
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# редакторы и ОС
+.idea/
+.vscode/
+.DS_Store

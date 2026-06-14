@@ -1,0 +1,93 @@
+{% extends "admin/base.html" %}
+{% block title %}Свидания{% endblock %}
+{% block content %}
+<div class="bar">
+  <h1 style="margin:0">Свидания</h1>
+  <a class="btn primary" href="/admin/dates/new">+ Новое свидание</a>
+</div>
+
+<div class="tabs">
+  <a href="/admin/dates?view=active{{ qs_keep }}" class="{{ 'on' if view == 'active' else '' }}">Активные</a>
+  <a href="/admin/dates?view=drafts{{ qs_keep }}" class="{{ 'on' if view == 'drafts' else '' }}">Черновики{% if drafts_n %} <span class="pill">{{ drafts_n }}</span>{% endif %}</a>
+  <a href="/admin/dates?view=archived{{ qs_keep }}" class="{{ 'on' if view == 'archived' else '' }}">Архив</a>
+</div>
+
+<form method="get" action="/admin/dates" class="filters">
+  <input type="hidden" name="view" value="{{ view }}">
+  <select name="sort" data-autosubmit>
+    <option value="new" {{ 'selected' if sort == 'new' }}>Сначала новые</option>
+    <option value="when" {{ 'selected' if sort == 'when' }}>По дате свидания</option>
+    <option value="book" {{ 'selected' if sort == 'book' }}>По броням 💝</option>
+  </select>
+  <select name="f" data-autosubmit>
+    <option value="">Все свидания</option>
+    <option value="guest" {{ 'selected' if flt == 'guest' }}>Только от гостей</option>
+    <option value="booked" {{ 'selected' if flt == 'booked' }}>С бронью 💝</option>
+    <option value="nodate" {{ 'selected' if flt == 'nodate' }}>Без даты</option>
+  </select>
+  <select name="cat" data-autosubmit>
+    <option value="">Все категории</option>
+    {% for c in cats %}<option value="{{ c['id'] }}" {{ 'selected' if cat == c['id'] | string }}>{{ c['name'] }}</option>{% endfor %}
+  </select>
+</form>
+
+{% if rows %}
+<div class="card">
+<div class="table-wrap">
+<table>
+  <tr><th>Название</th><th>Когда</th><th>Категории</th><th>Брони</th><th>Действия</th></tr>
+  {% for r in rows %}
+  <tr>
+    <td>
+      <a href="/admin/dates/{{ r['id'] }}/edit">{{ r['name'] }}</a>
+      {% if r['is_draft'] %}<span class="badge amber">{{ 'на модерации' if r['origin'] == 'guest' else 'черновик' }}</span>{% endif %}
+      {% if r['origin'] == 'guest' %}<span class="badge">💡 от гостя</span>{% endif %}
+    </td>
+    <td class="muted">{{ r['starts_at'] | when(r['ends_at']) or '—' }}</td>
+    <td class="muted">{{ r['cats'] or '—' }}</td>
+    <td>
+      {{ r['books'] or '—' }}
+      {% if r['booked_names'] %}<div class="muted tiny">{{ r['booked_names'] }}</div>{% endif %}
+    </td>
+    <td>
+      <div class="actions-cell">
+        <a class="btn small" href="/admin/dates/{{ r['id'] }}/edit">Редактировать</a>
+        {% if r['is_draft'] and not r['archived_at'] %}
+        <form class="inline" method="post" action="/admin/dates/{{ r['id'] }}/publish">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <input type="hidden" name="next" value="/admin/dates?view={{ view }}{{ qs_keep }}">
+          <button class="btn small primary">Опубликовать</button>
+        </form>
+        {% endif %}
+        <form class="inline" method="post" action="/admin/dates/{{ r['id'] }}/archive">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <input type="hidden" name="next" value="/admin/dates?view={{ view }}{{ qs_keep }}">
+          <button class="btn small">{{ 'Вернуть' if r['archived_at'] else 'В архив' }}</button>
+        </form>
+        <form class="inline" method="post" action="/admin/dates/{{ r['id'] }}/delete"
+              data-confirm="Удалить свидание безвозвратно? Фото, брони и вопросы к нему тоже удалятся.">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button class="btn small danger">Удалить</button>
+        </form>
+      </div>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+</div>
+</div>
+{% if pages > 1 %}
+<div class="pager">
+  {% if page > 1 %}<a class="btn small" href="/admin/dates?view={{ view }}{{ qs_keep }}&page={{ page - 1 }}">← Назад</a>{% endif %}
+  <span class="muted">стр. {{ page }} из {{ pages }}</span>
+  {% if page < pages %}<a class="btn small" href="/admin/dates?view={{ view }}{{ qs_keep }}&page={{ page + 1 }}">Вперёд →</a>{% endif %}
+</div>
+{% endif %}
+{% else %}
+<p class="muted">
+  {% if view == 'archived' %}Архив пуст.
+  {% elif view == 'drafts' %}Черновиков нет. Сюда попадают скрытые от гостей свидания и предложения на модерации.
+  {% else %}Пока нет свиданий — создай первое.{% endif %}
+</p>
+{% endif %}
+{% endblock %}

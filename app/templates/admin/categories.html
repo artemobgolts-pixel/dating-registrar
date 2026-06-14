@@ -1,0 +1,33 @@
+{% extends "admin/base.html" %}
+{% block title %}Категории{% endblock %}
+{% block content %}
+<h1>Категории</h1>
+
+<form method="post" action="/admin/categories/create" class="card" style="display:flex;gap:10px;align-items:center">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input name="name" required maxlength="200" placeholder="Название новой категории" style="flex:1">
+  <button class="btn primary">Создать</button>
+</form>
+
+{% for c in cats %}
+<div class="card">
+  <div class="bar" style="margin-bottom:0">
+    <div>
+      <a href="/admin/categories/{{ c['id'] }}" style="font-weight:600;font-size:16px;text-decoration:none;color:inherit">{{ c['name'] }}</a>
+      <span class="badge">{{ c['dcount'] }} свид.</span>
+      {% if c['moderate_proposals'] %}<span class="badge amber">модерация</span>{% endif %}
+      {% if not c['link_enabled'] %}<span class="badge" style="background:#fdeeee;color:#a33">ссылка выкл.</span>{% endif %}
+    </div>
+    <a class="btn small" href="/admin/categories/{{ c['id'] }}">Открыть</a>
+  </div>
+  {% if c['link_enabled'] %}
+  <div class="linkbox" style="margin-top:10px">
+    <code>{{ BASE_URL }}/c/{{ c['link_token'] }}</code>
+    <button type="button" class="btn small" data-copy='{{ BASE_URL }}/c/{{ c['link_token'] }}'>Копировать</button>
+  </div>
+  {% endif %}
+</div>
+{% else %}
+<p class="muted">Пока нет ни одной категории — создай первую выше.</p>
+{% endfor %}
+{% endblock %}

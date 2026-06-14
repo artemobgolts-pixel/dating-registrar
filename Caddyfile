@@ -1,0 +1,39 @@
+# Caddy сам получает и продлевает сертификат Let's Encrypt для домена.
+# Домен берётся из переменной DOMAIN в .env
+
+{$DOMAIN} {
+	encode gzip zstd
+
+	# до 2 видео по 60 МБ + 5 фото по 10 МБ + запас на multipart-форму
+	request_body {
+		max_size 200MB
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy no-referrer
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		# Content-Security-Policy выставляет приложение (per-request nonce)
+		-Server
+	}
+
+	# Статика (css, шрифты, og.png) меняется только при обновлении сайта
+	@static path /static/*
+	header @static Cache-Control "public, max-age=3600"
+
+	reverse_proxy app:8000 {
+		# Перезаписываем (не дописываем!) реальный IP клиента — лимиты
+		# в приложении читают только этот заголовок, его нельзя подделать
+		header_up X-Real-IP {remote_host}
+	}
+}
+
+# Если захочешь, чтобы работал и www-поддомен:
+# 1) добавь в Reg.ru A-запись "www" на тот же IP
+# 2) раскомментируй блок ниже
+#
+# www.{$DOMAIN} {
+# 	redir https://{$DOMAIN}{uri} permanent
+# }

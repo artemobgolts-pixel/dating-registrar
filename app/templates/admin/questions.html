@@ -1,0 +1,61 @@
+{% extends "admin/base.html" %}
+{% block title %}Вопросы{% endblock %}
+{% block content %}
+<h1>Вопросы гостей</h1>
+
+<div class="tabs">
+  <a href="/admin/questions" class="{{ 'on' if f != 'all' else '' }}">Непрочитанные</a>
+  <a href="/admin/questions?f=all" class="{{ 'on' if f == 'all' else '' }}">Все</a>
+</div>
+
+{% for q in rows %}
+<div class="card" {% if q['is_read'] and not q['answer'] %}style="opacity:.72"{% endif %}>
+  <div class="muted" style="font-size:13px">
+    <b>{{ q['gname'] }}</b> · к свиданию «<a href="/admin/dates/{{ q['did'] }}/edit">{{ q['date_name'] }}</a>»{% if q['cat_name'] %} · {{ q['cat_name'] }}{% endif %} · {{ q['created_at'] | ts }}
+    {% if q['answer'] %}<span class="badge rose">отвечено</span>{% endif %}
+  </div>
+  <blockquote style="margin:10px 0 12px;padding:10px 14px;background:#faf6f7;border-radius:10px;white-space:pre-line">{{ q['text'] }}</blockquote>
+
+  {% if q['suggest_starts'] %}
+  <div class="suggest-box">
+    <span>📅 Предлагает: <b>{{ q['suggest_starts'] | when(q['suggest_ends']) }}</b> (мск)</span>
+    {% if not q['answer'] %}
+    <form class="inline" method="post" action="/admin/questions/{{ q['id'] }}/accept_time">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="next" value="/admin/questions{{ '?f=all' if f == 'all' else '' }}">
+      <button class="btn small primary">Принять — назначить время</button>
+    </form>
+    <form class="inline" method="post" action="/admin/questions/{{ q['id'] }}/decline_time">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="next" value="/admin/questions{{ '?f=all' if f == 'all' else '' }}">
+      <button class="btn small">Отказаться</button>
+    </form>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <form method="post" action="/admin/questions/{{ q['id'] }}/answer" class="answer-form">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="next" value="/admin/questions{{ '?f=all' if f == 'all' else '' }}">
+    <textarea name="text" maxlength="2000" placeholder="Ответ — автор вопроса увидит его на странице категории">{{ q['answer'] or '' }}</textarea>
+    <button class="btn small">{{ 'Обновить ответ' if q['answer'] else 'Ответить' }}</button>
+  </form>
+
+  <div style="display:flex;gap:8px;margin-top:10px">
+    <form class="inline" method="post" action="/admin/questions/{{ q['id'] }}/toggle">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="next" value="/admin/questions{{ '?f=all' if f == 'all' else '' }}">
+      <button class="btn small">{{ 'Снова «непрочитано»' if q['is_read'] else 'Прочитано ✓' }}</button>
+    </form>
+    <form class="inline" method="post" action="/admin/questions/{{ q['id'] }}/delete"
+          data-confirm="Удалить вопрос?">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="next" value="/admin/questions{{ '?f=all' if f == 'all' else '' }}">
+      <button class="btn small danger">Удалить</button>
+    </form>
+  </div>
+</div>
+{% else %}
+<p class="muted">{{ 'Вопросов пока нет.' if f == 'all' else 'Непрочитанных вопросов нет 🎉' }}</p>
+{% endfor %}
+{% endblock %}
