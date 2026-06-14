@@ -54,10 +54,10 @@
   // --- чернила (dye): реальная краска, которую несёт и закручивает течение ---
   var DYE_DISS    = 0.7;               // затухание чернил при активной симуляции (выше=быстрее тают)
   var DYE_FADE    = 0.985;             // дотаивание чернил в покое (×за кадр; меньше=быстрее)
-  var DYE_R_MOVE  = 0.00011;           // радиус² капли чернил от движения (с курсор)
-  var DYE_R_CLICK = 0.0004;            // радиус² впрыска чернил по клику (маленькая область)
-  var DYE_AMT     = 0.3;               // насыщенность капли от движения (тоньше=прозрачнее)
-  var DYE_CLICK   = 0.7;               // насыщенность впрыска по клику
+  var DYE_R_MOVE  = 0.0000275;         // радиус² капли чернил от движения (вдвое меньше радиус)
+  var DYE_R_CLICK = 0.0012;            // радиус² впрыска по клику — крупнее, чтобы был заметен
+  var DYE_AMT     = 0.3;               // насыщенность тёплой капли от движения (тоньше=прозрачнее)
+  var DYE_CLICK   = 1.2;               // насыщенность чёрного впрыска по клику (заметный)
   var BURST_N     = 10;                // сколько вихревых толчков по клику (ink-bloom)
   var BURST_FORCE = 3.2;               // сила вихрей клика (раскручивает чернила в тендрилы)
 
@@ -165,8 +165,9 @@ const vec3 ROSE  = vec3(0.713, 0.372, 0.435);
 const vec3 BERRY = vec3(0.560, 0.290, 0.345);
 const vec3 PEACH = vec3(0.886, 0.690, 0.541);
 const vec3 LILAC = vec3(0.808, 0.588, 0.784);
-const vec3 EMBER = vec3(1.0, 0.38, 0.0);   // выжигающий оранжевый — чернила
-const vec3 EMBHI = vec3(1.0, 0.78, 0.22);  // светящееся ядро капли
+const vec3 EMBER = vec3(1.0, 0.38, 0.0);   // выжигающий оранжевый — обводка следа
+const vec3 EMBHI = vec3(1.0, 0.78, 0.22);  // светящееся ядро капли (делаем прозрачнее)
+const vec3 INKBLK = vec3(0.05, 0.04, 0.06); // чёрные чернила по клику
 float hash(vec2 p){ p = fract(p*vec2(123.34,456.21)); p += dot(p,p+45.32); return fract(p.x*p.y); }
 float noise(vec2 p){
   vec2 i = floor(p), f = fract(p);
@@ -193,12 +194,13 @@ void main(){
   col = mix(col, PEACH, smoothstep(0.45, 0.95, q.x*q.x) * 0.38);
   col = mix(col, BERRY, smoothstep(0.74, 1.12, f*1.1) * 0.5);
   col = mix(col, BG, smoothstep(0.55, 1.0, 1.0 - vUv.y*res.y/res.x) * 0.25);
-  // чернила: оранж просвечивает фон (потолок прозрачности INK_MAX), не кроет.
-  // светящееся ядро лишь в самых плотных местах капли.
-  float dye = clamp(texture(uDye, vUv).x, 0.0, 1.4);
-  vec3 inkCol = mix(EMBER, EMBHI, smoothstep(0.7, 1.3, dye));
-  float a = smoothstep(0.015, 0.5, dye) * 0.42;   // INK_MAX=0.42 → всегда полупрозрачно
-  col = mix(col, inkCol, a);
+  // чернила: тёплый след (R) = оранжевая обводка + светлое ядро (ядро намного
+  // прозрачнее, чтоб не било в глаза). Чёрный впрыск (G) по клику — заметный.
+  float warm = clamp(texture(uDye, vUv).x, 0.0, 1.4);
+  float blk  = clamp(texture(uDye, vUv).y, 0.0, 2.0);
+  col = mix(col, EMBER, smoothstep(0.015, 0.35, warm) * 0.40);   // оранжевая обводка
+  col = mix(col, EMBHI, smoothstep(0.55, 1.25, warm) * 0.15);    // светлое ядро — прозрачнее
+  col = mix(col, INKBLK, smoothstep(0.02, 0.7, blk) * 0.60);     // чёрный клик-впрыск
   o = vec4(col, 1.0);
 }`;
 
@@ -300,8 +302,8 @@ void main(){
   // накопленное смещение фона (xy) — «расталкивание дыма». Своя сетка.
   var DISP_RES = SMALL ? 160 : 220;
   var disp = makeDouble(DISP_RES, DISP_RES, RG, gl.RG, LIN);
-  // ЧЕРНИЛА (dye): одноканальная плотность краски, своя сетка повыше.
-  var dye = makeDouble(DYE_RES, DYE_RES, R, gl.RED, LIN);
+  // ЧЕРНИЛА (dye): два канала — R тёплый след от движения, G чёрный впрыск по клику.
+  var dye = makeDouble(DYE_RES, DYE_RES, RG, gl.RG, LIN);
 
   // --- один шаг симуляции скорости (без краски) ---------------------------
   var simTexel = [1 / SIM_RES, 1 / SIM_RES];
@@ -390,8 +392,8 @@ void main(){
     blit(velocity.write); velocity.swap();
   }
 
-  // капля ЧЕРНИЛ в точку: добавляем плотность краски (R-канал) с радиусом r.
-  function dyeSplat(x, y, amt, r) {
+  // капля ЧЕРНИЛ: добавляем плотность в каналы R (тёплый след) и/или G (чёрный клик).
+  function dyeSplat(x, y, amtR, amtG, r) {
     var aspect = canvas.width / canvas.height;
     var s = progs.splat;
     gl.useProgram(s.prog);
@@ -399,7 +401,7 @@ void main(){
     gl.uniform2f(s.u.point, x, y);
     gl.uniform1f(s.u.radius, r);
     gl.uniform1i(s.u.uTarget, dye.read.attach(0));
-    gl.uniform3f(s.u.color, amt, 0.0, 0.0);
+    gl.uniform3f(s.u.color, amtR, amtG, 0.0);
     blit(dye.write); dye.swap();
   }
 
@@ -462,7 +464,7 @@ void main(){
       var dx = (pointer.x - pointer.px) * FORCE;
       var dy = (pointer.y - pointer.py) * FORCE;
       splat(pointer.x, pointer.y, dx * dt, dy * dt);
-      dyeSplat(pointer.x, pointer.y, DYE_AMT, DYE_R_MOVE);   // капля чернил у курсора
+      dyeSplat(pointer.x, pointer.y, DYE_AMT, 0.0, DYE_R_MOVE);   // тёплая капля (R) у курсора
       prevX = pointer.px; prevY = pointer.py;
       pointer.px = pointer.x; pointer.py = pointer.y;
       pointer.moved = false;
@@ -474,7 +476,7 @@ void main(){
     // вихрей, толкающих наружу из точек на крошечном кольце → краска
     // выплёскивается короной-тендрилами (всплеск «бульк»), а не ровным кругом.
     if (clickPending) {
-      dyeSplat(clickX, clickY, DYE_CLICK, DYE_R_CLICK);
+      dyeSplat(clickX, clickY, 0.0, DYE_CLICK, DYE_R_CLICK);   // чёрный впрыск (G) по клику
       var aspect = canvas.width / canvas.height;
       for (var bi = 0; bi < BURST_N; bi++) {
         var ang = (bi + 0.35 * Math.sin(bi * 12.9898)) / BURST_N * 6.2832;

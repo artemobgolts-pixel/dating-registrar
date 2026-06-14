@@ -833,11 +833,12 @@ details.endtime[open] summary { margin-bottom: 10px; }
 .home-card {
   position: relative;
   text-align: center;
+  /* та же прозрачность, что у гостевых карточек — фон преломляется и просвечивает */
   background:
-    linear-gradient(150deg, rgba(255,252,251,.42), rgba(255,246,246,.3)) padding-box,
+    linear-gradient(150deg, rgba(255,252,251,.22), rgba(255,246,246,.12)) padding-box,
     linear-gradient(135deg, var(--rose), var(--peach) 60%, var(--rose)) border-box;
-  -webkit-backdrop-filter: blur(12px) saturate(1.7) brightness(1.04);
-  backdrop-filter: url(#glassWarp) blur(12px) saturate(1.7) brightness(1.04);
+  -webkit-backdrop-filter: blur(7px) saturate(1.9) brightness(1.08);
+  backdrop-filter: url(#glassWarp) blur(7px) saturate(1.9) brightness(1.08);
   border: 1.6px solid transparent;
   border-radius: 28px;
   padding: 54px 44px 46px;
