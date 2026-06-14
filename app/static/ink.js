@@ -42,7 +42,7 @@
   var FRAG = "#version 300 es\n" +
     "precision highp float;\n" +
     "out vec4 o;\n" +
-    "uniform vec2 res; uniform float t; uniform vec3 mouse;\n" +
+    "uniform vec2 res; uniform float t; uniform vec3 mouse; uniform vec2 mdir;\n" +
     // палитра (sRGB 0..1): крем-фон, роза, малина, персик, сирень
     "const vec3 BG    = vec3(0.984, 0.949, 0.945);\n" +
     "const vec3 ROSE  = vec3(0.713, 0.372, 0.435);\n" +
@@ -66,20 +66,26 @@
     "  vec2 uv = gl_FragCoord.xy / res;\n" +
     "  uv.x *= res.x / res.y;\n" +
     "  float tt = t * 0.016;\n" +
-    // --- интерактив: «палка в воде» — крошечная зона, сильная рябь --------
+    // --- интерактив: «палка в воде» — след-волна ИДЁТ ЗА движением -----------
     // позиция касания в той же аспект-коррекции, что и uv
     "  vec2 m = mouse.xy; m.x *= res.x / res.y;\n" +
     "  vec2 dm = uv - m;\n" +
-    "  float rr = length(dm);\n" +
-    "  vec2 rdir = dm / (rr + 1e-4);\n" +        // радиальное направление наружу
-    // компактная зона у «палки»: маленький радиус, резкий гауссов спад
-    "  float env = exp(-rr * rr * 150.0);\n" +
-    // концентрические кольца расходятся наружу — как рябь от палки в воде
-    "  float rings = sin(rr * 130.0 - t * 11.0);\n" +
-    // центральная ямка (палка продавливает воду) + расходящаяся рябь,
-    // всё окно́ ограничено env → деформация живёт только в пятне у курсора
-    "  float disp = (rings * 0.9 - env * 0.6) * env;\n" +
-    "  uv += rdir * disp * mouse.z * 0.08;\n" +
+    // направление движения (сглажено на JS, не дёргается); вода толкается вперёд,
+    // а возмущение/волны остаются ПОЗАДИ — как настоящий след от палки
+    "  vec2 dir = (dot(mdir, mdir) > 1e-6) ? normalize(vec2(mdir.x * res.x / res.y, mdir.y)) : vec2(0.0, 0.0);\n" +
+    "  float along  = dot(dm, dir);\n" +        // >0 впереди по ходу, <0 — позади (хвост)
+    "  float side   = length(dm - dir * along);\n" +  // поперечное расстояние от линии хода
+    // зона у острия компактная; хвост позади растянут (along<0 → мягче спад вдоль)
+    "  float tail = along < 0.0 ? 60.0 : 220.0;\n" +
+    "  float env = exp(-(along*along * tail + side*side * 320.0));\n" +
+    // дуги-волны изгибаются назад от острия (фронт по ходу, гребни сходят в хвост)
+    "  float phase = along * 90.0 - side * side * 60.0 - t * 9.0;\n" +
+    "  float wake = sin(phase) * smoothstep(0.0, 0.18, -along + 0.05);\n" +  // только позади
+    // вперёд — короткий «нос» (вода раздвигается), позади — расходящийся след
+    "  float bow = exp(-along*along * 600.0 - side*side * 320.0) * step(0.0, along);\n" +
+    "  float disp = wake * 0.8 + bow * 0.5;\n" +
+    "  vec2 push = dir * (along < 0.0 ? -1.0 : 1.0);\n" +  // вдоль линии хода
+    "  uv += (push * disp + dm / (length(dm) + 1e-4) * wake * 0.25) * env * mouse.z * 0.09;\n" +
     // орбитальное смещение доменов → поле не просто плывёт, а перетекает/морфит
     "  vec2 mo = vec2(sin(tt*0.7), cos(tt*0.6)) * 0.7;\n" +
     "  vec2 q = vec2(fbm(uv*1.6 + mo + vec2(0.0, tt)), fbm(uv*1.6 - mo + vec2(5.2, -tt)));\n" +
@@ -130,12 +136,13 @@
   var uRes = gl.getUniformLocation(prog, "res");
   var uT = gl.getUniformLocation(prog, "t");
   var uMouse = gl.getUniformLocation(prog, "mouse");
+  var uMdir = gl.getUniformLocation(prog, "mdir");
 
   // Сглаженная позиция указателя (mx,my) тянется к цели (tx,ty) внутри
-  // кадрового цикла — поэтому рябь не дёргается при неравномерных событиях.
-  // mStrength — сила «погружения палки» (плавно растёт и затухает).
+  // кадрового цикла — поэтому след не дёргается при неравномерных событиях.
+  // (dirx,diry) — направление хода (тоже плавно сглажено), mStrength — сила следа.
   var mx = 0.5, my = 0.5, tx = 0.5, ty = 0.5;
-  var mStrength = 0.0, tStrength = 0.0;
+  var dirx = 0.0, diry = 0.0, mStrength = 0.0, tStrength = 0.0;
 
   // рендерим в пониженном разрешении: чернила мягкие, детали не нужны,
   // зато ощутимо легче для GPU телефона
@@ -158,6 +165,14 @@
   function frame(now) {
     raf = 0;
     resize();
+    // скорость следа = насколько позиция тянется к цели; из неё берём
+    // направление хода и плавно (медленно!) его сглаживаем — без рывков
+    var vx = tx - mx, vy = ty - my;
+    var vlen = Math.sqrt(vx * vx + vy * vy);
+    if (vlen > 1e-4) {
+      dirx += (vx / vlen - dirx) * 0.08;   // медленное сглаживание оси → нет дрожи
+      diry += (vy / vlen - diry) * 0.08;
+    }
     // плавно подтягиваем позицию следа к цели — гасит рывки от событий мыши
     mx += (tx - mx) * 0.12;
     my += (ty - my) * 0.12;
@@ -167,8 +182,9 @@
     gl.uniform2f(uRes, canvas.width, canvas.height);
     gl.uniform1f(uT, (now - start) / 1000);
     gl.uniform3f(uMouse, mx, my, mStrength);
+    gl.uniform2f(uMdir, dirx, diry);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
-    tStrength *= 0.92;                    // палка вынута — рябь затухает плавно
+    tStrength *= 0.92;                    // палка вынута — след затухает плавно
     if (tStrength < 0.002) tStrength = 0;
     if (mStrength < 0.002 && tStrength === 0) mStrength = 0;
     if (!document.hidden) raf = requestAnimationFrame(frame);

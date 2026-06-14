@@ -411,6 +411,7 @@ body::after {
     radial-gradient(120% 80% at 50% 50%, rgba(120, 100, 108, .18), rgba(45, 38, 42, .42));
 }
 .card.past .booked-overlay .bo-inner { transform: scale(1); opacity: 1; }
+.card.past .bo-heart { animation: none; }   /* архив — воспоминание, без пульса */
 .card.past .bo-text { font-size: 22px; }
 .card.past .body { color: #847a7d; }
 .card.past .title { color: #7d7174; }
@@ -863,6 +864,13 @@ details.endtime[open] summary { margin-bottom: 10px; }
 }
 .home-card p { margin: 0; color: var(--muted); font-size: 15.5px; }
 .home-dots { margin-top: 18px; color: var(--rose); opacity: .55; letter-spacing: 10px; font-size: 12px; }
+/* эмодзи 💔 на странице «ссылка не действует»: своя типографика, чтобы
+   цветной глиф сидел ровно по центру кружка (у emoji иные метрики, чем у ♥) */
+.gone-heart {
+  font-size: 30px; line-height: 1;
+  padding-bottom: 2px;            /* визуальная компенсация базовой линии emoji */
+  background: linear-gradient(135deg, var(--rose), var(--rose-2));
+}
 @media (max-width: 480px) { .home-card { padding: 44px 26px 38px; } }
 
 .empty {
