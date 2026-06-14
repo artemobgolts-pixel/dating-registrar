@@ -38,24 +38,29 @@
   // --- параметры (можно крутить) ------------------------------------------
   var SMALL = Math.min(window.innerWidth, window.innerHeight) < 700;
   var SIM_RES    = SMALL ? 110 : 150;  // сетка скоростей/давления
+  var DYE_RES    = SMALL ? 200 : 280;  // сетка краски (чернил) — повыше, для тендрилов
   var ITER       = 20;                 // итерации давления (несжимаемость)
   var CURL       = 0;                  // завихрённость ВЫКЛ — давала зерно по экрану
   var VEL_DISS   = 1.6;                 // затухание скорости (выше — спокойнее, без шума)
   var PRESS_DISS = 0.8;
-  var SPLAT_R    = 0.00045;            // размер зоны у курсора (uv²) — с курсор
+  var SPLAT_R    = 0.00045;            // размер зоны скорости у курсора (uv²)
   var FORCE      = 6000;               // сила толчка течения
   var STEP_SCALE = -0.016;             // вклад скорости в накопление (знак «-» = расталкивание)
-  var PERSIST    = 0.994;              // след деформации со временем зарастает фоном (~11с), без натяжения
+  var PERSIST    = 0.999;              // деформация почти не возвращается (медленно зарастает ~20с)
   var DISP_MAX   = 0.22;               // максимум перекоса фона (защита от «взрыва»)
   var MASK_R     = 0.00275;            // радиус² пятна деформации у курсора (вдвое меньше радиус)
-  var IDLE_HOLD  = 2.2;                // сек: сколько ещё считать жидкость после движения
-  var DECAY_HOLD = 16;                 // сек: сколько крутить затухание следа (до полного зарастания)
-  var TINT_GAIN    = 0.09;             // насыщенность оранжевого следа (накопление за кадр движения)
-  var TINT_PERSIST = 0.93;             // как быстро тает оранжевый след-хвост (меньше=быстрее, ~1с)
-  var TINT_MAX     = 0.85;             // потолок подкраски следа
-  var RIPPLE_DUR   = 1.6;              // сек: жизнь клик-капли (кольцо ряби + чернила)
-  var RIPPLE_SPEED = 0.55;            // как быстро расходится кольцо (uv/сек)
-  var RIPPLE_AMP   = 0.05;            // глубина смещения от кольца ряби
+  var IDLE_HOLD  = 2.6;                // сек: сколько ещё считать жидкость после движения
+  var DECAY_HOLD = 22;                 // сек: сколько крутить затухание следа (до полного зарастания)
+  // --- чернила (dye): реальная краска, которую несёт и закручивает течение ---
+  var DYE_DISS    = 0.6;               // затухание чернил при активной симуляции (выше=быстрее тают)
+  var DYE_FADE    = 0.985;             // дотаивание чернил в покое (×за кадр; меньше=быстрее)
+  var DYE_R_MOVE  = 0.00035;           // радиус² капли чернил от движения (≈ курсор)
+  var DYE_R_CLICK = 0.0009;            // радиус² впрыска чернил по клику (маленькая область)
+  var DYE_AMT     = 0.5;               // насыщенность капли от движения
+  var DYE_CLICK   = 1.0;               // насыщенность впрыска по клику
+  var BURST_N     = 7;                 // сколько вихревых толчков по клику (ink-bloom)
+  var BURST_FORCE = 2.2;               // сила вихрей клика (раскручивает чернила в тендрилы)
+
 
   // --- шейдеры -------------------------------------------------------------
   var BASE_VS = `#version 300 es
@@ -149,20 +154,19 @@ void main(){
   o = vec4(vel,0.0,1.0);
 }`;
 
-  // ВЫВОД: наш прежний fbm-фон, смещённый НАКОПЛЕННЫМ полем (uDisp). Поле
-  // копится вдоль пути курсора и не откатывается — дым остаётся раздвинутым.
+  // ВЫВОД: наш прежний fbm-фон, смещённый НАКОПЛЕННЫМ полем (uDisp), плюс
+  // настоящие ЧЕРНИЛА (uDye) — краска, которую несёт и закручивает течение.
   var DISP_FS = `#version 300 es
 precision highp float;
 in vec2 vUv; out vec4 o;
-uniform sampler2D uDisp; uniform vec2 res; uniform float t;
-uniform vec2 ripPos; uniform float ripAge; uniform float ripDur;
-uniform float ripSpeed; uniform float ripAmp;
+uniform sampler2D uDisp; uniform sampler2D uDye; uniform vec2 res; uniform float t;
 const vec3 BG    = vec3(0.984, 0.949, 0.945);
 const vec3 ROSE  = vec3(0.713, 0.372, 0.435);
 const vec3 BERRY = vec3(0.560, 0.290, 0.345);
 const vec3 PEACH = vec3(0.886, 0.690, 0.541);
 const vec3 LILAC = vec3(0.808, 0.588, 0.784);
-const vec3 EMBER = vec3(1.0, 0.42, 0.0);  // кислотный оранжевый — след курсора
+const vec3 EMBER = vec3(1.0, 0.38, 0.0);   // выжигающий оранжевый — чернила
+const vec3 EMBHI = vec3(1.0, 0.78, 0.22);  // светящееся ядро капли
 float hash(vec2 p){ p = fract(p*vec2(123.34,456.21)); p += dot(p,p+45.32); return fract(p.x*p.y); }
 float noise(vec2 p){
   vec2 i = floor(p), f = fract(p);
@@ -178,19 +182,6 @@ void main(){
   float tt = t * 0.016;
   vec3 dsp = texture(uDisp, vUv).xyz;
   uv += dsp.xy;                          // накопленное смещение фона
-
-  // клик-капля: кольцо ряби расходится от точки, в центре — чернильное пятно.
-  // живёт ripDur сек, затухает; смещаем uv по радиусу, копим оранж в ink.
-  float ink = 0.0;
-  if (ripAge >= 0.0 && ripAge < ripDur) {
-    vec2 rp = vUv - ripPos; rp.x *= res.x/res.y;
-    float rd = length(rp);
-    float life = 1.0 - ripAge / ripDur;          // 1→0
-    float front = ripAge * ripSpeed;             // радиус кольца растёт
-    float ring = exp(-pow((rd - front) * 9.0, 2.0));        // тонкое кольцо
-    uv += normalize(rp + 1e-5) * ring * ripAmp * life;      // рябь толкает наружу
-    ink = ring * life + exp(-rd * rd / 0.004) * life * 0.7; // кольцо + центр.пятно
-  }
   vec2 mo = vec2(sin(tt*0.7), cos(tt*0.6)) * 0.7;
   vec2 q = vec2(fbm(uv*1.6 + mo + vec2(0.0, tt)), fbm(uv*1.6 - mo + vec2(5.2, -tt)));
   vec2 r = vec2(fbm(uv*1.6 + 4.0*q + vec2(1.7, 9.2) + tt*0.9),
@@ -202,7 +193,10 @@ void main(){
   col = mix(col, PEACH, smoothstep(0.45, 0.95, q.x*q.x) * 0.38);
   col = mix(col, BERRY, smoothstep(0.74, 1.12, f*1.1) * 0.5);
   col = mix(col, BG, smoothstep(0.55, 1.0, 1.0 - vUv.y*res.y/res.x) * 0.25);
-  col = mix(col, EMBER, clamp(dsp.z + ink, 0.0, 1.0) * 0.6);   // оранжевый след + чернила клика
+  // чернила: насыщенный оранж + светящееся ядро в плотных местах капли
+  float dye = clamp(texture(uDye, vUv).x, 0.0, 1.4);
+  vec3 inkCol = mix(EMBER, EMBHI, smoothstep(0.55, 1.25, dye));
+  col = mix(col, inkCol, smoothstep(0.02, 0.55, dye));
   o = vec4(col, 1.0);
 }`;
 
@@ -216,9 +210,9 @@ precision highp float; in vec2 vUv; out vec4 o;
 uniform sampler2D uDisp; uniform sampler2D uVelocity;
 uniform vec2 ptr; uniform vec2 prev; uniform float maskR; uniform float aspect;
 uniform float stepScale; uniform float persist; uniform float dispMax;
-uniform float inject; uniform float tintGain; uniform float tintPersist; uniform float tintMax;
+uniform float inject;
 void main(){
-  vec3 old = texture(uDisp, vUv).xyz;
+  vec2 old = texture(uDisp, vUv).xy;
   vec2 p = vUv; p.x *= aspect;
   vec2 a = prev; a.x *= aspect;
   vec2 b = ptr;  b.x *= aspect;
@@ -227,12 +221,10 @@ void main(){
   vec2 nearest = a + ab * h;
   vec2 dp = p - nearest;
   float mask = exp(-dot(dp,dp)/max(maskR,1e-4)) * inject;
-  vec2 nd = old.xy * persist + texture(uVelocity, vUv).xy * stepScale * mask;
+  vec2 nd = old * persist + texture(uVelocity, vUv).xy * stepScale * mask;
   float L = length(nd);
   if (L > dispMax) nd *= dispMax / L;    // ограничиваем перекос, без «взрыва»
-  float tint = old.z * tintPersist + mask * tintGain;
-  tint = min(tint, tintMax);
-  o = vec4(nd, tint, 1.0);
+  o = vec4(nd, 0.0, 1.0);
 }`;
 
   // --- компиляция/линковка -------------------------------------------------
@@ -275,8 +267,8 @@ void main(){
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
 
-  // --- буферы кадра (FBO): только скорость/давление, краски нет -------------
-  var RG = gl.RG16F, R = gl.R16F, RGBA = gl.RGBA16F;
+  // --- буферы кадра (FBO): скорость, давление, смещение, чернила -----------
+  var RG = gl.RG16F, R = gl.R16F;
   function makeFBO(w, h, internal, format, filter) {
     var tex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, tex);
@@ -303,10 +295,11 @@ void main(){
   var divergence = makeFBO(SIM_RES, SIM_RES, R, gl.RED, gl.NEAREST);
   var curlFbo = makeFBO(SIM_RES, SIM_RES, R, gl.RED, gl.NEAREST);
   var pressure = makeDouble(SIM_RES, SIM_RES, R, gl.RED, gl.NEAREST);
-  // накопленное смещение фона + тёплая подкраска (xy=смещение, z=tint).
-  // persist между кадрами — своя сетка, чуть крупнее
+  // накопленное смещение фона (xy) — «расталкивание дыма». Своя сетка.
   var DISP_RES = SMALL ? 160 : 220;
-  var disp = makeDouble(DISP_RES, DISP_RES, RGBA, gl.RGBA, LIN);
+  var disp = makeDouble(DISP_RES, DISP_RES, RG, gl.RG, LIN);
+  // ЧЕРНИЛА (dye): одноканальная плотность краски, своя сетка повыше.
+  var dye = makeDouble(DYE_RES, DYE_RES, R, gl.RED, LIN);
 
   // --- один шаг симуляции скорости (без краски) ---------------------------
   var simTexel = [1 / SIM_RES, 1 / SIM_RES];
@@ -369,6 +362,17 @@ void main(){
     gl.uniform1f(a.u.dt, dt);
     gl.uniform1f(a.u.diss, VEL_DISS);
     blit(velocity.write); velocity.swap();
+
+    // адвекция ЧЕРНИЛ тем же полем скоростей — краску несёт и закручивает.
+    // texel = simTexel (скорость в единицах своей сетки); своё затухание DYE_DISS.
+    var ad = progs.adv;
+    gl.useProgram(ad.prog);
+    gl.uniform2f(ad.u.texel, simTexel[0], simTexel[1]);
+    gl.uniform1i(ad.u.uVelocity, velocity.read.attach(0));
+    gl.uniform1i(ad.u.uSource, dye.read.attach(1));
+    gl.uniform1f(ad.u.dt, dt);
+    gl.uniform1f(ad.u.diss, DYE_DISS);
+    blit(dye.write); dye.swap();
   }
 
   // толчок течения в точку (uv 0..1), направление dx/dy
@@ -384,11 +388,24 @@ void main(){
     blit(velocity.write); velocity.swap();
   }
 
+  // капля ЧЕРНИЛ в точку: добавляем плотность краски (R-канал) с радиусом r.
+  function dyeSplat(x, y, amt, r) {
+    var aspect = canvas.width / canvas.height;
+    var s = progs.splat;
+    gl.useProgram(s.prog);
+    gl.uniform1f(s.u.aspect, aspect);
+    gl.uniform2f(s.u.point, x, y);
+    gl.uniform1f(s.u.radius, r);
+    gl.uniform1i(s.u.uTarget, dye.read.attach(0));
+    gl.uniform3f(s.u.color, amt, 0.0, 0.0);
+    blit(dye.write); dye.swap();
+  }
+
   // --- ввод курсора --------------------------------------------------------
   var pointer = { x: 0.5, y: 0.5, px: 0.5, py: 0.5, moved: false };
   var activeUntil = 0;     // до какого времени гоняем симуляцию после движения
   var decayUntil = 0;      // до какого времени крутим затухание накопл. поля
-  var ripX = 0.5, ripY = 0.5, ripStart = -1;  // клик-капля: позиция и время старта
+  var clickX = 0, clickY = 0, clickPending = false;  // впрыск чернил по клику
 
   function onMove(cx, cy) {
     pointer.px = pointer.x; pointer.py = pointer.y;
@@ -398,9 +415,10 @@ void main(){
     play();
   }
   function onClick(cx, cy) {
-    ripX = cx / window.innerWidth;
-    ripY = 1.0 - cy / window.innerHeight;
-    ripStart = (performance.now() - start) / 1000;
+    clickX = cx / window.innerWidth;
+    clickY = 1.0 - cy / window.innerHeight;
+    clickPending = true;
+    activeUntil = (performance.now() - start) / 1000 + IDLE_HOLD;
     play();
   }
   if (!reduce) {
@@ -442,6 +460,7 @@ void main(){
       var dx = (pointer.x - pointer.px) * FORCE;
       var dy = (pointer.y - pointer.py) * FORCE;
       splat(pointer.x, pointer.y, dx * dt, dy * dt);
+      dyeSplat(pointer.x, pointer.y, DYE_AMT, DYE_R_MOVE);   // капля чернил у курсора
       prevX = pointer.px; prevY = pointer.py;
       pointer.px = pointer.x; pointer.py = pointer.y;
       pointer.moved = false;
@@ -449,9 +468,20 @@ void main(){
       activeUntil = nowS + IDLE_HOLD;
       decayUntil = nowS + DECAY_HOLD;
     }
-    // жидкость считаем только пока активна (дёшево). Накопительное затухание
-    // (accum) крутим дольше — пока след/оранж не дотают, иначе деформация
-    // «замерзает» на полпути (это и были визуальные баги).
+    // клик = впрыск чернил: пятно краски + венок мелких вихрей вокруг → краска
+    // распускается тендрилами (ink-bloom), область маленькая (DYE_R_CLICK).
+    if (clickPending) {
+      dyeSplat(clickX, clickY, DYE_CLICK, DYE_R_CLICK);
+      for (var bi = 0; bi < BURST_N; bi++) {
+        var ang = bi / BURST_N * 6.2832;
+        splat(clickX, clickY, Math.cos(ang) * BURST_FORCE, Math.sin(ang) * BURST_FORCE);
+      }
+      clickPending = false;
+      decayUntil = nowS + DECAY_HOLD;
+    }
+    // жидкость + чернила считаем пока активна симуляция (дёшево). Накопительное
+    // затухание (accum) и дотаивание чернил крутим дольше — пока след не зарастёт,
+    // иначе деформация «замерзает» на полпути (это и были визуальные баги).
     if (nowS < activeUntil) step(dt);
     if (nowS < decayUntil) {
       var ac = progs.accum;
@@ -466,24 +496,26 @@ void main(){
       gl.uniform1f(ac.u.persist, PERSIST);
       gl.uniform1f(ac.u.dispMax, DISP_MAX);
       gl.uniform1f(ac.u.inject, inject);
-      gl.uniform1f(ac.u.tintGain, TINT_GAIN);
-      gl.uniform1f(ac.u.tintPersist, TINT_PERSIST);
-      gl.uniform1f(ac.u.tintMax, TINT_MAX);
       blit(disp.write); disp.swap();
+
+      // дотаивание чернил в покое: лёгкое затухание плотности (без сети скоростей)
+      if (nowS >= activeUntil) {
+        var cf = progs.clear;
+        gl.useProgram(cf.prog);
+        gl.uniform1i(cf.u.uTex, dye.read.attach(0));
+        gl.uniform1f(cf.u.val, DYE_FADE);
+        blit(dye.write); dye.swap();
+      }
     }
 
-    // вывод: наш fbm-фон, смещённый НАКОПЛЕННЫМ полем + клик-капля
+    // вывод: наш fbm-фон, смещённый накопл. полем + настоящие чернила (uDye)
     gl.disable(gl.BLEND);
     var dp = progs.disp;
     gl.useProgram(dp.prog);
     gl.uniform2f(dp.u.res, canvas.width, canvas.height);
     gl.uniform1f(dp.u.t, nowS);
     gl.uniform1i(dp.u.uDisp, disp.read.attach(0));
-    gl.uniform2f(dp.u.ripPos, ripX, ripY);
-    gl.uniform1f(dp.u.ripAge, ripStart >= 0 ? nowS - ripStart : -1.0);
-    gl.uniform1f(dp.u.ripDur, RIPPLE_DUR);
-    gl.uniform1f(dp.u.ripSpeed, RIPPLE_SPEED);
-    gl.uniform1f(dp.u.ripAmp, RIPPLE_AMP);
+    gl.uniform1i(dp.u.uDye, dye.read.attach(1));
     blit(null);
 
     // фон сам по себе анимирован всегда; даже без курсора крутим цикл,
@@ -508,7 +540,7 @@ void main(){
     gl.uniform2f(dpr2.u.res, canvas.width, canvas.height);
     gl.uniform1f(dpr2.u.t, 8.0);
     gl.uniform1i(dpr2.u.uDisp, disp.read.attach(0));
-    gl.uniform1f(dpr2.u.ripAge, -1.0);   // без клик-капли на статичном кадре
+    gl.uniform1i(dpr2.u.uDye, dye.read.attach(1));   // пустые чернила на статичном кадре
     blit(null);
   } else {
     document.addEventListener("visibilitychange", function () {
