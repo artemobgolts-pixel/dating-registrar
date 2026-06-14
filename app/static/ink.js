@@ -42,7 +42,7 @@
   var FRAG = "#version 300 es\n" +
     "precision highp float;\n" +
     "out vec4 o;\n" +
-    "uniform vec2 res; uniform float t; uniform vec3 mouse; uniform vec2 mdir;\n" +
+    "uniform vec2 res; uniform float t; uniform vec3 mouse;\n" +
     // палитра (sRGB 0..1): крем-фон, роза, малина, персик, сирень
     "const vec3 BG    = vec3(0.984, 0.949, 0.945);\n" +
     "const vec3 ROSE  = vec3(0.713, 0.372, 0.435);\n" +
@@ -66,22 +66,20 @@
     "  vec2 uv = gl_FragCoord.xy / res;\n" +
     "  uv.x *= res.x / res.y;\n" +
     "  float tt = t * 0.016;\n" +
-    // --- интерактив: крошечная зона у курсора, но деформация сильная («прорыв») ---
+    // --- интерактив: «палка в воде» — крошечная зона, сильная рябь --------
+    // позиция касания в той же аспект-коррекции, что и uv
     "  vec2 m = mouse.xy; m.x *= res.x / res.y;\n" +
     "  vec2 dm = uv - m;\n" +
-    // направление движения курсора; за «головой» короткий хвост кометы
-    "  vec2 dir = (dot(mdir, mdir) > 1e-6) ? normalize(vec2(mdir.x * res.x / res.y, mdir.y)) : vec2(1.0, 0.0);\n" +
-    "  vec2 nrm = vec2(-dir.y, dir.x);\n" +
-    "  float along  = dot(dm, dir);\n" +    // проекция вдоль движения (хвост позади)
-    "  float across = dot(dm, nrm);\n" +    // поперёк — совсем тонко
-    // очень узкая зона: позади курсора (along<0) хвост короткий, поперёк — нить
-    "  float a = along < 0.0 ? along * 0.7 : along * 2.2;\n" +
-    "  float d2 = a*a * 95.0 + across*across * 240.0;\n" +
-    "  float infl = mouse.z * exp(-d2);\n" +
-    // хаос без дрожи: низкая временная частота шума, мелкая пространственная структура
-    "  vec2 wob = vec2(noise(uv*9.0 + tt*0.6), noise(uv*9.0 - tt*0.6 + 4.0)) - 0.5;\n" +
-    // сильное, но крошечное смещение — «прорывается» в маленьком пятне
-    "  uv += (normalize(dm + 1e-4) * 0.6 + wob * 1.4) * infl * 0.16;\n" +
+    "  float rr = length(dm);\n" +
+    "  vec2 rdir = dm / (rr + 1e-4);\n" +        // радиальное направление наружу
+    // компактная зона у «палки»: маленький радиус, резкий гауссов спад
+    "  float env = exp(-rr * rr * 150.0);\n" +
+    // концентрические кольца расходятся наружу — как рябь от палки в воде
+    "  float rings = sin(rr * 130.0 - t * 11.0);\n" +
+    // центральная ямка (палка продавливает воду) + расходящаяся рябь,
+    // всё окно́ ограничено env → деформация живёт только в пятне у курсора
+    "  float disp = (rings * 0.9 - env * 0.6) * env;\n" +
+    "  uv += rdir * disp * mouse.z * 0.08;\n" +
     // орбитальное смещение доменов → поле не просто плывёт, а перетекает/морфит
     "  vec2 mo = vec2(sin(tt*0.7), cos(tt*0.6)) * 0.7;\n" +
     "  vec2 q = vec2(fbm(uv*1.6 + mo + vec2(0.0, tt)), fbm(uv*1.6 - mo + vec2(5.2, -tt)));\n" +
@@ -132,13 +130,12 @@
   var uRes = gl.getUniformLocation(prog, "res");
   var uT = gl.getUniformLocation(prog, "t");
   var uMouse = gl.getUniformLocation(prog, "mouse");
-  var uMdir = gl.getUniformLocation(prog, "mdir");
 
   // Сглаженная позиция указателя (mx,my) тянется к цели (tx,ty) внутри
-  // кадрового цикла — поэтому разрез не дёргается при неравномерных событиях.
-  // dir — направление лезвия (вдоль движения), mStrength — сила разреза (затухает).
+  // кадрового цикла — поэтому рябь не дёргается при неравномерных событиях.
+  // mStrength — сила «погружения палки» (плавно растёт и затухает).
   var mx = 0.5, my = 0.5, tx = 0.5, ty = 0.5;
-  var dirx = 1.0, diry = 0.0, mStrength = 0.0, tStrength = 0.0;
+  var mStrength = 0.0, tStrength = 0.0;
 
   // рендерим в пониженном разрешении: чернила мягкие, детали не нужны,
   // зато ощутимо легче для GPU телефона
@@ -170,9 +167,8 @@
     gl.uniform2f(uRes, canvas.width, canvas.height);
     gl.uniform1f(uT, (now - start) / 1000);
     gl.uniform3f(uMouse, mx, my, mStrength);
-    gl.uniform2f(uMdir, dirx, diry);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
-    tStrength *= 0.90;                    // цель затухает — след тает плавно
+    tStrength *= 0.92;                    // палка вынута — рябь затухает плавно
     if (tStrength < 0.002) tStrength = 0;
     if (mStrength < 0.002 && tStrength === 0) mStrength = 0;
     if (!document.hidden) raf = requestAnimationFrame(frame);
@@ -198,20 +194,15 @@
 
   if (!reduce) {
     // указатель: переводим в UV (0..1), y переворачиваем под gl_FragCoord.
-    // Пишем ЦЕЛЬ (tx,ty) — позиция разреза подтягивается к ней в цикле плавно;
-    // направление лезвия dir тоже сглаживаем, чтобы не прыгало на резких поворотах.
+    // Пишем ЦЕЛЬ (tx,ty) — позиция ряби подтягивается к ней в цикле плавно.
     function point(cx, cy) {
       var nx = cx / window.innerWidth;
       var ny = 1.0 - cy / window.innerHeight;     // WebGL: 0 снизу
       var dx = nx - tx, dy = ny - ty;
       var speed = Math.sqrt(dx * dx + dy * dy);
-      if (speed > 1e-4) {                          // обновляем ось ножа по движению
-        var ux = dx / speed, uy = dy / speed;
-        dirx += (ux - dirx) * 0.2;
-        diry += (uy - diry) * 0.2;
-      }
       tx = nx; ty = ny;
-      tStrength = Math.min(0.5, tStrength + 0.06 + speed * 1.4);
+      // быстрее ведёшь — сильнее «булькает»; стоишь на месте — рябь тихо живёт
+      tStrength = Math.min(1.0, tStrength + 0.12 + speed * 3.0);
       play();                                       // оживляем цикл, если стоял
     }
     window.addEventListener("mousemove", function (e) {

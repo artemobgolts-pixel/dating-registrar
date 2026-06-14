@@ -684,6 +684,63 @@ def date_delete(did: int, conn=Depends(get_db)):
     return redir("/admin/dates", "Свидание удалено")
 
 
+@router.post("/dates/{did}/clone")
+def date_clone(did: int, next: str = Form("/admin/dates"), conn=Depends(get_db)):
+    """Дубль свидания: копируем запись, ссылки, категории и файлы (с новыми
+    именами на диске). Брони и вопросы НЕ переносим — клон это свежее
+    предложение. Клон создаётся черновиком, чтобы гости не увидели дубль
+    раньше времени. Карта (place_url) уже распознана — резолвить не нужно."""
+    src = _date_or_404(conn, did)
+    new_id = insert_date(
+        conn, name=f"{src['name']} (копия)", place=src["place"],
+        starts=src["starts_at"], ends=src["ends_at"], comment=src["comment"],
+        origin="admin", guest_token=None, draft=1,
+        pay_split=src["pay_split"], place_url=src["place_url"])
+
+    # категории — в конец каждого списка
+    for cid in [r[0] for r in conn.execute(
+            "SELECT category_id FROM date_categories WHERE date_id=?", (did,))]:
+        conn.execute(
+            "INSERT OR IGNORE INTO date_categories(date_id, category_id, position) "
+            "VALUES(?,?,?)", (new_id, cid, next_cat_pos(conn, cid)))
+
+    # ссылки
+    for r in conn.execute(
+            "SELECT url, position FROM date_links WHERE date_id=? ORDER BY position, id",
+            (did,)).fetchall():
+        conn.execute("INSERT INTO date_links(date_id, url, position) VALUES(?,?,?)",
+                     (new_id, r["url"], r["position"]))
+
+    # фото и видео — физические копии файлов; битые/пропавшие просто пропускаем
+    copied: list[str] = []
+    try:
+        for r in conn.execute(
+                "SELECT filename, position FROM date_images WHERE date_id=? "
+                "ORDER BY position, id", (did,)).fetchall():
+            fn = images.copy_file(r["filename"])
+            if fn:
+                copied.append(fn)
+                conn.execute(
+                    "INSERT INTO date_images(date_id, filename, position) VALUES(?,?,?)",
+                    (new_id, fn, r["position"]))
+        for r in conn.execute(
+                "SELECT filename, position FROM date_videos WHERE date_id=? "
+                "ORDER BY position, id", (did,)).fetchall():
+            fn = images.copy_file(r["filename"])
+            if fn:
+                copied.append(fn)
+                conn.execute(
+                    "INSERT INTO date_videos(date_id, filename, position) VALUES(?,?,?)",
+                    (new_id, fn, r["position"]))
+    except Exception:
+        for fn in copied:               # не оставляем осиротевшие копии на диске
+            images.delete_file(fn)
+        raise
+    conn.commit()
+    return redir(f"/admin/dates/{new_id}/edit",
+                 "Свидание скопировано — это черновик, проверь и опубликуй")
+
+
 @router.post("/bookings/{bid}/delete")
 def booking_delete(bid: int, next: str = Form("/admin/dates"), conn=Depends(get_db)):
     """Снять чужой выбор со свидания (например, по просьбе гостя)."""

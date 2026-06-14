@@ -13,6 +13,7 @@ import io
 import os
 import re
 import secrets
+import shutil
 from pathlib import Path
 
 from PIL import Image, ImageOps
@@ -108,6 +109,18 @@ def delete_file(filename: str) -> None:
         p.unlink()
     except FileNotFoundError:
         pass
+
+
+def copy_file(filename: str) -> str | None:
+    """Делает физическую копию файла с новым именем (для клонирования
+    свидания). Расширение сохраняем — отдача завязана на него. Возвращает
+    имя копии или None, если оригинала уже нет на диске."""
+    src = UPLOAD_DIR / Path(filename).name
+    if not src.exists():
+        return None
+    name = f"{secrets.token_urlsafe(12)}{src.suffix}"
+    shutil.copyfile(src, UPLOAD_DIR / name)
+    return name
 
 
 # ---------------------------------------------------------------------------

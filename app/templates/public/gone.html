@@ -5,15 +5,49 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <title>Ссылка не действует</title>
-<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='80' font-size='80'&gt;%F0%9F%92%94&lt;/text&gt;&lt;/svg&gt;">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💔</text></svg>">
 <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
 <link rel="stylesheet" href="/static/public.css">
 </head>
 <body>
-<div class="solo">
-  <div style="font-size:52px">💔</div>
-  <h1>Эта ссылка больше не действует</h1>
-  <p class="sub">попроси новую у того, кто её прислал</p>
+<div class="bg-hearts" aria-hidden="true">
+  <span>♥</span><span>♡</span><span>♥</span><span>♡</span><span>♥</span><span>♡</span><span>♥</span>
 </div>
+<div class="bg-smoke" aria-hidden="true">
+  <svg class="turb" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice">
+    <defs>
+      <radialGradient id="smokeFade" cx="50%" cy="42%" r="62%">
+        <stop offset="0%" stop-color="#b65f6f" stop-opacity="0.55"/>
+        <stop offset="55%" stop-color="#cf7d92" stop-opacity="0.32"/>
+        <stop offset="100%" stop-color="#cf7d92" stop-opacity="0"/>
+      </radialGradient>
+      <filter id="smokeWisp" x="-30%" y="-30%" width="160%" height="160%">
+        <feTurbulence type="fractalNoise" baseFrequency="0.006 0.011" numOctaves="4"
+                      seed="11" stitchTiles="stitch" result="noise">
+          <animate attributeName="baseFrequency" dur="42s"
+                   values="0.006 0.011;0.008 0.014;0.006 0.011" repeatCount="indefinite"/>
+        </feTurbulence>
+        <feDisplacementMap in="SourceGraphic" in2="noise" scale="230"
+                           xChannelSelector="R" yChannelSelector="G"/>
+        <feGaussianBlur stdDeviation="7"/>
+      </filter>
+    </defs>
+    <g filter="url(#smokeWisp)">
+      <ellipse class="plume p1" cx="30%" cy="28%" rx="24%" ry="40%" fill="url(#smokeFade)"/>
+      <ellipse class="plume p2" cx="72%" cy="40%" rx="22%" ry="42%" fill="url(#smokeFade)"/>
+      <ellipse class="plume p3" cx="48%" cy="68%" rx="28%" ry="44%" fill="url(#smokeFade)"/>
+    </g>
+  </svg>
+  <span></span><span></span><span></span>
+</div>
+<main class="home-wrap">
+  <div class="home-card">
+    <div class="home-heart" aria-hidden="true">💔</div>
+    <h1>Ссылка не&nbsp;действует</h1>
+    <p>попроси новую у того, кто её прислал</p>
+    <div class="home-dots" aria-hidden="true">♥ ♥ ♥</div>
+  </div>
+</main>
+<script src="/static/ink.js" defer></script>
 </body>
 </html>

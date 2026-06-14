@@ -91,7 +91,7 @@
     <div class="gal-wrap">
       {% if badges | trim %}<div class="badges">{{ badges }}</div>{% endif %}
       <div class="booked-overlay" aria-hidden="true">
-        <div class="bo-inner"><span class="bo-heart">{% if d.past %}♡{% else %}♥{% endif %}</span><span class="bo-text">{% if d.past %}Было{% else %}Забронировано{% endif %}</span>
+        <div class="bo-inner"><span class="bo-heart">{% if d.past %}✨{% else %}♥{% endif %}</span><span class="bo-text">{% if d.past %}Было{% else %}Забронировано{% endif %}</span>
           <span class="bo-who">{% if d.booked_by_me %}{{ guest_name or 'ты ♥' }}{% elif d.booked_others_list %}{{ d.booked_others_list[0] }}{% endif %}</span>
         </div>
       </div>
@@ -110,7 +110,7 @@
     {% else %}
     <div class="accent" aria-hidden="true"></div>
     <div class="booked-overlay flat" aria-hidden="true">
-      <div class="bo-inner"><span class="bo-heart">{% if d.past %}♡{% else %}♥{% endif %}</span><span class="bo-text">{% if d.past %}Было{% else %}Забронировано{% endif %}</span>
+      <div class="bo-inner"><span class="bo-heart">{% if d.past %}✨{% else %}♥{% endif %}</span><span class="bo-text">{% if d.past %}Было{% else %}Забронировано{% endif %}</span>
         <span class="bo-who">{% if d.booked_by_me %}{{ guest_name or 'ты ♥' }}{% elif d.booked_others_list %}{{ d.booked_others_list[0] }}{% endif %}</span>
       </div>
     </div>
@@ -204,7 +204,6 @@
     <summary>
       <span class="af-label">Архив</span>
       <span class="af-count">{{ past|length }} {{ past|length | plural('свидание', 'свидания', 'свиданий') }}</span>
-      <span class="af-chev" aria-hidden="true"></span>
     </summary>
     <section class="cards archive-cards">
       {% for d in past %}{{ datecard(d) }}{% endfor %}

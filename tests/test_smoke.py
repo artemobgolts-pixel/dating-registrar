@@ -868,6 +868,46 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert rv.status_code == 206 and len(rv.content) == 4
     assert rv.headers["content-range"].startswith("bytes 0-3/")
 
+    # ---------- клонирование свидания админом ----------
+    # исходник: фото + видео + ссылка + категория; клонируем и проверяем дубль
+    r = apost(c, "/admin/dates/new",
+              {"name": "Оригинал", "categories": str(vcid), "place": "Парк",
+               "links": "ya.ru", "comment": "будет здорово", "pay": "1"},
+              files=[("images", ("o.png", png((40, 80, 120)), "image/png")),
+                     ("videos", ("ov.mp4", MP4, "video/mp4"))])
+    assert r.status_code == 303
+    orig = db_one("SELECT * FROM dates WHERE name='Оригинал'")
+    orig_files = {x["filename"] for x in db_all(
+        "SELECT filename FROM date_images WHERE date_id=?", (orig["id"],))}
+    orig_files |= {x["filename"] for x in db_all(
+        "SELECT filename FROM date_videos WHERE date_id=?", (orig["id"],))}
+
+    r = apost(c, f"/admin/dates/{orig['id']}/clone", {"next": "/admin/dates"})
+    assert r.status_code == 303
+    clone = db_one("SELECT * FROM dates WHERE name='Оригинал (копия)'")
+    assert clone is not None and clone["id"] != orig["id"]
+    assert clone["is_draft"] == 1                       # клон — черновик
+    assert clone["place"] == "Парк" and clone["pay_split"] == 1
+    assert clone["comment"] == "будет здорово"
+    # ссылка и категория перенесены
+    assert db_one("SELECT url FROM date_links WHERE date_id=?", (clone["id"],))["url"] \
+        == "https://ya.ru"
+    assert db_one("SELECT 1 FROM date_categories WHERE date_id=? AND category_id=?",
+                  (clone["id"], vcid))
+    # файлы — отдельные копии (новые имена, оба существуют на диске)
+    clone_files = {x["filename"] for x in db_all(
+        "SELECT filename FROM date_images WHERE date_id=?", (clone["id"],))}
+    clone_files |= {x["filename"] for x in db_all(
+        "SELECT filename FROM date_videos WHERE date_id=?", (clone["id"],))}
+    assert len(clone_files) == 2 and clone_files.isdisjoint(orig_files)
+    assert all((main.images.UPLOAD_DIR / fn).exists() for fn in clone_files)
+    # брони/вопросы НЕ копируются
+    assert not db_one("SELECT 1 FROM bookings WHERE date_id=?", (clone["id"],))
+    # удаление клона не задевает файлы оригинала
+    apost(c, f"/admin/dates/{clone['id']}/delete", {})
+    assert all((main.images.UPLOAD_DIR / fn).exists() for fn in orig_files)
+    step("клон свидания: дубль-черновик, копии файлов с новыми именами, брони не переносятся")
+
     # битый «видеофайл» (на самом деле png-байты) — мягкая ошибка
     r = apost(c, "/admin/dates/new", {"name": "Битое видео", "categories": str(vcid)},
               files=[("videos", ("x.mp4", png(), "video/mp4"))])

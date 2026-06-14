@@ -265,20 +265,7 @@ body::after {
 .archive-fold > summary::-webkit-details-marker { display: none; }
 .archive-fold > summary:hover { background: rgba(255, 250, 248, .68); }
 .af-label { font-size: 20px; font-weight: 600; line-height: 1; }
-.af-count { color: var(--muted); font-size: 14px; margin-right: auto; align-self: center; }
-/* шеврон рисуем границами — не зависит от метрик шрифта, всегда ровный */
-.af-chev {
-  flex: 0 0 auto;
-  width: 11px; height: 11px;
-  margin-right: 4px;
-  border-right: 2.2px solid var(--rose);
-  border-bottom: 2.2px solid var(--rose);
-  transform: rotate(45deg);            /* «v» вниз */
-  transform-origin: 55% 55%;
-  transition: transform .3s var(--ease);
-}
-.archive-fold > summary { align-items: center; }
-.archive-fold[open] > summary .af-chev { transform: rotate(225deg); }
+.af-count { color: var(--muted); font-size: 14px; align-self: center; }
 .archive-fold[open] > summary { margin-bottom: 22px; }
 .archive-cards { animation: fade-up .5s var(--ease) both; }
 

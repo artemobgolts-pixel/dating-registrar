@@ -64,6 +64,11 @@
           <input type="hidden" name="next" value="/admin/dates?view={{ view }}{{ qs_keep }}">
           <button class="btn small">{{ 'Вернуть' if r['archived_at'] else 'В архив' }}</button>
         </form>
+        <form class="inline" method="post" action="/admin/dates/{{ r['id'] }}/clone">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <input type="hidden" name="next" value="/admin/dates?view={{ view }}{{ qs_keep }}">
+          <button class="btn small">Дублировать</button>
+        </form>
         <form class="inline" method="post" action="/admin/dates/{{ r['id'] }}/delete"
               data-confirm="Удалить свидание безвозвратно? Фото, брони и вопросы к нему тоже удалятся.">
           <input type="hidden" name="csrf" value="{{ csrf }}">
