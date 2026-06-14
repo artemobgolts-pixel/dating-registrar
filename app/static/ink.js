@@ -1,12 +1,15 @@
-/* Фон «растекающиеся чернила» (墨流し) — настоящая жидкостная симуляция.
- * GPU-решатель Навье–Стокса (стабильные жидкости, Jos Stam): поле скоростей
- * + краска; адвекция, проекция давления (Якоби), завихрённость. Курсор вливает
- * чернила и тянет течение — они растекаются, смешиваются и медленно растворяются,
- * как тушь в воде. В покое мягкое «авто-течение» само рисует разводы.
+/* Фон «растекающиеся чернила» (вариант A) + локальная деформация-жидкость.
+ *
+ * Видимый фон — наш прежний доменно-искажённый fbm: чернильные пятна нашей
+ * палитры медленно перетекают (анимация не изменилась). Поверх него работает
+ * GPU-решатель Навье–Стокса (стабильные жидкости): курсор вливает скорость,
+ * она течёт и завихряется по законам жидкости — и этим полем скоростей мы
+ * ЛОКАЛЬНО смещаем фон у курсора. Краску (dye) не рисуем: фон остаётся нашим,
+ * а деформация живёт только маленьким пятном под курсором и плавно тает.
  *
  * Самохостинг, без зависимостей и Three.js — под нашу строгую CSP.
- * Нужен WebGL2 + рендер в half-float. Нет поддержки → тихий выход, остаётся
- * CSS-дым (.bg-smoke). prefers-reduced-motion → один статичный кадр.
+ * Нет WebGL2 / float-рендера → тихий выход, остаётся CSS-дым (.bg-smoke).
+ * prefers-reduced-motion → один статичный кадр.
  */
 (function () {
   "use strict";
@@ -23,37 +26,28 @@
 
   var gl = canvas.getContext("webgl2", {
     alpha: true, antialias: false, depth: false, stencil: false,
-    premultipliedAlpha: false, powerPreference: "high-performance",
+    premultipliedAlpha: false, powerPreference: "low-power",
   });
   if (!gl) return;
   if (!gl.getExtension("EXT_color_buffer_float")) return;  // нет float-рендера
-  gl.getExtension("OES_texture_float_linear");
+  var LINEAR_OK = !!gl.getExtension("OES_texture_float_linear");
 
   host.appendChild(canvas);
   host.classList.add("has-ink");
 
-  // --- параметры симуляции (можно крутить) --------------------------------
+  // --- параметры (можно крутить) ------------------------------------------
   var SMALL = Math.min(window.innerWidth, window.innerHeight) < 700;
-  var SIM_RES    = SMALL ? 100 : 140;  // сетка скоростей/давления
-  var DYE_RES    = SMALL ? 420 : 640;  // сетка краски (детальность разводов)
-  var ITER       = 22;                 // итерации давления (несжимаемость)
-  var CURL       = 26;                 // завихрённость — «жилки» в чернилах
-  var VEL_DISS   = 0.30;               // затухание скорости (выше — спокойнее)
-  var DEN_DISS   = 0.60;               // растворение краски (выше — быстрее тает)
-  var PRESS_DISS = 0.80;
-  var SPLAT_R    = 0.0022;             // размер чернильного пятна (uv²)
-  var FORCE      = 6200;               // сила толчка течения от курсора
+  var SIM_RES    = SMALL ? 110 : 150;  // сетка скоростей/давления
+  var ITER       = 20;                 // итерации давления (несжимаемость)
+  var CURL       = 30;                 // завихрённость — «жилки» течения
+  var VEL_DISS   = 0.9;                 // затухание скорости (выше — быстрее тает)
+  var PRESS_DISS = 0.8;
+  var SPLAT_R    = 0.00045;            // размер зоны у курсора (uv²) — с курсор
+  var FORCE      = 6000;               // сила толчка течения
+  var DISP_SCALE = 0.07;               // насколько поле скоростей смещает фон
+  var IDLE_HOLD  = 2.2;                // сек: сколько ещё считать жидкость после движения
 
-  // палитра чернил (sRGB 0..1): роза, малина, персик, сирень, мягкий индиго
-  var INKS = [
-    [0.713, 0.372, 0.435],
-    [0.560, 0.290, 0.345],
-    [0.886, 0.690, 0.541],
-    [0.808, 0.588, 0.784],
-    [0.392, 0.345, 0.560],
-  ];
-
-  // --- исходники шейдеров (GLSL ES 3.00) ----------------------------------
+  // --- шейдеры -------------------------------------------------------------
   var BASE_VS = `#version 300 es
 precision highp float;
 layout(location=0) in vec2 aPos;
@@ -145,16 +139,44 @@ void main(){
   o = vec4(vel,0.0,1.0);
 }`;
 
-  // вывод: краску кладём поверх кремового фона, лёгкий свет сверху — как в референсе
+  // ВЫВОД: наш прежний fbm-фон, локально смещённый полем скоростей жидкости.
+  // Краску не рисуем — фон остаётся нашим, деформация живёт у курсора.
   var DISP_FS = `#version 300 es
-precision highp float; in vec2 vUv; out vec4 o; uniform sampler2D uTex; uniform vec2 uAspect;
-const vec3 BG = vec3(0.984,0.949,0.945);
+precision highp float;
+in vec2 vUv; out vec4 o;
+uniform sampler2D uVelocity; uniform vec2 res; uniform float t; uniform float dispScale;
+const vec3 BG    = vec3(0.984, 0.949, 0.945);
+const vec3 ROSE  = vec3(0.713, 0.372, 0.435);
+const vec3 BERRY = vec3(0.560, 0.290, 0.345);
+const vec3 PEACH = vec3(0.886, 0.690, 0.541);
+const vec3 LILAC = vec3(0.808, 0.588, 0.784);
+float hash(vec2 p){ p = fract(p*vec2(123.34,456.21)); p += dot(p,p+45.32); return fract(p.x*p.y); }
+float noise(vec2 p){
+  vec2 i = floor(p), f = fract(p);
+  float a = hash(i), b = hash(i+vec2(1.0,0.0));
+  float c = hash(i+vec2(0.0,1.0)), d = hash(i+vec2(1.0,1.0));
+  vec2 u = f*f*(3.0-2.0*f);
+  return mix(mix(a,b,u.x), mix(c,d,u.x), u.y);
+}
+float fbm(vec2 p){ float s=0.0,a=0.5; for(int i=0;i<5;i++){ s+=a*noise(p); p*=2.02; a*=0.5; } return s; }
 void main(){
-  vec3 ink = texture(uTex,vUv).rgb;
-  float a = clamp(max(ink.r,max(ink.g,ink.b)),0.0,1.0);
-  vec3 col = mix(BG, ink/max(a,1e-3), smoothstep(0.0,0.25,a));
-  col = mix(col, BG, smoothstep(0.55,1.0,1.0-vUv.y)*0.18);
-  o = vec4(col,1.0);
+  vec2 uv = vUv;
+  uv.x *= res.x/res.y;
+  float tt = t * 0.016;
+  // локальная деформация фона полем скоростей жидкости (у курсора)
+  uv += texture(uVelocity, vUv).xy * dispScale;
+  vec2 mo = vec2(sin(tt*0.7), cos(tt*0.6)) * 0.7;
+  vec2 q = vec2(fbm(uv*1.6 + mo + vec2(0.0, tt)), fbm(uv*1.6 - mo + vec2(5.2, -tt)));
+  vec2 r = vec2(fbm(uv*1.6 + 4.0*q + vec2(1.7, 9.2) + tt*0.9),
+                fbm(uv*1.6 + 4.0*q + vec2(8.3, 2.8) - tt*0.9));
+  float f = fbm(uv*1.6 + 4.3*r + 0.35*sin(tt));
+  vec3 col = BG;
+  col = mix(col, LILAC, smoothstep(0.42, 1.02, length(r)) * 0.42);
+  col = mix(col, ROSE,  smoothstep(0.52, 1.10, f) * 0.62);
+  col = mix(col, PEACH, smoothstep(0.45, 0.95, q.x*q.x) * 0.38);
+  col = mix(col, BERRY, smoothstep(0.74, 1.12, f*1.1) * 0.5);
+  col = mix(col, BG, smoothstep(0.55, 1.0, 1.0 - vUv.y*res.y/res.x) * 0.25);
+  o = vec4(col, 1.0);
 }`;
 
   // --- компиляция/линковка -------------------------------------------------
@@ -170,7 +192,6 @@ void main(){
     var p = gl.createProgram();
     gl.attachShader(p, vs); gl.attachShader(p, fs); gl.linkProgram(p);
     if (!gl.getProgramParameter(p, gl.LINK_STATUS)) return null;
-    // карта uniform-локаций по имени
     var u = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
     for (var i = 0; i < n; i++) { var nm = gl.getActiveUniform(p, i).name; u[nm] = gl.getUniformLocation(p, nm); }
     return { prog: p, u: u };
@@ -185,7 +206,6 @@ void main(){
   };
   for (var k in progs) { if (!progs[k]) { teardown(); return; } }
 
-  // полноэкранный треугольник
   var quad = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, quad);
   gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
@@ -199,8 +219,8 @@ void main(){
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
 
-  // --- буферы кадра (FBO) --------------------------------------------------
-  var RG = gl.RG16F, RGBA = gl.RGBA16F, R = gl.R16F;
+  // --- буферы кадра (FBO): только скорость/давление, краски нет -------------
+  var RG = gl.RG16F, R = gl.R16F;
   function makeFBO(w, h, internal, format, filter) {
     var tex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, tex);
@@ -218,32 +238,22 @@ void main(){
   }
   function makeDouble(w, h, internal, format, filter) {
     var a = makeFBO(w, h, internal, format, filter), b = makeFBO(w, h, internal, format, filter);
-    return {
-      w: w, h: h,
-      read: a, write: b,
-      swap: function () { var t = this.read; this.read = this.write; this.write = t; },
-    };
+    return { w: w, h: h, read: a, write: b,
+      swap: function () { var t = this.read; this.read = this.write; this.write = t; } };
   }
 
-  var LIN = gl.getExtension("OES_texture_float_linear") ? gl.LINEAR : gl.NEAREST;
-  var velocity, density, divergence, curlFbo, pressure;
+  var LIN = LINEAR_OK ? gl.LINEAR : gl.NEAREST;
+  var velocity = makeDouble(SIM_RES, SIM_RES, RG, gl.RG, LIN);
+  var divergence = makeFBO(SIM_RES, SIM_RES, R, gl.RED, gl.NEAREST);
+  var curlFbo = makeFBO(SIM_RES, SIM_RES, R, gl.RED, gl.NEAREST);
+  var pressure = makeDouble(SIM_RES, SIM_RES, R, gl.RED, gl.NEAREST);
 
-  function initFBOs() {
-    velocity   = makeDouble(SIM_RES, SIM_RES, RG, gl.RG, LIN);
-    density    = makeDouble(DYE_RES, DYE_RES, RGBA, gl.RGBA, LIN);
-    divergence = makeFBO(SIM_RES, SIM_RES, R, gl.RED, gl.NEAREST);
-    curlFbo    = makeFBO(SIM_RES, SIM_RES, R, gl.RED, gl.NEAREST);
-    pressure   = makeDouble(SIM_RES, SIM_RES, R, gl.RED, gl.NEAREST);
-  }
-  initFBOs();
-
-  // --- один шаг симуляции --------------------------------------------------
+  // --- один шаг симуляции скорости (без краски) ---------------------------
   var simTexel = [1 / SIM_RES, 1 / SIM_RES];
 
   function step(dt) {
     gl.disable(gl.BLEND);
 
-    // завихрённость → подкручиваем скорость (живые «жилки» в чернилах)
     var c = progs.curl;
     gl.useProgram(c.prog);
     gl.uniform2f(c.u.texel, simTexel[0], simTexel[1]);
@@ -259,14 +269,12 @@ void main(){
     gl.uniform1f(v.u.dt, dt);
     blit(velocity.write); velocity.swap();
 
-    // дивергенция поля скоростей
     var d = progs.div;
     gl.useProgram(d.prog);
     gl.uniform2f(d.u.texel, simTexel[0], simTexel[1]);
     gl.uniform1i(d.u.uVelocity, velocity.read.attach(0));
     blit(divergence);
 
-    // затухание давления + итерации Якоби (несжимаемость)
     var cl = progs.clear;
     gl.useProgram(cl.prog);
     gl.uniform1i(cl.u.uTex, pressure.read.attach(0));
@@ -282,7 +290,6 @@ void main(){
       blit(pressure.write); pressure.swap();
     }
 
-    // вычитаем градиент давления → поле снова несжимаемо
     var g = progs.grad;
     gl.useProgram(g.prog);
     gl.uniform2f(g.u.texel, simTexel[0], simTexel[1]);
@@ -290,7 +297,6 @@ void main(){
     gl.uniform1i(g.u.uVelocity, velocity.read.attach(1));
     blit(velocity.write); velocity.swap();
 
-    // адвекция скорости по самой себе
     var a = progs.adv;
     gl.useProgram(a.prog);
     gl.uniform2f(a.u.texel, simTexel[0], simTexel[1]);
@@ -299,39 +305,24 @@ void main(){
     gl.uniform1f(a.u.dt, dt);
     gl.uniform1f(a.u.diss, VEL_DISS);
     blit(velocity.write); velocity.swap();
-
-    // адвекция краски (своя сетка, выше разрешением)
-    gl.uniform1i(a.u.uVelocity, velocity.read.attach(0));
-    gl.uniform1i(a.u.uSource, density.read.attach(1));
-    gl.uniform1f(a.u.diss, DEN_DISS);
-    blit(density.write); density.swap();
   }
 
-  // вливаем чернила + толчок течения в точку (uv 0..1, dx/dy — направление)
-  function splat(x, y, dx, dy, color) {
+  // толчок течения в точку (uv 0..1), направление dx/dy
+  function splat(x, y, dx, dy) {
     var aspect = canvas.width / canvas.height;
     var s = progs.splat;
     gl.useProgram(s.prog);
     gl.uniform1f(s.u.aspect, aspect);
     gl.uniform2f(s.u.point, x, y);
     gl.uniform1f(s.u.radius, SPLAT_R);
-    // в скорость — направление движения
     gl.uniform1i(s.u.uTarget, velocity.read.attach(0));
     gl.uniform3f(s.u.color, dx, dy, 0.0);
     blit(velocity.write); velocity.swap();
-    // в краску — цвет чернил
-    gl.uniform1i(s.u.uTarget, density.read.attach(0));
-    gl.uniform3f(s.u.color, color[0], color[1], color[2]);
-    blit(density.write); density.swap();
   }
 
-  // --- ввод и авто-течение -------------------------------------------------
-  var pointer = { x: 0.5, y: 0.5, px: 0.5, py: 0.5, down: false, moved: false };
-  var colorIdx = 0, colorT = 0;
-  function nextColor() {
-    colorIdx = (colorIdx + 1) % INKS.length;
-    return INKS[colorIdx];
-  }
+  // --- ввод курсора --------------------------------------------------------
+  var pointer = { x: 0.5, y: 0.5, px: 0.5, py: 0.5, moved: false };
+  var activeUntil = 0;     // до какого времени гоняем симуляцию после движения
 
   function onMove(cx, cy) {
     pointer.px = pointer.x; pointer.py = pointer.y;
@@ -346,68 +337,50 @@ void main(){
       var t = e.touches[0]; if (t) onMove(t.clientX, t.clientY);
     }, { passive: true });
     window.addEventListener("touchstart", function (e) {
-      var t = e.touches[0]; if (t) { pointer.x = t.clientX / window.innerWidth; pointer.y = 1 - t.clientY / window.innerHeight; pointer.px = pointer.x; pointer.py = pointer.y; }
+      var t = e.touches[0];
+      if (t) { pointer.x = t.clientX / window.innerWidth; pointer.y = 1 - t.clientY / window.innerHeight; pointer.px = pointer.x; pointer.py = pointer.y; }
     }, { passive: true });
   }
 
-  // мягкие авто-вливания, когда курсор спит — фон сам живёт и течёт
-  var idleT = 0, idleX = 0.5, idleY = 0.5, idleVX = 0, idleVY = 0, seedColor = INKS[0];
-  function autoFlow(dt) {
-    idleT -= dt;
-    if (idleT <= 0) {
-      // новая «капля» в случайной точке, лёгкий дрейф; интервал варьируем
-      idleX = 0.18 + 0.64 * fract(idleX * 9.137 + 0.371);
-      idleY = 0.18 + 0.64 * fract(idleY * 7.331 + 0.613);
-      var ang = 6.2831 * fract(idleX * idleY * 13.7);
-      idleVX = Math.cos(ang); idleVY = Math.sin(ang);
-      seedColor = nextColor();
-      idleT = 0.9 + fract(idleX + idleY) * 1.4;
-    }
-    splat(idleX, idleY, idleVX * FORCE * 0.20 * dt, idleVY * FORCE * 0.20 * dt, mul(seedColor, 0.85));
-  }
-  function fract(v) { return v - Math.floor(v); }
-  function mul(c, k) { return [c[0] * k, c[1] * k, c[2] * k]; }
-
-  // --- размеры вывода (краска и скорость в фикс. сетке, тут — только канвас) -
+  // рендерим в пониженном разрешении: фон мягкий, детали не нужны
+  var SCALE = 0.5;
   function resize() {
     var dpr = Math.min(window.devicePixelRatio || 1, 1.5);
-    var w = Math.max(2, Math.floor(window.innerWidth * dpr));
-    var h = Math.max(2, Math.floor(window.innerHeight * dpr));
-    if (canvas.width !== w || canvas.height !== h) {
-      canvas.width = w; canvas.height = h;
-    }
+    var w = Math.max(2, Math.floor(window.innerWidth * dpr * SCALE));
+    var h = Math.max(2, Math.floor(window.innerHeight * dpr * SCALE));
+    if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
   }
 
   // --- цикл ----------------------------------------------------------------
-  var raf = 0, last = 0;
+  var raf = 0, last = 0, start = performance.now();
 
   function render(now) {
     raf = 0;
     if (!last) last = now;
-    var dt = Math.min((now - last) / 1000, 0.022); // клампим, чтобы не «взрывалось»
+    var dt = Math.min((now - last) / 1000, 0.022);
     last = now;
     resize();
 
-    // ввод от курсора → вливание чернил и толчок течения
+    // ввод курсора → толчок течения; держим симуляцию активной ещё IDLE_HOLD сек
     if (pointer.moved) {
       var dx = (pointer.x - pointer.px) * FORCE;
       var dy = (pointer.y - pointer.py) * FORCE;
-      colorT -= 1;
-      if (colorT <= 0) { seedColor = nextColor(); colorT = 8; }
-      splat(pointer.x, pointer.y, dx * dt, dy * dt, seedColor);
+      splat(pointer.x, pointer.y, dx * dt, dy * dt);
       pointer.px = pointer.x; pointer.py = pointer.y;
       pointer.moved = false;
-    } else {
-      autoFlow(dt);                 // курсор спит — фон течёт сам
+      activeUntil = (now - start) / 1000 + IDLE_HOLD;
     }
+    // считаем жидкость только пока есть что показывать (после движения)
+    if ((now - start) / 1000 < activeUntil) step(dt);
 
-    step(dt);
-
-    // вывод краски на экран
+    // вывод: наш fbm-фон, локально смещённый полем скоростей
     gl.disable(gl.BLEND);
     var dp = progs.disp;
     gl.useProgram(dp.prog);
-    gl.uniform1i(dp.u.uTex, density.read.attach(0));
+    gl.uniform2f(dp.u.res, canvas.width, canvas.height);
+    gl.uniform1f(dp.u.t, (now - start) / 1000);
+    gl.uniform1f(dp.u.dispScale, DISP_SCALE);
+    gl.uniform1i(dp.u.uVelocity, velocity.read.attach(0));
     blit(null);
 
     if (!document.hidden) raf = requestAnimationFrame(render);
@@ -423,20 +396,14 @@ void main(){
 
   resize();
 
-  // несколько стартовых капель — чтобы фон не был пустым на первом кадре
-  (function seed() {
-    for (var i = 0; i < 5; i++) {
-      var sx = 0.2 + 0.15 * i, sy = 0.35 + 0.1 * ((i * 7) % 5);
-      var ang = i * 1.7;
-      splat(sx, sy, Math.cos(ang) * FORCE * 0.5 * 0.016, Math.sin(ang) * FORCE * 0.5 * 0.016, INKS[i % INKS.length]);
-    }
-  })();
-
   if (reduce) {
-    // один прогон + статичный кадр, без анимации
-    for (var s = 0; s < 40; s++) step(0.016);
-    gl.useProgram(progs.disp.prog);
-    gl.uniform1i(progs.disp.u.uTex, density.read.attach(0));
+    // статичный «красивый» кадр без анимации и без жидкости
+    var dpr2 = progs.disp;
+    gl.useProgram(dpr2.prog);
+    gl.uniform2f(dpr2.u.res, canvas.width, canvas.height);
+    gl.uniform1f(dpr2.u.t, 8.0);
+    gl.uniform1f(dpr2.u.dispScale, 0.0);
+    gl.uniform1i(dpr2.u.uVelocity, velocity.read.attach(0));
     blit(null);
   } else {
     document.addEventListener("visibilitychange", function () {
