@@ -6,8 +6,8 @@
 <div class="quick">
   <a class="btn primary" href="/admin/dates/new">+ Создать свидание</a>
   {% if share %}
-  <button type="button" class="btn ghost" data-copy="{{ share_url }}">🔗 Ссылка для неё/него</button>
-  <a class="btn ghost" href="/c/{{ share['link_token'] }}" target="_blank" rel="noopener">👀 Открыть её/его глазами</a>
+  <button type="button" class="btn ghost" data-copy="{{ share_url }}">🔗 Ссылка</button>
+  <a class="btn ghost" href="/c/{{ share['link_token'] }}" target="_blank" rel="noopener">👀 Открыть</a>
   {% endif %}
 </div>
 
