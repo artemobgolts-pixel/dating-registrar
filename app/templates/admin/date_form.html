@@ -139,7 +139,7 @@
         <label class="toggle">
           <input type="checkbox" name="draft" value="1" {% if date and date['is_draft'] %}checked{% endif %}>
           <span class="sw"></span>
-          <span class="tcol"><span class="t">Черновик</span><span class="d">скрыто от неё, пока не опубликуешь</span></span>
+          <span class="tcol"><span class="t">Черновик</span><span class="d">скрыто, пока не опубликуешь</span></span>
         </label>
         <label style="margin-top:6px">Категории</label>
         <div class="chips-cat">
@@ -159,14 +159,13 @@
 
   <!-- ПРАВО: живой предпросмотр -->
   <div class="preview-col">
-    <div class="preview-cap">так увидит она</div>
+    <div class="preview-cap">так увидит она/он</div>
     <div class="pcard">
       <div class="photo">
         <img data-preview="cover" alt=""
              src="{% if date and photos %}/admin/uploads/{{ photos[0]['filename'] }}{% endif %}"
              style="object-position:{{ (photos[0]['focus'] or '50% 50%') if (date and photos) else '50% 50%' }}"
              {% if not (date and photos) %}hidden{% endif %}>
-        <div class="ph" data-preview="cover-ph" {% if date and photos %}hidden{% endif %}>фото появится здесь</div>
         <span class="vbadge" data-preview="vbadge" {% if not (date and videos) %}hidden{% endif %}>🎬 видео</span>
       </div>
       <div class="body">
@@ -336,12 +335,18 @@
         .catch(function () { alert('Нет связи — порядок не сохранён'); });
     }});
 
-    // выбор зоны фокуса: клик по фото → object-position в процентах, сохраняем
+    // выбор зоны фокуса: клик по фото → object-position в процентах, сохраняем.
+    // Берём картинку через .thumb, а не через e.target: sortable вызывает
+    // setPointerCapture на .thumb, из-за чего click может прийти на сам .thumb,
+    // а не на <img> — closest('img') тогда промахивался (это и был «не работает»).
     th.addEventListener('click', function (e) {
-      var img = e.target.closest('img.focusable');
+      if (e.target.closest('.thumb-btns')) return;   // клики по «открыть/удалить» не трогаем
+      var thumb = e.target.closest('.thumb');
+      if (!thumb) return;
+      var img = thumb.querySelector('img.focusable');
       if (!img) return;
-      var thumb = img.closest('.thumb');
       var rect = img.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
       var x = Math.round(Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)) * 100);
       var y = Math.round(Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height)) * 100);
       var focus = x + '% ' + y + '%';
@@ -358,7 +363,7 @@
             { method: 'POST', body: fd })
         .then(function (r) {
           var s = document.getElementById('orderStatus');
-          if (r.ok) { s.style.visibility = 'visible'; setTimeout(function () { s.style.visibility = 'hidden'; }, 1600); }
+          if (r.ok) { s.textContent = 'Зона фото сохранена ✓'; s.style.visibility = 'visible'; setTimeout(function () { s.style.visibility = 'hidden'; }, 1600); }
           else { alert('Не удалось сохранить зону фокуса'); }
         })
         .catch(function () { alert('Нет связи — зона не сохранена'); });

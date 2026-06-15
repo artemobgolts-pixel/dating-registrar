@@ -11,7 +11,7 @@
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <input name="name" value="{{ cat['name'] }}" required maxlength="200">
     <textarea name="description" maxlength="1000" rows="2"
-      placeholder="Описание — она увидит его под заголовком. Можно **жирный**, *курсив*, __подчёркнутый__">{{ cat['description'] or '' }}</textarea>
+      placeholder="Описание — его увидят под заголовком. Можно **жирный**, *курсив*, __подчёркнутый__">{{ cat['description'] or '' }}</textarea>
     <div><button class="btn primary">Сохранить</button></div>
   </form>
 </div>

@@ -818,9 +818,9 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert "50/50" in c.get(f"/c/{vtok}").text
     assert "checked" in c.get(f"/admin/dates/{did_pay['id']}/edit").text  # галка стоит
 
-    # счётчик свиданий на гостевой
+    # счётчик событий на гостевой
     gpage = c.get(f"/c/{vtok}").text
-    assert "count-line" in gpage and "свидан" in gpage
+    assert "count-line" in gpage and "событи" in gpage
 
     # место-ссылка: название тянется из <title>, клик ведёт по ссылке
     real_resolve = main.places.resolve_name

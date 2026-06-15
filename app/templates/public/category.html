@@ -73,7 +73,7 @@
     </div>
     {% if cat['description'] %}<p class="cat-desc">{{ cat['description'] | rich }}</p>{% endif %}
     {% if regular or past %}
-    <div class="count-line">{{ regular|length }} {{ regular|length | plural('свидание', 'свидания', 'свиданий') }}{% if past %} · {{ past|length }} в архиве{% endif %}</div>
+    <div class="count-line">{{ regular|length }} {{ regular|length | plural('событие', 'события', 'событий') }}{% if past %} · {{ past|length }} в архиве{% endif %}</div>
     {% endif %}
   </header>
 
@@ -204,7 +204,7 @@
   <details class="archive-fold">
     <summary>
       <span class="af-label">Архив</span>
-      <span class="af-count">{{ past|length }} {{ past|length | plural('свидание', 'свидания', 'свиданий') }}</span>
+      <span class="af-count">{{ past|length }} {{ past|length | plural('событие', 'события', 'событий') }}</span>
     </summary>
     <section class="cards archive-cards">
       {% for d in past %}{{ datecard(d) }}{% endfor %}
