@@ -127,9 +127,10 @@ window.UI = (() => {
      через DataTransfer — поэтому обычный submit формы (админка) работает,
      а порядок файлов соответствует порядку плиток. */
   function uploader({ zone, input, preview, max, maxBytes, keptCount,
-                      onChange, onError, kind }) {
+                      onChange, onError, kind, focusable, onFocus }) {
     let files = [];
     let urls = [];
+    let focuses = [];                                 // зона кадра на каждое фото («X% Y%»)
     kind = kind || "image";                           // "image" | "video"
     const isVideo = kind === "video";
     const noun = isVideo ? "видео" : "фото";
@@ -168,10 +169,19 @@ window.UI = (() => {
           v.src = u;
         } else {
           w.innerHTML = '<img alt=""><button type="button" class="rm" aria-label="Убрать">✕</button>';
-          w.querySelector("img").src = u;
+          var img = w.querySelector("img");
+          img.src = u;
+          // выбор зоны кадра прямо на новой плитке (до сохранения): клик по фото →
+          // object-position в процентах. Включается только при focusable:true.
+          if (focusable) {
+            w.classList.add("focusable");
+            img.style.objectPosition = focuses[idx] || "50% 50%";
+            img.style.pointerEvents = "auto";         // перебиваем .ptile img{pointer-events:none}
+          }
         }
         w.querySelector(".rm").addEventListener("click", () => {
           files.splice(idx, 1);
+          focuses.splice(idx, 1);
           sync();
         });
         preview.appendChild(w);
@@ -221,6 +231,7 @@ window.UI = (() => {
           continue;
         }
         files.push(g);
+        focuses.push("50% 50%");                      // зона по умолчанию — центр
       }
       sync();
     }
@@ -238,15 +249,40 @@ window.UI = (() => {
     });
     input.addEventListener("change", () => add(input.files));
 
+    // выбор зоны кадра на новых плитках: клик по фото → object-position в %.
+    // Тот же расчёт, что для сохранённых фото в редакторе свидания.
+    if (focusable) {
+      preview.addEventListener("click", (e) => {
+        const tile = e.target.closest(".ptile.new");
+        if (!tile || e.target.closest(".rm")) return;
+        const img = tile.querySelector("img");
+        if (!img) return;
+        const rect = img.getBoundingClientRect();
+        if (!rect.width || !rect.height) return;
+        const x = Math.round(Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)) * 100);
+        const y = Math.round(Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height)) * 100);
+        const focus = x + "% " + y + "%";
+        img.style.objectPosition = focus;
+        focuses[+tile.dataset.idx] = focus;
+        if (onFocus) onFocus(+tile.dataset.idx, focus, files);
+      });
+    }
+
     sortable(preview, {
       selector: ".ptile.new",
       onChange: () => {
-        files = [...preview.querySelectorAll(".ptile.new")].map((t) => files[+t.dataset.idx]);
+        const tiles = [...preview.querySelectorAll(".ptile.new")];
+        files = tiles.map((t) => files[+t.dataset.idx]);
+        focuses = tiles.map((t) => focuses[+t.dataset.idx]);   // зоны едут вместе с плитками
         sync();
       },
     });
 
-    return { files: () => files.slice(), clear() { files = []; sync(); } };
+    return {
+      files: () => files.slice(),
+      focuses: () => focuses.slice(),
+      clear() { files = []; focuses = []; sync(); },
+    };
   }
 
   /* --- Чипы быстрого выбора даты и времени ------------------------------ */

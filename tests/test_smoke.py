@@ -1044,6 +1044,35 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert "object-position:20% 80%" in gp
     step("v7: зона фокуса фото сохраняется и применяется в карточке у гостьи")
 
+    # ---------- зона кадра выбирается СРАЗУ при загрузке (image_focuses) ----------
+    # Раньше зону можно было задать только после сохранения и повторного входа.
+    # Теперь форма шлёт параллельный массив зон — применяем при вставке фото.
+    r = apost(c, "/admin/dates/new",
+              {"name": "Зона сразу", "categories": str(pk_cid),
+               "image_focuses": "10% 20%,90% 30%"},
+              files=[("images", ("a.png", png((10, 20, 30)), "image/png")),
+                     ("images", ("b.png", png((40, 50, 60)), "image/png"))])
+    assert r.status_code == 303
+    zdid = db_one("SELECT id FROM dates WHERE name='Зона сразу'")["id"]
+    zimgs = db_all("SELECT focus FROM date_images WHERE date_id=? ORDER BY position, id",
+                   (zdid,))
+    assert [x["focus"] for x in zimgs] == ["10% 20%", "90% 30%"], zimgs
+    # кривая зона в массиве → этой фотке центр (NULL), без 400
+    r = apost(c, "/admin/dates/new",
+              {"name": "Зона кривая", "categories": str(pk_cid),
+               "image_focuses": "lol,50% 50%"},
+              files=[("images", ("a.png", png((11, 22, 33)), "image/png")),
+                     ("images", ("b.png", png((44, 55, 66)), "image/png"))])
+    assert r.status_code == 303
+    kdid = db_one("SELECT id FROM dates WHERE name='Зона кривая'")["id"]
+    kimgs = db_all("SELECT focus FROM date_images WHERE date_id=? ORDER BY position, id",
+                   (kdid,))
+    assert [x["focus"] for x in kimgs] == [None, "50% 50%"], kimgs
+    # форма правки несёт скрытое поле и подсказку про выбор зоны на новой плитке
+    nf = c.get("/admin/dates/new").text
+    assert 'id="imageFocuses"' in nf and 'name="image_focuses"' in nf
+    step("зона кадра задаётся сразу при загрузке фото (image_focuses), кривая → центр")
+
     # ---------- выход только по POST ----------
     assert c.get("/admin/logout").status_code == 405
     r = apost(c, "/admin/logout", {})
@@ -1155,7 +1184,8 @@ assert conn.execute("SELECT COUNT(*) FROM dates").fetchone()[0] >= 1
 conn.close()
 assert list((DATA / "backups").glob("app-*.db"))
 r = subprocess.run([sys.executable, "backup.py"], cwd=ROOT,
-                   env={**os.environ}, capture_output=True, text=True)
+                   env={**os.environ}, capture_output=True,
+                   text=True, encoding="utf-8")
 assert r.returncode == 0 and "Бэкап готов" in r.stdout
 step("консистентные снимки базы: модуль, авто-снимок при старте и CLI работают")
 

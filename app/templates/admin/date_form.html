@@ -92,6 +92,8 @@
             <input type="file" name="images" id="imagesInput" accept="image/*" multiple>
             <div class="ptiles" id="newTiles"></div>
           </div>
+          <p class="muted" id="newFocusHint" style="margin:6px 0 0;font-size:12.5px;display:none">кликни по новому фото, чтобы выбрать зону для карточки</p>
+          <input type="hidden" name="image_focuses" id="imageFocuses">
           {% else %}
           <p class="muted" style="margin:4px 0 0">Достигнут максимум — удали лишние фото ниже.</p>
           {% endif %}
@@ -277,13 +279,23 @@
 
   var inp = document.getElementById('imagesInput');
   if (inp) {
-    UI.uploader({
+    var focusesField = document.getElementById('imageFocuses');
+    var focusHint = document.getElementById('newFocusHint');
+    var up = UI.uploader({
       zone: document.getElementById('adminZone'),
       input: inp,
       preview: document.getElementById('newTiles'),
       max: {{ slots if slots and slots > 0 else 0 }},
       keptCount: function () { return 0; },
+      focusable: true,
+      onFocus: function () {
+        // зону выбрали на новой плитке — обновляем скрытое поле для сабмита
+        if (focusesField) focusesField.value = up.focuses().join(',');
+      },
       onChange: function (files) {
+        // зоны новых фото уходят параллельным массивом (по порядку плиток)
+        if (focusesField) focusesField.value = up.focuses().join(',');
+        if (focusHint) focusHint.style.display = (files && files.length) ? 'block' : 'none';
         // если своей обложки ещё нет — показываем первое новое фото как обложку
         if (preview && !hasExistingCover) {
           if (files && files.length) {

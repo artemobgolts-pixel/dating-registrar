@@ -115,7 +115,8 @@ def _next_img_pos(conn, date_id: int) -> int:
     ).fetchone()[0] + 1
 
 
-def add_photos(conn, date_id: int, files: list[UploadFile], existing: int) -> list[str]:
+def add_photos(conn, date_id: int, files: list[UploadFile], existing: int,
+               focuses: list[str] | None = None) -> list[str]:
     files = [f for f in files if f and f.filename]
     if not files:
         return []
@@ -126,11 +127,29 @@ def add_photos(conn, date_id: int, files: list[UploadFile], existing: int) -> li
     except ValueError as e:
         raise HTTPException(400, str(e))
     pos = _next_img_pos(conn, date_id)
-    for fn in saved:
-        conn.execute("INSERT INTO date_images(date_id, filename, position) VALUES(?,?,?)",
-                     (date_id, fn, pos))
+    for i, fn in enumerate(saved):
+        focus = _clean_focus(focuses[i]) if focuses and i < len(focuses) else None
+        if focus:
+            conn.execute(
+                "INSERT INTO date_images(date_id, filename, position, focus) "
+                "VALUES(?,?,?,?)", (date_id, fn, pos, focus))
+        else:
+            conn.execute(
+                "INSERT INTO date_images(date_id, filename, position) VALUES(?,?,?)",
+                (date_id, fn, pos))
         pos += 1
     return saved
+
+
+_FOCUS_RE = re.compile(r"\s*(\d{1,3})%\s+(\d{1,3})%\s*")
+
+
+def _clean_focus(raw: str | None) -> str | None:
+    """Валидирует зону кадра «X% Y%» (0..100). Иначе — None (центр по умолчанию)."""
+    m = _FOCUS_RE.fullmatch(raw or "")
+    if not m or int(m.group(1)) > 100 or int(m.group(2)) > 100:
+        return None
+    return f"{int(m.group(1))}% {int(m.group(2))}%"
 
 
 def _booking_rows(conn, category_id: int):

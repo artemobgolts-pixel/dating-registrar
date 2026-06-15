@@ -549,6 +549,7 @@ def date_create(bg: BackgroundTasks,
                 categories: list[int] = Form(default=[]),
                 photos: list[UploadFile] = File(default=[], alias="images"),
                 videos: list[UploadFile] = File(default=[], alias="videos"),
+                image_focuses: str = Form(""),
                 conn=Depends(get_db)):
     name = clean_text(name, 200, "Название", required=True)
     place, place_url, needs_resolve = places.split_place(clean_text(place, 500, "Место"))
@@ -567,7 +568,8 @@ def date_create(bg: BackgroundTasks,
     save_links(conn, date_id, link_list)
     saved_files: list[str] = []
     try:
-        saved_files += add_photos(conn, date_id, photos, existing=0)
+        saved_files += add_photos(conn, date_id, photos, existing=0,
+                                  focuses=image_focuses.split(",") if image_focuses else None)
         saved_files += add_videos(conn, date_id, videos, existing=0)
     except Exception:
         # фото уже на диске, а видео битое (или наоборот) — не оставляем сирот
@@ -641,6 +643,7 @@ def date_update(did: int, bg: BackgroundTasks, name: str = Form(...),
                 categories: list[int] = Form(default=[]),
                 photos: list[UploadFile] = File(default=[], alias="images"),
                 videos: list[UploadFile] = File(default=[], alias="videos"),
+                image_focuses: str = Form(""),
                 conn=Depends(get_db)):
     d = _date_or_404(conn, did)
     name = clean_text(name, 200, "Название", required=True)
@@ -677,7 +680,8 @@ def date_update(did: int, bg: BackgroundTasks, name: str = Form(...),
         "SELECT COUNT(*) FROM date_videos WHERE date_id=?", (did,)).fetchone()[0]
     saved_files: list[str] = []
     try:
-        saved_files += add_photos(conn, did, photos, existing=existing)
+        saved_files += add_photos(conn, did, photos, existing=existing,
+                                  focuses=image_focuses.split(",") if image_focuses else None)
         saved_files += add_videos(conn, did, videos, existing=vexisting)
     except Exception:
         for fn in saved_files:
