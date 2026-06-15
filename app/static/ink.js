@@ -60,6 +60,7 @@
   var DYE_R_MOVE  = 0.0000396;         // радиус² капли-следа от движения (толщина −20%: ×0.8²)
   var DYE_AMT     = 0.3;               // насыщенность тёплой капли от движения (тоньше=прозрачнее)
   // (чёрная клякса по клику рисуется ПРОЦЕДУРНО в шейдере DISP_FS — см. uClick*)
+  var MAX_CLICKS  = 24;                // кольцо клик-клякс: новый клик НЕ стирает прежние
 
 
   // --- шейдеры -------------------------------------------------------------
@@ -173,7 +174,12 @@ void main(){
 precision highp float;
 in vec2 vUv; out vec4 o;
 uniform sampler2D uDisp; uniform sampler2D uDye; uniform vec2 res; uniform float t;
-uniform vec2 uClick; uniform float uClickAge; uniform float uClickSeed;  // последний клик: центр, возраст(с), сид
+// Кольцевой буфер кликов: каждый клик — центр (xy в uv), возраст(с) и сид формы.
+// Неактивные слоты держат uClickAge < 0 и пропускаются в цикле (тяжёлый fbm не считается).
+#define MAX_CLICKS ${MAX_CLICKS}
+uniform vec2  uClickPos[MAX_CLICKS];
+uniform float uClickAge[MAX_CLICKS];
+uniform float uClickSeed[MAX_CLICKS];
 const vec3 BG    = vec3(0.984, 0.949, 0.945);
 const vec3 ROSE  = vec3(0.713, 0.372, 0.435);
 const vec3 BERRY = vec3(0.560, 0.290, 0.345);
@@ -191,6 +197,54 @@ float noise(vec2 p){
   return mix(mix(a,b,u.x), mix(c,d,u.x), u.y);
 }
 float fbm(vec2 p){ float s=0.0,a=0.5; for(int i=0;i<5;i++){ s+=a*noise(p); p*=2.02; a*=0.5; } return s; }
+// Гребневой («ridged») fbm: пики шума → тонкие яркие жилы. Им рисуем ВЕТВИ туши.
+float rfbm(vec2 p){ float s=0.0,a=0.5; for(int i=0;i<5;i++){ float n=1.0-abs(2.0*noise(p)-1.0); s+=a*n*n; p*=2.03; a*=0.5; } return s; }
+
+// Одна клякса туши в воде вокруг точки cc (в тех же координатах, что uv).
+// Тушь = связное пятно с мягкими вытянутыми нитями, не крапинки и не дым.
+// Принцип: ДОМЕННО-ИСКАЖЁННЫЙ радиальный спад БЕЗ порога. Координату закручиваем
+// в три прохода варпа (как мрамор фона) → изолинии мягкого пятна в этом
+// пространстве сами вытягиваются в извилистые нити. Жёсткого порога нет — края
+// мягкие, тушь растекается, крапа не появляется. age<0/далеко → фон как есть.
+vec3 inkAt(vec3 col, vec2 uv, vec2 dsp, vec2 cc, float age, float sd){
+  if (age < 0.0 || age >= 6.5) return col;
+  vec2 d = uv - cc;
+  d += dsp * 1.6;                                   // фигуру чуть ведёт течением
+  float grow = smoothstep(0.0, 0.7, age);           // распускается
+  float fade = 1.0 - smoothstep(2.5, 6.5, age);     // потом тает
+  float life = grow * fade;
+  float reach = 0.0283 + 0.04 * grow;               // размер втрое меньше прежнего (×⅓)
+  float dist0 = length(d);
+  if (life <= 0.001 || dist0 >= reach * 4.6) return col;
+  vec2 p = d / reach;                               // нормируем: тело капли ≈ радиус 1
+  // три прохода доменного варпа: всё сильнее закручиваем координату — прямые
+  // радиальные линии изгибаются в блуждающие нити-тендрилы (как тушь в воде).
+  vec2 wp = p;
+  wp += 0.60 * (vec2(fbm(p*1.4 + sd),       fbm(p*1.4 + sd + 7.0))  - 0.5);
+  wp += 0.45 * (vec2(fbm(wp*3.0 - sd*1.2),  fbm(wp*3.0 + sd + 3.0)) - 0.5);
+  wp += 0.26 * (vec2(fbm(wp*6.5 + sd*2.0),  fbm(wp*6.5 - sd + 9.0)) - 0.5);
+  float rr = length(wp);
+  // ДВА конверта на одной искажённой координате:
+  //   coreEnv — тугое плотное тело (тает к ~1.3 радиуса)
+  //   webEnv  — далеко тянущееся поле, в нём живут ТОНКИЕ нити-тендрилы
+  // Всё рисуем внутри webEnv → нет крапин в чистой воде вдали.
+  float coreEnv = 1.0 - smoothstep(0.0, 1.3, rr);
+  float webEnv  = 1.0 - smoothstep(0.0, 3.0, rr);
+  if (webEnv <= 0.0) return col;
+  // нити: гребневой шум → сеть жил; высокая степень заостряет их в волоски.
+  // Умножаем на webEnv (а не на тело) — тендрилы тянутся далеко и истончаются.
+  float veins = rfbm(wp*2.1 + sd*0.6);
+  veins = pow(clamp(veins, 0.0, 1.0), 2.3);         // острее → тоньше нити
+  float core = pow(coreEnv, 2.0);                   // плотная сердцевина
+  float dens = max(core, webEnv * veins * 1.7);     // тело + ветвящиеся нити
+  dens = clamp(dens, 0.0, 1.0) * life;
+  if (dens <= 0.004) return col;
+  float dd = smoothstep(0.10, 0.72, dens);          // густота → к центру плотнее
+  float a  = smoothstep(0.02, 0.18, dens);          // мягкая, но не размытая кромка
+  vec3 inkc = mix(INKBLK + vec3(0.14,0.115,0.15), INKBLK, dd);
+  inkc += (veins - 0.5) * 0.05;                     // лёгкая мраморность в жилах
+  return mix(col, inkc, clamp(a * (0.34 + 0.50 * dd), 0.0, 0.86));
+}
 void main(){
   vec2 uv = vUv;
   uv.x *= res.x/res.y;
@@ -212,48 +266,12 @@ void main(){
   float warm = clamp(texture(uDye, vUv).x, 0.0, 1.4);
   col = mix(col, EMBER, smoothstep(0.015, 0.35, warm) * 0.45);
   col = mix(col, EMBHI, smoothstep(0.45, 1.15, warm) * 0.10);
-  // ЧЁРНЫЙ КЛИК → чернила в воде. Рисуем ПРОЦЕДУРНО вокруг точки клика тем же
-  // приёмом, что и фон: ДОМЕННО-ИСКАЖЁННЫЙ fbm. Радиальные «лучи» давали колючую
-  // звезду — это тупик. Тушь в воде = клубящееся облако с цветными лопастями и
-  // рваной каёмкой. Поэтому искажаем КООРДИНАТУ шумом (как мрамор фона): у центра
-  // слабо (плотное ядро), к краю сильно (лопасти клубятся и рвутся в нити).
-  if (uClickAge >= 0.0 && uClickAge < 6.5) {
-    vec2 cc = uClick; cc.x *= res.x/res.y;
-    vec2 d = uv - cc;
-    d += dsp.xy * 1.6;                              // фигуру чуть ведёт течением
-    float grow = smoothstep(0.0, 0.7, uClickAge);                 // расцветает
-    float fade = 1.0 - smoothstep(2.5, 6.5, uClickAge);           // потом тает
-    float life = grow * fade;
-    float reach = 0.085 + 0.12 * grow;                            // размер облака растёт
-    float dist0 = length(d);
-    if (life > 0.001 && dist0 < reach * 4.2) {
-      float sd = uClickSeed;
-      vec2 p = d / reach;                                          // нормируем: облако ≈ радиус 1
-      float rw = smoothstep(0.0, 1.15, length(p));                 // вес искажения растёт к краю
-      // три слоя домен-варпа: КРУПНЫЕ лопасти (низкая частота, сильно) ломают круг
-      // в асимметричное облако, средний слой клубит, мелкий рвёт каёмку в нити.
-      vec2 w0 = vec2(fbm(p*0.9 + sd*0.7),    fbm(p*0.9 + sd + 11.0)) - 0.5;
-      vec2 w1 = vec2(fbm(p*1.9 + sd),        fbm(p*1.9 + sd + 7.3)) - 0.5;
-      vec2 w2 = vec2(fbm(p*4.4 - sd*1.3),    fbm(p*4.4 - sd + 3.1)) - 0.5;
-      vec2 pw = p + (w0*2.1 + w1*1.05 + w2*0.5) * rw;              // у центра почти не искажаем
-      float dist = length(pw);                                    // искажённое «расстояние»
-      // мягкое облако: плотная сердцевина → полупрозрачная клубящаяся кромка
-      float dens = 1.0 - smoothstep(0.16, 1.05, dist);
-      float fringe = fbm(p*5.2 + sd*2.0);                          // рваные волоконца снаружи
-      dens = clamp(dens + (fringe - 0.5) * 0.34 * (1.0 - dens), 0.0, 1.0);
-      // ВНУТРЕННЯЯ мраморность: тёмные прожилки и светлые карманы в гуще, чтобы
-      // ядро не было ровной серой массой (как настоящая тушь — клубится изнутри).
-      float marble = fbm(pw*3.2 + sd*1.5) * 0.6 + fbm(pw*7.0 - sd) * 0.4;
-      dens *= 0.72 + 0.55 * marble;                                // ±мраморность плотности
-      dens = clamp(dens, 0.0, 1.0) * life;
-      if (dens > 0.001) {
-        float a  = smoothstep(0.05, 0.5, dens);                   // плавная кромка тает в воду
-        float dd = smoothstep(0.2, 0.82, dens);                   // густота
-        vec3 inkc = mix(INKBLK + vec3(0.14,0.115,0.15), INKBLK, dd);
-        inkc += (fringe - 0.5) * 0.06;                            // прожилки
-        col = mix(col, inkc, clamp(a * (0.28 + 0.44 * dd), 0.0, 0.72));  // полупрозрачно, ядро гуще
-      }
-    }
+  // ЧЁРНЫЕ КЛИКИ → тушь в воде. Кольцо клик-слотов: каждый рисуется тонкими
+  // ветвящимися нитями (inkAt). Новый клик НЕ стирает прежние — складываем все
+  // активные. Неактивные (age<0) inkAt отбрасывает сразу, fbm для них не считает.
+  for (int i = 0; i < MAX_CLICKS; i++) {
+    vec2 cc = uClickPos[i]; cc.x *= res.x/res.y;
+    col = inkAt(col, uv, dsp.xy, cc, uClickAge[i], uClickSeed[i]);
   }
   o = vec4(col, 1.0);
 }`;
@@ -470,10 +488,17 @@ void main(){
   var decayUntil = 0;      // до какого времени крутим затухание накопл. поля
   var curlUntil = 0;       // до какого времени держим вихри включёнными (после клика)
   var clickX = 0, clickY = 0, clickPending = false;  // впрыск чернил по клику
-  // --- процедурная клякса (рисуется в шейдере вокруг точки клика) ---
-  var clickAt = -100;        // время последнего клика (с); возраст = nowS - clickAt
-  var clickCX = 0.5, clickCY = 0.5;
-  var clickSeed = 0;         // меняем форму короны от клика к клику
+  // --- кольцо процедурных клякс (рисуются в шейдере по всем активным слотам) ---
+  // Новый клик пишется в следующий слот по кругу и НЕ стирает прежние: пока
+  // живут (возраст < 6.5с), все рисуются одновременно. MAX_CLICKS с запасом
+  // больше, чем успеет нащёлкать рука за время жизни одной кляксы.
+  var clickPos  = new Float32Array(MAX_CLICKS * 2);   // [x0,y0, x1,y1, ...] uv-центры
+  var clickAge  = new Float32Array(MAX_CLICKS);       // возраст(с); <0 = слот пуст
+  var clickSeed = new Float32Array(MAX_CLICKS);       // сид формы у каждого
+  var clickStart = new Float32Array(MAX_CLICKS);      // время рождения (с от start)
+  var clickSlot = 0;                                  // курсор записи по кольцу
+  var seedRot = 0;                                    // вращаем сид от клика к клику
+  for (var ci = 0; ci < MAX_CLICKS; ci++) clickAge[ci] = -1.0;  // все слоты пусты
 
   function onMove(cx, cy) {
     pointer.px = pointer.x; pointer.py = pointer.y;
@@ -537,13 +562,15 @@ void main(){
       decayUntil = nowS + DECAY_HOLD;
     }
     // КЛИК = капля упала в воду. Чернила рисуем ПРОЦЕДУРНО в шейдере (см. DISP_FS):
-    // запоминаем центр, время и сид — шейдер строит растущее клубящееся облако туши.
-    // Лёгкий толчок скорости оставляем, чтобы фоновая марморность чуть колыхнулась.
+    // занимаем следующий слот кольца (центр, время рождения, сид) — прежние кляксы
+    // остаются жить. Лёгкий толчок скорости оставляем, чтобы марморность колыхнулась.
     if (clickPending) {
       CURL = CLICK_CURL;
-      clickAt = nowS;                                         // возраст клика → рост/затухание в шейдере
-      clickCX = clickX; clickCY = clickY;
-      clickSeed = (clickSeed + 2.39996) % 6.2832;             // новая форма облака каждый клик
+      clickPos[clickSlot * 2] = clickX; clickPos[clickSlot * 2 + 1] = clickY;
+      clickStart[clickSlot] = nowS;
+      seedRot = (seedRot + 2.39996) % 6.2832;          // новая форма каждый клик
+      clickSeed[clickSlot] = seedRot;
+      clickSlot = (clickSlot + 1) % MAX_CLICKS;         // по кругу: переполнение затрёт самый старый
       clickPending = false;
       activeUntil = Math.max(activeUntil, nowS + CLICK_HOLD);
       decayUntil = nowS + DECAY_HOLD;
@@ -589,9 +616,13 @@ void main(){
     gl.uniform1f(dp.u.t, nowS);
     gl.uniform1i(dp.u.uDisp, disp.read.attach(0));
     gl.uniform1i(dp.u.uDye, dye.read.attach(1));
-    gl.uniform2f(dp.u.uClick, clickCX, clickCY);
-    gl.uniform1f(dp.u.uClickAge, nowS - clickAt);
-    gl.uniform1f(dp.u.uClickSeed, clickSeed);
+    // возраст каждой кляксы = now − рождение; пустые слоты держим <0 (шейдер их пропустит)
+    for (var s = 0; s < MAX_CLICKS; s++) {
+      clickAge[s] = clickStart[s] > 0 ? nowS - clickStart[s] : -1.0;
+    }
+    gl.uniform2fv(dp.u["uClickPos[0]"], clickPos);
+    gl.uniform1fv(dp.u["uClickAge[0]"], clickAge);
+    gl.uniform1fv(dp.u["uClickSeed[0]"], clickSeed);
     blit(null);
 
     // фон сам по себе анимирован всегда; даже без курсора крутим цикл,
@@ -609,6 +640,37 @@ void main(){
 
   resize();
 
+  // --- тест-хук (только когда страница выставила window.__INK_TEST=true) ------
+  // Детерминированно рисует ОДИН кадр: фон при фиксированном времени, без жидкости
+  // (uDisp=0), и заданные клик-кляксы с явными возрастом/сидом. Так скриншот следа
+  // воспроизводим пиксель-в-пиксель и годится в эталон. В проде хук не вызывается.
+  if (window.__INK_TEST) {
+    window.__inkRenderClicks = function (clicks, bgTime) {
+      resize();
+      for (var i = 0; i < MAX_CLICKS; i++) {
+        var c = clicks[i];
+        clickPos[i * 2] = c ? c.x : 0.0;
+        clickPos[i * 2 + 1] = c ? c.y : 0.0;
+        clickAge[i] = c ? c.age : -1.0;
+        clickSeed[i] = c ? c.seed : 0.0;
+      }
+      var d = progs.disp;
+      gl.disable(gl.BLEND);
+      gl.useProgram(d.prog);
+      gl.uniform2f(d.u.res, canvas.width, canvas.height);
+      gl.uniform1f(d.u.t, bgTime == null ? 8.0 : bgTime);
+      gl.uniform1i(d.u.uDisp, disp.read.attach(0));   // disp пустой → фон не смещён
+      gl.uniform1i(d.u.uDye, dye.read.attach(1));     // dye пустой → без тёплого следа
+      gl.uniform2fv(d.u["uClickPos[0]"], clickPos);
+      gl.uniform1fv(d.u["uClickAge[0]"], clickAge);
+      gl.uniform1fv(d.u["uClickSeed[0]"], clickSeed);
+      blit(null);
+      gl.finish();
+    };
+    window.__inkReady = true;
+    return;   // в тест-режиме фоновый цикл не запускаем — кадры рисует хук
+  }
+
   if (reduce) {
     // статичный «красивый» кадр без анимации и без жидкости (uDisp = 0)
     var dpr2 = progs.disp;
@@ -617,9 +679,9 @@ void main(){
     gl.uniform1f(dpr2.u.t, 8.0);
     gl.uniform1i(dpr2.u.uDisp, disp.read.attach(0));
     gl.uniform1i(dpr2.u.uDye, dye.read.attach(1));   // пустые чернила на статичном кадре
-    gl.uniform2f(dpr2.u.uClick, 0.5, 0.5);
-    gl.uniform1f(dpr2.u.uClickAge, -1.0);            // без клик-кляксы на статике
-    gl.uniform1f(dpr2.u.uClickSeed, 0.0);
+    gl.uniform2fv(dpr2.u["uClickPos[0]"], clickPos);
+    gl.uniform1fv(dpr2.u["uClickAge[0]"], clickAge); // все <0 → без клик-клякс на статике
+    gl.uniform1fv(dpr2.u["uClickSeed[0]"], clickSeed);
     blit(null);
   } else {
     document.addEventListener("visibilitychange", function () {
