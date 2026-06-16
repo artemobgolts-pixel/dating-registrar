@@ -206,13 +206,16 @@ float rfbm(vec2 p){ float s=0.0,a=0.5; for(int i=0;i<5;i++){ float n=1.0-abs(2.0
 // Возвращает vec2(dens, veins): dens — плотность чернил, veins — жилы (для оттенка).
 // Вынесено отдельно, чтобы inkAt мог усреднить НЕСКОЛЬКО подточек на пиксель
 // (суперсэмплинг) — иначе субпиксельный шум нитей идёт «лесенкой».
-vec2 inkDens(vec2 p, float sd){
+// warp (0..1) — насколько развёрнут доменный варп: 0 = округлая капля (как в
+// момент падения), 1 = полная форма с тендрилами. inkAt поднимает его с возрастом,
+// поэтому клякса не «вылупляется» сразу изогнутой, а распускается из круглого пятна.
+vec2 inkDens(vec2 p, float sd, float warp){
   // три прохода доменного варпа: всё сильнее закручиваем координату — прямые
   // радиальные линии изгибаются в блуждающие нити-тендрилы (как тушь в воде).
   vec2 wp = p;
-  wp += 0.60 * (vec2(fbm(p*1.4 + sd),       fbm(p*1.4 + sd + 7.0))  - 0.5);
-  wp += 0.45 * (vec2(fbm(wp*3.0 - sd*1.2),  fbm(wp*3.0 + sd + 3.0)) - 0.5);
-  wp += 0.26 * (vec2(fbm(wp*6.5 + sd*2.0),  fbm(wp*6.5 - sd + 9.0)) - 0.5);
+  wp += warp * 0.60 * (vec2(fbm(p*1.4 + sd),       fbm(p*1.4 + sd + 7.0))  - 0.5);
+  wp += warp * 0.45 * (vec2(fbm(wp*3.0 - sd*1.2),  fbm(wp*3.0 + sd + 3.0)) - 0.5);
+  wp += warp * 0.26 * (vec2(fbm(wp*6.5 + sd*2.0),  fbm(wp*6.5 - sd + 9.0)) - 0.5);
   float rr = length(wp);
   // ДВА конверта на одной искажённой координате:
   //   coreEnv — тугое плотное тело (тает к ~1.3 радиуса)
@@ -238,6 +241,9 @@ vec3 inkAt(vec3 col, vec2 uv, vec2 dsp, vec2 cc, float age, float sd){
   float fade = 1.0 - smoothstep(2.5, 6.5, age);     // потом тает
   float life = grow * fade;
   float reach = 0.0035 + 0.0037 * grow;             // втрое меньше прежнего (та же форма)
+  // доменный варп разворачиваем с возрастом: капля падает округлой, и лишь
+  // за ~0.9 с распускается в форму с тендрилами — не «вылупляется» изогнутой.
+  float warp = smoothstep(0.05, 0.95, age);
   float dist0 = length(d);
   if (life <= 0.001 || dist0 >= reach * 4.6) return col;
   vec2 p = d / reach;                               // нормируем: тело капли ≈ радиус 1
@@ -246,10 +252,10 @@ vec3 inkAt(vec3 col, vec2 uv, vec2 dsp, vec2 cc, float age, float sd){
   // «лесенки» на тонких нитях, не размывая саму форму (в отличие от fwidth-кромки).
   vec2 hp = fwidth(p) * 0.5;
   vec2 dn = vec2(0.0);
-  dn += inkDens(p + vec2(-hp.x*0.5, -hp.y*0.5), sd);
-  dn += inkDens(p + vec2( hp.x*0.5, -hp.y*0.5), sd);
-  dn += inkDens(p + vec2(-hp.x*0.5,  hp.y*0.5), sd);
-  dn += inkDens(p + vec2( hp.x*0.5,  hp.y*0.5), sd);
+  dn += inkDens(p + vec2(-hp.x*0.5, -hp.y*0.5), sd, warp);
+  dn += inkDens(p + vec2( hp.x*0.5, -hp.y*0.5), sd, warp);
+  dn += inkDens(p + vec2(-hp.x*0.5,  hp.y*0.5), sd, warp);
+  dn += inkDens(p + vec2( hp.x*0.5,  hp.y*0.5), sd, warp);
   float dens = dn.x * 0.25 * life;
   float veins = dn.y * 0.25;
   if (dens <= 0.004) return col;
