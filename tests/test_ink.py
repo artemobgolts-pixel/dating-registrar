@@ -31,11 +31,14 @@ HERE = Path(__file__).resolve().parent
 REF = HERE / "refs" / "ink_click_ref.png"
 
 # Эталонный кадр: одиночный клик в центре, фиксированные возраст/сид/время фона.
-# Те же параметры — в generate_ref() ниже; держать синхронно. Вьюпорт небольшой,
-# чтобы мелкая клякса занимала заметную долю кадра и эталон было видно глазами.
+# Те же параметры — в generate_ref() ниже; держать синхронно. Рендерим на реальной
+# высоте экрана (иначе мелкая ÷3-клякса вырождается в субпиксельную точку), затем
+# вырезаем центральный квадрат REF_CROP вокруг кляксы — и эталон, и сравниваемый
+# кадр режутся одинаково, поэтому тест остаётся честным.
 REF_CLICKS = [{"x": 0.5, "y": 0.5, "age": 1.5, "seed": 5.0}]
 REF_BG_TIME = 8.0
-REF_W, REF_H = 360, 360
+REF_W, REF_H = 1080, 1080
+REF_CROP = 200          # сторона центрального выреза в пикселях
 
 # Допуски сравнения. Фон fbm идентичен (то же время), отличаться может лишь
 # тонкая структура нитей из-за float-разброса драйвера — держим узко.
@@ -67,10 +70,22 @@ def _mean_and_bad(a, b):
     return mean, bad / (total * 3)
 
 
+def _crop_center(path, side=REF_CROP):
+    """Вырезать центральный квадрат side×side вокруг кляксы (на месте)."""
+    from PIL import Image
+    im = Image.open(path)
+    w, h = im.size
+    cx, cy = w // 2, h // 2
+    half = side // 2
+    im.crop((cx - half, cy - half, cx + half, cy + half)).save(path)
+
+
 def generate_ref(out=REF):
     from ink_shot import capture_clicks
-    return capture_clicks(out=out, clicks=REF_CLICKS, bg_time=REF_BG_TIME,
-                          w=REF_W, h=REF_H)
+    capture_clicks(out=out, clicks=REF_CLICKS, bg_time=REF_BG_TIME,
+                   w=REF_W, h=REF_H)
+    _crop_center(out)
+    return out
 
 
 def main(update=False):
@@ -96,6 +111,7 @@ def main(update=False):
         capture_clicks = sys.modules["ink_shot"].capture_clicks
         capture_clicks(out=tmp, clicks=REF_CLICKS, bg_time=REF_BG_TIME,
                        w=REF_W, h=REF_H)
+        _crop_center(tmp)
     except RuntimeError as e:
         # ink.js не запустился (нет WebGL2/float-render в этом браузере) — не наша
         # регрессия, а окружение. Пропускаем, как делает test_smoke с HEIC.

@@ -27,6 +27,8 @@
   var gl = canvas.getContext("webgl2", {
     alpha: true, antialias: false, depth: false, stencil: false,
     premultipliedAlpha: false, powerPreference: "low-power",
+    // только в скриншот-тестах: иначе toDataURL читает уже очищенный буфер
+    preserveDrawingBuffer: !!window.__INK_PRESERVE,
   });
   if (!gl) return;
   if (!gl.getExtension("EXT_color_buffer_float")) return;  // нет float-рендера
@@ -231,11 +233,11 @@ vec2 inkDens(vec2 p, float sd){
 vec3 inkAt(vec3 col, vec2 uv, vec2 dsp, vec2 cc, float age, float sd){
   if (age < 0.0 || age >= 6.5) return col;
   vec2 d = uv - cc;
-  d += dsp * 1.6;                                   // фигуру чуть ведёт течением
+  d += dsp * 0.3;                                   // едва ведёт течением (без хвоста-смаза)
   float grow = smoothstep(0.0, 0.35, age);          // распускается (вдвое быстрее)
   float fade = 1.0 - smoothstep(2.5, 6.5, age);     // потом тает
   float life = grow * fade;
-  float reach = 0.0105 + 0.011 * grow;              // ≈ вдвое больше курсора
+  float reach = 0.0035 + 0.0037 * grow;             // втрое меньше прежнего (та же форма)
   float dist0 = length(d);
   if (life <= 0.001 || dist0 >= reach * 4.6) return col;
   vec2 p = d / reach;                               // нормируем: тело капли ≈ радиус 1
@@ -262,7 +264,9 @@ void main(){
   uv.x *= res.x/res.y;
   float tt = t * 0.016;
   vec3 dsp = texture(uDisp, vUv).xyz;
-  uv += dsp.xy;                          // накопленное смещение фона
+  vec2 inkUv = uv;                       // НЕсмещённая координата для туши:
+                                         // тушь стоит на месте, как в статич. эталоне
+  uv += dsp.xy;                          // накопленное смещение — только для ФОНА
   vec2 mo = vec2(sin(tt*0.7), cos(tt*0.6)) * 0.7;
   vec2 q = vec2(fbm(uv*1.6 + mo + vec2(0.0, tt)), fbm(uv*1.6 - mo + vec2(5.2, -tt)));
   vec2 r = vec2(fbm(uv*1.6 + 4.0*q + vec2(1.7, 9.2) + tt*0.9),
@@ -283,7 +287,7 @@ void main(){
   // активные. Неактивные (age<0) inkAt отбрасывает сразу, fbm для них не считает.
   for (int i = 0; i < MAX_CLICKS; i++) {
     vec2 cc = uClickPos[i]; cc.x *= res.x/res.y;
-    col = inkAt(col, uv, dsp.xy, cc, uClickAge[i], uClickSeed[i]);
+    col = inkAt(col, inkUv, dsp.xy, cc, uClickAge[i], uClickSeed[i]);
   }
   o = vec4(col, 1.0);
 }`;
@@ -538,12 +542,12 @@ void main(){
     }, { passive: true });
   }
 
-  // Рендерим в 0.75 от размера: компромисс между мягким фоном и резкостью мелкой
-  // кляксы. Сами «лесенки» в туши лечит суперсэмплинг в inkAt (4 подточки/пиксель),
-  // поэтому гнать весь экран в полный dpr не нужно — фон от этого только дорожает.
-  var SCALE = 0.75;
+  // Полное разрешение: клякса теперь очень мелкая (≈ размер курсора), на
+  // пониженном буфере на неё приходилось бы лишь несколько пикселей и она шла
+  // «лесенкой». Сглаживание нитей внутри лечит суперсэмплинг в inkAt.
+  var SCALE = 1.0;
   function resize() {
-    var dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
     var w = Math.max(2, Math.floor(window.innerWidth * dpr * SCALE));
     var h = Math.max(2, Math.floor(window.innerHeight * dpr * SCALE));
     if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }

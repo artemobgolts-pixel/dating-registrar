@@ -82,7 +82,9 @@ def capture(out, clicks=(), frames=90, dt_ms=16, w=900, h=600, debug=False):
         if debug:
             page.evaluate("window.__INK_DEBUG = true;")
         # Часы ставим ДО вставки ink.js: его IIFE захватит уже наши
-        # performance.now/requestAnimationFrame.
+        # performance.now/requestAnimationFrame. __INK_PRESERVE — чтобы кадр
+        # сохранялся в буфере и его можно было прочитать через toDataURL.
+        page.evaluate("window.__INK_PRESERVE = true;")
         page.evaluate(CLOCK_JS)
         page.add_script_tag(content=ink_src)
         # ink.js при загрузке уже зарегистрировал первый кадр через наш rAF.
@@ -99,9 +101,20 @@ def capture(out, clicks=(), frames=90, dt_ms=16, w=900, h=600, debug=False):
             browser.close()
             raise RuntimeError("ink.js не запустился (нет .ink-canvas) — "
                                "проверь WebGL2/float-render в браузере")
-        page.locator(".ink-canvas").screenshot(path=str(out))
+        # Скриншот берём через canvas.toDataURL, а НЕ page.screenshot: мы подменили
+        # requestAnimationFrame своими часами, из-за чего ломается rAF-проверка
+        # «стабильности элемента» внутри Playwright и .screenshot() висит вечно.
+        _save_canvas_png(page, out)
         browser.close()
     return out
+
+
+def _save_canvas_png(page, out):
+    """Сохраняет пиксели .ink-canvas в PNG через toDataURL (минуя page.screenshot)."""
+    import base64
+    data_url = page.evaluate(
+        "() => document.querySelector('.ink-canvas').toDataURL('image/png')")
+    Path(out).write_bytes(base64.b64decode(data_url.split(",", 1)[1]))
 
 
 def capture_clicks(out, clicks, bg_time=8.0, w=900, h=600):
