@@ -812,9 +812,10 @@ with TestClient(main.app, follow_redirects=False) as c:
 
     # ---------- авто-архив (фоновая функция напрямую) ----------
     conn = dbm.connect()
+    _owner = conn.execute("SELECT id FROM users WHERE telegram_id=555001").fetchone()[0]
     conn.execute(
-        "INSERT INTO dates(name, starts_at, origin, created_at) VALUES(?,?,?,?)",
-        ("Прошлогоднее", "2020-01-01T10:00", "admin", main.now_iso()))
+        "INSERT INTO dates(owner_id, name, starts_at, origin, created_at) VALUES(?,?,?,?,?)",
+        (_owner, "Прошлогоднее", "2020-01-01T10:00", "admin", main.now_iso()))
     conn.commit()
     conn.close()
     assert main.autoarchive_once() >= 1
@@ -1211,6 +1212,12 @@ assert conn.execute(
     "SELECT COUNT(*) FROM dates WHERE owner_id IS NULL").fetchone()[0] == 0
 assert conn.execute(
     "SELECT owner_id FROM categories WHERE name='Старая'").fetchone()[0] == legacy["id"]
+# v10: owner_id ужесточён до NOT NULL (таблицы пересобраны, FK-целостность цела)
+for t in ("categories", "dates"):
+    ddl = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (t,)).fetchone()[0]
+    assert "owner_id" in ddl and "NOT NULL" in ddl.split("owner_id", 1)[1][:40], ddl
+assert not conn.execute("PRAGMA foreign_key_check").fetchall(), "rebuild порвал FK"
 dccols = {r[1] for r in conn.execute("PRAGMA table_info(date_categories)")}
 assert "position" in dccols
 dicols = {r[1] for r in conn.execute("PRAGMA table_info(date_images)")}
@@ -1317,5 +1324,82 @@ assert ownership.owned_date_ids(iso, uA) == {dateA}
 assert ownership.owned_date_ids(iso, uB) == set()
 iso.close()
 step("изоляция: owner-гейт пускает к своему, чужое и несуществующее → 404")
+
+# ---------- изоляция на HTTP-уровне: две реальные сессии ----------
+# Самый важный тест мультитенантности: Алиса и Боб входят через бота, каждый
+# заводит свои данные, и НИ ОДНА ручка кабинета не пускает одного к данным
+# другого (всегда 404 — не палим существование объекта).
+
+def csrf_of(client) -> str:
+    page = client.get("/admin/categories")
+    return re.search(r'name="csrf" value="([^"]+)"', page.text).group(1)
+
+
+def post_as(client, url, data=None, files=None):
+    d = dict(data or {})
+    d["csrf"] = csrf_of(client)
+    return client.post(url, data=d, files=files)
+
+
+with TestClient(main.app, follow_redirects=False) as ca, \
+        TestClient(main.app, follow_redirects=False) as cb:
+    assert tg_login(ca, 770001, username="alice").json()["status"] == "ok"
+    assert tg_login(cb, 770002, username="bob").json()["status"] == "ok"
+
+    # Алиса заводит категорию и свидание (с фото), привязывает
+    assert post_as(ca, "/admin/categories/create", {"name": "Алисина"}).status_code == 303
+    catA = db_one("SELECT c.id FROM categories c JOIN users u ON u.id=c.owner_id "
+                  "WHERE u.telegram_id=770001 AND c.name='Алисина'")[0]
+    r = post_as(ca, "/admin/dates/new",
+                {"name": "Свидание Алисы", "categories": catA},
+                files={"images": ("a.png", png(), "image/png")})
+    assert r.status_code == 303
+    dateA = db_one("SELECT d.id FROM dates d JOIN users u ON u.id=d.owner_id "
+                   "WHERE u.telegram_id=770001 AND d.name='Свидание Алисы'")[0]
+    imgA = db_one("SELECT filename FROM date_images WHERE date_id=?", (dateA,))[0]
+
+    # Боб не видит Алисиных данных в своих списках
+    assert "Алисина" not in cb.get("/admin/categories").text
+    assert "Свидание Алисы" not in cb.get("/admin/dates").text
+
+    # GET чужих объектов → 404
+    assert cb.get(f"/admin/categories/{catA}").status_code == 404
+    assert cb.get(f"/admin/dates/{dateA}/edit").status_code == 404
+    # чужой файл по прямой ссылке → 404 (а сам владелец его видит)
+    assert cb.get(f"/admin/uploads/{imgA}").status_code == 404
+    assert ca.get(f"/admin/uploads/{imgA}").status_code == 200
+
+    # POST-мутации над чужим отклоняются (404 → дружелюбный 303-flash,
+    # мутация НЕ происходит), данные целы
+    for url, data in [
+        (f"/admin/categories/{catA}/rename", {"name": "взлом"}),
+        (f"/admin/categories/{catA}/delete", {}),
+        (f"/admin/categories/{catA}/regenerate", {}),
+        (f"/admin/categories/{catA}/attach", {"date_id": dateA}),
+        (f"/admin/dates/{dateA}/edit", {"name": "взлом"}),
+        (f"/admin/dates/{dateA}/delete", {}),
+        (f"/admin/dates/{dateA}/archive", {}),
+        (f"/admin/dates/{dateA}/clone", {}),
+    ]:
+        rr = post_as(cb, url, data)
+        assert rr.status_code in (303, 404), (url, rr.status_code)
+        if rr.status_code == 303:                      # flash об ошибке, не успех
+            assert "/login" not in rr.headers["location"]
+    assert db_one("SELECT name FROM categories WHERE id=?", (catA,))[0] == "Алисина"
+    assert db_one("SELECT name FROM dates WHERE id=?", (dateA,))[0] == "Свидание Алисы"
+    assert not db_one("SELECT 1 FROM dates WHERE name='Свидание Алисы (копия)'")
+
+    # Боб не может привязать чужое свидание в СВОЮ категорию
+    assert post_as(cb, "/admin/categories/create", {"name": "Бобова"}).status_code == 303
+    catB = db_one("SELECT c.id FROM categories c JOIN users u ON u.id=c.owner_id "
+                  "WHERE u.telegram_id=770002")[0]
+    assert post_as(cb, f"/admin/categories/{catB}/attach",
+                   {"date_id": dateA}).status_code in (303, 404)
+    assert not db_one("SELECT 1 FROM date_categories WHERE date_id=? AND category_id=?",
+                      (dateA, catB))
+
+    # экспорт Боба не содержит Алисиных данных
+    assert "Свидание Алисы" not in cb.get("/admin/export/json").text
+step("изоляция HTTP: Алиса и Боб не видят и не трогают данные друг друга по всем ручкам")
 
 print(f"\nВсе проверки пройдены: {OK} блоков ✔")

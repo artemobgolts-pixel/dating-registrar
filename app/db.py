@@ -38,7 +38,7 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "app.db"
 
-LATEST_VERSION = 9
+LATEST_VERSION = 10
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -66,7 +66,7 @@ CREATE TABLE IF NOT EXISTS login_codes (
 
 CREATE TABLE IF NOT EXISTS categories (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE,  -- владелец категории
+    owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,  -- владелец категории
     name TEXT NOT NULL,
     link_token TEXT UNIQUE,
     link_enabled INTEGER NOT NULL DEFAULT 1,
@@ -77,7 +77,7 @@ CREATE TABLE IF NOT EXISTS categories (
 
 CREATE TABLE IF NOT EXISTS dates (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE,  -- владелец свидания
+    owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,  -- владелец свидания
     name TEXT NOT NULL,
     place TEXT,
     starts_at TEXT,            -- "YYYY-MM-DDTHH:MM", время МСК
@@ -320,6 +320,60 @@ MIGRATIONS: dict[int, str] = {
         CREATE INDEX idx_cat_owner ON categories(owner_id);
         CREATE INDEX idx_dates_owner ON dates(owner_id);
     """,
+    10: """
+        -- Ужесточаем owner_id до NOT NULL: к этому моменту все ручки штампуют
+        -- владельца, а v9 backfill'нул легаси-данные. SQLite не умеет ADD/ALTER
+        -- NOT NULL — пересобираем таблицы (12-шаговая процедура из доки SQLite).
+        -- ВАЖНО: миграции идут с foreign_keys=OFF (см. init_db), иначе DROP TABLE
+        -- dates каскадом снёс бы все дочерние строки (links/images/bookings/...).
+        -- id сохраняются 1:1, поэтому дочерние FK остаются валидными.
+
+        -- Подстраховка: если вдруг остались NULL — отдать легаси-владельцу.
+        UPDATE categories SET owner_id=(SELECT id FROM users WHERE telegram_id=0)
+            WHERE owner_id IS NULL;
+        UPDATE dates SET owner_id=(SELECT id FROM users WHERE telegram_id=0)
+            WHERE owner_id IS NULL;
+
+        CREATE TABLE categories_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            link_token TEXT UNIQUE,
+            link_enabled INTEGER NOT NULL DEFAULT 1,
+            moderate_proposals INTEGER NOT NULL DEFAULT 0,
+            description TEXT,
+            created_at TEXT NOT NULL
+        );
+        INSERT INTO categories_new SELECT id, owner_id, name, link_token,
+            link_enabled, moderate_proposals, description, created_at FROM categories;
+        DROP TABLE categories;
+        ALTER TABLE categories_new RENAME TO categories;
+
+        CREATE TABLE dates_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            place TEXT,
+            starts_at TEXT,
+            ends_at TEXT,
+            comment TEXT,
+            origin TEXT NOT NULL DEFAULT 'admin',
+            guest_token TEXT,
+            is_draft INTEGER NOT NULL DEFAULT 0,
+            pay_split INTEGER NOT NULL DEFAULT 0,
+            place_url TEXT,
+            archived_at TEXT,
+            created_at TEXT NOT NULL
+        );
+        INSERT INTO dates_new SELECT id, owner_id, name, place, starts_at, ends_at,
+            comment, origin, guest_token, is_draft, pay_split, place_url,
+            archived_at, created_at FROM dates;
+        DROP TABLE dates;
+        ALTER TABLE dates_new RENAME TO dates;
+
+        CREATE INDEX idx_cat_owner ON categories(owner_id);
+        CREATE INDEX idx_dates_owner ON dates(owner_id);
+    """,
 }
 
 
@@ -355,8 +409,17 @@ def init_db() -> None:
         ver += 1
         # Каждая миграция атомарна: схема + bump user_version коммитятся вместе,
         # поэтому падение в любой момент не оставит «полуприменённую» версию.
+        # foreign_keys ВЫКЛючаем на время миграций: некоторые из них пересобирают
+        # таблицы (DROP+RENAME), а с FK=ON это каскадом снесло бы дочерние строки.
+        # PRAGMA вне транзакции — поэтому ставим до BEGIN, проверяем целостность
+        # после COMMIT через foreign_key_check (вернёт строки при нарушении).
+        conn.execute("PRAGMA foreign_keys=OFF")
         conn.executescript(
             f"BEGIN IMMEDIATE;\n{MIGRATIONS[ver]}\nPRAGMA user_version={ver};\nCOMMIT;")
+        broken = conn.execute("PRAGMA foreign_key_check").fetchall()
+        conn.execute("PRAGMA foreign_keys=ON")
+        if broken:
+            raise RuntimeError(f"Миграция v{ver} нарушила ссылочную целостность: {broken[:5]}")
 
     # Страховка: SCHEMA целиком написана через IF NOT EXISTS, поэтому прогоняем
     # её и после миграций — если в старой базе исторически не хватало какой-то

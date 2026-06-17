@@ -84,12 +84,12 @@ def date_payload(conn, row) -> dict:
 
 
 def insert_date(conn, *, name, place, starts, ends, comment, origin, guest_token,
-                draft=0, pay_split=0, place_url=None) -> int:
+                owner_id, draft=0, pay_split=0, place_url=None) -> int:
     cur = conn.execute(
-        "INSERT INTO dates(name, place, place_url, starts_at, ends_at, comment, origin, "
-        "guest_token, is_draft, pay_split, created_at) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-        (name, place, place_url, starts, ends, comment, origin, guest_token,
+        "INSERT INTO dates(owner_id, name, place, place_url, starts_at, ends_at, comment, "
+        "origin, guest_token, is_draft, pay_split, created_at) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+        (owner_id, name, place, place_url, starts, ends, comment, origin, guest_token,
          draft, pay_split, now_iso()),
     )
     return cur.lastrowid
@@ -599,6 +599,7 @@ def public_propose(token: str, request: Request, bg: BackgroundTasks,
     moderated = bool(cat["moderate_proposals"])
     date_id = insert_date(conn, name=name, place=place, starts=starts, ends=ends,
                           comment=comment, origin="guest", guest_token=guest,
+                          owner_id=cat["owner_id"],   # предложение принадлежит владельцу категории
                           draft=1 if moderated else 0,
                           pay_split=1 if pay else 0, place_url=place_url)
     conn.execute(

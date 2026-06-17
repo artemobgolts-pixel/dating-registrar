@@ -26,11 +26,11 @@ from config import BASE_URL
 from guests import gname
 from helpers import clean_text, normalize_period, now_iso, now_naive, parse_dt_local, parse_links
 from fastapi.responses import JSONResponse
+from ownership import get_owned_category, get_owned_date
 from public_routes import (add_photos, insert_date, next_cat_pos, ranged_file,
                            save_links, VIDEO_TYPES)
-from ratelimit import client_ip
 from tasks import autoarchive_once
-from users import NeedLogin, current_user
+from users import current_user
 from web import get_db, redir, templates
 
 
@@ -45,13 +45,13 @@ router = APIRouter(prefix="/admin", dependencies=[Depends(current_user)])
 
 
 def actx(request: Request, conn, **extra) -> dict:
-    # NB: выборки кабинета пока НЕ заскоуплены по владельцу — это делается в 1D
-    # (штамповка owner_id на создании + scoped-запросы + HTTP-тест изоляции).
-    # Здесь 1C только сменил механизм входа на Telegram.
+    user = request.state.user
     ctx = {
         "request": request,
-        "user": request.state.user,
-        "unread": conn.execute("SELECT COUNT(*) FROM questions WHERE is_read=0").fetchone()[0],
+        "user": user,
+        "unread": conn.execute(
+            "SELECT COUNT(*) FROM questions q JOIN dates d ON d.id=q.date_id "
+            "WHERE d.owner_id=? AND q.is_read=0", (user["id"],)).fetchone()[0],
         "csrf": request.session.get("csrf", ""),
     }
     ctx.update(extra)
@@ -76,6 +76,7 @@ SELECT * FROM (
     JOIN dates d ON d.id = b.date_id
     JOIN categories c ON c.id = b.category_id
     LEFT JOIN guests g ON g.token = b.guest_token
+    WHERE d.owner_id = :uid
   UNION ALL
     SELECT 'question', q.created_at,
            {GNAME_SQL.format(t='q.guest_token')},
@@ -84,6 +85,7 @@ SELECT * FROM (
     JOIN dates d ON d.id = q.date_id
     LEFT JOIN categories c ON c.id = q.category_id
     LEFT JOIN guests g ON g.token = q.guest_token
+    WHERE d.owner_id = :uid
   UNION ALL
     SELECT 'proposal', d.created_at,
            {GNAME_SQL.format(t='d.guest_token')},
@@ -94,7 +96,7 @@ SELECT * FROM (
            NULL
     FROM dates d
     LEFT JOIN guests g ON g.token = d.guest_token
-    WHERE d.origin = 'guest'
+    WHERE d.origin = 'guest' AND d.owner_id = :uid
 )
 ORDER BY created_at DESC
 LIMIT 50
@@ -104,30 +106,36 @@ LIMIT 50
 @router.get("/", response_class=HTMLResponse)
 def dashboard(request: Request, conn=Depends(get_db)):
     autoarchive_once(conn)
+    uid = request.state.user["id"]
     stats = {
-        "cats": conn.execute("SELECT COUNT(*) FROM categories").fetchone()[0],
+        "cats": conn.execute(
+            "SELECT COUNT(*) FROM categories WHERE owner_id=?", (uid,)).fetchone()[0],
         "active": conn.execute(
-            "SELECT COUNT(*) FROM dates WHERE archived_at IS NULL AND is_draft=0").fetchone()[0],
+            "SELECT COUNT(*) FROM dates WHERE owner_id=? AND archived_at IS NULL "
+            "AND is_draft=0", (uid,)).fetchone()[0],
         "drafts": conn.execute(
-            "SELECT COUNT(*) FROM dates WHERE archived_at IS NULL AND is_draft=1").fetchone()[0],
+            "SELECT COUNT(*) FROM dates WHERE owner_id=? AND archived_at IS NULL "
+            "AND is_draft=1", (uid,)).fetchone()[0],
         "archived": conn.execute(
-            "SELECT COUNT(*) FROM dates WHERE archived_at IS NOT NULL").fetchone()[0],
-        # выборы считаем только по активным (не архивным) свиданиям
+            "SELECT COUNT(*) FROM dates WHERE owner_id=? AND archived_at IS NOT NULL",
+            (uid,)).fetchone()[0],
+        # выборы считаем только по активным (не архивным) свиданиям владельца
         "bookings": conn.execute(
             "SELECT COUNT(*) FROM bookings b JOIN dates d ON d.id=b.date_id "
-            "WHERE d.archived_at IS NULL").fetchone()[0],
+            "WHERE d.owner_id=? AND d.archived_at IS NULL", (uid,)).fetchone()[0],
         "unread_q": conn.execute(
-            "SELECT COUNT(*) FROM questions WHERE is_read=0").fetchone()[0],
+            "SELECT COUNT(*) FROM questions q JOIN dates d ON d.id=q.date_id "
+            "WHERE d.owner_id=? AND q.is_read=0", (uid,)).fetchone()[0],
     }
-    feed = conn.execute(FEED_SQL).fetchall()
+    feed = conn.execute(FEED_SQL, {"uid": uid}).fetchall()
 
-    # Блок «Поделиться»: категории с включённой секретной ссылкой.
+    # Блок «Поделиться»: категории владельца с включённой секретной ссылкой.
     # Для выбранной (или первой) рисуем QR прямо на сервере — инлайновый SVG,
     # под CSP не нужен ни внешний скрипт, ни data:-картинка.
     share_cats = conn.execute(
         "SELECT id, name, link_token FROM categories "
-        "WHERE link_enabled=1 AND link_token IS NOT NULL ORDER BY created_at DESC"
-    ).fetchall()
+        "WHERE owner_id=? AND link_enabled=1 AND link_token IS NOT NULL "
+        "ORDER BY created_at DESC", (uid,)).fetchall()
     sel = request.query_params.get("share")
     share = next((c for c in share_cats if str(c["id"]) == sel), None) \
         or (share_cats[0] if share_cats else None)
@@ -156,8 +164,19 @@ def _qr_svg(data: str) -> str:
 
 
 @router.get("/uploads/{filename}")
-def admin_image(filename: str, request: Request):
+def admin_image(filename: str, request: Request, conn=Depends(get_db)):
     if not images.SAFE_FILENAME.match(filename):
+        raise HTTPException(404)
+    # файл виден, только если принадлежит свиданию владельца (через фото или видео)
+    uid = request.state.user["id"]
+    owns = conn.execute(
+        "SELECT 1 FROM date_images di JOIN dates d ON d.id=di.date_id "
+        "WHERE di.filename=? AND d.owner_id=? "
+        "UNION ALL "
+        "SELECT 1 FROM date_videos dv JOIN dates d ON d.id=dv.date_id "
+        "WHERE dv.filename=? AND d.owner_id=? LIMIT 1",
+        (filename, uid, filename, uid)).fetchone()
+    if not owns:
         raise HTTPException(404)
     path = images.UPLOAD_DIR / filename
     if not path.exists():
@@ -171,11 +190,13 @@ def admin_image(filename: str, request: Request):
 
 # ----- Экспорт ---------------------------------------------------------------
 
-def _full_dump(conn) -> dict:
-    cats = [dict(r) for r in conn.execute("SELECT * FROM categories ORDER BY id")]
-    guests = [dict(r) for r in conn.execute("SELECT * FROM guests ORDER BY created_at")]
+def _full_dump(conn, uid: int) -> dict:
+    cats = [dict(r) for r in conn.execute(
+        "SELECT * FROM categories WHERE owner_id=? ORDER BY id", (uid,))]
     out_dates = []
-    for r in conn.execute("SELECT * FROM dates ORDER BY id").fetchall():
+    seen_tokens: set[str] = set()
+    for r in conn.execute(
+            "SELECT * FROM dates WHERE owner_id=? ORDER BY id", (uid,)).fetchall():
         d = dict(r)
         d["links"] = [x["url"] for x in conn.execute(
             "SELECT url FROM date_links WHERE date_id=? ORDER BY position, id", (r["id"],))]
@@ -188,15 +209,30 @@ def _full_dump(conn) -> dict:
         d["booked_by"] = [x[0] for x in conn.execute(
             "SELECT COALESCE(g.name, b.guest_token) FROM bookings b "
             "LEFT JOIN guests g ON g.token=b.guest_token WHERE b.date_id=?", (r["id"],))]
+        if r["guest_token"]:
+            seen_tokens.add(r["guest_token"])
         out_dates.append(d)
-    questions = [dict(r) for r in conn.execute("SELECT * FROM questions ORDER BY id")]
+    # гости — только те, кто фигурирует в свиданиях/бронях/вопросах владельца
+    for r in conn.execute(
+            "SELECT DISTINCT b.guest_token FROM bookings b JOIN dates d ON d.id=b.date_id "
+            "WHERE d.owner_id=? AND b.guest_token IS NOT NULL", (uid,)):
+        seen_tokens.add(r[0])
+    guests = []
+    if seen_tokens:
+        ph = ",".join("?" * len(seen_tokens))
+        guests = [dict(r) for r in conn.execute(
+            f"SELECT * FROM guests WHERE token IN ({ph}) ORDER BY created_at",
+            tuple(seen_tokens))]
+    questions = [dict(r) for r in conn.execute(
+        "SELECT q.* FROM questions q JOIN dates d ON d.id=q.date_id "
+        "WHERE d.owner_id=? ORDER BY q.id", (uid,))]
     return {"exported_at": now_iso(), "categories": cats, "guests": guests,
             "dates": out_dates, "questions": questions}
 
 
 @router.get("/export/json")
-def export_json(conn=Depends(get_db)):
-    data = _full_dump(conn)
+def export_json(request: Request, conn=Depends(get_db)):
+    data = _full_dump(conn, request.state.user["id"])
     day = now_naive().strftime("%Y-%m-%d")
     return Response(json.dumps(data, ensure_ascii=False, indent=2),
                     media_type="application/json; charset=utf-8",
@@ -205,8 +241,8 @@ def export_json(conn=Depends(get_db)):
 
 
 @router.get("/export/csv")
-def export_csv(conn=Depends(get_db)):
-    data = _full_dump(conn)
+def export_csv(request: Request, conn=Depends(get_db)):
+    data = _full_dump(conn, request.state.user["id"])
     cat_names = {c["id"]: c["name"] for c in data["categories"]}
     buf = io.StringIO()
     w = csv.writer(buf, delimiter=";")
@@ -232,18 +268,28 @@ def export_csv(conn=Depends(get_db)):
 
 
 @router.get("/export/archive")
-def export_archive(conn=Depends(get_db)):
-    """Полный архив: консистентный снимок базы + все фото + export.json."""
-    data = _full_dump(conn)
-    snap = backup.make_backup()
+def export_archive(request: Request, conn=Depends(get_db)):
+    """Архив владельца: его данные (export.json) + только его фото/видео.
+
+    Полный снимок базы (app.db) кладём ТОЛЬКО оператору — он содержит данные
+    всех арендаторов. Обычный пользователь получает выгрузку строго своих данных.
+    """
+    user = request.state.user
+    data = _full_dump(conn, user["id"])
+    own_files = set()
+    for d in data["dates"]:
+        own_files.update(d["images"])
+        own_files.update(d["videos"])
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
     tmp.close()
     with zipfile.ZipFile(tmp.name, "w", zipfile.ZIP_DEFLATED) as z:
-        z.write(snap, arcname="app.db")
         z.writestr("export.json", json.dumps(data, ensure_ascii=False, indent=2))
-        for pat in ("*.webp", "*.mp4", "*.webm"):
-            for p in sorted(images.UPLOAD_DIR.glob(pat)):
-                z.write(p, arcname=f"uploads/{p.name}")
+        if user["is_operator"]:
+            z.write(backup.make_backup(), arcname="app.db")
+        for fn in sorted(own_files):
+            p = images.UPLOAD_DIR / fn
+            if p.exists():
+                z.write(p, arcname=f"uploads/{fn}")
     day = now_naive().strftime("%Y-%m-%d")
     return FileResponse(tmp.name, media_type="application/zip",
                         filename=f"date4you-export-{day}.zip",
@@ -256,33 +302,31 @@ def export_archive(conn=Depends(get_db)):
 def categories_list(request: Request, conn=Depends(get_db)):
     cats = conn.execute(
         "SELECT c.*, (SELECT COUNT(*) FROM date_categories dc WHERE dc.category_id=c.id) AS dcount "
-        "FROM categories c ORDER BY c.created_at DESC"
+        "FROM categories c WHERE c.owner_id=? ORDER BY c.created_at DESC",
+        (request.state.user["id"],)
     ).fetchall()
     return templates.TemplateResponse(
         request, "admin/categories.html", actx(request, conn, active="cats", cats=cats))
 
 
 @router.post("/categories/create")
-def category_create(name: str = Form(...), conn=Depends(get_db)):
+def category_create(request: Request, name: str = Form(...), conn=Depends(get_db)):
     name = clean_text(name, 200, "Название", required=True)
     token = secrets.token_urlsafe(24)
     conn.execute(
-        "INSERT INTO categories(name, link_token, link_enabled, created_at) VALUES(?,?,1,?)",
-        (name, token, now_iso()))
+        "INSERT INTO categories(owner_id, name, link_token, link_enabled, created_at) "
+        "VALUES(?,?,?,1,?)", (request.state.user["id"], name, token, now_iso()))
     conn.commit()
     return redir("/admin/categories", "Категория создана")
 
 
-def _cat_or_404(conn, cid: int):
-    cat = conn.execute("SELECT * FROM categories WHERE id=?", (cid,)).fetchone()
-    if not cat:
-        raise HTTPException(404, "Категория не найдена")
-    return cat
+def _cat_or_404(conn, cid: int, user):
+    return get_owned_category(conn, cid, user["id"])
 
 
 @router.get("/categories/{cid}", response_class=HTMLResponse)
 def category_detail(cid: int, request: Request, conn=Depends(get_db)):
-    cat = _cat_or_404(conn, cid)
+    cat = _cat_or_404(conn, cid, request.state.user)
     dates = conn.execute(
         "SELECT d.*, "
         "(SELECT COUNT(*) FROM bookings b WHERE b.date_id=d.id AND b.category_id=?) AS books, "
@@ -294,18 +338,18 @@ def category_detail(cid: int, request: Request, conn=Depends(get_db)):
         "ORDER BY (d.archived_at IS NOT NULL) ASC, dc.position ASC, d.created_at DESC",
         (cid, cid, cid)).fetchall()
     attachable = conn.execute(
-        "SELECT id, name FROM dates WHERE archived_at IS NULL AND id NOT IN "
+        "SELECT id, name FROM dates WHERE owner_id=? AND archived_at IS NULL AND id NOT IN "
         "(SELECT date_id FROM date_categories WHERE category_id=?) ORDER BY created_at DESC",
-        (cid,)).fetchall()
+        (request.state.user["id"], cid)).fetchall()
     return templates.TemplateResponse(
         request, "admin/category_detail.html",
         actx(request, conn, active="cats", cat=cat, dates=dates, attachable=attachable))
 
 
 @router.post("/categories/{cid}/rename")
-def category_rename(cid: int, name: str = Form(...), description: str = Form(""),
-                    conn=Depends(get_db)):
-    _cat_or_404(conn, cid)
+def category_rename(cid: int, request: Request, name: str = Form(...),
+                    description: str = Form(""), conn=Depends(get_db)):
+    _cat_or_404(conn, cid, request.state.user)
     name = clean_text(name, 200, "Название", required=True)
     description = clean_text(description, 1000, "Описание")
     conn.execute("UPDATE categories SET name=?, description=? WHERE id=?",
@@ -315,8 +359,8 @@ def category_rename(cid: int, name: str = Form(...), description: str = Form("")
 
 
 @router.post("/categories/{cid}/toggle")
-def category_toggle(cid: int, conn=Depends(get_db)):
-    cat = _cat_or_404(conn, cid)
+def category_toggle(cid: int, request: Request, conn=Depends(get_db)):
+    cat = _cat_or_404(conn, cid, request.state.user)
     new_val = 0 if cat["link_enabled"] else 1
     conn.execute("UPDATE categories SET link_enabled=? WHERE id=?", (new_val, cid))
     conn.commit()
@@ -325,8 +369,8 @@ def category_toggle(cid: int, conn=Depends(get_db)):
 
 
 @router.post("/categories/{cid}/moderation")
-def category_moderation(cid: int, conn=Depends(get_db)):
-    cat = _cat_or_404(conn, cid)
+def category_moderation(cid: int, request: Request, conn=Depends(get_db)):
+    cat = _cat_or_404(conn, cid, request.state.user)
     new_val = 0 if cat["moderate_proposals"] else 1
     conn.execute("UPDATE categories SET moderate_proposals=? WHERE id=?", (new_val, cid))
     conn.commit()
@@ -336,8 +380,8 @@ def category_moderation(cid: int, conn=Depends(get_db)):
 
 
 @router.post("/categories/{cid}/regenerate")
-def category_regenerate(cid: int, conn=Depends(get_db)):
-    _cat_or_404(conn, cid)
+def category_regenerate(cid: int, request: Request, conn=Depends(get_db)):
+    _cat_or_404(conn, cid, request.state.user)
     token = secrets.token_urlsafe(24)
     conn.execute("UPDATE categories SET link_token=?, link_enabled=1 WHERE id=?", (token, cid))
     conn.commit()
@@ -346,18 +390,19 @@ def category_regenerate(cid: int, conn=Depends(get_db)):
 
 
 @router.post("/categories/{cid}/delete")
-def category_delete(cid: int, conn=Depends(get_db)):
-    _cat_or_404(conn, cid)
+def category_delete(cid: int, request: Request, conn=Depends(get_db)):
+    _cat_or_404(conn, cid, request.state.user)
     conn.execute("DELETE FROM categories WHERE id=?", (cid,))
     conn.commit()
     return redir("/admin/categories", "Категория удалена (свидания остались)")
 
 
 @router.post("/categories/{cid}/attach")
-def category_attach(cid: int, date_id: int = Form(...), conn=Depends(get_db)):
-    _cat_or_404(conn, cid)
-    if not conn.execute("SELECT 1 FROM dates WHERE id=?", (date_id,)).fetchone():
-        raise HTTPException(404, "Свидание не найдено")
+def category_attach(cid: int, request: Request, date_id: int = Form(...),
+                    conn=Depends(get_db)):
+    _cat_or_404(conn, cid, request.state.user)
+    # привязать можно только СВОЁ свидание — иначе чужое утечёт в категорию
+    get_owned_date(conn, date_id, request.state.user["id"])
     conn.execute(
         "INSERT OR IGNORE INTO date_categories(date_id, category_id, position) "
         "VALUES(?,?,?)", (date_id, cid, next_cat_pos(conn, cid)))
@@ -366,9 +411,10 @@ def category_attach(cid: int, date_id: int = Form(...), conn=Depends(get_db)):
 
 
 @router.post("/categories/{cid}/dates_reorder")
-def category_dates_reorder(cid: int, order: str = Form(...), conn=Depends(get_db)):
+def category_dates_reorder(cid: int, request: Request, order: str = Form(...),
+                           conn=Depends(get_db)):
     """Drag-and-drop порядок свиданий: order — id через запятую."""
-    _cat_or_404(conn, cid)
+    _cat_or_404(conn, cid, request.state.user)
     ids_db = [r[0] for r in conn.execute(
         "SELECT date_id FROM date_categories WHERE category_id=?", (cid,))]
     try:
@@ -386,8 +432,9 @@ def category_dates_reorder(cid: int, order: str = Form(...), conn=Depends(get_db
 
 
 @router.post("/categories/{cid}/detach")
-def category_detach(cid: int, date_id: int = Form(...), conn=Depends(get_db)):
-    _cat_or_404(conn, cid)
+def category_detach(cid: int, request: Request, date_id: int = Form(...),
+                    conn=Depends(get_db)):
+    _cat_or_404(conn, cid, request.state.user)
     conn.execute("DELETE FROM date_categories WHERE date_id=? AND category_id=?", (date_id, cid))
     conn.execute("DELETE FROM bookings WHERE date_id=? AND category_id=?", (date_id, cid))
     conn.commit()
@@ -424,7 +471,8 @@ def dates_list(request: Request, conn=Depends(get_db)):
     cat = qp.get("cat", "")
 
     where = VIEW_WHERE[view]
-    params: list = []
+    params: list = [request.state.user["id"]]
+    where = "d.owner_id=? AND " + where
     if flt:
         where += " AND " + FLT_WHERE[flt]
     if cat.isdigit():
@@ -456,7 +504,8 @@ def dates_list(request: Request, conn=Depends(get_db)):
         params).fetchall()
 
     drafts_n = conn.execute(
-        "SELECT COUNT(*) FROM dates WHERE archived_at IS NULL AND is_draft=1").fetchone()[0]
+        "SELECT COUNT(*) FROM dates WHERE owner_id=? AND archived_at IS NULL AND is_draft=1",
+        (request.state.user["id"],)).fetchone()[0]
 
     keep = [("sort", sort)] if sort != "new" else []
     if flt:
@@ -472,12 +521,14 @@ def dates_list(request: Request, conn=Depends(get_db)):
     return templates.TemplateResponse(
         request, "admin/dates.html",
         actx(request, conn, active="dates", rows=rows, view=view, sort=sort,
-             flt=flt, cat=cat, cats=_all_cats(conn), drafts_n=drafts_n,
+             flt=flt, cat=cat, cats=_all_cats(conn, request.state.user["id"]), drafts_n=drafts_n,
              qs_keep=qs_keep, page=page, pages=pages, layout=layout))
 
 
-def _all_cats(conn):
-    return conn.execute("SELECT id, name FROM categories ORDER BY created_at DESC").fetchall()
+def _all_cats(conn, uid: int):
+    return conn.execute(
+        "SELECT id, name FROM categories WHERE owner_id=? ORDER BY created_at DESC",
+        (uid,)).fetchall()
 
 
 @router.get("/dates/new", response_class=HTMLResponse)
@@ -489,11 +540,11 @@ def date_new_form(request: Request, conn=Depends(get_db)):
     return templates.TemplateResponse(
         request, "admin/date_form.html",
         actx(request, conn, active="dates", date=None, photos=[], videos=[], links_text="",
-             cats=_all_cats(conn), checked=checked, slots=images.MAX_IMAGES))
+             cats=_all_cats(conn, request.state.user["id"]), checked=checked, slots=images.MAX_IMAGES))
 
 
 @router.post("/dates/new")
-def date_create(bg: BackgroundTasks,
+def date_create(request: Request, bg: BackgroundTasks,
                 name: str = Form(...), place: str = Form(""),
                 starts_at: str = Form(""), ends_at: str = Form(""),
                 links: str = Form(""), comment: str = Form(""),
@@ -503,6 +554,7 @@ def date_create(bg: BackgroundTasks,
                 videos: list[UploadFile] = File(default=[], alias="videos"),
                 image_focuses: str = Form(""),
                 conn=Depends(get_db)):
+    uid = request.state.user["id"]
     name = clean_text(name, 200, "Название", required=True)
     place, place_url, needs_resolve = places.split_place(clean_text(place, 500, "Место"))
     comment = clean_text(comment, 2000, "Комментарий")
@@ -511,12 +563,17 @@ def date_create(bg: BackgroundTasks,
 
     date_id = insert_date(conn, name=name, place=place, starts=starts, ends=ends,
                           comment=comment, origin="admin", guest_token=None,
+                          owner_id=uid,
                           draft=1 if draft else 0,
                           pay_split=1 if pay else 0, place_url=place_url)
+    # привязываем только СВОИ категории (чужие id из формы молча игнорируем)
+    own_cats = {r[0] for r in conn.execute(
+        "SELECT id FROM categories WHERE owner_id=?", (uid,))}
     for cid in categories:
-        conn.execute(
-            "INSERT OR IGNORE INTO date_categories(date_id, category_id, position) "
-            "VALUES(?,?,?)", (date_id, cid, next_cat_pos(conn, cid)))
+        if cid in own_cats:
+            conn.execute(
+                "INSERT OR IGNORE INTO date_categories(date_id, category_id, position) "
+                "VALUES(?,?,?)", (date_id, cid, next_cat_pos(conn, cid)))
     save_links(conn, date_id, link_list)
     saved_files: list[str] = []
     try:
@@ -551,16 +608,13 @@ def add_videos(conn, date_id: int, files, existing: int) -> list[str]:
     return saved
 
 
-def _date_or_404(conn, did: int):
-    d = conn.execute("SELECT * FROM dates WHERE id=?", (did,)).fetchone()
-    if not d:
-        raise HTTPException(404, "Свидание не найдено")
-    return d
+def _date_or_404(conn, did: int, user):
+    return get_owned_date(conn, did, user["id"])
 
 
 @router.get("/dates/{did}/edit", response_class=HTMLResponse)
 def date_edit_form(did: int, request: Request, conn=Depends(get_db)):
-    d = _date_or_404(conn, did)
+    d = _date_or_404(conn, did, request.state.user)
     photos = conn.execute(
         "SELECT * FROM date_images WHERE date_id=? ORDER BY position, id", (did,)).fetchall()
     link_rows = conn.execute(
@@ -582,12 +636,12 @@ def date_edit_form(did: int, request: Request, conn=Depends(get_db)):
              booked=booked,
              proposer=proposer,
              links_text="\n".join(r["url"] for r in link_rows),
-             cats=_all_cats(conn), checked=checked,
+             cats=_all_cats(conn, request.state.user["id"]), checked=checked,
              slots=images.MAX_IMAGES - len(photos)))
 
 
 @router.post("/dates/{did}/edit")
-def date_update(did: int, bg: BackgroundTasks, name: str = Form(...),
+def date_update(did: int, request: Request, bg: BackgroundTasks, name: str = Form(...),
                 place: str = Form(""),
                 starts_at: str = Form(""), ends_at: str = Form(""),
                 links: str = Form(""), comment: str = Form(""),
@@ -597,7 +651,7 @@ def date_update(did: int, bg: BackgroundTasks, name: str = Form(...),
                 videos: list[UploadFile] = File(default=[], alias="videos"),
                 image_focuses: str = Form(""),
                 conn=Depends(get_db)):
-    d = _date_or_404(conn, did)
+    d = _date_or_404(conn, did, request.state.user)
     name = clean_text(name, 200, "Название", required=True)
     place, place_url, needs_resolve = places.place_on_edit(
         clean_text(place, 500, "Место"), d)
@@ -611,6 +665,10 @@ def date_update(did: int, bg: BackgroundTasks, name: str = Form(...),
         (name, place, place_url, starts, ends, comment,
          1 if draft else 0, 1 if pay else 0, did))
 
+    # привязываем только СВОИ категории (чужие id из формы молча игнорируем)
+    own_cats = {r[0] for r in conn.execute(
+        "SELECT id FROM categories WHERE owner_id=?", (request.state.user["id"],))}
+    categories = [c for c in categories if c in own_cats]
     # Синхронизируем категории; выборы по отвязанным категориям удаляем
     conn.execute("DELETE FROM date_categories WHERE date_id=?", (did,))
     if categories:
@@ -646,16 +704,18 @@ def date_update(did: int, bg: BackgroundTasks, name: str = Form(...),
 
 
 @router.post("/dates/{did}/publish")
-def date_publish(did: int, next: str = Form("/admin/dates"), conn=Depends(get_db)):
-    _date_or_404(conn, did)
+def date_publish(did: int, request: Request, next: str = Form("/admin/dates"),
+                 conn=Depends(get_db)):
+    _date_or_404(conn, did, request.state.user)
     conn.execute("UPDATE dates SET is_draft=0 WHERE id=?", (did,))
     conn.commit()
     return redir(next, "Опубликовано — гости теперь видят это свидание")
 
 
 @router.post("/dates/{did}/archive")
-def date_archive(did: int, next: str = Form("/admin/dates"), conn=Depends(get_db)):
-    d = _date_or_404(conn, did)
+def date_archive(did: int, request: Request, next: str = Form("/admin/dates"),
+                 conn=Depends(get_db)):
+    d = _date_or_404(conn, did, request.state.user)
     if d["archived_at"]:
         conn.execute("UPDATE dates SET archived_at=NULL WHERE id=?", (did,))
         msg = "Возвращено из архива"
@@ -667,8 +727,8 @@ def date_archive(did: int, next: str = Form("/admin/dates"), conn=Depends(get_db
 
 
 @router.post("/dates/{did}/delete")
-def date_delete(did: int, conn=Depends(get_db)):
-    _date_or_404(conn, did)
+def date_delete(did: int, request: Request, conn=Depends(get_db)):
+    _date_or_404(conn, did, request.state.user)
     files = [r["filename"] for r in conn.execute(
         "SELECT filename FROM date_images WHERE date_id=?", (did,))]
     files += [r["filename"] for r in conn.execute(
@@ -681,16 +741,17 @@ def date_delete(did: int, conn=Depends(get_db)):
 
 
 @router.post("/dates/{did}/clone")
-def date_clone(did: int, next: str = Form("/admin/dates"), conn=Depends(get_db)):
+def date_clone(did: int, request: Request, next: str = Form("/admin/dates"),
+               conn=Depends(get_db)):
     """Дубль свидания: копируем запись, ссылки, категории и файлы (с новыми
     именами на диске). Брони и вопросы НЕ переносим — клон это свежее
     предложение. Клон создаётся черновиком, чтобы гости не увидели дубль
     раньше времени. Карта (place_url) уже распознана — резолвить не нужно."""
-    src = _date_or_404(conn, did)
+    src = _date_or_404(conn, did, request.state.user)
     new_id = insert_date(
         conn, name=f"{src['name']} (копия)", place=src["place"],
         starts=src["starts_at"], ends=src["ends_at"], comment=src["comment"],
-        origin="admin", guest_token=None, draft=1,
+        origin="admin", guest_token=None, draft=1, owner_id=request.state.user["id"],
         pay_split=src["pay_split"], place_url=src["place_url"])
 
     # категории — в конец каждого списка
@@ -738,11 +799,14 @@ def date_clone(did: int, next: str = Form("/admin/dates"), conn=Depends(get_db))
 
 
 @router.post("/bookings/{bid}/delete")
-def booking_delete(bid: int, next: str = Form("/admin/dates"), conn=Depends(get_db)):
+def booking_delete(bid: int, request: Request, next: str = Form("/admin/dates"),
+                   conn=Depends(get_db)):
     """Снять чужой выбор со свидания (например, по просьбе гостя)."""
     row = conn.execute(
         "SELECT b.id, COALESCE(g.name, 'человек') AS nm FROM bookings b "
-        "LEFT JOIN guests g ON g.token=b.guest_token WHERE b.id=?", (bid,)).fetchone()
+        "JOIN dates d ON d.id=b.date_id "
+        "LEFT JOIN guests g ON g.token=b.guest_token "
+        "WHERE b.id=? AND d.owner_id=?", (bid, request.state.user["id"])).fetchone()
     if not row:
         raise HTTPException(404, "Выбор не найден")
     conn.execute("DELETE FROM bookings WHERE id=?", (bid,))
@@ -751,7 +815,8 @@ def booking_delete(bid: int, next: str = Form("/admin/dates"), conn=Depends(get_
 
 
 @router.post("/dates/{did}/videos/{vid}/delete")
-def date_video_delete(did: int, vid: int, conn=Depends(get_db)):
+def date_video_delete(did: int, vid: int, request: Request, conn=Depends(get_db)):
+    _date_or_404(conn, did, request.state.user)
     row = conn.execute(
         "SELECT * FROM date_videos WHERE id=? AND date_id=?", (vid, did)).fetchone()
     if row:
@@ -762,7 +827,8 @@ def date_video_delete(did: int, vid: int, conn=Depends(get_db)):
 
 
 @router.post("/dates/{did}/images/{img_id}/delete")
-def date_image_delete(did: int, img_id: int, conn=Depends(get_db)):
+def date_image_delete(did: int, img_id: int, request: Request, conn=Depends(get_db)):
+    _date_or_404(conn, did, request.state.user)
     row = conn.execute(
         "SELECT * FROM date_images WHERE id=? AND date_id=?", (img_id, did)).fetchone()
     if row:
@@ -773,9 +839,10 @@ def date_image_delete(did: int, img_id: int, conn=Depends(get_db)):
 
 
 @router.post("/dates/{did}/images/reorder")
-def date_images_reorder(did: int, order: str = Form(...), conn=Depends(get_db)):
+def date_images_reorder(did: int, request: Request, order: str = Form(...),
+                        conn=Depends(get_db)):
     """Drag-and-drop порядок фото: order — id через запятую, первое = обложка."""
-    from fastapi.responses import JSONResponse
+    _date_or_404(conn, did, request.state.user)
     ids_db = [r["id"] for r in conn.execute(
         "SELECT id FROM date_images WHERE date_id=?", (did,))]
     try:
@@ -791,9 +858,11 @@ def date_images_reorder(did: int, order: str = Form(...), conn=Depends(get_db)):
 
 
 @router.post("/dates/{did}/images/{img_id}/focus")
-def date_image_focus(did: int, img_id: int, focus: str = Form(...), conn=Depends(get_db)):
+def date_image_focus(did: int, img_id: int, request: Request, focus: str = Form(...),
+                     conn=Depends(get_db)):
     """Точка фокуса фото для обрезки в карточке: «X% Y%» (X,Y 0..100)."""
     import re as _re
+    _date_or_404(conn, did, request.state.user)
     m = _re.fullmatch(r"\s*(\d{1,3})%\s+(\d{1,3})%\s*", focus or "")
     if not m or int(m.group(1)) > 100 or int(m.group(2)) > 100:
         raise HTTPException(400, "Некорректная точка фокуса")
@@ -812,28 +881,34 @@ def date_image_focus(did: int, img_id: int, focus: str = Form(...), conn=Depends
 @router.get("/questions", response_class=HTMLResponse)
 def questions_list(request: Request, conn=Depends(get_db)):
     f = request.query_params.get("f", "unread")
-    where = "" if f == "all" else "WHERE q.is_read=0"
+    where = "d.owner_id=?" + ("" if f == "all" else " AND q.is_read=0")
     rows = conn.execute(
         f"SELECT q.*, d.name AS date_name, d.id AS did, c.name AS cat_name, "
         f"{GNAME_SQL.format(t='q.guest_token')} AS gname "
         f"FROM questions q JOIN dates d ON d.id=q.date_id "
         f"LEFT JOIN categories c ON c.id=q.category_id "
         f"LEFT JOIN guests g ON g.token=q.guest_token "
-        f"{where} ORDER BY q.created_at DESC"
+        f"WHERE {where} ORDER BY q.created_at DESC",
+        (request.state.user["id"],)
     ).fetchall()
     return templates.TemplateResponse(
         request, "admin/questions.html", actx(request, conn, active="q", rows=rows, f=f))
 
 
+def _owned_question(conn, qid: int, uid: int):
+    """Вопрос вместе с проверкой, что его свидание принадлежит владельцу."""
+    return conn.execute(
+        "SELECT q.* FROM questions q JOIN dates d ON d.id=q.date_id "
+        "WHERE q.id=? AND d.owner_id=?", (qid, uid)).fetchone()
+
+
 @router.post("/questions/{qid}/accept_time")
-def question_accept_time(qid: int, next: str = Form("/admin/questions"),
+def question_accept_time(qid: int, request: Request, next: str = Form("/admin/questions"),
                          conn=Depends(get_db)):
     """Принять предложенное гостем время: применяем его к свиданию."""
-    q = conn.execute("SELECT * FROM questions WHERE id=?", (qid,)).fetchone()
+    q = _owned_question(conn, qid, request.state.user["id"])
     if not q or not q["suggest_starts"]:
         raise HTTPException(404, "Это не предложение времени")
-    if not conn.execute("SELECT 1 FROM dates WHERE id=?", (q["date_id"],)).fetchone():
-        raise HTTPException(404, "Свидание уже удалено")
     conn.execute("UPDATE dates SET starts_at=?, ends_at=? WHERE id=?",
                  (q["suggest_starts"], q["suggest_ends"], q["date_id"]))
     conn.execute(
@@ -844,10 +919,10 @@ def question_accept_time(qid: int, next: str = Form("/admin/questions"),
 
 
 @router.post("/questions/{qid}/decline_time")
-def question_decline_time(qid: int, next: str = Form("/admin/questions"),
+def question_decline_time(qid: int, request: Request, next: str = Form("/admin/questions"),
                           conn=Depends(get_db)):
     """Вежливо отказаться от предложенного времени (автор увидит ответ)."""
-    q = conn.execute("SELECT * FROM questions WHERE id=?", (qid,)).fetchone()
+    q = _owned_question(conn, qid, request.state.user["id"])
     if not q or not q["suggest_starts"]:
         raise HTTPException(404, "Это не предложение времени")
     conn.execute(
@@ -859,9 +934,9 @@ def question_decline_time(qid: int, next: str = Form("/admin/questions"),
 
 
 @router.post("/questions/{qid}/answer")
-def question_answer(qid: int, text: str = Form(""),
+def question_answer(qid: int, request: Request, text: str = Form(""),
                     next: str = Form("/admin/questions"), conn=Depends(get_db)):
-    q = conn.execute("SELECT * FROM questions WHERE id=?", (qid,)).fetchone()
+    q = _owned_question(conn, qid, request.state.user["id"])
     if not q:
         raise HTTPException(404, "Вопрос не найден")
     text = clean_text(text, 2000, "Ответ")
@@ -877,8 +952,9 @@ def question_answer(qid: int, text: str = Form(""),
 
 
 @router.post("/questions/{qid}/toggle")
-def question_toggle(qid: int, next: str = Form("/admin/questions"), conn=Depends(get_db)):
-    q = conn.execute("SELECT * FROM questions WHERE id=?", (qid,)).fetchone()
+def question_toggle(qid: int, request: Request, next: str = Form("/admin/questions"),
+                    conn=Depends(get_db)):
+    q = _owned_question(conn, qid, request.state.user["id"])
     if not q:
         raise HTTPException(404, "Вопрос не найден")
     conn.execute("UPDATE questions SET is_read=? WHERE id=?",
@@ -888,7 +964,11 @@ def question_toggle(qid: int, next: str = Form("/admin/questions"), conn=Depends
 
 
 @router.post("/questions/{qid}/delete")
-def question_delete(qid: int, next: str = Form("/admin/questions"), conn=Depends(get_db)):
+def question_delete(qid: int, request: Request, next: str = Form("/admin/questions"),
+                    conn=Depends(get_db)):
+    q = _owned_question(conn, qid, request.state.user["id"])
+    if not q:
+        raise HTTPException(404, "Вопрос не найден")
     conn.execute("DELETE FROM questions WHERE id=?", (qid,))
     conn.commit()
     return redir(next, "Вопрос удалён")
