@@ -1245,4 +1245,48 @@ with TestClient(main.app, follow_redirects=False) as cpwa:
     assert 'rel="manifest"' in home and 'name="theme-color"' in home
 step("PWA: манифест отдаётся, иконки на диске, подключён на гостевой")
 
+# ---------- изоляция: owner-гейт хелперов get_owned_* ----------
+# Главный инвариант продукта: пользователь видит только свои данные. Здесь
+# проверяем сам гейт; HTTP-уровень (все ручки кабинета) — после перевода
+# ручек на скоупинг и реального входа.
+import ownership  # noqa: E402
+
+iso = dbm.connect()
+iso.execute("INSERT INTO users(telegram_id, display_name, created_at) "
+            "VALUES(1001, 'Алиса', ?)", (main.now_iso(),))
+uA = iso.execute("SELECT id FROM users WHERE telegram_id=1001").fetchone()[0]
+iso.execute("INSERT INTO users(telegram_id, display_name, created_at) "
+            "VALUES(1002, 'Боб', ?)", (main.now_iso(),))
+uB = iso.execute("SELECT id FROM users WHERE telegram_id=1002").fetchone()[0]
+iso.execute("INSERT INTO categories(owner_id, name, link_token, created_at) "
+            "VALUES(?, 'Категория Алисы', 'iso-tokA', ?)", (uA, main.now_iso()))
+catA = iso.execute("SELECT id FROM categories WHERE link_token='iso-tokA'").fetchone()[0]
+iso.execute("INSERT INTO dates(owner_id, name, created_at) VALUES(?, 'Свидание Алисы', ?)",
+            (uA, main.now_iso()))
+dateA = iso.execute("SELECT id FROM dates WHERE name='Свидание Алисы'").fetchone()[0]
+iso.commit()
+
+# владелец достаёт своё
+assert ownership.get_owned_category(iso, catA, uA)["id"] == catA
+assert ownership.get_owned_date(iso, dateA, uA)["id"] == dateA
+# чужой получает 404 (а не 403 — не палим существование)
+from fastapi import HTTPException as _HX  # noqa: E402
+for fn, oid in ((ownership.get_owned_category, catA), (ownership.get_owned_date, dateA)):
+    try:
+        fn(iso, oid, uB)
+        assert False, "чужой объект не должен быть доступен"
+    except _HX as e:
+        assert e.status_code == 404, e.status_code
+# несуществующий id — тоже 404
+try:
+    ownership.get_owned_category(iso, 999999, uA)
+    assert False
+except _HX as e:
+    assert e.status_code == 404
+# owned_date_ids возвращает только свои
+assert ownership.owned_date_ids(iso, uA) == {dateA}
+assert ownership.owned_date_ids(iso, uB) == set()
+iso.close()
+step("изоляция: owner-гейт пускает к своему, чужое и несуществующее → 404")
+
 print(f"\nВсе проверки пройдены: {OK} блоков ✔")
