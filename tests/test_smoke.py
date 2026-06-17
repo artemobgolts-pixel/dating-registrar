@@ -766,6 +766,25 @@ with TestClient(main.app, follow_redirects=False) as c:
     main.notify.httpx.post = real_post
     step("notify переживает 5xx Telegram и логирует статус (через подмену httpx)")
 
+    # ---------- alert: дедупликация одинаковых алёртов о сбоях ----------
+    sent2 = []
+    def _fake_post2(url, json=None, timeout=None):
+        sent2.append(json["text"])
+        return _Resp()
+    main.notify.httpx.post = _fake_post2
+    main.notify.TOKEN, main.notify.CHAT = "t", "c"
+    main.notify._alert_seen.clear()
+    main.notify.alert("сбой X")
+    main.notify.alert("сбой X")           # дубль в окне — не уходит
+    main.notify.alert("сбой Y")
+    assert sent2 == ["сбой X", "сбой Y"], sent2
+    main.notify.TOKEN = main.notify.CHAT = ""
+    main.notify.httpx.post = real_post
+    main.notify._alert_seen.clear()
+    # обработчик 500-х зарегистрирован (последний рубеж от утечки трейсбеков)
+    assert Exception in main.app.exception_handlers
+    step("alert троттлит одинаковые сбои; обработчик 500-х подключён")
+
     # ---------- авто-архив (фоновая функция напрямую) ----------
     conn = dbm.connect()
     conn.execute(
@@ -1144,6 +1163,7 @@ qcols = {r[1] for r in conn.execute("PRAGMA table_info(questions)")}
 assert {"answer", "answered_at", "suggest_starts", "suggest_ends"} <= qcols
 dcols = {r[1] for r in conn.execute("PRAGMA table_info(dates)")}
 assert {"is_draft", "pay_split", "place_url"} <= dcols
+assert "is_chosen" not in dcols          # v8: мёртвая колонка дропнута
 ccols = {r[1] for r in conn.execute("PRAGMA table_info(categories)")}
 assert "description" in ccols
 dccols = {r[1] for r in conn.execute("PRAGMA table_info(date_categories)")}
@@ -1194,5 +1214,19 @@ for mm in re.finditer(r'url\("(/static/[^"]+)"\)', css):
     p = ROOT / mm.group(1).lstrip("/")
     assert p.exists(), f"в public.css указан несуществующий файл: {mm.group(1)}"
 step("все url() из public.css существуют на диске (регресс 404 шрифтов)")
+
+# ---------- PWA-манифест ----------
+with TestClient(main.app, follow_redirects=False) as cpwa:
+    r = cpwa.get("/static/manifest.json")
+    assert r.status_code == 200, r.status_code
+    man = json.loads(r.content)
+    assert man["name"] and man["start_url"] == "/" and man["display"] == "standalone"
+    for ic in man["icons"]:
+        p = ROOT / ic["src"].lstrip("/")
+        assert p.exists(), f"в манифесте указана несуществующая иконка: {ic['src']}"
+    # манифест и theme-color подключены на гостевой странице
+    home = cpwa.get("/").text
+    assert 'rel="manifest"' in home and 'name="theme-color"' in home
+step("PWA: манифест отдаётся, иконки на диске, подключён на гостевой")
 
 print(f"\nВсе проверки пройдены: {OK} блоков ✔")

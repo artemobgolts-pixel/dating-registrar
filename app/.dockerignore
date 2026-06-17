@@ -1,3 +1,32 @@
+# Сборка идёт из контекста ./app (см. docker-compose: build: ./app).
+# Не тащим в образ кэши, локальные данные и потенциальные секреты.
 __pycache__/
 *.pyc
+*.pyo
 .pytest_cache/
+
+# секреты и локальные данные (если вдруг оказались в контексте)
+.env
+.env.*
+!.env.example
+data/
+data-dev/
+*.db
+*.sqlite
+*.sqlite3
+*.db-wal
+*.db-shm
+
+# тесты, документация, vcs — в рантайме не нужны
+tests/
+*.md
+.git/
+.gitignore
+.gitattributes
+.venv/
+venv/
+
+# редакторы и ОС
+.idea/
+.vscode/
+.DS_Store

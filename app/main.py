@@ -21,7 +21,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from fastapi import FastAPI, Request
 from fastapi.exception_handlers import http_exception_handler
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.sessions import SessionMiddleware
@@ -29,15 +29,15 @@ from starlette.middleware.sessions import SessionMiddleware
 import admin_routes
 import backup
 import db
+import notify
 import public_routes
-from config import COOKIE_SECURE, SECRET_KEY
+from config import COOKIE_SECURE, SECRET_KEY, SENTRY_DSN
 from web import redir
 
 # Реэкспорты: тестам и консоли удобно обращаться к main.<имя>,
 # не зная внутреннюю раскладку по модулям.
 import images                                              # noqa: F401
 import places                                              # noqa: F401
-import notify                                              # noqa: F401
 from helpers import now_iso, now_naive                     # noqa: F401
 from ratelimit import (_login_fails, _rates, client_ip,    # noqa: F401
                        prune_rate_buckets, rates_gc_loop)
@@ -45,6 +45,19 @@ from tasks import autoarchive_loop, autoarchive_once, backup_loop  # noqa: F401
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("app")
+
+# Мониторинг ошибок (опционально). Sentry подключается, только если задан
+# SENTRY_DSN и установлен пакет sentry-sdk (`pip install sentry-sdk`). Без него
+# работает минимальный рубеж: обработчик ниже логирует 500-е и шлёт алёрт в TG.
+if SENTRY_DSN:
+    try:
+        import sentry_sdk
+        sentry_sdk.init(dsn=SENTRY_DSN, traces_sample_rate=0.0,
+                        send_default_pii=False)
+        log.info("Sentry подключён")
+    except Exception:
+        log.warning("SENTRY_DSN задан, но sentry-sdk не установлен — "
+                    "ошибки идут только в лог и в Telegram-алёрт")
 
 
 @asynccontextmanager
@@ -128,6 +141,25 @@ async def friendly_http_exc(request: Request, exc: StarletteHTTPException):
 @app.exception_handler(admin_routes.NeedLogin)
 def _need_login(request: Request, exc: admin_routes.NeedLogin):
     return RedirectResponse("/admin/login", status_code=303)
+
+
+@app.exception_handler(Exception)
+async def unhandled_error(request: Request, exc: Exception):
+    """Последний рубеж: необработанное исключение = 500. Логируем с трейсом и
+    шлём алёрт оператору в Telegram (в потоке — httpx.post блокирующий).
+
+    Не перехватывает HTTPException/NeedLogin: для них есть свои обработчики.
+    Если подключён Sentry, исключение уже ушло туда через его интеграцию.
+    """
+    log.exception("Необработанная ошибка на %s %s", request.method, request.url.path)
+    try:
+        msg = (f"🔥 500 на <code>{request.method} {request.url.path}</code>\n"
+               f"<b>{type(exc).__name__}</b>: {notify.esc(str(exc)[:300])}")
+        asyncio.create_task(asyncio.to_thread(notify.alert, msg))
+    except Exception:
+        log.exception("Не удалось отправить алёрт о сбое")
+    return PlainTextResponse("Что-то пошло не так. Мы уже разбираемся.",
+                             status_code=500)
 
 
 app.include_router(public_routes.router)

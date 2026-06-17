@@ -15,6 +15,9 @@ SECRET_KEY = os.getenv("SECRET_KEY", "").strip()
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "true").strip().lower() in ("1", "true", "yes")
+# Мониторинг ошибок (опционально): если задан DSN и установлен sentry-sdk —
+# необработанные исключения уходят в Sentry. Иначе минимум — лог + алёрт в TG.
+SENTRY_DSN = os.getenv("SENTRY_DSN", "").strip()
 # Префикс __Host- жёстко привязывает cookie к хосту (требует Secure) — только в проде
 GUEST_COOKIE = "__Host-bg" if COOKIE_SECURE else "bg"
 LEGACY_GUEST_COOKIE = "bg"     # дореформенное имя: читаем, чтобы не терять гостей

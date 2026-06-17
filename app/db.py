@@ -17,6 +17,8 @@
        модификатор оплаты «50/50» и распознанные ссылки на карты у свиданий.
   v7 — date_images.focus: точка фокуса фото (object-position) для обрезки
        в карточке; NULL = центр.
+  v8 — dates: дроп мёртвой колонки is_chosen. Историческая, логика брони
+       давно живёт в таблице bookings; колонка только путала.
 
 Свежая база создаётся сразу по последней схеме. Существующая —
 докатывается миграциями при старте приложения.
@@ -30,7 +32,7 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "app.db"
 
-LATEST_VERSION = 7
+LATEST_VERSION = 8
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS categories (
@@ -52,7 +54,6 @@ CREATE TABLE IF NOT EXISTS dates (
     comment TEXT,
     origin TEXT NOT NULL DEFAULT 'admin',   -- 'admin' | 'guest'
     guest_token TEXT,          -- кто предложил (если гость)
-    is_chosen INTEGER NOT NULL DEFAULT 0,
     is_draft INTEGER NOT NULL DEFAULT 0,    -- черновик / на модерации: гостям не виден
     pay_split INTEGER NOT NULL DEFAULT 0,   -- бейдж «оплата 50/50»
     place_url TEXT,            -- если «место» вставили ссылкой на карты
@@ -242,6 +243,11 @@ MIGRATIONS: dict[int, str] = {
             position INTEGER NOT NULL DEFAULT 0
         );
         ALTER TABLE date_images ADD COLUMN focus TEXT;
+    """,
+    8: """
+        -- Дроп мёртвой колонки is_chosen: логика брони давно в таблице bookings.
+        -- DROP COLUMN поддержан в SQLite ≥ 3.35 (на проде python:3.12-slim — есть).
+        ALTER TABLE dates DROP COLUMN is_chosen;
     """,
 }
 

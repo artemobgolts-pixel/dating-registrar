@@ -87,8 +87,8 @@ def insert_date(conn, *, name, place, starts, ends, comment, origin, guest_token
                 draft=0, pay_split=0, place_url=None) -> int:
     cur = conn.execute(
         "INSERT INTO dates(name, place, place_url, starts_at, ends_at, comment, origin, "
-        "guest_token, is_chosen, is_draft, pay_split, created_at) "
-        "VALUES(?,?,?,?,?,?,?,?,0,?,?,?)",
+        "guest_token, is_draft, pay_split, created_at) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
         (name, place, place_url, starts, ends, comment, origin, guest_token,
          draft, pay_split, now_iso()),
     )
