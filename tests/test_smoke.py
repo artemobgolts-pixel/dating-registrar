@@ -1166,6 +1166,22 @@ assert {"is_draft", "pay_split", "place_url"} <= dcols
 assert "is_chosen" not in dcols          # v8: мёртвая колонка дропнута
 ccols = {r[1] for r in conn.execute("PRAGMA table_info(categories)")}
 assert "description" in ccols
+assert "owner_id" in ccols                # v9: владелец категории
+assert "owner_id" in dcols                # v9: владелец свидания
+# v9: служебный легаси-владелец и бэкофилл существующих данных на него
+for t in ("users", "login_codes"):
+    assert conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (t,)
+    ).fetchone(), f"после миграции нет таблицы {t}"
+legacy = conn.execute("SELECT id, is_operator FROM users WHERE telegram_id=0").fetchone()
+assert legacy and legacy["is_operator"] == 1, "нет служебного легаси-владельца"
+# старая категория «Старая» и оба свидания должны принадлежать легаси-владельцу
+assert conn.execute(
+    "SELECT COUNT(*) FROM categories WHERE owner_id IS NULL").fetchone()[0] == 0
+assert conn.execute(
+    "SELECT COUNT(*) FROM dates WHERE owner_id IS NULL").fetchone()[0] == 0
+assert conn.execute(
+    "SELECT owner_id FROM categories WHERE name='Старая'").fetchone()[0] == legacy["id"]
 dccols = {r[1] for r in conn.execute("PRAGMA table_info(date_categories)")}
 assert "position" in dccols
 dicols = {r[1] for r in conn.execute("PRAGMA table_info(date_images)")}

@@ -19,6 +19,12 @@
        в карточке; NULL = центр.
   v8 — dates: дроп мёртвой колонки is_chosen. Историческая, логика брони
        давно живёт в таблице bookings; колонка только путала.
+  v9 — мультитенантность (фундамент): таблица users (вход через Telegram,
+       профиль, роли, квота), login_codes (одноразовые коды входа через бота),
+       owner_id у categories и dates (NULLABLE на этом этапе — скоупинг ручек
+       идёт отдельно). Бэкофилл: все существующие данные отходят служебному
+       «легаси-владельцу» (telegram_id=0, is_operator=1), которого при первом
+       входе оператора можно «забрать» (сменить telegram_id на реальный).
 
 Свежая база создаётся сразу по последней схеме. Существующая —
 докатывается миграциями при старте приложения.
@@ -32,11 +38,35 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "app.db"
 
-LATEST_VERSION = 8
+LATEST_VERSION = 9
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    telegram_id INTEGER UNIQUE NOT NULL,  -- 0 = служебный легаси-владелец
+    tg_username TEXT,
+    display_name TEXT,            -- отображаемое имя; из TG, редактируемо, можно русское
+    avatar_path TEXT,             -- фото профиля, хранится локально (опционально)
+    birth_date TEXT,              -- дата рождения (ISO yyyy-mm-dd)
+    gender TEXT,                  -- 'm' | 'f'
+    is_active INTEGER NOT NULL DEFAULT 1,    -- 0 = забанен
+    is_operator INTEGER NOT NULL DEFAULT 0,  -- суперадмин (модерация/баны/лимиты)
+    date_limit INTEGER NOT NULL DEFAULT 30,  -- квота свиданий; оператор поднимает вручную
+    created_at TEXT NOT NULL,
+    last_login_at TEXT
+);
+
+-- Одноразовые коды входа через бота (deep-link ?start=<code>). TTL чистится в коде.
+CREATE TABLE IF NOT EXISTS login_codes (
+    code TEXT PRIMARY KEY,
+    telegram_id INTEGER,          -- проставляется ботом после /start <code>
+    status TEXT NOT NULL DEFAULT 'pending',  -- 'pending' | 'confirmed'
+    created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS categories (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE,  -- владелец категории
     name TEXT NOT NULL,
     link_token TEXT UNIQUE,
     link_enabled INTEGER NOT NULL DEFAULT 1,
@@ -47,6 +77,7 @@ CREATE TABLE IF NOT EXISTS categories (
 
 CREATE TABLE IF NOT EXISTS dates (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE,  -- владелец свидания
     name TEXT NOT NULL,
     place TEXT,
     starts_at TEXT,            -- "YYYY-MM-DDTHH:MM", время МСК
@@ -129,6 +160,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_book_date ON bookings(date_id);
 CREATE INDEX IF NOT EXISTS idx_book_guest ON bookings(category_id, guest_token);
 CREATE INDEX IF NOT EXISTS idx_dc_cat ON date_categories(category_id);
 CREATE INDEX IF NOT EXISTS idx_q_read ON questions(is_read);
+CREATE INDEX IF NOT EXISTS idx_cat_owner ON categories(owner_id);
+CREATE INDEX IF NOT EXISTS idx_dates_owner ON dates(owner_id);
 """
 
 # Миграции: ключ — целевая версия, значение — SQL, который к ней приводит.
@@ -248,6 +281,44 @@ MIGRATIONS: dict[int, str] = {
         -- Дроп мёртвой колонки is_chosen: логика брони давно в таблице bookings.
         -- DROP COLUMN поддержан в SQLite ≥ 3.35 (на проде python:3.12-slim — есть).
         ALTER TABLE dates DROP COLUMN is_chosen;
+    """,
+    9: """
+        -- Мультитенантность: пользователи, коды входа, владельцы у корневых сущностей.
+        CREATE TABLE users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            telegram_id INTEGER UNIQUE NOT NULL,
+            tg_username TEXT,
+            display_name TEXT,
+            avatar_path TEXT,
+            birth_date TEXT,
+            gender TEXT,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            is_operator INTEGER NOT NULL DEFAULT 0,
+            date_limit INTEGER NOT NULL DEFAULT 30,
+            created_at TEXT NOT NULL,
+            last_login_at TEXT
+        );
+        CREATE TABLE login_codes (
+            code TEXT PRIMARY KEY,
+            telegram_id INTEGER,
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at TEXT NOT NULL
+        );
+        -- owner_id NULLABLE: на этом этапе скоупинг ручек ещё не сделан, жёсткий
+        -- NOT NULL сломал бы текущие INSERT'ы. Ужесточим, когда переведём ручки.
+        ALTER TABLE categories ADD COLUMN owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE;
+        ALTER TABLE dates ADD COLUMN owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE;
+        -- Служебный «легаси-владелец»: на него отходят все существующие данные.
+        -- При первом входе оператора (OPERATOR_TG_IDS) его telegram_id меняется
+        -- на реальный — и легаси-данные автоматически становятся данными оператора.
+        INSERT INTO users(telegram_id, display_name, is_operator, created_at)
+            VALUES(0, 'Легаси-владелец', 1, strftime('%Y-%m-%dT%H:%M:%S','now'));
+        UPDATE categories SET owner_id = (SELECT id FROM users WHERE telegram_id=0)
+            WHERE owner_id IS NULL;
+        UPDATE dates SET owner_id = (SELECT id FROM users WHERE telegram_id=0)
+            WHERE owner_id IS NULL;
+        CREATE INDEX idx_cat_owner ON categories(owner_id);
+        CREATE INDEX idx_dates_owner ON dates(owner_id);
     """,
 }
 
