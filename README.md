@@ -87,11 +87,11 @@ nano .env
 В `.env` обязательно заполни:
 
 - `SECRET_KEY` — сгенерируй: `openssl rand -hex 32`
-- `ADMIN_USERNAME` и `ADMIN_PASSWORD` — логин и пароль для входа в админку
 - `DOMAIN` — уже стоит `boris-i-love-you.online`
-- `TG_BOT_TOKEN` и `TG_CHAT_ID` — по желанию (см. ниже).
+- `TG_BOT_TOKEN`, `TG_BOT_USERNAME`, `TG_WEBHOOK_SECRET` — для входа через Telegram (см. ниже)
+- `OPERATOR_TG_IDS` — твой telegram_id (узнать у [@userinfobot](https://t.me/userinfobot))
 
-Без `SECRET_KEY` и `ADMIN_PASSWORD` приложение **не запустится** — упадёт с понятной ошибкой.
+Без `SECRET_KEY` приложение **не запустится** — упадёт с понятной ошибкой.
 
 Дальше:
 
@@ -102,20 +102,30 @@ docker compose up -d --build
 Минуту-две Caddy получает сертификат, после этого:
 
 - сайт: `https://boris-i-love-you.online`
-- админка: `https://boris-i-love-you.online/admin`
+- вход: `https://boris-i-love-you.online/login`
 
 Права на папку `data/` контейнер **выравнивает сам при каждом старте**
 (см. `app/docker-entrypoint.sh`) — никаких ручных `chown` не нужно,
 в том числе при обновлении старой установки.
 
-### Telegram-уведомления (по желанию)
+### Вход через Telegram
 
-1. Напиши [@BotFather](https://t.me/BotFather) → `/newbot` → получишь токен вида
-   `1234567:AAH...` — это `TG_BOT_TOKEN`.
-2. Напиши своему новому боту любое сообщение (это обязательно).
-3. Открой в браузере `https://api.telegram.org/bot<ТОКЕН>/getUpdates`.
-   В ответе найди `"chat":{"id":123456789,...}` — это число и есть `TG_CHAT_ID`.
-4. Впиши оба значения в `.env` и перезапусти: `docker compose up -d`.
+Пароля нет: вход — через бота. Кнопка на `/login` открывает бота с одноразовым
+кодом, человек жмёт **Start**, и сайт логинит его. Настройка:
+
+1. [@BotFather](https://t.me/BotFather) → `/newbot` → токен `1234567:AAH...` это `TG_BOT_TOKEN`.
+2. Username бота (без `@`) впиши в `TG_BOT_USERNAME`.
+3. Придумай длинную случайную строку для `TG_WEBHOOK_SECRET` (`openssl rand -hex 32`).
+4. Свой `telegram_id` (у [@userinfobot](https://t.me/userinfobot)) впиши в `OPERATOR_TG_IDS`.
+   При первом входе ты автоматически станешь владельцем всех существующих данных.
+5. `docker compose up -d` — приложение само зарегистрирует вебхук входа в Telegram
+   при старте (никаких ручных `setWebhook` не нужно).
+
+### Telegram-уведомления
+
+Тот же бот шлёт уведомления о бронях/вопросах и алёрты о сбоях. Нужен `TG_CHAT_ID`:
+напиши боту любое сообщение, открой `https://api.telegram.org/bot<ТОКЕН>/getUpdates`,
+найди `"chat":{"id":123456789,...}` — это число и есть `TG_CHAT_ID`.
 
 ---
 
@@ -166,9 +176,12 @@ cd dating-registrar
 ```bash
 cd app
 pip install -r requirements.txt
-DATA_DIR=../data-dev COOKIE_SECURE=false SECRET_KEY=dev ADMIN_PASSWORD=dev \
+DATA_DIR=../data-dev COOKIE_SECURE=false SECRET_KEY=dev \
+  TG_BOT_USERNAME=dev_bot TG_WEBHOOK_SECRET=dev OPERATOR_TG_IDS=1 \
   uvicorn main:app --reload
-# сайт: http://127.0.0.1:8000  · админка: /admin (admin / dev)
+# сайт: http://127.0.0.1:8000  · вход: /login
+# Локально без настоящего бота вход не завершить — для отладки кабинета
+# можно подтвердить код вручную, дёрнув /tg/webhook с заголовком секрета.
 ```
 
 ### Цикл правок
@@ -267,7 +280,7 @@ cookie с префиксом `__Host-`. IP клиента для лимитов 
 
 - **Логи приложения:** `docker compose logs -f app` · **Caddy:** `docker compose logs -f caddy`
 - **Статус:** `docker compose ps` — у `app` должно быть `(healthy)`.
-- **Приложение не стартует и пишет про SECRET_KEY/ADMIN_PASSWORD** — заполни `.env`.
+- **Приложение не стартует и пишет про SECRET_KEY** — заполни `.env`.
 - **PermissionError на /data** — не должно случаться: entrypoint чинит права при старте.
   Если всё же случилось, перезапусти контейнер: `docker compose restart app`.
 - **Несколько воркеров uvicorn** — нельзя: лимиты живут в памяти процесса,

@@ -25,12 +25,13 @@ DATA = Path("/tmp/bdata")
 ENV = {
     "DATA_DIR": str(DATA),
     "COOKIE_SECURE": "false",
-    "ADMIN_USERNAME": "a",
-    "ADMIN_PASSWORD": "p",
     "DOMAIN": "t.local",
     "SECRET_KEY": "test-secret",
     "TG_BOT_TOKEN": "",
     "TG_CHAT_ID": "",
+    "TG_BOT_USERNAME": "date4you_test_bot",
+    "TG_WEBHOOK_SECRET": "hook-secret",
+    "OPERATOR_TG_IDS": "555001",
 }
 
 OK = 0
@@ -55,8 +56,7 @@ def check_failfast(missing: str) -> None:
 
 
 check_failfast("SECRET_KEY")
-check_failfast("ADMIN_PASSWORD")
-step("fail-fast: без SECRET_KEY / ADMIN_PASSWORD приложение не стартует")
+step("fail-fast: без SECRET_KEY приложение не стартует")
 
 # ---------- 0.1 entrypoint синтаксически корректен ----------
 
@@ -93,6 +93,24 @@ CSRF = {"v": ""}
 def refresh_csrf(c) -> None:
     page = c.get("/admin/categories")
     CSRF["v"] = re.search(r'name="csrf" value="([^"]+)"', page.text).group(1)
+
+
+def tg_login(c, telegram_id, username="user", first_name="Тест"):
+    """Полный реальный поток входа: start → вебхук от Telegram → poll.
+
+    Возвращает финальный ответ poll. Сессия логина оседает в куках клиента c.
+    """
+    r = c.post("/auth/start")
+    assert r.status_code == 200, r.status_code
+    code = r.json()["code"]
+    # Telegram присылает /start <код> с секретным заголовком вебхука
+    wh = c.post("/tg/webhook",
+                headers={"X-Telegram-Bot-Api-Secret-Token": "hook-secret"},
+                json={"message": {"text": f"/start {code}",
+                                  "from": {"id": telegram_id, "username": username,
+                                           "first_name": first_name}}})
+    assert wh.status_code == 200, wh.status_code
+    return c.get(f"/auth/poll?code={code}")
 
 
 def apost(c, url, data=None, files=None):
@@ -137,31 +155,39 @@ with TestClient(main.app, follow_redirects=False) as c:
     holder["c"].close()                          # раньше тут падал ProgrammingError
     step("SQLite-коннект переживает смену потока тредпула (фикс прод-500 на фото)")
 
-    # ---------- вход и троттлинг ----------
+    # ---------- вход через Telegram-бота ----------
     r = c.get("/admin/")
-    assert r.status_code == 303 and "/admin/login" in r.headers["location"]
-    for _ in range(10):
-        r = c.post("/admin/login", data={"username": "a", "password": "bad"})
-        assert r.status_code == 401
-    r = c.post("/admin/login", data={"username": "a", "password": "bad"})
-    assert r.status_code == 429
-    main._login_fails.clear()
-    r = c.post("/admin/login", data={"username": "a", "password": "p"})
-    assert r.status_code == 303
-    step("логин: 401 на неверный пароль, 429 после 10 попыток, вход работает")
+    assert r.status_code == 303 and "/login" in r.headers["location"]
+    # страница входа отдаёт кнопку, а не форму логин/пароль
+    lp = c.get("/login")
+    assert lp.status_code == 200 and "Войти через Telegram" in lp.text
 
-    # лимит входа считается по X-Real-IP (Caddy перезаписывает его сам)
+    # вебхук без секрета — 403 (иначе любой подтвердит чужой код)
+    r0 = c.post("/auth/start")
+    bad = c.post("/tg/webhook",
+                 json={"message": {"text": f"/start {r0.json()['code']}",
+                                   "from": {"id": 555001}}})
+    assert bad.status_code == 403
+    # незалогинены: кабинет недоступен
+    assert c.get("/admin/").status_code == 303
+
+    # полный поток: оператор (есть в OPERATOR_TG_IDS) входит и «забирает» легаси-владельца
+    poll = tg_login(c, 555001, username="boss", first_name="Шеф")
+    assert poll.status_code == 200 and poll.json()["status"] == "ok"
+    assert c.get("/admin/").status_code == 200
+    me = db_one("SELECT id, is_operator, telegram_id FROM users WHERE telegram_id=555001")
+    assert me["is_operator"] == 1
+    # легаси-владелец (telegram_id=0) поглощён: отдельной записи с 0 не осталось
+    assert not db_one("SELECT 1 FROM users WHERE telegram_id=0")
+    step("вход через Telegram: webhook без секрета → 403, поллинг логинит, оператор забрал легаси")
+
+    # анти-спам /auth/start: 10 кодов на IP за окно, 11-й → 429
+    sc = TestClient(main.app, follow_redirects=False)
     for _ in range(10):
-        c.post("/admin/login", data={"username": "a", "password": "bad"},
-               headers={"X-Real-IP": "10.0.0.1"})
-    r = c.post("/admin/login", data={"username": "a", "password": "bad"},
-               headers={"X-Real-IP": "10.0.0.1"})
-    assert r.status_code == 429
-    r = c.post("/admin/login", data={"username": "a", "password": "bad"},
-               headers={"X-Real-IP": "10.0.0.2"})
-    assert r.status_code == 401                  # другой IP — другое ведро
-    main._login_fails.clear()
-    step("лимиты считаются по X-Real-IP, вёдра по адресам изолированы")
+        assert sc.post("/auth/start", headers={"X-Real-IP": "9.9.9.9"}).status_code == 200
+    assert sc.post("/auth/start", headers={"X-Real-IP": "9.9.9.9"}).status_code == 429
+    main._rates.clear()
+    step("анти-спам входа: не больше 10 кодов с одного IP за окно")
 
     refresh_csrf(c)
     assert CSRF["v"]
@@ -742,9 +768,8 @@ with TestClient(main.app, follow_redirects=False) as c:
     step("лимиты: 5 предложений / 10 вопросов за 10 мин, 30 действий с бронью в минуту → 429")
 
     main._rates["мертвое:g:x"] = [time.time() - 99999]
-    main._login_fails["10.9.9.9"] = [time.time() - 99999]
     main.prune_rate_buckets()
-    assert "мертвое:g:x" not in main._rates and "10.9.9.9" not in main._login_fails
+    assert "мертвое:g:x" not in main._rates
     step("чистка пустых вёдер лимитов работает")
 
     # ---------- notify: текст доходит до httpx, 5xx не роняет ----------
@@ -1095,9 +1120,13 @@ with TestClient(main.app, follow_redirects=False) as c:
     # ---------- выход только по POST ----------
     assert c.get("/admin/logout").status_code == 405
     r = apost(c, "/admin/logout", {})
-    assert r.status_code == 303 and "/admin/login" in r.headers["location"]
+    assert r.status_code == 303 and "/login" in r.headers["location"]
     assert c.get("/admin/").status_code == 303
     step("logout — POST с CSRF; GET отклоняется (405)")
+
+    # после logout снова логинимся, чтобы дальнейшие блоки шли под сессией
+    tg_login(c, 555001, username="boss")
+    refresh_csrf(c)
 
 # ---------- миграции v1 → v4 (вне приложения) ----------
 mig = Path("/tmp/mig.db")

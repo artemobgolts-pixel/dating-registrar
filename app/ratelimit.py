@@ -50,30 +50,15 @@ def guest_throttle(kind: str, guest: str, request: Request) -> None:
         raise HTTPException(429, "Слишком много действий подряд — передохни минутку ♥")
 
 
-_login_fails: dict[str, list[float]] = {}
-
-
-def _throttle_ok(ip: str) -> bool:
-    now = time.time()
-    arr = [t for t in _login_fails.get(ip, []) if now - t < 900]
-    _login_fails[ip] = arr
-    return len(arr) < 10
-
-
-def _register_fail(ip: str) -> None:
-    _login_fails.setdefault(ip, []).append(time.time())
-
-
 def prune_rate_buckets() -> None:
     """Сносит пустые вёдра лимитов: иначе ключи копятся месяцами."""
     now = time.time()
-    for store, window in ((_rates, 600), (_login_fails, 900)):
-        for k in list(store):
-            arr = [t for t in store[k] if now - t < window]
-            if arr:
-                store[k] = arr
-            else:
-                store.pop(k, None)
+    for k in list(_rates):
+        arr = [t for t in _rates[k] if now - t < 600]
+        if arr:
+            _rates[k] = arr
+        else:
+            _rates.pop(k, None)
 
 
 async def rates_gc_loop() -> None:

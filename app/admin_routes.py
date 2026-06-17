@@ -22,83 +22,35 @@ from urllib.parse import urlencode
 import backup
 import images
 import places
-from config import ADMIN_PASSWORD, ADMIN_USERNAME, BASE_URL
+from config import BASE_URL
 from guests import gname
 from helpers import clean_text, normalize_period, now_iso, now_naive, parse_dt_local, parse_links
 from fastapi.responses import JSONResponse
 from public_routes import (add_photos, insert_date, next_cat_pos, ranged_file,
                            save_links, VIDEO_TYPES)
-from ratelimit import _login_fails, _register_fail, _throttle_ok, client_ip
+from ratelimit import client_ip
 from tasks import autoarchive_once
+from users import NeedLogin, current_user
 from web import get_db, redir, templates
 
 
 # ---------------------------------------------------------------------------
-# Вход
+# Доступ к кабинету
 # ---------------------------------------------------------------------------
+# Вход (через Telegram-бота) живёт в auth_routes. Здесь — только защищённая
+# часть: каждый запрос проходит через current_user (сессия + активный юзер +
+# CSRF на POST) и видит данные ТОЛЬКО своего владельца.
 
-class NeedLogin(Exception):
-    pass
-
-
-async def require_admin(request: Request):
-    if not request.session.get("admin"):
-        raise NeedLogin()
-    if "csrf" not in request.session:
-        request.session["csrf"] = secrets.token_urlsafe(16)
-    if request.method == "POST":
-        form = await request.form()
-        token = str(form.get("csrf") or "")
-        good = request.session.get("csrf") or ""
-        if not (token and secrets.compare_digest(token, good)):
-            raise HTTPException(403, "Сессия устарела — обнови страницу и попробуй ещё раз")
-
-
-auth_router = APIRouter()       # /admin/login — без require_admin
-
-
-@auth_router.get("/admin/login", response_class=HTMLResponse)
-def login_page(request: Request):
-    if request.session.get("admin"):
-        return RedirectResponse("/admin/", status_code=303)
-    return templates.TemplateResponse(request, "admin/login.html", {"error": None})
-
-
-@auth_router.post("/admin/login", response_class=HTMLResponse)
-def login(request: Request, username: str = Form(""), password: str = Form("")):
-    ip = client_ip(request)
-    if not _throttle_ok(ip):
-        return templates.TemplateResponse(
-            request, "admin/login.html",
-            {"error": "Слишком много попыток. Подожди 15 минут."},
-            status_code=429)
-
-    ok = secrets.compare_digest(username.encode(), ADMIN_USERNAME.encode()) and \
-        secrets.compare_digest(password.encode(), ADMIN_PASSWORD.encode())
-
-    if ok:
-        request.session["admin"] = True
-        request.session["csrf"] = secrets.token_urlsafe(16)
-        _login_fails.pop(ip, None)
-        return RedirectResponse("/admin/", status_code=303)
-
-    _register_fail(ip)
-    return templates.TemplateResponse(
-        request, "admin/login.html",
-        {"error": "Неверный логин или пароль"},
-        status_code=401)
-
-
-# ---------------------------------------------------------------------------
-# Защищённая часть
-# ---------------------------------------------------------------------------
-
-router = APIRouter(prefix="/admin", dependencies=[Depends(require_admin)])
+router = APIRouter(prefix="/admin", dependencies=[Depends(current_user)])
 
 
 def actx(request: Request, conn, **extra) -> dict:
+    # NB: выборки кабинета пока НЕ заскоуплены по владельцу — это делается в 1D
+    # (штамповка owner_id на создании + scoped-запросы + HTTP-тест изоляции).
+    # Здесь 1C только сменил механизм входа на Telegram.
     ctx = {
         "request": request,
+        "user": request.state.user,
         "unread": conn.execute("SELECT COUNT(*) FROM questions WHERE is_read=0").fetchone()[0],
         "csrf": request.session.get("csrf", ""),
     }
@@ -110,7 +62,7 @@ def actx(request: Request, conn, **extra) -> dict:
 def logout(request: Request):
     """Выход только по POST с CSRF: logout по GET можно навязать ссылкой."""
     request.session.clear()
-    return RedirectResponse("/admin/login", status_code=303)
+    return RedirectResponse("/login", status_code=303)
 
 
 GNAME_SQL = "COALESCE(g.name, 'Человек #' || substr(COALESCE({t}, '??????'), 1, 6))"

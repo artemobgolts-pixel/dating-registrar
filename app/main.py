@@ -27,10 +27,12 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.sessions import SessionMiddleware
 
 import admin_routes
+import auth_routes
 import backup
 import db
 import notify
 import public_routes
+import users
 from config import COOKIE_SECURE, SECRET_KEY, SENTRY_DSN
 from web import redir
 
@@ -39,7 +41,7 @@ from web import redir
 import images                                              # noqa: F401
 import places                                              # noqa: F401
 from helpers import now_iso, now_naive                     # noqa: F401
-from ratelimit import (_login_fails, _rates, client_ip,    # noqa: F401
+from ratelimit import (_rates, client_ip,                  # noqa: F401
                        prune_rate_buckets, rates_gc_loop)
 from tasks import autoarchive_loop, autoarchive_once, backup_loop  # noqa: F401
 
@@ -66,6 +68,7 @@ async def lifespan(app: FastAPI):
     try:
         autoarchive_once()
         backup.make_backup_if_stale(hours=20)
+        auth_routes.setup_webhook()
     except Exception:
         log.exception("Ошибка при старте")
     # Чиним старые свидания, где ссылка на карты осела в поле place
@@ -126,7 +129,6 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 @app.exception_handler(StarletteHTTPException)
 async def friendly_http_exc(request: Request, exc: StarletteHTTPException):
     if request.url.path.startswith("/admin") and request.method == "POST" \
-            and request.url.path != "/admin/login" \
             and not isinstance(exc.detail, dict):
         sp = urlsplit(request.headers.get("referer", ""))
         if sp.path.startswith("/admin"):
@@ -138,9 +140,9 @@ async def friendly_http_exc(request: Request, exc: StarletteHTTPException):
     return await http_exception_handler(request, exc)
 
 
-@app.exception_handler(admin_routes.NeedLogin)
-def _need_login(request: Request, exc: admin_routes.NeedLogin):
-    return RedirectResponse("/admin/login", status_code=303)
+@app.exception_handler(users.NeedLogin)
+def _need_login(request: Request, exc: users.NeedLogin):
+    return RedirectResponse("/login", status_code=303)
 
 
 @app.exception_handler(Exception)
@@ -163,5 +165,5 @@ async def unhandled_error(request: Request, exc: Exception):
 
 
 app.include_router(public_routes.router)
-app.include_router(admin_routes.auth_router)
+app.include_router(auth_routes.router)
 app.include_router(admin_routes.router)
