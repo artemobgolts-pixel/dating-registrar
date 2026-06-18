@@ -1,0 +1,57 @@
+{% extends "operator/base.html" %}
+{% block title %}Жалобы{% endblock %}
+{% block content %}
+<h1>Жалобы</h1>
+
+<div class="bar">
+  {% for s, lbl in [('open','Открытые'),('resolved','Обработанные'),('dismissed','Отклонённые'),('all','Все')] %}
+  <a class="btn small {{ 'primary' if status==s else '' }}" href="/operator/reports?status={{ s }}">{{ lbl }}</a>
+  {% endfor %}
+</div>
+
+<table>
+  <tr><th>Объект</th><th>Владелец</th><th>Причина</th><th>Когда</th><th>Статус</th><th>Действия</th></tr>
+  {% for it in items %}
+  {% set r = it.r %}{% set t = it.t %}
+  <tr>
+    <td>
+      {{ 'Категория' if r['target_type']=='category' else 'Свидание' }}:
+      <b>{% if t %}{{ t['name'] }}{% else %}<span class="muted">удалён</span>{% endif %}</b>
+    </td>
+    <td class="muted">{{ t['owner'] if t else '—' }}</td>
+    <td>{{ r['reason'] or '—' }}</td>
+    <td class="muted">{{ r['created_at'][:16].replace('T',' ') }}</td>
+    <td>
+      {% if r['status']=='open' %}<span class="badge ban">открыта</span>
+      {% elif r['status']=='resolved' %}<span class="badge">обработана</span>
+      {% else %}<span class="badge">отклонена</span>{% endif %}
+    </td>
+    <td>
+      {% if r['status']=='open' %}
+      <div class="bar" style="margin:0;gap:6px">
+        {% if t %}
+        <form class="inline" method="post" action="/operator/reports/{{ r['id'] }}/takedown"
+              data-confirm="Удалить контент «{{ t['name'] }}» НАВСЕГДА и закрыть жалобу?">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button class="btn small danger">Удалить контент</button>
+        </form>
+        {% endif %}
+        <form class="inline" method="post" action="/operator/reports/{{ r['id'] }}/resolve">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <input type="hidden" name="action" value="resolved">
+          <button class="btn small">Обработана</button>
+        </form>
+        <form class="inline" method="post" action="/operator/reports/{{ r['id'] }}/resolve">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <input type="hidden" name="action" value="dismiss">
+          <button class="btn small">Отклонить</button>
+        </form>
+      </div>
+      {% else %}<span class="muted">—</span>{% endif %}
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="6" class="muted">Жалоб нет</td></tr>
+  {% endfor %}
+</table>
+{% endblock %}

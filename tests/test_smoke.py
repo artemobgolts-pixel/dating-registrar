@@ -286,6 +286,8 @@ with TestClient(main.app, follow_redirects=False) as c:
     cid = int(re.search(r"/admin/categories/(\d+)", page).group(1))
     detail = c.get(f"/admin/categories/{cid}").text
     tok = re.search(r"https://t\.local/c/([A-Za-z0-9_-]+)", detail).group(1)
+    # новый дефолт для публичного продукта: модерация предложений ВКЛючена
+    assert db_one("SELECT moderate_proposals FROM categories WHERE id=?", (cid,))[0] == 1
     step("категория создана, секретная ссылка получена")
 
     r = c.get(f"/c/{tok}")
@@ -566,6 +568,10 @@ with TestClient(main.app, follow_redirects=False) as c:
 
     # ---------- предложение гостя (без модерации) ----------
     main._rates.clear()
+    # дефолт теперь «модерация вкл» — для этого блока явно выключаем
+    if db_one("SELECT moderate_proposals FROM categories WHERE id=?", (cid,))[0]:
+        apost(c, f"/admin/categories/{cid}/moderation", {})
+    assert db_one("SELECT moderate_proposals FROM categories WHERE id=?", (cid,))[0] == 0
     r = c.post(f"/c/{tok}/propose",
                data={"name": "Кино дома", "links": "kinopoisk.ru"},
                files=[("images", ("k.png", png((90, 120, 180)), "image/png"))])
@@ -915,6 +921,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert r.status_code == 303
     vc = db_one("SELECT id, link_token FROM categories WHERE name='Витрина'")
     vcid, vtok = vc["id"], vc["link_token"]
+    apost(c, f"/admin/categories/{vcid}/moderation", {})  # витринные фичи без модерации
 
     # описание категории (видно всем) + разметка в нём
     r = apost(c, f"/admin/categories/{vcid}/rename",
@@ -1542,5 +1549,76 @@ with TestClient(main.app, follow_redirects=False) as cop, \
     assert opost(f"/operator/users/{uid_nop}/delete").status_code == 303
     assert not db_one("SELECT 1 FROM users WHERE id=?", (uid_nop,))
 step("операторская админка: гейт 404 для не-оператора, баны/квоты/роли/удаление, самозащита")
+
+
+# ---------- жалобы: гость → очередь оператора → takedown ----------
+with TestClient(main.app, follow_redirects=False) as cown, \
+        TestClient(main.app, follow_redirects=False) as cop2, \
+        TestClient(main.app, follow_redirects=False) as g:
+    assert tg_login(cown, 990001, username="owner").json()["status"] == "ok"
+    assert tg_login(cop2, 555001, username="boss").json()["status"] == "ok"
+
+    own_csrf = re.search(r'name="csrf" value="([^"]+)"',
+                         cown.get("/admin/categories").text).group(1)
+    def ownpost(url, data=None, files=None):
+        d = dict(data or {}); d["csrf"] = own_csrf
+        return cown.post(url, data=d, files=files)
+
+    # владелец заводит категорию (модерация по умолчанию вкл) и публикует свидание
+    assert ownpost("/admin/categories/create", {"name": "Жалобная"}).status_code == 303
+    rc = db_one("SELECT id, link_token FROM categories WHERE name='Жалобная'")
+    rcid, rtok = rc["id"], rc["link_token"]
+    ownpost(f"/admin/categories/{rcid}/moderation", {})  # выкл, чтобы свидание было видно
+    assert ownpost("/admin/dates/new",
+                   {"name": "Подозрительное", "categories": str(rcid)}).status_code == 303
+    rdid = db_one("SELECT id FROM dates WHERE name='Подозрительное'")[0]
+
+    # гость заходит и жалуется на свидание
+    main._rates.clear()
+    g.get(f"/c/{rtok}")
+    assert "пожаловаться" in g.get(f"/c/{rtok}").text
+    r = g.post(f"/c/{rtok}/report",
+               data={"target_type": "date", "target_id": rdid, "reason": "спам"})
+    assert r.status_code == 200 and r.json()["ok"]
+    rep = db_one("SELECT id, status FROM reports WHERE target_type='date' AND target_id=?",
+                 (rdid,))
+    assert rep and rep["status"] == "open"
+    rep_id = rep["id"]
+
+    # дубль той же жалобы не плодит записей
+    r = g.post(f"/c/{rtok}/report", data={"target_type": "date", "target_id": rdid})
+    assert r.status_code == 200
+    assert db_one("SELECT COUNT(*) FROM reports WHERE target_id=? AND status='open'",
+                  (rdid,))[0] == 1
+
+    # жалоба на чужой/скрытый id → 404, запись не создаётся
+    assert g.post(f"/c/{rtok}/report",
+                  data={"target_type": "date", "target_id": 999999}).status_code == 404
+
+    # оператор видит жалобу в очереди и счётчик на дашборде
+    op2_csrf = re.search(r'name="csrf" value="([^"]+)"',
+                         cop2.get("/operator/reports").text).group(1)
+    assert "Подозрительное" in cop2.get("/operator/reports").text
+    assert "открытых жалоб" in cop2.get("/operator/").text
+
+    # takedown: контент удалён, жалоба закрыта, файлы (если были) тоже
+    r = cop2.post(f"/operator/reports/{rep_id}/takedown", data={"csrf": op2_csrf})
+    assert r.status_code == 303
+    assert not db_one("SELECT 1 FROM dates WHERE id=?", (rdid,))
+    assert db_one("SELECT status FROM reports WHERE id=?", (rep_id,))[0] == "resolved"
+
+    # жалоба на категорию + dismiss (контент остаётся)
+    main._rates.clear()
+    r = g.post(f"/c/{rtok}/report",
+               data={"target_type": "category", "target_id": rcid, "reason": "не то"})
+    assert r.status_code == 200
+    crep = db_one("SELECT id FROM reports WHERE target_type='category' AND target_id=?",
+                  (rcid,))[0]
+    r = cop2.post(f"/operator/reports/{crep}/resolve",
+                  data={"csrf": op2_csrf, "action": "dismiss"})
+    assert r.status_code == 303
+    assert db_one("SELECT status FROM reports WHERE id=?", (crep,))[0] == "dismissed"
+    assert db_one("SELECT 1 FROM categories WHERE id=?", (rcid,))  # категория цела
+step("жалобы: гость жалуется (дубль-защита, 404 на скрытый id), оператор видит очередь, takedown/dismiss")
 
 print(f"\nВсе проверки пройдены: {OK} блоков ✔")

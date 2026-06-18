@@ -175,6 +175,9 @@
           {% endif %}
           <button class="btn ghost ask" data-id="{{ d.id }}" data-name="{{ d.name }}">Спросить 💬</button>
         </div>
+        {% if not d.editable %}
+        <button type="button" class="report-link" data-id="{{ d.id }}" data-name="{{ d.name }}">пожаловаться</button>
+        {% endif %}
         {% endif %}
         {% if d.editable %}
         <div class="mine-actions">
@@ -259,6 +262,24 @@
     <div class="dlg-actions">
       <button type="button" class="btn ghost" id="askCancel">Отмена</button>
       <button type="submit" class="btn book">Отправить 💌</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Пожаловаться на контент -->
+<dialog id="reportDlg">
+  <h3 class="dlg-head">Пожаловаться на «<span id="reportTitle"></span>»</h3>
+  <p class="dlg-sub">Сообщите, если контент нарушает правила — модератор проверит.</p>
+  <form id="reportForm">
+    <input type="hidden" name="target_type" id="reportType">
+    <input type="hidden" name="target_id" id="reportTargetId">
+    <div class="field">
+      <textarea name="reason" id="reportReason" maxlength="1000"
+                placeholder="Что не так? (необязательно)"></textarea>
+    </div>
+    <div class="dlg-actions">
+      <button type="button" class="btn ghost" id="reportCancel">Отмена</button>
+      <button type="submit" class="btn book">Отправить жалобу</button>
     </div>
   </form>
 </dialog>

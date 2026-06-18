@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 import images
+from helpers import now_iso
 from users import current_operator, get_user
 from web import get_db, redir, templates
 
@@ -41,6 +42,7 @@ def dashboard(request: Request, conn=Depends(get_db)):
         "cats": one("SELECT COUNT(*) FROM categories"),
         "dates": one("SELECT COUNT(*) FROM dates"),
         "bookings": one("SELECT COUNT(*) FROM bookings"),
+        "reports": one("SELECT COUNT(*) FROM reports WHERE status='open'"),
     }
     recent = conn.execute(
         "SELECT id, display_name, tg_username, telegram_id, is_active, is_operator, "
@@ -163,6 +165,88 @@ def user_delete(uid: int, request: Request, conn=Depends(get_db)):
     log.warning("operator %s DELETED user %s (%s), %d files",
                 request.state.user["id"], uid, u["tg_username"], len(files))
     return redir("/operator/users", "Пользователь и все его данные удалены")
+
+
+# ---------- жалобы (очередь модерации) ----------
+
+def _report_target(conn, r) -> dict:
+    """Подтягивает объект жалобы (свидание/категория) + владельца, если ещё жив."""
+    if r["target_type"] == "category":
+        row = conn.execute(
+            "SELECT c.name, c.owner_id, u.display_name AS owner, c.link_token "
+            "FROM categories c LEFT JOIN users u ON u.id=c.owner_id "
+            "WHERE c.id=?", (r["target_id"],)).fetchone()
+    else:
+        row = conn.execute(
+            "SELECT d.name, d.owner_id, u.display_name AS owner FROM dates d "
+            "LEFT JOIN users u ON u.id=d.owner_id WHERE d.id=?",
+            (r["target_id"],)).fetchone()
+    return dict(row) if row else {}
+
+
+@router.get("/reports", response_class=HTMLResponse)
+def reports_list(request: Request, status: str = "open", conn=Depends(get_db)):
+    if status not in ("open", "resolved", "dismissed", "all"):
+        status = "open"
+    where = "" if status == "all" else "WHERE status=?"
+    args = () if status == "all" else (status,)
+    rows = conn.execute(
+        f"SELECT * FROM reports {where} ORDER BY created_at DESC LIMIT 200",
+        args).fetchall()
+    items = [{"r": r, "t": _report_target(conn, r)} for r in rows]
+    return templates.TemplateResponse(
+        request, "operator/reports.html",
+        octx(request, active="reports", items=items, status=status))
+
+
+def _get_report(conn, rid: int):
+    r = conn.execute("SELECT * FROM reports WHERE id=?", (rid,)).fetchone()
+    if not r:
+        raise HTTPException(404)
+    return r
+
+
+@router.post("/reports/{rid}/resolve")
+def report_resolve(rid: int, request: Request, action: str = Form("resolved"),
+                   conn=Depends(get_db)):
+    """Закрыть жалобу без удаления контента: обработана или отклонена."""
+    _get_report(conn, rid)
+    st = "dismissed" if action == "dismiss" else "resolved"
+    conn.execute("UPDATE reports SET status=?, resolved_at=? WHERE id=?",
+                 (st, now_iso(), rid))
+    conn.commit()
+    return redir("/operator/reports", "Жалоба отклонена" if st == "dismissed"
+                 else "Жалоба помечена обработанной")
+
+
+@router.post("/reports/{rid}/takedown")
+def report_takedown(rid: int, request: Request, conn=Depends(get_db)):
+    """Удалить контент по жалобе (takedown) и закрыть жалобу. Удаляет также
+    ВСЕ прочие открытые жалобы на тот же объект — он больше не существует."""
+    r = _get_report(conn, rid)
+    tt, tid = r["target_type"], r["target_id"]
+    files = []
+    if tt == "date":
+        files = [x["filename"] for x in conn.execute(
+            "SELECT filename FROM date_images WHERE date_id=?", (tid,))]
+        files += [x["filename"] for x in conn.execute(
+            "SELECT filename FROM date_videos WHERE date_id=?", (tid,))]
+        conn.execute("DELETE FROM dates WHERE id=?", (tid,))
+    else:
+        files = [x["filename"] for x in conn.execute(
+            "SELECT di.filename FROM date_images di JOIN dates d ON d.id=di.date_id "
+            "JOIN date_categories dc ON dc.date_id=d.id WHERE dc.category_id=?", (tid,))]
+        conn.execute("DELETE FROM categories WHERE id=?", (tid,))
+    conn.execute(
+        "UPDATE reports SET status='resolved', resolved_at=? "
+        "WHERE target_type=? AND target_id=? AND status='open'",
+        (now_iso(), tt, tid))
+    conn.commit()
+    for fn in files:
+        images.delete_file(fn)
+    log.warning("operator %s TAKEDOWN %s %s (report %s), %d files",
+                request.state.user["id"], tt, tid, rid, len(files))
+    return redir("/operator/reports", "Контент удалён, жалоба закрыта")
 
 
 

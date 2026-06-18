@@ -25,6 +25,9 @@
        идёт отдельно). Бэкофилл: все существующие данные отходят служебному
        «легаси-владельцу» (telegram_id=0, is_operator=1), которого при первом
        входе оператора можно «забрать» (сменить telegram_id на реальный).
+  v10 — owner_id у categories/dates переведён в NOT NULL (скоупинг ручек
+       завершён, осиротевших строк не осталось).
+  v11 — reports: жалобы гостей на контент (очередь модерации оператора).
 
 Свежая база создаётся сразу по последней схеме. Существующая —
 докатывается миграциями при старте приложения.
@@ -38,7 +41,7 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "app.db"
 
-LATEST_VERSION = 10
+LATEST_VERSION = 11
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -154,6 +157,19 @@ CREATE TABLE IF NOT EXISTS questions (
     created_at TEXT NOT NULL
 );
 
+-- Жалобы гостей на контент. target_id НЕ внешний ключ: при takedown контент
+-- удаляется, а жалоба остаётся в очереди для разбора (помечается обработанной).
+CREATE TABLE IF NOT EXISTS reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    target_type TEXT NOT NULL,            -- 'date' | 'category'
+    target_id INTEGER NOT NULL,
+    reporter TEXT,                        -- guest_token пожаловавшегося
+    reason TEXT,                          -- текст жалобы (опционально)
+    status TEXT NOT NULL DEFAULT 'open',  -- 'open' | 'resolved' | 'dismissed'
+    created_at TEXT NOT NULL,
+    resolved_at TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_book_cat ON bookings(category_id);
 -- свидание выбирает максимум один человек
 CREATE UNIQUE INDEX IF NOT EXISTS idx_book_date ON bookings(date_id);
@@ -162,6 +178,7 @@ CREATE INDEX IF NOT EXISTS idx_dc_cat ON date_categories(category_id);
 CREATE INDEX IF NOT EXISTS idx_q_read ON questions(is_read);
 CREATE INDEX IF NOT EXISTS idx_cat_owner ON categories(owner_id);
 CREATE INDEX IF NOT EXISTS idx_dates_owner ON dates(owner_id);
+CREATE INDEX IF NOT EXISTS idx_reports_status ON reports(status, created_at);
 """
 
 # Миграции: ключ — целевая версия, значение — SQL, который к ней приводит.
@@ -373,6 +390,19 @@ MIGRATIONS: dict[int, str] = {
 
         CREATE INDEX idx_cat_owner ON categories(owner_id);
         CREATE INDEX idx_dates_owner ON dates(owner_id);
+    """,
+    11: """
+        CREATE TABLE reports (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            target_type TEXT NOT NULL,
+            target_id INTEGER NOT NULL,
+            reporter TEXT,
+            reason TEXT,
+            status TEXT NOT NULL DEFAULT 'open',
+            created_at TEXT NOT NULL,
+            resolved_at TEXT
+        );
+        CREATE INDEX idx_reports_status ON reports(status, created_at);
     """,
 }
 

@@ -128,6 +128,26 @@
     setTimeout(() => location.reload(), 1200);
   });
 
+  /* --- жалоба --------------------------------------------------------------*/
+  const reportDlg = $("#reportDlg"), reportForm = $("#reportForm");
+  document.querySelectorAll(".report-link[data-id]").forEach((b) => {
+    b.addEventListener("click", () => {
+      $("#reportType").value = "date";
+      $("#reportTargetId").value = b.dataset.id;
+      $("#reportTitle").textContent = b.dataset.name;
+      $("#reportReason").value = "";
+      reportDlg.showModal();
+    });
+  });
+  $("#reportCancel").onclick = () => reportDlg.close();
+  reportForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const res = await post(`/c/${TOKEN}/report`, new FormData(reportForm));
+    if (!res.ok) return;
+    reportDlg.close();
+    toast("Спасибо, жалоба отправлена. Модератор проверит 🙏");
+  });
+
   /* --- «назначить дату»: гость предлагает время ----------------------------*/
   const timeDlg = $("#timeDlg"), timeForm = $("#timeForm");
   UI.dateChips(timeDlg, $("#timeStart"), $("#timeEnd"));

@@ -382,8 +382,9 @@ def category_create(request: Request, name: str = Form(...), conn=Depends(get_db
     name = clean_text(name, 200, "Название", required=True)
     token = secrets.token_urlsafe(24)
     conn.execute(
-        "INSERT INTO categories(owner_id, name, link_token, link_enabled, created_at) "
-        "VALUES(?,?,?,1,?)", (request.state.user["id"], name, token, now_iso()))
+        "INSERT INTO categories(owner_id, name, link_token, link_enabled, "
+        "moderate_proposals, created_at) VALUES(?,?,?,1,1,?)",
+        (request.state.user["id"], name, token, now_iso()))
     conn.commit()
     return redir("/admin/categories", "Категория создана")
 

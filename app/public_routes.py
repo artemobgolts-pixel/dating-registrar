@@ -750,3 +750,44 @@ def public_propose_delete(token: str, date_id: int, request: Request, bg: Backgr
                 f"🗑 {esc(author)} удалил(а) своё предложение "
                 f"«{esc(d['name'])}» ({esc(cat['name'])})")
     return JSONResponse({"ok": True})
+
+
+@router.post("/c/{token}/report")
+def public_report(token: str, request: Request, bg: BackgroundTasks,
+                  target_type: str = Form(...), target_id: int = Form(...),
+                  reason: str = Form(""), conn=Depends(get_db)):
+    """Жалоба гостя на свидание или саму категорию. Контент существует и виден
+    по этой ссылке — иначе 404 (нельзя слать жалобы на чужой/скрытый id)."""
+    cat = active_cat_or_410(conn, token)
+    guest = get_guest(request)
+    if not guest:
+        raise HTTPException(400, "Обнови страницу и попробуй ещё раз")
+    guest_throttle("report", guest, request)
+
+    if target_type not in ("date", "category"):
+        raise HTTPException(400, "Некорректная цель жалобы")
+    if target_type == "category":
+        target_id = cat["id"]                 # жалоба на категорию — только на эту
+        label = cat["name"]
+    else:
+        d = date_in_category(conn, cat["id"], target_id)
+        if not d:
+            raise HTTPException(404, "Свидание не найдено")
+        label = d["name"]
+
+    # Защита от дублей: один гость — одна открытая жалоба на объект.
+    dup = conn.execute(
+        "SELECT 1 FROM reports WHERE target_type=? AND target_id=? AND reporter=? "
+        "AND status='open'", (target_type, target_id, guest)).fetchone()
+    if not dup:
+        reason = clean_text(reason, 1000, "Причина") or None
+        conn.execute(
+            "INSERT INTO reports(target_type, target_id, reporter, reason, "
+            "status, created_at) VALUES(?,?,?,?,'open',?)",
+            (target_type, target_id, guest, reason, now_iso()))
+        conn.commit()
+        bg.add_task(notify.notify,
+                    f"🚩 Жалоба на {('категорию' if target_type=='category' else 'свидание')} "
+                    f"«{esc(label)}» ({esc(cat['name'])}).\n"
+                    f"{esc(reason or 'без описания')}\n\n{BASE_URL}/operator/reports")
+    return JSONResponse({"ok": True})
