@@ -21,23 +21,32 @@ def notify(text: str) -> None:
     """Отправляет сообщение боту. Вызывается из BackgroundTasks — ответ юзеру не ждёт."""
     if not TOKEN or not CHAT:
         return
+    send_to(CHAT, text)
+
+
+def send_to(chat_id: int | str, text: str) -> None:
+    """Шлёт сообщение конкретному chat_id (напр. тому, кто подтвердил вход).
+
+    В отличие от notify() не требует CHAT — нужен только TOKEN. Ошибки не валят
+    вызвавшего: вход не должен падать из-за недоставленного предупреждения.
+    """
+    if not TOKEN:
+        return
     try:
         r = httpx.post(
             f"https://api.telegram.org/bot{TOKEN}/sendMessage",
             json={
-                "chat_id": CHAT,
+                "chat_id": chat_id,
                 "text": text,
                 "parse_mode": "HTML",
                 "disable_web_page_preview": True,
             },
             timeout=10,
         )
-        # 200 от httpx не значит «доставлено»: Telegram отвечает 4xx/5xx
-        # на битый chat_id, отозванный токен, слишком длинный текст и т.п.
         if r.status_code >= 400:
             log.warning("Telegram API %s: %s", r.status_code, r.text[:200])
     except Exception as e:
-        log.warning("Не удалось отправить уведомление в Telegram: %s", e)
+        log.warning("Не удалось отправить сообщение в Telegram: %s", e)
 
 
 # Алёрты о сбоях (500-е) оператору. Дедупликация по тексту, чтобы всплеск

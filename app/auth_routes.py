@@ -156,4 +156,16 @@ async def tg_webhook(request: Request, conn=Depends(get_db)):
     conn.execute("UPDATE login_codes SET status='confirmed', telegram_id=? WHERE code=?",
                  (int(tg_id), code))
     conn.commit()
+    # Смягчение фишинга/session-fixation: подтвердивший видит, КУДА и КАК он
+    # входит. Если он не начинал вход на сайте — это сигнал, что кто-то пытается
+    # войти под ним (попросил нажать Start по чужой ссылке). Сообщение шлём тому,
+    # кто нажал Start (его chat_id == tg_id в личке), а не оператору.
+    import notify
+    notify.send_to(
+        int(tg_id),
+        "🔓 Вы подтвердили вход в кабинет <b>" + notify.esc(BASE_URL) + "</b>.\n\n"
+        "Если вы <b>не</b> открывали страницу входа сами — <b>не закрывайте это "
+        "и никому не пересылайте</b>: кто-то мог попросить вас нажать Start, "
+        "чтобы войти под вашим именем. Просто проигнорируйте — без вашей страницы "
+        "входа сессия не откроется.")
     return JSONResponse({"ok": True})

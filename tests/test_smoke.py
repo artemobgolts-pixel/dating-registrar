@@ -208,6 +208,27 @@ with TestClient(main.app, follow_redirects=False) as c:
     cc.close()
     step("TTL-чистка кодов входа: протухший снесён, свежий жив (не зависит от TZ)")
 
+    # Смягчение фишинга: при подтверждении бот шлёт предупреждение ТОМУ, кто
+    # нажал Start (chat_id == его telegram_id), а не оператору.
+    captured = []
+    def _cap(url, json=None, timeout=None):
+        captured.append((json["chat_id"], json["text"]))
+        class _R: status_code = 200; text = "ok"
+        return _R()
+    real_post = main.notify.httpx.post
+    main.notify.httpx.post = _cap
+    main.notify.TOKEN = "t"
+    sc2 = TestClient(main.app, follow_redirects=False)
+    code2 = sc2.post("/auth/start").json()["code"]
+    sc2.post("/tg/webhook",
+             headers={"X-Telegram-Bot-Api-Secret-Token": "hook-secret"},
+             json={"message": {"text": f"/start {code2}", "from": {"id": 660002}}})
+    main.notify.TOKEN = ""
+    main.notify.httpx.post = real_post
+    assert captured and captured[0][0] == 660002, captured
+    assert "вход" in captured[0][1].lower() and "не закрывайте" in captured[0][1].lower()
+    step("вход: бот предупреждает подтвердившего (смягчение фишинга/session-fixation)")
+
     refresh_csrf(c)
     assert CSRF["v"]
 
