@@ -907,6 +907,27 @@ details.endtime[open] summary { margin-bottom: 10px; }
 
 footer { margin-top: 60px; text-align: center; color: var(--muted); font-size: 12.5px; }
 footer .hearts { color: var(--rose); opacity: .55; letter-spacing: 8px; margin-bottom: 6px; }
+.foot-legal { margin-top: 10px; }
+.foot-legal a { color: var(--rose); opacity: .8; text-decoration: none; }
+.foot-legal a:hover { text-decoration: underline; }
+
+/* footer лендинга */
+.home-foot { position: relative; z-index: 3; text-align: center; margin-top: 26px;
+  font-size: 12.5px; }
+.home-foot a { color: var(--rose); opacity: .85; text-decoration: none; }
+.home-foot a:hover { text-decoration: underline; }
+
+/* cookie-уведомление */
+.cookie-bar {
+  position: fixed; left: 12px; right: 12px; bottom: 12px; z-index: 50;
+  max-width: 720px; margin: 0 auto;
+  display: flex; gap: 14px; align-items: center; flex-wrap: wrap;
+  background: rgba(255,255,255,.96); border: 1px solid #ecd7d3;
+  border-radius: 14px; padding: 12px 16px; box-shadow: 0 8px 30px rgba(150,80,95,.18);
+  font-size: 13px; color: #5a464b;
+}
+.cookie-bar a { color: var(--rose); }
+.cookie-bar .btn { margin-left: auto; padding: 7px 18px; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

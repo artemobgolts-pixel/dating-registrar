@@ -19,7 +19,13 @@
     {% if not bot %}
       <div class="err">Вход через Telegram пока не настроен.</div>
     {% else %}
-      <button id="tg-login" class="btn primary" style="width:100%">Войти через Telegram</button>
+      <label class="consent">
+        <input type="checkbox" id="tg-consent">
+        <span>Мне есть 18 лет, и я принимаю
+          <a href="/terms" target="_blank" rel="noopener">Пользовательское соглашение</a>
+          и <a href="/privacy" target="_blank" rel="noopener">Политику конфиденциальности</a>.</span>
+      </label>
+      <button id="tg-login" class="btn primary" style="width:100%" disabled>Войти через Telegram</button>
       <p id="tg-hint" class="login-hint" hidden>
         Открой бота, нажми <b>Start</b> — и вернись на эту вкладку.
         <a id="tg-link" href="#" target="_blank" rel="noopener">Открыть бота ещё раз</a>
@@ -29,11 +35,14 @@
         Вход через бота сразу включает уведомления о выборе свиданий.</p>
 
       <div class="login-or"><span>или быстрый вход</span></div>
-      <script async src="https://telegram.org/js/telegram-widget.js?22"
-              data-telegram-login="{{ bot }}"
-              data-size="large"
-              data-auth-url="/auth/widget"
-              data-request-access="write"></script>
+      <div id="tg-widget-wrap" hidden>
+        <script async src="https://telegram.org/js/telegram-widget.js?22"
+                data-telegram-login="{{ bot }}"
+                data-size="large"
+                data-auth-url="/auth/widget"
+                data-request-access="write"></script>
+      </div>
+      <p class="login-hint" id="tg-widget-gate">Отметь согласие выше, чтобы войти.</p>
       <p class="login-hint">Быстрый вход через виджет <b>без уведомлений</b> —
         бота можно подключить позже в кабинете.</p>
     {% endif %}

@@ -19,7 +19,7 @@ import db
 import images
 import notify
 import places
-from config import BASE_URL, DOMAIN, GUEST_COOKIE, LEGACY_GUEST_COOKIE, MSK
+from config import BASE_URL, DOMAIN, GUEST_COOKIE, LEGACY_GUEST_COOKIE, MSK, SUPPORT_CONTACT
 from guests import get_guest, get_guest_name, require_name, set_guest_cookie
 from helpers import (_parse, clean_text, fmt_gcal, fmt_when, normalize_period,
                      now_iso, parse_dt_local, parse_links)
@@ -201,6 +201,20 @@ def favicon():
 @router.get("/robots.txt")
 def robots():
     return PlainTextResponse("User-agent: *\nDisallow: /\n")
+
+
+@router.get("/terms", response_class=HTMLResponse)
+def terms(request: Request):
+    return templates.TemplateResponse(
+        request, "public/legal.html",
+        {"doc": "terms", "support": SUPPORT_CONTACT, "domain": DOMAIN})
+
+
+@router.get("/privacy", response_class=HTMLResponse)
+def privacy(request: Request):
+    return templates.TemplateResponse(
+        request, "public/legal.html",
+        {"doc": "privacy", "support": SUPPORT_CONTACT, "domain": DOMAIN})
 
 
 # ---------------------------------------------------------------------------

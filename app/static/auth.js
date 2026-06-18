@@ -8,6 +8,23 @@
   var errBox = document.getElementById("tg-error");
   var timer = null;
 
+  // Гейт согласия (только на странице входа): пока чекбокс не отмечен —
+  // deeplink-кнопка заблокирована, а виджет скрыт. В кабинете чекбокса нет —
+  // тогда кнопка активна сразу.
+  var consent = document.getElementById("tg-consent");
+  if (consent) {
+    var widgetWrap = document.getElementById("tg-widget-wrap");
+    var widgetGate = document.getElementById("tg-widget-gate");
+    var syncConsent = function () {
+      var ok = consent.checked;
+      btn.disabled = !ok;
+      if (widgetWrap) widgetWrap.hidden = !ok;
+      if (widgetGate) widgetGate.hidden = ok;
+    };
+    consent.addEventListener("change", syncConsent);
+    syncConsent();
+  }
+
   function showError(msg) {
     if (errBox) { errBox.textContent = msg; errBox.hidden = false; }
     btn.disabled = false;

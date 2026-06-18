@@ -1875,4 +1875,25 @@ with TestClient(main.app, follow_redirects=False) as cown, \
         _nf.send_to = _saved
 step("1.5: выбор свидания шлёт уведомление владельцу при bot_linked=1 и молчит при bot_linked=0")
 
+
+# ---------- 1.8: юридические документы, согласие, cookie ----------
+with TestClient(main.app, follow_redirects=False) as cl:
+    terms = cl.get("/terms")
+    assert terms.status_code == 200
+    assert "Пользовательское соглашение" in terms.text
+    assert "18" in terms.text and "/privacy" in terms.text   # 18+ и перелинковка
+    priv = cl.get("/privacy")
+    assert priv.status_code == 200
+    assert "Политика конфиденциальности" in priv.text
+    assert "152-ФЗ" in priv.text and "удалить свой аккаунт" in priv.text
+    # на странице входа — чекбокс согласия со ссылками на оба документа
+    lp = cl.get("/login").text
+    assert 'id="tg-consent"' in lp and 'href="/terms"' in lp and 'href="/privacy"' in lp
+    # кнопка входа изначально заблокирована (до согласия)
+    assert "disabled" in lp
+    # лендинг и гостевая несут footer-ссылки + cookie-бар
+    home = cl.get("/").text
+    assert 'href="/terms"' in home and 'id="cookie-bar"' in home
+step("1.8: /terms и /privacy доступны (18+, 152-ФЗ, право на удаление); согласие на входе; cookie-бар")
+
 print(f"\nВсе проверки пройдены: {OK} блоков ✔")

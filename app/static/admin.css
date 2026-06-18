@@ -430,6 +430,15 @@ label.chk {
 }
 .login-or span { padding: 0 12px; }
 
+/* чекбокс согласия при входе */
+.consent {
+  display: flex; gap: 9px; align-items: flex-start;
+  font-size: 12.5px; color: #6b545a; line-height: 1.45;
+  margin: 4px 0 14px; text-align: left; cursor: pointer;
+}
+.consent input { margin-top: 2px; flex: none; }
+.consent a { color: #b65f6f; }
+
 /* ===== v3: брони, чипы дат, drag-and-drop фото ============================ */
 
 .tiny { font-size: 12px; }
