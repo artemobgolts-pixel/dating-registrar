@@ -3,7 +3,10 @@
 {% block content %}
 <div class="bar">
   <h1 class="serif" style="margin:0">Мой профиль</h1>
-  <a class="btn ghost" href="/admin/">← На главную</a>
+  <div style="display:flex;gap:8px">
+    <a class="btn ghost" href="/u/{{ user['id'] }}">Как видят другие</a>
+    <a class="btn ghost" href="/admin/">← На главную</a>
+  </div>
 </div>
 
 <div class="card" style="max-width:540px">

@@ -1,8 +1,8 @@
-# boris-i-love-you ♥
+# date4you ♥
 
-Сайт планирования свиданий. Ты в админке создаёшь свидания и собираешь их в категории,
-у каждой категории — секретная ссылка. Тот, кому ты её отправишь, открывает страницу
-без всякой регистрации, **представляется по имени** и может:
+Сервис для составления и отправки подборок свиданий. В кабинете ты создаёшь свидания
+и собираешь их в категории, у каждой категории — секретная ссылка. Тот, кому ты её
+отправишь, открывает страницу без всякой регистрации, **представляется по имени** и может:
 
 - **выбирать** свидания — гость может отметить ♥ сколько угодно свиданий, но
   одно свидание может выбрать только один человек: занятое подсвечивается крупной
@@ -40,19 +40,19 @@
 
 ## Шаг 1. DNS на Reg.ru
 
-В панели Reg.ru для домена `boris-i-love-you.online` создай **A-запись**:
+В панели Reg.ru для домена `date4you.online` создай **A-запись**:
 
 | Имя | Тип | Значение |
 |-----|-----|----------|
 | `@` | A   | IP твоего сервера |
 
-Поддомены не нужны. (Если хочешь, чтобы работал и `www.boris-i-love-you.online`, —
+Поддомены не нужны. (Если хочешь, чтобы работал и `www.date4you.online`, —
 добавь вторую A-запись `www` на тот же IP и раскомментируй www-блок в `Caddyfile`.)
 
 DNS обновляется от пары минут до пары часов. Проверить:
 
 ```bash
-dig +short boris-i-love-you.online
+dig +short date4you.online
 ```
 
 Когда команда возвращает IP сервера — можно запускать.
@@ -78,8 +78,8 @@ ufw allow 443/tcp
 ## Шаг 3. Запуск сайта
 
 ```bash
-git clone https://github.com/artemobgolts-pixel/dating-registrar.git /opt/boris-site
-cd /opt/boris-site
+git clone https://github.com/artemobgolts-pixel/dating-registrar.git /opt/date4you
+cd /opt/date4you
 cp .env.example .env
 nano .env
 ```
@@ -87,7 +87,7 @@ nano .env
 В `.env` обязательно заполни:
 
 - `SECRET_KEY` — сгенерируй: `openssl rand -hex 32`
-- `DOMAIN` — уже стоит `boris-i-love-you.online`
+- `DOMAIN` — уже стоит `date4you.online`
 - `TG_BOT_TOKEN`, `TG_BOT_USERNAME`, `TG_WEBHOOK_SECRET` — для входа через Telegram (см. ниже)
 - `OPERATOR_TG_IDS` — твой telegram_id (узнать у [@userinfobot](https://t.me/userinfobot))
 
@@ -101,8 +101,8 @@ docker compose up -d --build
 
 Минуту-две Caddy получает сертификат, после этого:
 
-- сайт: `https://boris-i-love-you.online`
-- вход: `https://boris-i-love-you.online/login`
+- сайт: `https://date4you.online`
+- вход: `https://date4you.online/login`
 
 Права на папку `data/` контейнер **выравнивает сам при каждом старте**
 (см. `app/docker-entrypoint.sh`) — никаких ручных `chown` не нужно,
@@ -134,7 +134,7 @@ docker compose up -d --build
 Если проект на сервере склонирован из git (шаг 3):
 
 ```bash
-cd /opt/boris-site
+cd /opt/date4you
 git pull
 docker compose up -d --build
 ```
@@ -150,14 +150,14 @@ docker compose up -d --build
 
 ```bash
 cd /opt
-mv boris-site boris-site-old
-git clone https://github.com/artemobgolts-pixel/dating-registrar.git boris-site
-cp boris-site-old/.env boris-site/
-mv boris-site-old/data boris-site/
-cd boris-site
+mv date4you date4you-old
+git clone https://github.com/artemobgolts-pixel/dating-registrar.git date4you
+cp date4you-old/.env date4you/
+mv date4you-old/data date4you/
+cd date4you
 docker compose up -d --build
 # когда убедишься, что всё работает:
-# rm -rf /opt/boris-site-old
+# rm -rf /opt/date4you-old
 ```
 
 ---
@@ -200,7 +200,7 @@ git push
 Personal access tokens → Generate new token (classic, права `repo`).
 Вставляешь токен вместо пароля. Либо один раз: `gh auth login` (через GitHub CLI).
 
-После `git push` обнови сервер: `cd /opt/boris-site && git pull && docker compose up -d --build`.
+После `git push` обнови сервер: `cd /opt/date4you && git pull && docker compose up -d --build`.
 
 ### Claude Code в VS Code
 
@@ -224,7 +224,7 @@ Personal access tokens → Generate new token (classic, права `repo`).
 3. **Внешний** — добавь в cron на сервере копирование `data/` куда-то ещё, например:
 
    ```bash
-   0 4 * * * tar -czf /root/boris-$(date +\%F).tar.gz -C /opt/boris-site data/backups data/uploads
+   0 4 * * * tar -czf /root/date4you-$(date +\%F).tar.gz -C /opt/date4you data/backups data/uploads
    ```
 
    ⚠ Не архивируй «живой» `data/app.db` напрямую (база в режиме WAL) —
@@ -236,7 +236,7 @@ Personal access tokens → Generate new token (classic, права `repo`).
    по умолчанию `backup`), затем добавь в cron:
 
    ```bash
-   17 4 * * *  cd /opt/boris-site && ./scripts/backup.sh >> /var/log/date4you-backup.log 2>&1
+   17 4 * * *  cd /opt/date4you && ./scripts/backup.sh >> /var/log/date4you-backup.log 2>&1
    ```
 
    Параметры (`RCLONE_REMOTE`, `KEEP_REMOTE`, `SERVICE`, …) переопределяются
@@ -246,7 +246,7 @@ Personal access tokens → Generate new token (classic, права `repo`).
 ### Восстановление из снимка
 
 ```bash
-cd /opt/boris-site
+cd /opt/date4you
 docker compose stop app
 cp data/backups/app-ГГГГММДД-ЧЧММСС.db data/app.db
 rm -f data/app.db-wal data/app.db-shm

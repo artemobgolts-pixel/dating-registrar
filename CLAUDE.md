@@ -1,6 +1,6 @@
 # CLAUDE.md — памятка для Claude Code
 
-Сайт планирования свиданий для двоих. Production: https://boris-i-love-you.online
+Сервис для составления и отправки подборок свиданий. Production: https://date4you.online
 Язык интерфейса, комментариев и коммитов — **русский**.
 
 ## Стек и структура

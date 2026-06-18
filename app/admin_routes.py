@@ -1058,3 +1058,40 @@ def question_delete(qid: int, request: Request, next: str = Form("/admin/questio
     conn.execute("DELETE FROM questions WHERE id=?", (qid,))
     conn.commit()
     return redir(next, "Вопрос удалён")
+
+
+# ---------------------------------------------------------------------------
+# Публичная страница профиля /u/<id> — доступна ЛЮБОМУ залогиненному.
+# Незалогиненный сюда не попадёт (current_user → NeedLogin → /login).
+# Решение владельца: показываем имя, фото, полную дату рождения и пол.
+# (Privacy-пометка про полную ДР — в Политике конфиденциальности.)
+# ---------------------------------------------------------------------------
+user_router = APIRouter(prefix="/u", dependencies=[Depends(current_user)])
+
+
+@user_router.get("/{user_id}", response_class=HTMLResponse)
+def public_profile(user_id: int, request: Request, conn=Depends(get_db)):
+    u = conn.execute(
+        "SELECT id, display_name, avatar_path, birth_date, gender, tg_username "
+        "FROM users WHERE id=? AND is_active=1", (user_id,)).fetchone()
+    if not u:
+        raise HTTPException(404, "Профиль не найден")
+    return templates.TemplateResponse(
+        request, "public/profile.html",
+        {"request": request, "u": u, "is_me": u["id"] == request.state.user["id"]})
+
+
+@user_router.get("/{user_id}/avatar")
+def public_avatar(user_id: int, request: Request, conn=Depends(get_db)):
+    """Аватар по id пользователя — для страницы /u/<id>. Гейт логина уже на
+    роутере; отдаём только активным пользователям."""
+    row = conn.execute(
+        "SELECT avatar_path FROM users WHERE id=? AND is_active=1", (user_id,)).fetchone()
+    fn = row["avatar_path"] if row else None
+    if not fn or not images.SAFE_FILENAME.match(fn):
+        raise HTTPException(404)
+    path = images.UPLOAD_DIR / fn
+    if not path.exists():
+        raise HTTPException(404)
+    return FileResponse(path, media_type="image/webp",
+                        headers={"Cache-Control": "private, max-age=300"})

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Smoke-тест boris-site (итерация 3: именные брони, архив на странице, DnD).
+"""Smoke-тест date4you (итерация 3: именные брони, архив на странице, DnD).
 
 Запуск из корня репозитория:  python tests/test_smoke.py
 Зависимости: pip install -r app/requirements.txt
@@ -1919,5 +1919,31 @@ with TestClient(main.app, follow_redirects=False) as ca:
     assert _parse_projects("Плохой;ОК|https://ok.com") == [{"name": "ОК", "url": "https://ok.com"}]
     assert support_link()["url"] == "https://t.me/date4you_support"
 step("1.10: /about (текст, поддержка @→t.me, проекты автора), футер-ссылки, фильтр кривых проектов")
+
+
+# ---------- 1.9: публичный профиль /u/<id> (любой залогиненный) ----------
+with TestClient(main.app, follow_redirects=False) as cu1, \
+        TestClient(main.app, follow_redirects=False) as cu2, \
+        TestClient(main.app, follow_redirects=False) as anon:
+    # незалогиненный профиль не видит — редирект на /login
+    assert tg_login(cu1, 991401, username="alice").json()["status"] == "ok"
+    uid1 = db_one("SELECT id FROM users WHERE telegram_id=991401")[0]
+    # заполняем профиль пользователя 1 (имя/ДР/пол)
+    pc = re.search(r'name="csrf" value="([^"]+)"', cu1.get("/admin/profile").text).group(1)
+    cu1.post("/admin/profile", data={"csrf": pc, "display_name": "Алиса",
+                                     "birth_date": "1995-06-15", "gender": "f"})
+    # второй залогиненный видит чужой профиль целиком (имя, пол, полная ДР)
+    assert tg_login(cu2, 991402, username="bob").json()["status"] == "ok"
+    pg = cu2.get(f"/u/{uid1}")
+    assert pg.status_code == 200, pg.status_code
+    assert "Алиса" in pg.text and "Женский" in pg.text and "1995-06-15" in pg.text
+    # незалогиненному — редирект на вход (deny по умолчанию)
+    r = anon.get(f"/u/{uid1}")
+    assert r.status_code == 303 and "/login" in r.headers.get("location", ""), r.status_code
+    # несуществующий/неактивный профиль → 404 для залогиненного
+    assert cu2.get("/u/999999").status_code == 404
+    # свой профиль помечается (кнопка «Редактировать»)
+    assert "Редактировать профиль" in cu1.get(f"/u/{uid1}").text
+step("1.9: /u/<id> виден любому залогиненному (имя/пол/полная ДР), незалогиненному — на /login, 404 на чужой")
 
 print(f"\nВсе проверки пройдены: {OK} блоков ✔")

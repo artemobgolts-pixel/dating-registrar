@@ -181,4 +181,5 @@ async def unhandled_error(request: Request, exc: Exception):
 app.include_router(public_routes.router)
 app.include_router(auth_routes.router)
 app.include_router(admin_routes.router)
+app.include_router(admin_routes.user_router)
 app.include_router(operator_routes.router)

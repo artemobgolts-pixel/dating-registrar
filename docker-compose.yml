@@ -1,4 +1,4 @@
-name: boris-site
+name: date4you
 
 # Ротация логов: json-file без лимитов растёт бесконечно
 x-logging: &default-logging
