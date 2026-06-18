@@ -180,6 +180,15 @@ body::after {
   100% { transform: translate(-5vw, -2vh) rotate(200deg) scale(1.08); }
 }
 
+/* Мобильный кап фона: SVG-турбулентность (feTurbulence + displacement) дорогая
+   на телефонах. Снимаем именно её — розовые градиентные клубы остаются, так что
+   тёплый «дымчатый» цвет сохраняется, а тяжёлый фильтр на маленьком экране,
+   где тонкие пряди всё равно не разглядеть, отключаем. */
+@media (max-width: 560px) {
+  .bg-smoke .turb { display: none; }
+  .bg-smoke span { filter: blur(54px); }   /* чуть легче растушёвка для GPU */
+}
+
 .wrap { position: relative; z-index: 1; max-width: 680px; margin: 0 auto; padding: 28px 16px 110px; }
 
 /* --- шапка --------------------------------------------------------------- */

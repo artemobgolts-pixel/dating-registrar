@@ -30,10 +30,7 @@
       </radialGradient>
       <filter id="smokeWisp" x="-30%" y="-30%" width="160%" height="160%">
         <feTurbulence type="fractalNoise" baseFrequency="0.006 0.011" numOctaves="4"
-                      seed="11" stitchTiles="stitch" result="noise">
-          <animate attributeName="baseFrequency" dur="42s"
-                   values="0.006 0.011;0.008 0.014;0.006 0.011" repeatCount="indefinite"/>
-        </feTurbulence>
+                      seed="11" stitchTiles="stitch" result="noise"/>
         <feDisplacementMap in="SourceGraphic" in2="noise" scale="230"
                            xChannelSelector="R" yChannelSelector="G"/>
         <feGaussianBlur stdDeviation="7"/>
@@ -424,7 +421,7 @@
 <div class="lightbox" id="lightbox">
   <button class="lb-x" id="lbX" aria-label="Закрыть">✕</button>
   <button class="lb-prev" id="lbPrev" aria-label="Предыдущее фото">‹</button>
-  <img alt="">
+  <img alt="" decoding="async">
   <button class="lb-next" id="lbNext" aria-label="Следующее фото">›</button>
   <div class="lb-count" id="lbCount"></div>
 </div>

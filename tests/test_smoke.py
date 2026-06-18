@@ -1946,4 +1946,15 @@ with TestClient(main.app, follow_redirects=False) as cu1, \
     assert "Редактировать профиль" in cu1.get(f"/u/{uid1}").text
 step("1.9: /u/<id> виден любому залогиненному (имя/пол/полная ДР), незалогиненному — на /login, 404 на чужой")
 
+
+# ---------- перф: Cache-Control на статике ----------
+with TestClient(main.app, follow_redirects=False) as cs:
+    css = cs.get("/static/public.css")
+    assert css.status_code == 200
+    assert "max-age=3600" in css.headers.get("cache-control", ""), css.headers.get("cache-control")
+    png = cs.get("/static/icon-192.png")
+    assert png.status_code == 200
+    assert "max-age=2592000" in png.headers.get("cache-control", ""), png.headers.get("cache-control")
+step("перф: статика отдаётся с Cache-Control (css — час, иконки/шрифты — 30 дней)")
+
 print(f"\nВсе проверки пройдены: {OK} блоков ✔")

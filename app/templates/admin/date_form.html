@@ -190,6 +190,7 @@
     {% for p in photos %}
     <div class="thumb" data-pid="{{ p['id'] }}">
       <img src="/admin/uploads/{{ p['filename'] }}" alt="" draggable="false"
+           loading="lazy" decoding="async"
            class="focusable" data-focus="{{ p['focus'] or '50% 50%' }}"
            style="object-position:{{ p['focus'] or '50% 50%' }}">
       <div class="thumb-btns">

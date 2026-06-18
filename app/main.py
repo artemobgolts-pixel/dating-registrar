@@ -15,6 +15,7 @@
 
 import asyncio
 import logging
+import os
 import secrets
 from contextlib import asynccontextmanager
 from urllib.parse import parse_qsl, urlencode, urlsplit
@@ -102,6 +103,24 @@ app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY,
                    max_age=60 * 60 * 24 * 30, same_site="lax", https_only=COOKIE_SECURE)
 
 
+class CachedStatic(StaticFiles):
+    """StaticFiles + Cache-Control. Без версионирования имён ставим умеренный TTL
+    с обязательной ревалидацией: шрифты/иконки/картинки кэшируем надолго (меняются
+    редко), CSS/JS — на час, чтобы правки доезжали до пользователей быстро."""
+
+    LONG = {".woff2", ".woff", ".ttf", ".png", ".jpg", ".jpeg", ".webp", ".ico", ".svg"}
+
+    async def get_response(self, path, scope):
+        resp = await super().get_response(path, scope)
+        ext = os.path.splitext(path)[1].lower()
+        if resp.status_code == 200:
+            if ext in self.LONG:
+                resp.headers["Cache-Control"] = "public, max-age=2592000"   # 30 дней
+            else:
+                resp.headers["Cache-Control"] = "public, max-age=3600, must-revalidate"
+        return resp
+
+
 @app.middleware("http")
 async def csp_headers(request: Request, call_next):
     """CSP c per-request nonce вместо script-src 'unsafe-inline'.
@@ -133,7 +152,7 @@ async def csp_headers(request: Request, call_next):
                 "frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
     return resp
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/static", CachedStatic(directory="static"), name="static")
 # /uploads наружу не монтируется: фото отдаются только через
 # /c/<токен>/image/<файл> с проверкой категории и /admin/uploads/<файл> для админа.
 
