@@ -1833,4 +1833,46 @@ with TestClient(main.app, follow_redirects=False) as cw:
         _nf.send_to = _saved_send
 step("вход: виджет (подпись HMAC, bot_linked=0, баннер) ↔ deeplink (bot_linked=1); подделка/протухшая подпись → 403")
 
+
+# ---------- 1.5: per-owner уведомления по bot_linked ----------
+with TestClient(main.app, follow_redirects=False) as cown, \
+        TestClient(main.app, follow_redirects=False) as gn:
+    # владелец с подключённым ботом (deeplink-вход ставит bot_linked=1)
+    assert tg_login(cown, 990300, username="notifyowner").json()["status"] == "ok"
+    uid_n = db_one("SELECT id FROM users WHERE telegram_id=990300")[0]
+    own_csrf = re.search(r'name="csrf" value="([^"]+)"',
+                         cown.get("/admin/categories").text).group(1)
+    def ownn(url, data=None):
+        d = dict(data or {}); d["csrf"] = own_csrf
+        return cown.post(url, data=d)
+    ownn("/admin/categories/create", {"name": "Уведомления"})
+    nc = db_one("SELECT id, link_token FROM categories WHERE name='Уведомления'")
+    ntok = nc["link_token"]
+    ownn("/admin/dates/new", {"name": "Кафе", "categories": str(nc["id"])})
+    ndid = db_one("SELECT id FROM dates WHERE name='Кафе'")[0]
+
+    # перехватываем send_to: (chat_id, text)
+    sent = []
+    _saved = _nf.send_to
+    _nf.send_to = lambda chat, text: sent.append((chat, text))
+    try:
+        main._rates.clear()
+        gn.get(f"/c/{ntok}")
+        set_name(gn, ntok, "Гостья")
+        assert gn.post(f"/c/{ntok}/book", data={"date_id": ndid}).json()["booked"] is True
+        # фон BackgroundTasks в TestClient выполняется синхронно к этому моменту
+        assert any(c == 990300 and "выбрал" in t for c, t in sent), \
+            f"владельцу с bot_linked=1 должно уйти уведомление, sent={sent}"
+
+        # отключаем бота владельцу → уведомление НЕ шлётся
+        _q = dbm.connect()
+        _q.execute("UPDATE users SET bot_linked=0 WHERE id=?", (uid_n,)); _q.commit(); _q.close()
+        sent.clear()
+        gn.post(f"/c/{ntok}/book", data={"date_id": ndid})    # отмена выбора
+        gn.post(f"/c/{ntok}/book", data={"date_id": ndid})    # снова выбор
+        assert not sent, f"при bot_linked=0 уведомлений быть не должно, sent={sent}"
+    finally:
+        _nf.send_to = _saved
+step("1.5: выбор свидания шлёт уведомление владельцу при bot_linked=1 и молчит при bot_linked=0")
+
 print(f"\nВсе проверки пройдены: {OK} блоков ✔")

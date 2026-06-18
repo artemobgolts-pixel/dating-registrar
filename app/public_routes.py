@@ -55,6 +55,15 @@ def date_in_category(conn, category_id: int, date_id: int):
     ).fetchone()
 
 
+def notify_owner(bg, conn, owner_id: int, text: str) -> None:
+    """Шлёт уведомление владельцу о событии на его свидании (выбор, вопрос,
+    предложение...). chat_id резолвим СЕЙЧАС (conn ещё открыт), а сам сетевой
+    вызов уводим в фон. Если бот владельцем не подключён — тихо ничего не шлём."""
+    chat = notify.owner_chat_id(conn, owner_id)
+    if chat is not None:
+        bg.add_task(notify.send_to, chat, text)
+
+
 def own_proposal_or_403(conn, cat, date_id: int, guest: str | None):
     """Предложение гостя, которое он может править: только его собственное."""
     d = conn.execute(
@@ -484,9 +493,9 @@ def public_book(token: str, request: Request, bg: BackgroundTasks,
     if mine:
         conn.execute("DELETE FROM bookings WHERE id=?", (mine["id"],))
         booked = False
-        bg.add_task(notify.notify,
-                    f"🤍 {esc(name)} отменил(а) выбор «{esc(d['name'])}» "
-                    f"в категории «{esc(cat['name'])}»")
+        notify_owner(bg, conn, cat["owner_id"],
+                     f"🤍 {esc(name)} отменил(а) выбор «{esc(d['name'])}» "
+                     f"в категории «{esc(cat['name'])}»")
     else:
         # одно свидание может выбрать только один человек,
         # а вот гость может выбрать сколько угодно свиданий
@@ -506,9 +515,9 @@ def public_book(token: str, request: Request, bg: BackgroundTasks,
             conn.rollback()
             raise HTTPException(409, "Только что заняли это свидание — обнови страницу ♥")
         booked = True
-        bg.add_task(notify.notify,
-                    f"💝 {esc(name)} выбрал(а) «{esc(d['name'])}» "
-                    f"в категории «{esc(cat['name'])}»")
+        notify_owner(bg, conn, cat["owner_id"],
+                     f"💝 {esc(name)} выбрал(а) «{esc(d['name'])}» "
+                     f"в категории «{esc(cat['name'])}»")
     conn.commit()
     return JSONResponse({"ok": True, "booked": booked, "name": name})
 
@@ -543,10 +552,10 @@ def public_suggest_time(token: str, request: Request, bg: BackgroundTasks,
         "suggest_starts, suggest_ends, created_at) VALUES(?,?,?,?,?,?,?)",
         (date_id, cat["id"], guest, text, starts, ends, now_iso()))
     conn.commit()
-    bg.add_task(notify.notify,
-                f"📅 {esc(name)} предлагает время для «{esc(d['name'])}» "
-                f"({esc(cat['name'])}):\n{fmt_when(starts, ends)}"
-                f"\n\n{BASE_URL}/admin/questions")
+    notify_owner(bg, conn, cat["owner_id"],
+                 f"📅 {esc(name)} предлагает время для «{esc(d['name'])}» "
+                 f"({esc(cat['name'])}):\n{fmt_when(starts, ends)}"
+                 f"\n\n{BASE_URL}/admin/questions")
     return JSONResponse({"ok": True})
 
 
@@ -570,9 +579,9 @@ def public_question(token: str, request: Request, bg: BackgroundTasks,
         (date_id, cat["id"], guest, text, now_iso()),
     )
     conn.commit()
-    bg.add_task(notify.notify,
-                f"❓ {esc(name)} — вопрос к «{esc(d['name'])}» "
-                f"({esc(cat['name'])}):\n{esc(text)}\n\n{BASE_URL}/admin/questions")
+    notify_owner(bg, conn, cat["owner_id"],
+                 f"❓ {esc(name)} — вопрос к «{esc(d['name'])}» "
+                 f"({esc(cat['name'])}):\n{esc(text)}\n\n{BASE_URL}/admin/questions")
     return JSONResponse({"ok": True})
 
 
@@ -629,7 +638,7 @@ def public_propose(token: str, request: Request, bg: BackgroundTasks,
     if when:
         msg += f"\n🕐 {when} (мск)"
     msg += f"\n\n{BASE_URL}/admin/dates/{date_id}/edit"
-    bg.add_task(notify.notify, msg)
+    notify_owner(bg, conn, cat["owner_id"], msg)
 
     return JSONResponse({"ok": True, "id": date_id, "moderated": moderated})
 
@@ -722,9 +731,9 @@ def public_propose_edit(token: str, date_id: int, request: Request, bg: Backgrou
     for v in vid_remove:
         images.delete_file(v["filename"])
 
-    bg.add_task(notify.notify,
-                f"✏️ {esc(author)} изменил(а) своё предложение "
-                f"«{esc(name)}» ({esc(cat['name'])})\n{BASE_URL}/admin/dates/{date_id}/edit")
+    notify_owner(bg, conn, cat["owner_id"],
+                 f"✏️ {esc(author)} изменил(а) своё предложение "
+                 f"«{esc(name)}» ({esc(cat['name'])})\n{BASE_URL}/admin/dates/{date_id}/edit")
     return JSONResponse({"ok": True})
 
 
@@ -746,9 +755,9 @@ def public_propose_delete(token: str, date_id: int, request: Request, bg: Backgr
     for fn in files:
         images.delete_file(fn)
 
-    bg.add_task(notify.notify,
-                f"🗑 {esc(author)} удалил(а) своё предложение "
-                f"«{esc(d['name'])}» ({esc(cat['name'])})")
+    notify_owner(bg, conn, cat["owner_id"],
+                 f"🗑 {esc(author)} удалил(а) своё предложение "
+                 f"«{esc(d['name'])}» ({esc(cat['name'])})")
     return JSONResponse({"ok": True})
 
 

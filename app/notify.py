@@ -24,6 +24,18 @@ def notify(text: str) -> None:
     send_to(CHAT, text)
 
 
+def owner_chat_id(conn, owner_id: int) -> int | None:
+    """telegram_id владельца, КОМУ можно слать уведомление о событии на его
+    свидании. None — если бот не подключён (вошёл только через виджет), забанен
+    или это служебный легаси-владелец (telegram_id=0). Резолвить ОБЯЗАТЕЛЬНО
+    внутри запроса: в BackgroundTask соединение уже закрыто."""
+    row = conn.execute(
+        "SELECT telegram_id FROM users "
+        "WHERE id=? AND bot_linked=1 AND is_active=1 AND telegram_id<>0",
+        (owner_id,)).fetchone()
+    return row["telegram_id"] if row else None
+
+
 def send_to(chat_id: int | str, text: str) -> None:
     """Шлёт сообщение конкретному chat_id (напр. тому, кто подтвердил вход).
 
