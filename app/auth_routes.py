@@ -15,7 +15,6 @@
 
 import logging
 import secrets
-import time
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -23,7 +22,8 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 import users
 from config import BASE_URL, TG_BOT_USERNAME, TG_WEBHOOK_SECRET
-from helpers import now_iso
+from helpers import now_iso, now_naive
+from datetime import timedelta
 from ratelimit import client_ip, rate_ok
 from web import get_db, templates
 
@@ -58,15 +58,15 @@ def setup_webhook() -> None:
 
 
 def _gc_codes(conn) -> None:
-    """Сносит протухшие коды (ленивая чистка — отдельный loop не нужен)."""
-    cutoff = (time.time() - TTL_SECONDS)
-    for row in conn.execute("SELECT code, created_at FROM login_codes").fetchall():
-        try:
-            ts = time.mktime(time.strptime(row["created_at"], "%Y-%m-%dT%H:%M:%S"))
-        except (ValueError, TypeError):
-            ts = 0
-        if ts < cutoff:
-            conn.execute("DELETE FROM login_codes WHERE code=?", (row["code"],))
+    """Сносит протухшие коды (ленивая чистка — отдельный loop не нужен).
+
+    Сравниваем ISO-строки напрямую: created_at пишется через now_iso() (МСК,
+    фиксированная ширина YYYY-MM-DDTHH:MM:SS), поэтому лексикографический порядок
+    совпадает с хронологическим. Никакого mktime — он читал бы МСК-метку в TZ
+    сервера (в Docker UTC) и раздувал реальный TTL до ~3 часов.
+    """
+    cutoff = (now_naive() - timedelta(seconds=TTL_SECONDS)).isoformat(sep="T")
+    conn.execute("DELETE FROM login_codes WHERE created_at < ?", (cutoff,))
     conn.commit()
 
 
@@ -132,8 +132,8 @@ async def tg_webhook(request: Request, conn=Depends(get_db)):
     только Telegram, которому мы сами отдали секрет при setWebhook). Без
     совпадения — 403, иначе кто угодно подтвердит чужой код.
     """
-    if not TG_WEBHOOK_SECRET or \
-            request.headers.get("x-telegram-bot-api-secret-token") != TG_WEBHOOK_SECRET:
+    hdr = request.headers.get("x-telegram-bot-api-secret-token") or ""
+    if not TG_WEBHOOK_SECRET or not secrets.compare_digest(hdr, TG_WEBHOOK_SECRET):
         raise HTTPException(403, "forbidden")
     update = await request.json()
     msg = (update or {}).get("message") or {}

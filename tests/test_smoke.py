@@ -189,6 +189,25 @@ with TestClient(main.app, follow_redirects=False) as c:
     main._rates.clear()
     step("анти-спам входа: не больше 10 кодов с одного IP за окно")
 
+    # TTL-чистка кодов: сравнение ISO-строк (МСК), не зависит от TZ сервера.
+    # Регресс на баг, когда mktime читал МСК-метку как UTC и раздувал TTL до ~3ч.
+    import auth_routes  # noqa: E402
+    from datetime import timedelta as _td  # noqa: E402
+    cc = dbm.connect()
+    old = (main.now_naive() - _td(seconds=auth_routes.TTL_SECONDS + 60)) \
+        .isoformat(sep="T")
+    fresh = main.now_iso()
+    cc.execute("INSERT INTO login_codes(code, status, created_at) VALUES('old','pending',?)",
+               (old,))
+    cc.execute("INSERT INTO login_codes(code, status, created_at) VALUES('fresh','pending',?)",
+               (fresh,))
+    cc.commit()
+    auth_routes._gc_codes(cc)
+    assert not cc.execute("SELECT 1 FROM login_codes WHERE code='old'").fetchone()
+    assert cc.execute("SELECT 1 FROM login_codes WHERE code='fresh'").fetchone()
+    cc.close()
+    step("TTL-чистка кодов входа: протухший снесён, свежий жив (не зависит от TZ)")
+
     refresh_csrf(c)
     assert CSRF["v"]
 
