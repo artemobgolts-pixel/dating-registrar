@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 import images
+from config import BASE_URL
 from helpers import now_iso
 from users import current_operator, get_user
 from web import get_db, redir, templates
@@ -247,6 +248,148 @@ def report_takedown(rid: int, request: Request, conn=Depends(get_db)):
     log.warning("operator %s TAKEDOWN %s %s (report %s), %d files",
                 request.state.user["id"], tt, tid, rid, len(files))
     return redir("/operator/reports", "Контент удалён, жалоба закрыта")
+
+
+# ---------- категории (все, всех пользователей) ----------
+
+@router.get("/categories", response_class=HTMLResponse)
+def cats_list(request: Request, q: str = "", page: int = 1, conn=Depends(get_db)):
+    q = (q or "").strip()
+    page = max(1, page)
+    where, args = "", []
+    if q:
+        where = ("WHERE c.name LIKE ? OR u.display_name LIKE ? "
+                 "OR u.tg_username LIKE ?")
+        like = f"%{q}%"
+        args += [like, like, like]
+    total = conn.execute(
+        f"SELECT COUNT(*) FROM categories c JOIN users u ON u.id=c.owner_id {where}",
+        args).fetchone()[0]
+    rows = conn.execute(
+        f"SELECT c.id, c.name, c.link_enabled, c.link_token, c.owner_id, "
+        f"u.display_name AS owner, "
+        f"(SELECT COUNT(*) FROM date_categories dc WHERE dc.category_id=c.id) AS n "
+        f"FROM categories c JOIN users u ON u.id=c.owner_id {where} "
+        f"ORDER BY c.created_at DESC LIMIT ? OFFSET ?",
+        args + [PAGE, (page - 1) * PAGE]).fetchall()
+    pages = max(1, (total + PAGE - 1) // PAGE)
+    return templates.TemplateResponse(
+        request, "operator/categories.html",
+        octx(request, active="cats", rows=rows, q=q, page=page, pages=pages,
+             total=total, base_url=BASE_URL))
+
+
+def _cat_or_404(conn, cid: int):
+    c = conn.execute("SELECT * FROM categories WHERE id=?", (cid,)).fetchone()
+    if not c:
+        raise HTTPException(404)
+    return c
+
+
+@router.post("/categories/{cid}/toggle")
+def cat_toggle(cid: int, request: Request, conn=Depends(get_db)):
+    c = _cat_or_404(conn, cid)
+    new = 0 if c["link_enabled"] else 1
+    conn.execute("UPDATE categories SET link_enabled=? WHERE id=?", (new, cid))
+    conn.commit()
+    log.warning("operator %s toggled link_enabled=%s for category %s",
+                request.state.user["id"], new, cid)
+    return redir("/operator/categories",
+                 "Ссылка включена" if new else "Ссылка выключена")
+
+
+@router.post("/categories/{cid}/delete")
+def cat_delete(cid: int, request: Request, conn=Depends(get_db)):
+    """Удаляет категорию (связи date_categories — каскадом). Свидания остаются
+    у владельца, как и в кабинете."""
+    _cat_or_404(conn, cid)
+    conn.execute("DELETE FROM categories WHERE id=?", (cid,))
+    conn.commit()
+    log.warning("operator %s deleted category %s", request.state.user["id"], cid)
+    return redir("/operator/categories", "Категория удалена (свидания остались)")
+
+
+# ---------- свидания (все, всех пользователей) ----------
+
+@router.get("/dates", response_class=HTMLResponse)
+def dates_list(request: Request, q: str = "", flt: str = "", page: int = 1,
+               conn=Depends(get_db)):
+    q = (q or "").strip()
+    page = max(1, page)
+    conds, args = [], []
+    if q:
+        conds.append("(d.name LIKE ? OR u.display_name LIKE ? OR u.tg_username LIKE ?)")
+        like = f"%{q}%"
+        args += [like, like, like]
+    if flt == "draft":
+        conds.append("d.is_draft=1")
+    elif flt == "booked":
+        conds.append("EXISTS(SELECT 1 FROM bookings b WHERE b.date_id=d.id)")
+    elif flt == "reported":
+        conds.append("EXISTS(SELECT 1 FROM reports r WHERE r.target_type='date' "
+                     "AND r.target_id=d.id AND r.status='open')")
+    elif flt == "archived":
+        conds.append("d.archived_at IS NOT NULL")
+    where = ("WHERE " + " AND ".join(conds)) if conds else ""
+    total = conn.execute(
+        f"SELECT COUNT(*) FROM dates d JOIN users u ON u.id=d.owner_id {where}",
+        args).fetchone()[0]
+    rows = conn.execute(
+        f"SELECT d.id, d.name, d.is_draft, d.origin, d.archived_at, d.owner_id, "
+        f"u.display_name AS owner, "
+        f"(SELECT COUNT(*) FROM bookings b WHERE b.date_id=d.id) AS books, "
+        f"(SELECT COUNT(*) FROM reports r WHERE r.target_type='date' "
+        f" AND r.target_id=d.id AND r.status='open') AS reports "
+        f"FROM dates d JOIN users u ON u.id=d.owner_id {where} "
+        f"ORDER BY d.created_at DESC LIMIT ? OFFSET ?",
+        args + [PAGE, (page - 1) * PAGE]).fetchall()
+    pages = max(1, (total + PAGE - 1) // PAGE)
+    return templates.TemplateResponse(
+        request, "operator/dates.html",
+        octx(request, active="dates", rows=rows, q=q, flt=flt, page=page,
+             pages=pages, total=total))
+
+
+def _date_or_404(conn, did: int):
+    d = conn.execute("SELECT * FROM dates WHERE id=?", (did,)).fetchone()
+    if not d:
+        raise HTTPException(404)
+    return d
+
+
+@router.post("/dates/{did}/archive")
+def date_archive(did: int, request: Request, conn=Depends(get_db)):
+    d = _date_or_404(conn, did)
+    if d["archived_at"]:
+        conn.execute("UPDATE dates SET archived_at=NULL WHERE id=?", (did,))
+        msg = "Свидание возвращено из архива"
+    else:
+        conn.execute("UPDATE dates SET archived_at=? WHERE id=?", (now_iso(), did))
+        msg = "Свидание отправлено в архив"
+    conn.commit()
+    return redir("/operator/dates", msg)
+
+
+@router.post("/dates/{did}/delete")
+def date_delete(did: int, request: Request, conn=Depends(get_db)):
+    """Удаляет свидание со всеми медиа (файлы с диска) и закрывает открытые
+    жалобы на него."""
+    _date_or_404(conn, did)
+    files = [r["filename"] for r in conn.execute(
+        "SELECT filename FROM date_images WHERE date_id=?", (did,))]
+    files += [r["filename"] for r in conn.execute(
+        "SELECT filename FROM date_videos WHERE date_id=?", (did,))]
+    conn.execute("DELETE FROM dates WHERE id=?", (did,))
+    conn.execute(
+        "UPDATE reports SET status='resolved', resolved_at=? "
+        "WHERE target_type='date' AND target_id=? AND status='open'",
+        (now_iso(), did))
+    conn.commit()
+    for fn in files:
+        images.delete_file(fn)
+    log.warning("operator %s deleted date %s, %d files",
+                request.state.user["id"], did, len(files))
+    return redir("/operator/dates", "Свидание удалено")
 
 
 

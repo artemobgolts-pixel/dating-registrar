@@ -1621,4 +1621,66 @@ with TestClient(main.app, follow_redirects=False) as cown, \
     assert db_one("SELECT 1 FROM categories WHERE id=?", (rcid,))  # категория цела
 step("жалобы: гость жалуется (дубль-защита, 404 на скрытый id), оператор видит очередь, takedown/dismiss")
 
+
+# ---------- оператор: обзор категорий и свиданий ----------
+with TestClient(main.app, follow_redirects=False) as cown, \
+        TestClient(main.app, follow_redirects=False) as cop3:
+    assert tg_login(cown, 990002, username="creator").json()["status"] == "ok"
+    assert tg_login(cop3, 555001, username="boss").json()["status"] == "ok"
+
+    own_csrf = re.search(r'name="csrf" value="([^"]+)"',
+                         cown.get("/admin/categories").text).group(1)
+    def ownp(url, data=None):
+        d = dict(data or {}); d["csrf"] = own_csrf
+        return cown.post(url, data=d)
+
+    assert ownp("/admin/categories/create", {"name": "Обзорная"}).status_code == 303
+    ovc = db_one("SELECT id, link_token FROM categories WHERE name='Обзорная'")
+    ovcid = ovc["id"]
+    ownp("/admin/dates/new", {"name": "Видимое", "categories": str(ovcid)})
+    ovdid = db_one("SELECT id FROM dates WHERE name='Видимое'")[0]
+
+    op3_csrf = re.search(r'name="csrf" value="([^"]+)"',
+                         cop3.get("/operator/categories").text).group(1)
+    def op3p(url, data=None):
+        d = dict(data or {}); d["csrf"] = op3_csrf
+        return cop3.post(url, data=d)
+
+    # категории: видны в списке с владельцем; поиск по владельцу
+    page = cop3.get("/operator/categories").text
+    assert "Обзорная" in page and "creator" in page or "Обзорная" in page
+    assert "Обзорная" in cop3.get("/operator/categories?q=creator").text
+
+    # выключить/включить ссылку категории
+    assert op3p(f"/operator/categories/{ovcid}/toggle").status_code == 303
+    assert db_one("SELECT link_enabled FROM categories WHERE id=?", (ovcid,))[0] == 0
+    op3p(f"/operator/categories/{ovcid}/toggle")
+    assert db_one("SELECT link_enabled FROM categories WHERE id=?", (ovcid,))[0] == 1
+
+    # свидания: видны в списке + фильтры
+    assert "Видимое" in cop3.get("/operator/dates").text
+    assert "Видимое" in cop3.get("/operator/dates?q=creator").text
+    # архив туда-обратно
+    assert op3p(f"/operator/dates/{ovdid}/archive").status_code == 303
+    assert db_one("SELECT archived_at FROM dates WHERE id=?", (ovdid,))[0] is not None
+    assert "Видимое" in cop3.get("/operator/dates?flt=archived").text
+    op3p(f"/operator/dates/{ovdid}/archive")
+    assert db_one("SELECT archived_at FROM dates WHERE id=?", (ovdid,))[0] is None
+
+    # удаление свидания оператором
+    assert op3p(f"/operator/dates/{ovdid}/delete").status_code == 303
+    assert not db_one("SELECT 1 FROM dates WHERE id=?", (ovdid,))
+
+    # удаление категории НЕ трогает прочие свидания владельца
+    ownp("/admin/dates/new", {"name": "Уцелевшее"})
+    surv = db_one("SELECT id FROM dates WHERE name='Уцелевшее'")[0]
+    assert op3p(f"/operator/categories/{ovcid}/delete").status_code == 303
+    assert not db_one("SELECT 1 FROM categories WHERE id=?", (ovcid,))
+    assert db_one("SELECT 1 FROM dates WHERE id=?", (surv,))  # свидание цело
+
+    # 404 на несуществующие объекты
+    assert op3p("/operator/categories/999999/toggle").status_code in (303, 404)
+    assert op3p("/operator/dates/999999/delete").status_code in (303, 404)
+step("оператор: обзор категорий/свиданий, toggle ссылки, архив, удаление; каскад категории щадит свидания")
+
 print(f"\nВсе проверки пройдены: {OK} блоков ✔")

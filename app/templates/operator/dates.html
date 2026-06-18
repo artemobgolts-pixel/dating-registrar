@@ -1,0 +1,61 @@
+{% extends "operator/base.html" %}
+{% block title %}Свидания{% endblock %}
+{% block content %}
+<h1>Свидания <span class="muted" style="font-size:15px">({{ total }})</span></h1>
+
+<div class="bar">
+  {% for f, lbl in [('','Все'),('reported','С жалобой'),('draft','На модерации'),('booked','С бронью'),('archived','Архив')] %}
+  <a class="btn small {{ 'primary' if flt==f else '' }}"
+     href="/operator/dates?flt={{ f }}{% if q %}&q={{ q }}{% endif %}">{{ lbl }}</a>
+  {% endfor %}
+</div>
+
+<form class="bar" method="get" action="/operator/dates">
+  <input type="hidden" name="flt" value="{{ flt }}">
+  <input type="search" name="q" value="{{ q }}" placeholder="Название или владелец"
+         style="min-width:280px">
+  <button class="btn">Найти</button>
+  {% if q %}<a class="btn" href="/operator/dates?flt={{ flt }}">Сбросить</a>{% endif %}
+</form>
+
+<table>
+  <tr><th>Название</th><th>Владелец</th><th>Статус</th><th>Броней</th><th>Жалоб</th><th>Действия</th></tr>
+  {% for d in rows %}
+  <tr>
+    <td><b>{{ d['name'] }}</b>
+      {% if d['origin']=='guest' %}<span class="badge">от гостя</span>{% endif %}</td>
+    <td><a class="link" href="/operator/users/{{ d['owner_id'] }}">{{ d['owner'] or '—' }}</a></td>
+    <td>
+      {% if d['archived_at'] %}<span class="muted">архив</span>
+      {% elif d['is_draft'] %}<span class="badge">на модерации</span>
+      {% else %}<span class="badge">активно</span>{% endif %}
+    </td>
+    <td>{{ d['books'] }}</td>
+    <td>{% if d['reports'] %}<span class="badge ban">{{ d['reports'] }}</span>{% else %}0{% endif %}</td>
+    <td>
+      <div class="bar" style="margin:0;gap:6px">
+        <form class="inline" method="post" action="/operator/dates/{{ d['id'] }}/archive">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button class="btn small">{{ 'Из архива' if d['archived_at'] else 'В архив' }}</button>
+        </form>
+        <form class="inline" method="post" action="/operator/dates/{{ d['id'] }}/delete"
+              data-confirm="Удалить свидание «{{ d['name'] }}» и все его медиа? Необратимо.">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button class="btn small danger">Удалить</button>
+        </form>
+      </div>
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="6" class="muted">Ничего не найдено</td></tr>
+  {% endfor %}
+</table>
+
+{% if pages > 1 %}
+<div class="bar" style="margin-top:16px">
+  {% if page > 1 %}<a class="btn" href="/operator/dates?flt={{ flt }}&q={{ q }}&page={{ page-1 }}">← Назад</a>{% endif %}
+  <span class="muted">Стр. {{ page }} из {{ pages }}</span>
+  {% if page < pages %}<a class="btn" href="/operator/dates?flt={{ flt }}&q={{ q }}&page={{ page+1 }}">Вперёд →</a>{% endif %}
+</div>
+{% endif %}
+{% endblock %}
