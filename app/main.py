@@ -31,6 +31,7 @@ import auth_routes
 import backup
 import db
 import notify
+import operator_routes
 import public_routes
 import users
 from config import COOKIE_SECURE, SECRET_KEY, SENTRY_DSN
@@ -128,10 +129,10 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 # фото, просроченный CSRF...) получают flash-сообщение вместо JSON-простыни.
 @app.exception_handler(StarletteHTTPException)
 async def friendly_http_exc(request: Request, exc: StarletteHTTPException):
-    if request.url.path.startswith("/admin") and request.method == "POST" \
+    if request.url.path.startswith(("/admin", "/operator")) and request.method == "POST" \
             and not isinstance(exc.detail, dict):
         sp = urlsplit(request.headers.get("referer", ""))
-        if sp.path.startswith("/admin"):
+        if sp.path.startswith(("/admin", "/operator")):
             q = [(k, v) for k, v in parse_qsl(sp.query) if k != "msg"]
             back = sp.path + (f"?{urlencode(q)}" if q else "")
         else:
@@ -167,3 +168,4 @@ async def unhandled_error(request: Request, exc: Exception):
 app.include_router(public_routes.router)
 app.include_router(auth_routes.router)
 app.include_router(admin_routes.router)
+app.include_router(operator_routes.router)

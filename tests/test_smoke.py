@@ -1481,4 +1481,66 @@ with TestClient(main.app, follow_redirects=False) as ca, \
     assert "Свидание Алисы" not in cb.get("/admin/export/json").text
 step("изоляция HTTP: Алиса и Боб не видят и не трогают данные друг друга по всем ручкам")
 
+# ---------- операторская админка (поверхность 3) ----------
+# Оператор (555001) видит всех; не-оператор не знает, что /operator существует.
+with TestClient(main.app, follow_redirects=False) as cop, \
+        TestClient(main.app, follow_redirects=False) as cnop:
+    assert tg_login(cop, 555001, username="boss").json()["status"] == "ok"
+    assert tg_login(cnop, 880001, username="rando").json()["status"] == "ok"
+
+    # гейт: не-оператор → 404 (не 403 — не палим существование), аноним → /login
+    assert cnop.get("/operator/").status_code == 404
+    assert cnop.get("/operator/users").status_code == 404
+    anon = TestClient(main.app, follow_redirects=False)
+    assert anon.get("/operator/").status_code == 303  # → /login
+
+    # дашборд оператора со счётчиками
+    dash = cop.get("/operator/")
+    assert dash.status_code == 200 and "Обзор платформы" in dash.text
+
+    # список пользователей + поиск по username
+    lst = cop.get("/operator/users")
+    assert lst.status_code == 200 and "rando" in lst.text
+    assert "rando" in cop.get("/operator/users?q=rando").text
+    assert "rando" not in cop.get("/operator/users?q=zzz_нет").text
+
+    uid_nop = db_one("SELECT id FROM users WHERE telegram_id=880001")[0]
+    op_csrf = re.search(r'name="csrf" value="([^"]+)"',
+                        cop.get(f"/operator/users/{uid_nop}").text).group(1)
+    def opost(url, data=None):
+        d = dict(data or {}); d["csrf"] = op_csrf
+        return cop.post(url, data=d)
+
+    # бан / разбан
+    assert opost(f"/operator/users/{uid_nop}/ban").status_code == 303
+    assert db_one("SELECT is_active FROM users WHERE id=?", (uid_nop,))[0] == 0
+    # забаненный не входит
+    cbanned = TestClient(main.app, follow_redirects=False)
+    assert tg_login(cbanned, 880001).json()["status"] == "banned"
+    assert opost(f"/operator/users/{uid_nop}/ban").status_code == 303
+    assert db_one("SELECT is_active FROM users WHERE id=?", (uid_nop,))[0] == 1
+
+    # квота
+    assert opost(f"/operator/users/{uid_nop}/quota", {"date_limit": "99"}).status_code == 303
+    assert db_one("SELECT date_limit FROM users WHERE id=?", (uid_nop,))[0] == 99
+
+    # роль оператора туда-обратно
+    assert opost(f"/operator/users/{uid_nop}/operator").status_code == 303
+    assert db_one("SELECT is_operator FROM users WHERE id=?", (uid_nop,))[0] == 1
+    assert opost(f"/operator/users/{uid_nop}/operator").status_code == 303
+    assert db_one("SELECT is_operator FROM users WHERE id=?", (uid_nop,))[0] == 0
+
+    # самозащита: оператор не банит/не разжалует/не удаляет себя
+    uid_op = db_one("SELECT id FROM users WHERE telegram_id=555001")[0]
+    for act in ("ban", "operator", "delete"):
+        rr = opost(f"/operator/users/{uid_op}/{act}")
+        assert rr.status_code == 303 and "/login" not in rr.headers["location"]
+    assert db_one("SELECT is_active FROM users WHERE id=?", (uid_op,))[0] == 1
+    assert db_one("SELECT is_operator FROM users WHERE id=?", (uid_op,))[0] == 1
+
+    # удаление пользователя со всеми данными (каскад)
+    assert opost(f"/operator/users/{uid_nop}/delete").status_code == 303
+    assert not db_one("SELECT 1 FROM users WHERE id=?", (uid_nop,))
+step("операторская админка: гейт 404 для не-оператора, баны/квоты/роли/удаление, самозащита")
+
 print(f"\nВсе проверки пройдены: {OK} блоков ✔")

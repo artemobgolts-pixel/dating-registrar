@@ -1,0 +1,44 @@
+{% extends "operator/base.html" %}
+{% block title %}Пользователи{% endblock %}
+{% block content %}
+<h1>Пользователи <span class="muted" style="font-size:15px">({{ total }})</span></h1>
+
+<form class="bar" method="get" action="/operator/users">
+  <input type="search" name="q" value="{{ q }}" placeholder="Имя, @username или telegram_id"
+         style="min-width:280px">
+  <button class="btn">Найти</button>
+  {% if q %}<a class="btn" href="/operator/users">Сбросить</a>{% endif %}
+</form>
+
+<table>
+  <tr>
+    <th>Имя</th><th>Telegram</th><th>Статус</th>
+    <th>Категории</th><th>Свидания</th><th>Квота</th><th></th>
+  </tr>
+  {% for u in rows %}
+  <tr>
+    <td><a class="link" href="/operator/users/{{ u['id'] }}">{{ u['display_name'] or '—' }}</a></td>
+    <td class="muted">{% if u['tg_username'] %}@{{ u['tg_username'] }}{% else %}id {{ u['telegram_id'] }}{% endif %}</td>
+    <td>
+      {% if not u['is_active'] %}<span class="badge ban">бан</span>
+      {% elif u['is_operator'] %}<span class="badge op">оператор</span>
+      {% else %}<span class="badge">активен</span>{% endif %}
+    </td>
+    <td>{{ u['n_cats'] }}</td>
+    <td>{{ u['n_dates'] }}</td>
+    <td>{{ u['date_limit'] }}</td>
+    <td><a class="btn small" href="/operator/users/{{ u['id'] }}">Открыть</a></td>
+  </tr>
+  {% else %}
+  <tr><td colspan="7" class="muted">Ничего не найдено</td></tr>
+  {% endfor %}
+</table>
+
+{% if pages > 1 %}
+<div class="bar" style="margin-top:16px">
+  {% if page > 1 %}<a class="btn" href="/operator/users?q={{ q }}&page={{ page-1 }}">← Назад</a>{% endif %}
+  <span class="muted">Стр. {{ page }} из {{ pages }}</span>
+  {% if page < pages %}<a class="btn" href="/operator/users?q={{ q }}&page={{ page+1 }}">Вперёд →</a>{% endif %}
+</div>
+{% endif %}
+{% endblock %}

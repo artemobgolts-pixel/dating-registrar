@@ -1,0 +1,82 @@
+{% extends "operator/base.html" %}
+{% block title %}{{ u['display_name'] or 'Пользователь' }}{% endblock %}
+{% block content %}
+<div class="bar">
+  <a class="btn" href="/operator/users">← К списку</a>
+</div>
+
+<h1>
+  {{ u['display_name'] or '—' }}
+  {% if not u['is_active'] %}<span class="badge ban">забанен</span>
+  {% elif u['is_operator'] %}<span class="badge op">оператор</span>{% endif %}
+</h1>
+
+<table style="margin-bottom:22px">
+  <tr><th>Telegram ID</th><td>{{ u['telegram_id'] }}</td></tr>
+  <tr><th>Username</th><td>{% if u['tg_username'] %}@{{ u['tg_username'] }}{% else %}—{% endif %}</td></tr>
+  <tr><th>Дата рождения</th><td>{{ u['birth_date'] or '—' }}</td></tr>
+  <tr><th>Пол</th><td>{{ {'m':'Мужской','f':'Женский'}.get(u['gender'], '—') }}</td></tr>
+  <tr><th>Регистрация</th><td>{{ u['created_at'][:16].replace('T',' ') }}</td></tr>
+  <tr><th>Последний вход</th><td>{{ (u['last_login_at'] or '—')[:16].replace('T',' ') }}</td></tr>
+  <tr><th>Квота свиданий</th><td>{{ u['date_limit'] }}</td></tr>
+</table>
+
+<h1 style="font-size:18px">Действия</h1>
+<div class="bar" style="align-items:flex-end">
+  <form class="inline" method="post" action="/operator/users/{{ u['id'] }}/ban"
+        data-confirm="{{ 'Разбанить' if not u['is_active'] else 'Забанить' }} пользователя?">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button class="btn {{ '' if not u['is_active'] else 'danger' }}">
+      {{ 'Разбанить' if not u['is_active'] else 'Забанить' }}
+    </button>
+  </form>
+
+  <form class="inline" method="post" action="/operator/users/{{ u['id'] }}/operator"
+        data-confirm="Изменить роль оператора?">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button class="btn">{{ 'Снять оператора' if u['is_operator'] else 'Сделать оператором' }}</button>
+  </form>
+
+  <form class="inline" method="post" action="/operator/users/{{ u['id'] }}/quota"
+        style="display:flex;gap:6px;align-items:center">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="number" name="date_limit" value="{{ u['date_limit'] }}" min="0" max="10000"
+           style="width:90px">
+    <button class="btn">Квота</button>
+  </form>
+
+  <form class="inline" method="post" action="/operator/users/{{ u['id'] }}/delete"
+        data-confirm="УДАЛИТЬ пользователя и ВСЕ его данные (категории, свидания, фото)? Необратимо.">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button class="btn danger">Удалить пользователя</button>
+  </form>
+</div>
+
+<h1 style="font-size:18px;margin-top:28px">Категории ({{ cats|length }})</h1>
+<table>
+  <tr><th>Название</th><th>Свиданий</th><th>Ссылка</th></tr>
+  {% for c in cats %}
+  <tr>
+    <td>{{ c['name'] }}</td>
+    <td>{{ c['n'] }}</td>
+    <td>{% if c['link_enabled'] and c['link_token'] %}<span class="badge">вкл</span>{% else %}<span class="muted">выкл</span>{% endif %}</td>
+  </tr>
+  {% else %}<tr><td colspan="3" class="muted">Нет категорий</td></tr>{% endfor %}
+</table>
+
+<h1 style="font-size:18px;margin-top:24px">Свидания ({{ dates|length }})</h1>
+<table>
+  <tr><th>Название</th><th>Статус</th><th>Источник</th></tr>
+  {% for d in dates %}
+  <tr>
+    <td>{{ d['name'] }}</td>
+    <td>
+      {% if d['archived_at'] %}<span class="muted">архив</span>
+      {% elif d['is_draft'] %}<span class="badge">черновик</span>
+      {% else %}<span class="badge">активно</span>{% endif %}
+    </td>
+    <td class="muted">{{ 'гость' if d['origin']=='guest' else 'владелец' }}</td>
+  </tr>
+  {% else %}<tr><td colspan="3" class="muted">Нет свиданий</td></tr>{% endfor %}
+</table>
+{% endblock %}

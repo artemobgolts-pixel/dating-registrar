@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>{% block title %}Оператор{% endblock %} · date4you</title>
+<style nonce="{{ csp_nonce }}">
+  :root { --bg:#f6f4f5; --line:#e2dcde; --ink:#2b2326; --muted:#8a7e82;
+          --accent:#8f4a58; --danger:#b3261e; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+         color:var(--ink); background:var(--bg); }
+  header { display:flex; gap:18px; align-items:center; flex-wrap:wrap;
+           padding:12px 20px; background:#fff; border-bottom:1px solid var(--line); }
+  header .brand { font-weight:700; color:var(--accent); }
+  header nav { display:flex; gap:14px; align-items:center; }
+  header a { color:var(--ink); text-decoration:none; padding:4px 2px; }
+  header a.on { color:var(--accent); border-bottom:2px solid var(--accent); }
+  header form { margin-left:auto; }
+  main { max-width:1080px; margin:0 auto; padding:22px 20px 60px; }
+  h1 { font-size:22px; margin:0 0 18px; }
+  table { width:100%; border-collapse:collapse; background:#fff;
+          border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  th, td { text-align:left; padding:9px 12px; border-bottom:1px solid var(--line); }
+  th { background:#faf8f9; font-size:13px; color:var(--muted); font-weight:600; }
+  tr:last-child td { border-bottom:none; }
+  a.link { color:var(--accent); text-decoration:none; }
+  a.link:hover { text-decoration:underline; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+           gap:12px; margin-bottom:24px; }
+  .stat { background:#fff; border:1px solid var(--line); border-radius:10px;
+          padding:14px 16px; }
+  .stat .v { font-size:26px; font-weight:700; }
+  .stat .l { color:var(--muted); font-size:13px; }
+  .btn { display:inline-block; padding:6px 12px; border:1px solid var(--line);
+         border-radius:8px; background:#fff; color:var(--ink); cursor:pointer;
+         font-size:14px; text-decoration:none; }
+  .btn.danger { color:var(--danger); border-color:#eec9c6; }
+  .btn.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .btn.small { padding:3px 9px; font-size:13px; }
+  .badge { display:inline-block; padding:1px 8px; border-radius:20px; font-size:12px;
+           background:#eee; }
+  .badge.op { background:#e7d9ee; color:#5b3a78; }
+  .badge.ban { background:#f6d6d3; color:#9a2820; }
+  .muted { color:var(--muted); }
+  .flash { background:#e8f3e8; border:1px solid #bcd9bc; border-radius:8px;
+           padding:10px 14px; margin-bottom:16px; }
+  .flash.err { background:#fbe9e7; border-color:#f0c4bd; }
+  form.inline { display:inline; }
+  input, select { font:inherit; padding:6px 9px; border:1px solid var(--line);
+                  border-radius:8px; }
+  .bar { display:flex; gap:10px; align-items:center; margin-bottom:16px; flex-wrap:wrap; }
+</style>
+</head>
+<body data-csrf="{{ csrf }}">
+<header>
+  <span class="brand">⚙ Оператор</span>
+  <nav>
+    <a href="/operator/" class="{{ 'on' if active=='dash' else '' }}">Обзор</a>
+    <a href="/operator/users" class="{{ 'on' if active=='users' else '' }}">Пользователи</a>
+    <a href="/admin/" class="muted">← в кабинет</a>
+  </nav>
+  <form method="post" action="/admin/logout">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button class="btn small">Выйти</button>
+  </form>
+</header>
+<main>
+{% set m = request.query_params.get('msg') %}
+{% if m %}<div class="flash{{ ' err' if m.startswith('⚠') else '' }}">{{ m }}</div>{% endif %}
+{% block content %}{% endblock %}
+</main>
+<script nonce="{{ csp_nonce }}">
+document.addEventListener('submit', function (e) {
+  var msg = e.target.getAttribute('data-confirm');
+  if (msg && !confirm(msg)) e.preventDefault();
+});
+</script>
+</body>
+</html>

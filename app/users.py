@@ -85,3 +85,15 @@ async def current_user(request: Request, conn=Depends(get_db)):
             raise HTTPException(403, "Сессия устарела — обнови страницу и попробуй ещё раз")
     request.state.user = user
     return user
+
+
+async def current_operator(request: Request, conn=Depends(get_db)):
+    """Зависимость операторской админки: всё из current_user + роль is_operator.
+
+    Не-оператор (или аноним) не должен даже знать, что /operator существует,
+    поэтому отдаём 404, а не 403. Аноним по-прежнему уходит на /login (NeedLogin).
+    """
+    user = await current_user(request, conn)
+    if not user["is_operator"]:
+        raise HTTPException(404)
+    return user
