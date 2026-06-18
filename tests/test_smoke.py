@@ -1683,4 +1683,46 @@ with TestClient(main.app, follow_redirects=False) as cown, \
     assert op3p("/operator/dates/999999/delete").status_code in (303, 404)
 step("оператор: обзор категорий/свиданий, toggle ссылки, архив, удаление; каскад категории щадит свидания")
 
+
+# ---------- оператор: обзор броней ----------
+with TestClient(main.app, follow_redirects=False) as cown, \
+        TestClient(main.app, follow_redirects=False) as cop4, \
+        TestClient(main.app, follow_redirects=False) as gb:
+    assert tg_login(cown, 990003, username="host").json()["status"] == "ok"
+    assert tg_login(cop4, 555001, username="boss").json()["status"] == "ok"
+
+    own_csrf = re.search(r'name="csrf" value="([^"]+)"',
+                         cown.get("/admin/categories").text).group(1)
+    def ownb(url, data=None):
+        d = dict(data or {}); d["csrf"] = own_csrf
+        return cown.post(url, data=d)
+    assert ownb("/admin/categories/create", {"name": "Бронируемая"}).status_code == 303
+    bc = db_one("SELECT id, link_token FROM categories WHERE name='Бронируемая'")
+    bcid, btok = bc["id"], bc["link_token"]
+    ownb(f"/admin/categories/{bcid}/moderation", {})           # выкл модерацию
+    ownb("/admin/dates/new", {"name": "Прогулка", "categories": str(bcid)})
+    bdid = db_one("SELECT id FROM dates WHERE name='Прогулка'")[0]
+
+    # гость представляется и бронирует
+    main._rates.clear()
+    gb.get(f"/c/{btok}")
+    set_name(gb, btok, "Лена")
+    assert gb.post(f"/c/{btok}/book", data={"date_id": bdid}).json()["booked"] is True
+    bid = db_one("SELECT id FROM bookings WHERE date_id=?", (bdid,))[0]
+
+    # оператор видит бронь в обзоре + поиск по имени гостя
+    page = cop4.get("/operator/bookings").text
+    assert "Лена" in page and "Прогулка" in page
+    assert "Прогулка" in cop4.get("/operator/bookings?q=Лена").text
+    assert "Прогулка" not in cop4.get("/operator/bookings?q=нетакого").text
+
+    # оператор снимает бронь для разбора спора
+    op4_csrf = re.search(r'name="csrf" value="([^"]+)"', page).group(1)
+    r = cop4.post(f"/operator/bookings/{bid}/delete", data={"csrf": op4_csrf})
+    assert r.status_code == 303
+    assert not db_one("SELECT 1 FROM bookings WHERE id=?", (bid,))
+    assert cop4.post("/operator/bookings/999999/delete",
+                     data={"csrf": op4_csrf}).status_code in (303, 404)
+step("оператор: обзор броней (поиск по гостю), снятие брони для разбора спора")
+
 print(f"\nВсе проверки пройдены: {OK} блоков ✔")

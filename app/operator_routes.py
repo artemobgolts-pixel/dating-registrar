@@ -392,4 +392,47 @@ def date_delete(did: int, request: Request, conn=Depends(get_db)):
     return redir("/operator/dates", "Свидание удалено")
 
 
+# ---------- брони / взаимодействия (обзор для разбора споров) ----------
+
+@router.get("/bookings", response_class=HTMLResponse)
+def bookings_list(request: Request, q: str = "", page: int = 1, conn=Depends(get_db)):
+    q = (q or "").strip()
+    page = max(1, page)
+    where, args = "", []
+    if q:
+        where = ("WHERE g.name LIKE ? OR d.name LIKE ? OR c.name LIKE ? "
+                 "OR u.display_name LIKE ?")
+        like = f"%{q}%"
+        args += [like, like, like, like]
+    total = conn.execute(
+        f"SELECT COUNT(*) FROM bookings b JOIN dates d ON d.id=b.date_id "
+        f"JOIN categories c ON c.id=b.category_id JOIN users u ON u.id=c.owner_id "
+        f"LEFT JOIN guests g ON g.token=b.guest_token {where}", args).fetchone()[0]
+    rows = conn.execute(
+        f"SELECT b.id, b.created_at, COALESCE(g.name, '—') AS guest, "
+        f"d.name AS date_name, c.name AS cat_name, c.owner_id, "
+        f"u.display_name AS owner FROM bookings b "
+        f"JOIN dates d ON d.id=b.date_id JOIN categories c ON c.id=b.category_id "
+        f"JOIN users u ON u.id=c.owner_id LEFT JOIN guests g ON g.token=b.guest_token "
+        f"{where} ORDER BY b.created_at DESC LIMIT ? OFFSET ?",
+        args + [PAGE, (page - 1) * PAGE]).fetchall()
+    pages = max(1, (total + PAGE - 1) // PAGE)
+    return templates.TemplateResponse(
+        request, "operator/bookings.html",
+        octx(request, active="bookings", rows=rows, q=q, page=page, pages=pages,
+             total=total))
+
+
+@router.post("/bookings/{bid}/delete")
+def booking_delete(bid: int, request: Request, conn=Depends(get_db)):
+    """Снять бронь для разбора спорной ситуации — свидание снова свободно."""
+    b = conn.execute("SELECT 1 FROM bookings WHERE id=?", (bid,)).fetchone()
+    if not b:
+        raise HTTPException(404)
+    conn.execute("DELETE FROM bookings WHERE id=?", (bid,))
+    conn.commit()
+    log.warning("operator %s deleted booking %s", request.state.user["id"], bid)
+    return redir("/operator/bookings", "Бронь снята — свидание снова свободно")
+
+
 
