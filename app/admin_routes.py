@@ -24,7 +24,8 @@ import images
 import places
 from config import BASE_URL
 from guests import gname
-from helpers import clean_text, normalize_period, now_iso, now_naive, parse_dt_local, parse_links
+from helpers import (clean_text, normalize_period, now_iso, now_naive,
+                     parse_birth_date, parse_dt_local, parse_links)
 from fastapi.responses import JSONResponse
 from ownership import get_owned_category, get_owned_date
 from public_routes import (add_photos, insert_date, next_cat_pos, ranged_file,
@@ -63,6 +64,73 @@ def logout(request: Request):
     """Выход только по POST с CSRF: logout по GET можно навязать ссылкой."""
     request.session.clear()
     return RedirectResponse("/login", status_code=303)
+
+
+@router.get("/profile", response_class=HTMLResponse)
+def profile_form(request: Request, conn=Depends(get_db)):
+    return templates.TemplateResponse(
+        request, "admin/profile.html", actx(request, conn, active="profile"))
+
+
+@router.post("/profile")
+def profile_save(request: Request,
+                 display_name: str = Form(""),
+                 birth_date: str = Form(""),
+                 gender: str = Form(""),
+                 avatar: UploadFile | None = File(None),
+                 conn=Depends(get_db)):
+    """Сохраняет профиль владельца. Аватар — опционально; старый файл сносим
+    только после успешной записи нового имени в базу."""
+    uid = request.state.user["id"]
+    name = clean_text(display_name, 80, "Имя", required=True)
+    bdate = parse_birth_date(birth_date)
+    g = gender if gender in ("m", "f") else None
+
+    new_avatar = None
+    if avatar is not None and (avatar.filename or "").strip():
+        try:
+            new_avatar = images.save_upload(avatar)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+
+    old_avatar = request.state.user["avatar_path"]
+    if new_avatar:
+        conn.execute(
+            "UPDATE users SET display_name=?, birth_date=?, gender=?, avatar_path=? "
+            "WHERE id=?", (name, bdate, g, new_avatar, uid))
+    else:
+        conn.execute(
+            "UPDATE users SET display_name=?, birth_date=?, gender=? WHERE id=?",
+            (name, bdate, g, uid))
+    conn.commit()
+    if new_avatar and old_avatar:        # старый аватар — только после коммита
+        images.delete_file(old_avatar)
+    return redir("/admin/profile", "Профиль сохранён ♥")
+
+
+@router.post("/profile/avatar/delete")
+def profile_avatar_delete(request: Request, conn=Depends(get_db)):
+    uid = request.state.user["id"]
+    old = request.state.user["avatar_path"]
+    conn.execute("UPDATE users SET avatar_path=NULL WHERE id=?", (uid,))
+    conn.commit()
+    if old:
+        images.delete_file(old)
+    return redir("/admin/profile", "Фото профиля удалено")
+
+
+@router.get("/avatar/{filename}")
+def profile_avatar(filename: str, request: Request):
+    """Отдаёт аватар текущего пользователя. Гейт: filename должен совпадать с
+    его собственным avatar_path — чужой аватар по прямой ссылке не отдаём."""
+    if not images.SAFE_FILENAME.match(filename) \
+            or filename != request.state.user["avatar_path"]:
+        raise HTTPException(404)
+    path = images.UPLOAD_DIR / filename
+    if not path.exists():
+        raise HTTPException(404)
+    return FileResponse(path, media_type="image/webp",
+                        headers={"Cache-Control": "private, max-age=300"})
 
 
 GNAME_SQL = "COALESCE(g.name, 'Человек #' || substr(COALESCE({t}, '??????'), 1, 6))"

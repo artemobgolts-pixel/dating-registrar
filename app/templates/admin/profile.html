@@ -1,0 +1,74 @@
+{% extends "admin/base.html" %}
+{% block title %}Профиль{% endblock %}
+{% block content %}
+<div class="bar">
+  <h1 class="serif" style="margin:0">Мой профиль</h1>
+  <a class="btn ghost" href="/admin/">← На главную</a>
+</div>
+
+<div class="card" style="max-width:540px">
+  <form method="post" enctype="multipart/form-data">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+
+    <div class="field" style="display:flex;align-items:center;gap:16px">
+      {% if user['avatar_path'] %}
+      <img src="/admin/avatar/{{ user['avatar_path'] }}" alt="Аватар"
+           width="72" height="72"
+           style="border-radius:50%;object-fit:cover;border:2px solid #e7d3d7">
+      {% else %}
+      <span style="width:72px;height:72px;border-radius:50%;display:grid;
+                   place-items:center;background:#f3e6e9;font-size:30px">🙂</span>
+      {% endif %}
+      <div>
+        <label>Фото профиля</label>
+        <input type="file" name="avatar" accept="image/*">
+        <div class="hint">jpg/png/webp до 10 МБ</div>
+      </div>
+    </div>
+
+    {% if user['avatar_path'] %}
+    <div class="field">
+      <button class="btn small danger" type="submit" form="delAvatar">Удалить фото</button>
+    </div>
+    {% endif %}
+
+    <div class="field">
+      <label>Имя *</label>
+      <input type="text" name="display_name" required maxlength="80"
+             value="{{ user['display_name'] or '' }}">
+      <div class="hint">Как тебя увидят получатели приглашений</div>
+    </div>
+
+    <div class="field">
+      <label>Дата рождения</label>
+      <input type="date" name="birth_date" value="{{ user['birth_date'] or '' }}">
+      <div class="hint">Только 18+. Можно не указывать</div>
+    </div>
+
+    <div class="field">
+      <label>Пол</label>
+      <select name="gender">
+        <option value="" {{ 'selected' if not user['gender'] else '' }}>—</option>
+        <option value="m" {{ 'selected' if user['gender'] == 'm' else '' }}>Мужской</option>
+        <option value="f" {{ 'selected' if user['gender'] == 'f' else '' }}>Женский</option>
+      </select>
+    </div>
+
+    <div class="field" style="margin-bottom:0">
+      <button class="btn primary" type="submit">Сохранить</button>
+    </div>
+  </form>
+
+  {% if user['avatar_path'] %}
+  <form method="post" action="/admin/profile/avatar/delete" id="delAvatar"
+        data-confirm="Удалить фото профиля?">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+  </form>
+  {% endif %}
+</div>
+
+<div class="card muted" style="max-width:540px;font-size:13.5px">
+  Вход выполнен через Telegram{% if user['tg_username'] %} (@{{ user['tg_username'] }}){% endif %}.
+  {% if user['is_operator'] %}<br>Вы оператор платформы.{% endif %}
+</div>
+{% endblock %}

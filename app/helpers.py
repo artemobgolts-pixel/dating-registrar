@@ -129,6 +129,30 @@ def parse_dt_local(s: str | None) -> str | None:
     raise HTTPException(400, "Неверный формат даты/времени")
 
 
+def parse_birth_date(s: str | None) -> str | None:
+    """Парсит <input type=date> для даты рождения. Пусто → None.
+
+    Возвращает ISO yyyy-mm-dd. Отвергает будущее и заведомо нереальный возраст
+    (>120 лет), а также младше 18 — продукт для взрослых знакомств.
+    """
+    s = (s or "").strip()
+    if not s:
+        return None
+    try:
+        d = datetime.strptime(s, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(400, "Неверный формат даты рождения")
+    today = now_naive().date()
+    if d > today:
+        raise HTTPException(400, "Дата рождения не может быть в будущем")
+    age = (today - d).days // 365
+    if age > 120:
+        raise HTTPException(400, "Проверь дату рождения")
+    if age < 18:
+        raise HTTPException(400, "Сервис только для совершеннолетних (18+)")
+    return d.isoformat()
+
+
 def normalize_period(starts: str | None, ends: str | None) -> tuple[str | None, str | None]:
     if ends and not starts:
         starts, ends = ends, None

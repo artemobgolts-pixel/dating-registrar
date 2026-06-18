@@ -240,6 +240,45 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert not db_one("SELECT 1 FROM categories WHERE name='Без токена'")
     step("CSRF: POST без токена отклоняется с дружелюбным flash")
 
+    # ---------- профиль кабинета ----------
+    # форма открывается, в шапке — ссылка на профиль
+    pf = c.get("/admin/profile")
+    assert pf.status_code == 200 and "Мой профиль" in pf.text
+    assert "/admin/profile" in c.get("/admin/categories").text
+    # сохранение имени/ДР/пола + аватара одним POST
+    r = apost(c, "/admin/profile",
+              {"display_name": "Артём", "birth_date": "1990-05-01", "gender": "m"},
+              files={"avatar": ("me.png", png(), "image/png")})
+    assert r.status_code == 303
+    me = db_one("SELECT display_name, birth_date, gender, avatar_path "
+                "FROM users WHERE telegram_id=555001")
+    assert me["display_name"] == "Артём" and me["birth_date"] == "1990-05-01"
+    assert me["gender"] == "m" and me["avatar_path"]
+    av = me["avatar_path"]
+    # имя владельца появилось в шапке
+    assert "Артём" in c.get("/admin/profile").text
+    # свой аватар отдаётся
+    assert c.get(f"/admin/avatar/{av}").status_code == 200
+    # чужой клиент (Боб из HTTP-изоляции ещё не залогинен здесь) — проверим, что
+    # неавторизованный не получит аватар: новый клиент без сессии
+    anon = TestClient(main.app, follow_redirects=False)
+    assert anon.get(f"/admin/avatar/{av}").status_code == 303  # → /login
+    # несовершеннолетний возраст отклоняется
+    bad = apost(c, "/admin/profile",
+                {"display_name": "Х", "birth_date": "2020-01-01", "gender": ""})
+    assert bad.status_code == 303 and "18" in c.get(bad.headers["location"]).text
+    # пустое имя отклоняется
+    bad2 = apost(c, "/admin/profile", {"display_name": "  ", "birth_date": ""})
+    assert bad2.status_code == 303
+    # старый аватар не затёрт неудачными сохранениями
+    assert db_one("SELECT avatar_path FROM users WHERE telegram_id=555001")["avatar_path"] == av
+    # удаление аватара
+    r = apost(c, "/admin/profile/avatar/delete", {})
+    assert r.status_code == 303
+    assert not db_one("SELECT avatar_path FROM users WHERE telegram_id=555001")["avatar_path"]
+    assert c.get(f"/admin/avatar/{av}").status_code == 404  # уже не его
+    step("профиль: имя/ДР/пол/аватар сохраняются, 18+ и пустое имя отклоняются, аватар приватный")
+
     # ---------- категория и секретная ссылка ----------
     r = apost(c, "/admin/categories/create", {"name": "Лето"})
     assert r.status_code == 303
