@@ -31,6 +31,20 @@ RATE_RULES = {
     "report": (5, 20, 600),       # 5 жалоб за 10 минут (анти-спам очереди)
 }
 
+# Лимиты на залогиненного создателя (ключ — user_id). Помимо общей квоты
+# date_limit (всего свиданий на аккаунт) — это защита от всплесков:
+# kind: (лимит на пользователя, окно в секундах)
+USER_RATE_RULES = {
+    "datecreate": (40, 3600),     # 40 свиданий в час (квоту 30 это не отменяет)
+    "dateedit": (120, 3600),      # 120 правок свиданий в час
+}
+
+# Самое длинное окно среди всех правил — горизонт, на котором ведро ещё «живо».
+# GC не должен чистить записи раньше: иначе часовой лимит сбрасывался бы каждые
+# 10 минут. + запас.
+_MAX_WINDOW = max([w for *_, w in RATE_RULES.values()]
+                  + [w for _, w in USER_RATE_RULES.values()])
+
 
 def client_ip(request: Request) -> str:
     """Реальный IP клиента для лимитов.
@@ -51,11 +65,21 @@ def guest_throttle(kind: str, guest: str, request: Request) -> None:
         raise HTTPException(429, "Слишком много действий подряд — передохни минутку ♥")
 
 
+def user_throttle(kind: str, user_id: int, request: Request) -> None:
+    """Лимит на залогиненного пользователя (анти-всплеск). Дополнительно бьёт
+    по IP — чтобы один человек не плодил аккаунты ради обхода."""
+    per_user, window = USER_RATE_RULES[kind]
+    ip = client_ip(request)
+    if not rate_ok(f"{kind}:u:{user_id}", per_user, window) or \
+       not rate_ok(f"{kind}:i:{ip}", per_user * 3, window):
+        raise HTTPException(429, "Слишком много действий подряд — передохни минутку.")
+
+
 def prune_rate_buckets() -> None:
     """Сносит пустые вёдра лимитов: иначе ключи копятся месяцами."""
     now = time.time()
     for k in list(_rates):
-        arr = [t for t in _rates[k] if now - t < 600]
+        arr = [t for t in _rates[k] if now - t < _MAX_WINDOW]
         if arr:
             _rates[k] = arr
         else:

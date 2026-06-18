@@ -36,6 +36,9 @@ def _parse_operator_ids(raw: str) -> set[int]:
 
 # Операторы (суперадмины): их telegram_id. Пусто — операторов нет до ручного бэкофилла.
 OPERATOR_TG_IDS = _parse_operator_ids(os.getenv("OPERATOR_TG_IDS", ""))
+# Контакт поддержки (Telegram @username или ссылка) — для текста про расширение
+# лимита и страницы /about. Без значения — текст без конкретного контакта.
+SUPPORT_CONTACT = os.getenv("SUPPORT_CONTACT", "").strip()
 # Префикс __Host- жёстко привязывает cookie к хосту (требует Secure) — только в проде
 GUEST_COOKIE = "__Host-bg" if COOKIE_SECURE else "bg"
 LEGACY_GUEST_COOKIE = "bg"     # дореформенное имя: читаем, чтобы не терять гостей

@@ -22,7 +22,7 @@ from urllib.parse import urlencode
 import backup
 import images
 import places
-from config import BASE_URL
+from config import BASE_URL, SUPPORT_CONTACT
 from guests import gname
 from helpers import (clean_text, normalize_period, now_iso, now_naive,
                      parse_birth_date, parse_dt_local, parse_links)
@@ -30,6 +30,7 @@ from fastapi.responses import JSONResponse
 from ownership import get_owned_category, get_owned_date
 from public_routes import (add_photos, insert_date, next_cat_pos, ranged_file,
                            save_links, VIDEO_TYPES)
+from ratelimit import user_throttle
 from tasks import autoarchive_once
 from users import current_user
 from web import get_db, redir, templates
@@ -600,6 +601,19 @@ def _all_cats(conn, uid: int):
         (uid,)).fetchall()
 
 
+def enforce_date_quota(conn, user) -> None:
+    """Отказ, если у пользователя уже date_limit активных (не архивных) свиданий.
+    Архивные не считаем — это «история», она не растёт бесконтрольно."""
+    limit = user["date_limit"]
+    used = conn.execute(
+        "SELECT COUNT(*) FROM dates WHERE owner_id=? AND archived_at IS NULL",
+        (user["id"],)).fetchone()[0]
+    if used >= limit:
+        contact = f" Напиши в поддержку {SUPPORT_CONTACT}" if SUPPORT_CONTACT \
+                  else " Напиши в поддержку для расширения."
+        raise HTTPException(400, f"Достигнут лимит {limit} свиданий.{contact}")
+
+
 @router.get("/dates/new", response_class=HTMLResponse)
 def date_new_form(request: Request, conn=Depends(get_db)):
     checked = set()
@@ -624,6 +638,8 @@ def date_create(request: Request, bg: BackgroundTasks,
                 image_focuses: str = Form(""),
                 conn=Depends(get_db)):
     uid = request.state.user["id"]
+    user_throttle("datecreate", uid, request)        # анти-всплеск
+    enforce_date_quota(conn, request.state.user)      # общая квота аккаунта
     name = clean_text(name, 200, "Название", required=True)
     place, place_url, needs_resolve = places.split_place(clean_text(place, 500, "Место"))
     comment = clean_text(comment, 2000, "Комментарий")
@@ -721,6 +737,7 @@ def date_update(did: int, request: Request, bg: BackgroundTasks, name: str = For
                 image_focuses: str = Form(""),
                 conn=Depends(get_db)):
     d = _date_or_404(conn, did, request.state.user)
+    user_throttle("dateedit", request.state.user["id"], request)
     name = clean_text(name, 200, "Название", required=True)
     place, place_url, needs_resolve = places.place_on_edit(
         clean_text(place, 500, "Место"), d)

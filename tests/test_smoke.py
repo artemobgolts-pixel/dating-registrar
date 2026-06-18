@@ -17,6 +17,7 @@ import time
 import subprocess
 import sys
 import zipfile
+from urllib.parse import unquote
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1] / "app"
@@ -1107,6 +1108,11 @@ with TestClient(main.app, follow_redirects=False) as c:
 
     # ---------- пагинация списка свиданий ----------
     main._rates.clear()
+    # этот блок про пагинацию, а не квоту: временно снимаем лимит свиданий
+    _qc = dbm.connect()
+    _qc.execute("UPDATE users SET date_limit=999 WHERE telegram_id=555001")
+    _qc.commit()
+    _qc.close()
     for i in range(1, 32):
         apost(c, "/admin/dates/new", {"name": f"Лист {i:02d}"})
     p1 = c.get("/admin/dates").text
@@ -1724,5 +1730,49 @@ with TestClient(main.app, follow_redirects=False) as cown, \
     assert cop4.post("/operator/bookings/999999/delete",
                      data={"csrf": op4_csrf}).status_code in (303, 404)
 step("оператор: обзор броней (поиск по гостю), снятие брони для разбора спора")
+
+
+# ---------- квота свиданий (1.4) и per-user анти-всплеск (2.4) ----------
+with TestClient(main.app, follow_redirects=False) as cq:
+    assert tg_login(cq, 990010, username="quotaman").json()["status"] == "ok"
+    uid_q = db_one("SELECT id FROM users WHERE telegram_id=990010")[0]
+    cq_csrf = re.search(r'name="csrf" value="([^"]+)"',
+                        cq.get("/admin/categories").text).group(1)
+    def cqp(url, data=None):
+        d = dict(data or {}); d["csrf"] = cq_csrf
+        return cq.post(url, data=d)
+
+    # ставим лимит 3, создаём 3 — ок, 4-е отбивается с текстом про лимит
+    _q = dbm.connect()
+    _q.execute("UPDATE users SET date_limit=3 WHERE id=?", (uid_q,)); _q.commit(); _q.close()
+    main._rates.clear()
+    for i in range(3):
+        assert cqp("/admin/dates/new", {"name": f"Квота {i}"}).status_code == 303
+    r = cqp("/admin/dates/new", {"name": "Лишнее"})
+    # friendly-flash превращает 400 в 303 с сообщением про лимит в ?msg=
+    assert r.status_code == 303
+    loc = unquote(r.headers.get("location", ""))
+    assert "лимит" in loc.lower()
+    assert db_one("SELECT COUNT(*) FROM dates WHERE owner_id=? AND name='Лишнее'",
+                  (uid_q,))[0] == 0
+
+    # архивные не считаются в квоту: архивируем одно — снова можно создать
+    did_q = db_one("SELECT id FROM dates WHERE owner_id=? AND name='Квота 0'", (uid_q,))[0]
+    cqp(f"/admin/dates/{did_q}/archive", {})
+    assert cqp("/admin/dates/new", {"name": "После архива"}).status_code == 303
+
+    # per-user анти-всплеск: лимит 40/час — поднимаем квоту, бьём цикл выше лимита
+    _q = dbm.connect()
+    _q.execute("UPDATE users SET date_limit=999 WHERE id=?", (uid_q,)); _q.commit(); _q.close()
+    main._rates.clear()
+    locs = [unquote(cqp("/admin/dates/new", {"name": f"Всплеск {i}"})
+                    .headers.get("location", "")) for i in range(42)]
+    # 429 для POST /admin превращается в 303-flash с ⚠ — ищем его в ?msg=
+    assert any("передохни" in l.lower() for l in locs), \
+        "per-user лимит datecreate должен сработать на всплеске"
+    made = db_one("SELECT COUNT(*) FROM dates WHERE owner_id=? AND name LIKE 'Всплеск %'",
+                  (uid_q,))[0]
+    assert made == 40, f"ожидалось 40 созданных до лимита, получили {made}"
+step("квота: лимит свиданий отбивает лишнее, архивные не в счёт; per-user анти-всплеск даёт 429")
 
 print(f"\nВсе проверки пройдены: {OK} блоков ✔")
