@@ -13,8 +13,11 @@
 Коды живут TTL_SECONDS; протухшие чистятся лениво при обращении.
 """
 
+import hashlib
+import hmac
 import logging
 import secrets
+import time
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -76,6 +79,52 @@ def login_page(request: Request, conn=Depends(get_db)):
         return RedirectResponse("/admin/", status_code=303)
     return templates.TemplateResponse(
         request, "auth/login.html", {"bot": TG_BOT_USERNAME})
+
+
+def _verify_widget(data: dict) -> bool:
+    """Проверяет подпись Telegram Login Widget (https://core.telegram.org/widgets/login).
+
+    secret = SHA256(bot_token); HMAC-SHA256 по строке "k=v\\n..." (ключи отсортированы,
+    кроме hash). Совпадение hash доказывает, что данные пришли от Telegram и не
+    подделаны. Плюс проверяем свежесть auth_date (не старше 1 дня) от replay.
+    """
+    import notify
+    if not notify.TOKEN:
+        return False
+    got = data.get("hash") or ""
+    pairs = sorted(f"{k}={v}" for k, v in data.items() if k != "hash")
+    secret = hashlib.sha256(notify.TOKEN.encode()).digest()
+    calc = hmac.new(secret, "\n".join(pairs).encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(calc, got):
+        return False
+    try:
+        if time.time() - int(data.get("auth_date", 0)) > 86400:
+            return False
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
+@router.get("/auth/widget")
+def auth_widget(request: Request, conn=Depends(get_db)):
+    """Колбэк Telegram Login Widget (redirect-режим). Telegram редиректит сюда
+    с полями id/first_name/username/auth_date/hash в query. Проверяем подпись,
+    логиним. Бот при этом НЕ запускается — bot_linked не выставляем."""
+    ip = client_ip(request)
+    if not rate_ok(f"widget:{ip}", 10, 600):
+        raise HTTPException(429, "Слишком много попыток входа. Подожди немного.")
+    data = dict(request.query_params)
+    if not data.get("id") or not _verify_widget(data):
+        raise HTTPException(403, "Подпись Telegram не подтвердилась. Попробуй ещё раз.")
+    tg_id = int(data["id"])
+    uid = users.upsert_on_login(conn, tg_id, username=data.get("username"),
+                                first_name=data.get("first_name"), link_bot=False)
+    user = users.get_user(conn, uid)
+    if not user["is_active"]:
+        raise HTTPException(403, "Доступ закрыт. Напиши в поддержку.")
+    request.session["user_id"] = uid
+    request.session["csrf"] = secrets.token_urlsafe(16)
+    return RedirectResponse("/admin/", status_code=303)
 
 
 @router.post("/auth/start")
@@ -152,7 +201,8 @@ async def tg_webhook(request: Request, conn=Depends(get_db)):
     # Заводим/обновляем пользователя и помечаем код подтверждённым.
     users.upsert_on_login(conn, int(tg_id),
                           username=frm.get("username"),
-                          first_name=frm.get("first_name"))
+                          first_name=frm.get("first_name"),
+                          link_bot=True)
     conn.execute("UPDATE login_codes SET status='confirmed', telegram_id=? WHERE code=?",
                  (int(tg_id), code))
     conn.commit()

@@ -417,6 +417,19 @@ label.chk {
   margin-bottom: 12px;
 }
 
+/* разделитель «или быстрый вход» на странице входа */
+.login-or {
+  display: flex;
+  align-items: center;
+  text-align: center;
+  color: #b89; font-size: 12.5px;
+  margin: 16px 0 12px;
+}
+.login-or::before, .login-or::after {
+  content: ""; flex: 1; height: 1px; background: #ecd7d3;
+}
+.login-or span { padding: 0 12px; }
+
 /* ===== v3: брони, чипы дат, drag-and-drop фото ============================ */
 
 .tiny { font-size: 12px; }

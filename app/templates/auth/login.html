@@ -25,6 +25,17 @@
         <a id="tg-link" href="#" target="_blank" rel="noopener">Открыть бота ещё раз</a>
       </p>
       <div id="tg-error" class="err" hidden></div>
+      <p class="login-lead" style="margin:18px 0 8px;font-size:13px;opacity:.8">
+        Вход через бота сразу включает уведомления о выборе свиданий.</p>
+
+      <div class="login-or"><span>или быстрый вход</span></div>
+      <script async src="https://telegram.org/js/telegram-widget.js?22"
+              data-telegram-login="{{ bot }}"
+              data-size="large"
+              data-auth-url="/auth/widget"
+              data-request-access="write"></script>
+      <p class="login-hint">Быстрый вход через виджет <b>без уведомлений</b> —
+        бота можно подключить позже в кабинете.</p>
     {% endif %}
   </div>
 </div>

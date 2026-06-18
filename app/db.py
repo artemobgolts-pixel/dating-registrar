@@ -41,7 +41,7 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "app.db"
 
-LATEST_VERSION = 11
+LATEST_VERSION = 12
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS users (
     is_active INTEGER NOT NULL DEFAULT 1,    -- 0 = забанен
     is_operator INTEGER NOT NULL DEFAULT 0,  -- суперадмин (модерация/баны/лимиты)
     date_limit INTEGER NOT NULL DEFAULT 30,  -- квота свиданий; оператор поднимает вручную
+    bot_linked INTEGER NOT NULL DEFAULT 0,   -- 1 = запускал бота → можно слать уведомления
     created_at TEXT NOT NULL,
     last_login_at TEXT
 );
@@ -403,6 +404,14 @@ MIGRATIONS: dict[int, str] = {
             resolved_at TEXT
         );
         CREATE INDEX idx_reports_status ON reports(status, created_at);
+    """,
+    12: """
+        -- bot_linked: 1 = пользователь запускал бота (deeplink-вход) → ему можно
+        -- слать уведомления. Вход через Telegram-виджет НЕ запускает бота, поэтому
+        -- такие аккаунты остаются с 0, пока не подключат бота. Бэкофилл: все, кто
+        -- уже есть, входили только через deeplink — значит бот у них подключён.
+        ALTER TABLE users ADD COLUMN bot_linked INTEGER NOT NULL DEFAULT 0;
+        UPDATE users SET bot_linked=1 WHERE telegram_id <> 0;
     """,
 }
 

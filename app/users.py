@@ -27,8 +27,12 @@ def get_by_telegram(conn, telegram_id: int):
 
 
 def upsert_on_login(conn, telegram_id: int, *, username: str | None = None,
-                    first_name: str | None = None) -> int:
-    """Заводит/обновляет пользователя после подтверждения кода ботом. Возвращает id.
+                    first_name: str | None = None, link_bot: bool = False) -> int:
+    """Заводит/обновляет пользователя после входа. Возвращает id.
+
+    link_bot=True (вход через бота, deeplink) — выставляет bot_linked=1: бот
+    запущен, уведомления можно слать. link_bot=False (вход через виджет) — флаг
+    не трогает: у новых остаётся 0, пока не подключат бота отдельно.
 
     «Забор» легаси-владельца: если входящий telegram_id — оператор, а реальной
     записи под ним ещё нет, но есть служебный легаси-владелец (telegram_id=0),
@@ -41,23 +45,27 @@ def upsert_on_login(conn, telegram_id: int, *, username: str | None = None,
         if legacy:
             conn.execute(
                 "UPDATE users SET telegram_id=?, tg_username=?, is_operator=1, "
+                "bot_linked=CASE WHEN ? THEN 1 ELSE bot_linked END, "
                 "last_login_at=? WHERE id=?",
-                (telegram_id, username, now_iso(), legacy["id"]))
+                (telegram_id, username, 1 if link_bot else 0, now_iso(), legacy["id"]))
             conn.commit()
             return legacy["id"]
 
     if row:
         conn.execute(
-            "UPDATE users SET tg_username=?, is_operator=?, last_login_at=? WHERE id=?",
-            (username, 1 if (is_op or row["is_operator"]) else 0, now_iso(), row["id"]))
+            "UPDATE users SET tg_username=?, is_operator=?, "
+            "bot_linked=CASE WHEN ? THEN 1 ELSE bot_linked END, "
+            "last_login_at=? WHERE id=?",
+            (username, 1 if (is_op or row["is_operator"]) else 0,
+             1 if link_bot else 0, now_iso(), row["id"]))
         conn.commit()
         return row["id"]
 
     cur = conn.execute(
         "INSERT INTO users(telegram_id, tg_username, display_name, is_operator, "
-        "created_at, last_login_at) VALUES(?,?,?,?,?,?)",
+        "bot_linked, created_at, last_login_at) VALUES(?,?,?,?,?,?,?)",
         (telegram_id, username, first_name or username, 1 if is_op else 0,
-         now_iso(), now_iso()))
+         1 if link_bot else 0, now_iso(), now_iso()))
     conn.commit()
     return cur.lastrowid
 

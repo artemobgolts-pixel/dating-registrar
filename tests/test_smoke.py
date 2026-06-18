@@ -1775,4 +1775,62 @@ with TestClient(main.app, follow_redirects=False) as cq:
     assert made == 40, f"ожидалось 40 созданных до лимита, получили {made}"
 step("квота: лимит свиданий отбивает лишнее, архивные не в счёт; per-user анти-всплеск даёт 429")
 
+
+# ---------- два типа входа: deeplink (bot_linked) vs виджет (без бота) ----------
+import hashlib as _hl
+import hmac as _hm
+import notify as _nf
+
+def _widget_params(tg_id, token, username="widgetuser", first_name="Виджет"):
+    """Собирает подписанные поля Telegram Login Widget (как редиректит Telegram)."""
+    data = {"id": str(tg_id), "first_name": first_name, "username": username,
+            "auth_date": str(int(time.time()))}
+    pairs = "\n".join(sorted(f"{k}={v}" for k, v in data.items()))
+    secret = _hl.sha256(token.encode()).digest()
+    data["hash"] = _hm.new(secret, pairs.encode(), _hl.sha256).hexdigest()
+    return data
+
+with TestClient(main.app, follow_redirects=False) as cw:
+    _saved_token = _nf.TOKEN
+    _saved_send = _nf.send_to
+    _nf.TOKEN = "123456:test-bot-token"        # включаем проверку подписи
+    _nf.send_to = lambda *a, **k: None         # без реальных сетевых вызовов
+    try:
+        # подделанная подпись → 403, аккаунт не создаётся
+        bad = _widget_params(990200, "wrong-token")
+        assert cw.get("/auth/widget", params=bad).status_code == 403
+        assert not db_one("SELECT 1 FROM users WHERE telegram_id=990200")
+
+        # валидная подпись → вход, аккаунт создан, но bot_linked=0 (бот не запущен)
+        good = _widget_params(990200, _nf.TOKEN)
+        r = cw.get("/auth/widget", params=good)
+        assert r.status_code == 303 and r.headers["location"] == "/admin/"
+        row = db_one("SELECT id, bot_linked FROM users WHERE telegram_id=990200")
+        assert row and row["bot_linked"] == 0
+
+        # в кабинете виден баннер «подключить бота»
+        assert "Подключить бота" in cw.get("/admin/").text
+
+        # тот же человек запускает бота (deeplink) → bot_linked становится 1
+        main._rates.clear()
+        sec = {"X-Telegram-Bot-Api-Secret-Token": "hook-secret"}
+        st = cw.post("/auth/start").json()["code"]
+        cw.post("/tg/webhook", headers=sec, json={"message": {
+            "text": f"/start {st}", "from": {"id": 990200, "username": "widgetuser"}}})
+        assert db_one("SELECT bot_linked FROM users WHERE telegram_id=990200")[0] == 1
+        # баннер исчез
+        assert "Подключить бота" not in cw.get("/admin/").text
+
+        # просроченная подпись (старый auth_date) → 403
+        stale = _widget_params(990201, _nf.TOKEN)
+        stale["auth_date"] = "1000000000"
+        stale_pairs = "\n".join(sorted(f"{k}={v}" for k, v in stale.items() if k != "hash"))
+        stale["hash"] = _hm.new(_hl.sha256(_nf.TOKEN.encode()).digest(),
+                                stale_pairs.encode(), _hl.sha256).hexdigest()
+        assert cw.get("/auth/widget", params=stale).status_code == 403
+    finally:
+        _nf.TOKEN = _saved_token
+        _nf.send_to = _saved_send
+step("вход: виджет (подпись HMAC, bot_linked=0, баннер) ↔ deeplink (bot_linked=1); подделка/протухшая подпись → 403")
+
 print(f"\nВсе проверки пройдены: {OK} блоков ✔")

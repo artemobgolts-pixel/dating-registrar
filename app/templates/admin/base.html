@@ -72,6 +72,15 @@
 <main class="wrap">
 {% set m = request.query_params.get('msg') %}
 {% if m %}<div class="flash{{ ' err' if m.startswith('⚠') else '' }}">{{ m }}</div>{% endif %}
+{% if user and not user['bot_linked'] %}
+<div class="flash" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+  <span>🔔 Подключи бота, чтобы получать уведомления, когда выберут свидание.</span>
+  <button id="tg-login" class="btn primary" style="margin-left:auto">Подключить бота</button>
+  <a id="tg-link" href="#" target="_blank" rel="noopener" hidden></a>
+  <span id="tg-hint" hidden>Нажми <b>Start</b> в боте и вернись сюда.</span>
+  <span id="tg-error" class="err" hidden style="width:100%"></span>
+</div>
+{% endif %}
 {% block content %}{% endblock %}
 </main>
 <script src="/static/ink.js" defer></script>
@@ -97,6 +106,9 @@ document.addEventListener('change', function (e) {
   if (e.target.matches('[data-autosubmit]')) e.target.form.submit();
 });
 </script>
+{% if user and not user['bot_linked'] %}
+<script nonce="{{ csp_nonce }}" src="/static/auth.js"></script>
+{% endif %}
 {% block scripts %}{% endblock %}
 </body>
 </html>

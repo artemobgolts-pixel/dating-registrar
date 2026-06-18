@@ -112,12 +112,25 @@ async def csp_headers(request: Request, call_next):
     request.state.csp_nonce = secrets.token_urlsafe(16)
     resp = await call_next(request)
     if resp.headers.get("content-type", "").startswith("text/html"):
-        resp.headers["Content-Security-Policy"] = (
-            "default-src 'self'; "
-            f"script-src 'self' 'nonce-{request.state.csp_nonce}'; "
-            "style-src 'self' 'unsafe-inline'; "
-            "img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; "
-            "frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+        # Только страница входа грузит Telegram Login Widget (внешний скрипт +
+        # iframe oauth.telegram.org). Послабление CSP — ровно здесь, не на всём сайте.
+        if request.url.path == "/login":
+            resp.headers["Content-Security-Policy"] = (
+                "default-src 'self'; "
+                f"script-src 'self' 'nonce-{request.state.csp_nonce}' "
+                "https://telegram.org https://oauth.telegram.org; "
+                "style-src 'self' 'unsafe-inline'; "
+                "img-src 'self' data: blob: https://t.me; font-src 'self'; "
+                "connect-src 'self'; "
+                "frame-src https://oauth.telegram.org; "
+                "frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+        else:
+            resp.headers["Content-Security-Policy"] = (
+                "default-src 'self'; "
+                f"script-src 'self' 'nonce-{request.state.csp_nonce}'; "
+                "style-src 'self' 'unsafe-inline'; "
+                "img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; "
+                "frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
     return resp
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
