@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Локальный деплой: прогнать тесты → закоммитить → запушить в GitHub.
-# Запуск из корня boris-site:  ./deploy.sh "что изменил"
+# Запуск из корня date4you:  ./deploy.sh "что изменил"
 #
 # После пуша зайди на сервер (по паролю / через панель хостера) и выполни:
-#     cd /opt/boris-site && ./update.sh
+#     cd /opt/date4you && ./update.sh
 # — он подтянет этот коммит и пересоберёт контейнер.
 set -euo pipefail
 
@@ -28,4 +28,4 @@ fi
 # 3. Пуш в main.
 git push origin main
 echo
-echo "✓ Запушено. Теперь на сервере:  cd /opt/boris-site && ./update.sh"
+echo "✓ Запушено. Теперь на сервере:  cd /opt/date4you && ./update.sh"

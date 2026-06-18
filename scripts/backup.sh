@@ -2,7 +2,7 @@
 # Бэкап базы НАРУЖУ (в облако). Запускается по cron на прод-хосте, напр. раз в сутки:
 #
 #   # /etc/cron.d/date4you-backup  (или crontab -e)
-#   17 4 * * *  cd /opt/boris-site && ./scripts/backup.sh >> /var/log/date4you-backup.log 2>&1
+#   17 4 * * *  cd /opt/date4you && ./scripts/backup.sh >> /var/log/date4you-backup.log 2>&1
 #
 # Логика:
 #   1) консистентный снимок SQLite ВНУТРИ контейнера (sqlite backup API, безопасно при WAL);
