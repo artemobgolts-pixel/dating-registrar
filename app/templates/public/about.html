@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>О проекте · date4you</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>♥</text></svg>">
+<link rel="stylesheet" href="/static/public.css">
+<style>
+  .legal { max-width: 680px; margin: 0 auto; padding: 40px 22px 80px; }
+  .legal h1 { font-family: 'Cormorant Garamond', Georgia, serif; font-size: 34px; color: #b65f6f; margin: 0 0 18px; }
+  .legal h2 { font-size: 19px; color: #8f4a58; margin: 30px 0 10px; }
+  .legal p, .legal li { line-height: 1.6; color: #4a3a3d; font-size: 15px; }
+  .legal a { color: #b65f6f; }
+  .legal .back { display: inline-block; margin-bottom: 22px; color: #b65f6f; text-decoration: none; }
+  .proj-list { list-style: none; padding: 0; }
+  .proj-list li { margin: 8px 0; }
+  .proj-list a { display: inline-block; padding: 10px 16px; border: 1px solid #f0d9d4;
+    border-radius: 12px; background: #fdf6f4; text-decoration: none; }
+  .support-card { background: #fdf3f0; border: 1px solid #f0d9d4; border-radius: 12px;
+    padding: 16px 18px; margin-top: 6px; }
+</style>
+</head>
+<body>
+<main class="legal">
+  <a class="back" href="/">← на главную</a>
+  <h1>О проекте</h1>
+  {% if about_text %}
+    <p>{{ about_text }}</p>
+  {% else %}
+    <p>date4you — лёгкий способ собрать личную подборку свиданий и отправить её
+      по приватной ссылке. Без рекламы и сбора лишних данных.</p>
+  {% endif %}
+
+  <h2>Поддержка и связь</h2>
+  <div class="support-card">
+    {% if support %}
+      <p>Вопросы, идеи, расширение лимита свиданий —
+        пиши: <a href="{{ support.url }}" target="_blank" rel="noopener">{{ support.label }}</a></p>
+    {% else %}
+      <p>Контакт поддержки появится здесь.</p>
+    {% endif %}
+  </div>
+
+  {% if projects %}
+  <h2>Другие проекты автора</h2>
+  <ul class="proj-list">
+    {% for p in projects %}
+    <li><a href="{{ p.url }}" target="_blank" rel="noopener">{{ p.name }} ↗</a></li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</main>
+</body>
+</html>

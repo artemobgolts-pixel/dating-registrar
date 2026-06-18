@@ -19,7 +19,8 @@ import db
 import images
 import notify
 import places
-from config import BASE_URL, DOMAIN, GUEST_COOKIE, LEGACY_GUEST_COOKIE, MSK, SUPPORT_CONTACT
+from config import (AUTHOR_PROJECTS, ABOUT_TEXT, BASE_URL, DOMAIN, GUEST_COOKIE,
+                    LEGACY_GUEST_COOKIE, MSK, SUPPORT_CONTACT, support_link)
 from guests import get_guest, get_guest_name, require_name, set_guest_cookie
 from helpers import (_parse, clean_text, fmt_gcal, fmt_when, normalize_period,
                      now_iso, parse_dt_local, parse_links)
@@ -215,6 +216,13 @@ def privacy(request: Request):
     return templates.TemplateResponse(
         request, "public/legal.html",
         {"doc": "privacy", "support": SUPPORT_CONTACT, "domain": DOMAIN})
+
+
+@router.get("/about", response_class=HTMLResponse)
+def about(request: Request):
+    return templates.TemplateResponse(
+        request, "public/about.html",
+        {"support": support_link(), "projects": AUTHOR_PROJECTS, "about_text": ABOUT_TEXT})
 
 
 # ---------------------------------------------------------------------------

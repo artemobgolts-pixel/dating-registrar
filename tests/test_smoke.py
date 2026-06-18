@@ -33,6 +33,9 @@ ENV = {
     "TG_BOT_USERNAME": "date4you_test_bot",
     "TG_WEBHOOK_SECRET": "hook-secret",
     "OPERATOR_TG_IDS": "555001",
+    "SUPPORT_CONTACT": "@date4you_support",
+    "AUTHOR_PROJECTS": "Мой VPN|https://vpn.example.com;Блог|https://blog.example.com",
+    "ABOUT_TEXT": "Тестовое описание проекта.",
 }
 
 OK = 0
@@ -1895,5 +1898,26 @@ with TestClient(main.app, follow_redirects=False) as cl:
     home = cl.get("/").text
     assert 'href="/terms"' in home and 'id="cookie-bar"' in home
 step("1.8: /terms и /privacy доступны (18+, 152-ФЗ, право на удаление); согласие на входе; cookie-бар")
+
+
+# ---------- 1.10: страница «О проекте», поддержка, проекты автора ----------
+with TestClient(main.app, follow_redirects=False) as ca:
+    ab = ca.get("/about")
+    assert ab.status_code == 200
+    assert "О проекте" in ab.text
+    assert "Тестовое описание проекта." in ab.text          # ABOUT_TEXT
+    # контакт поддержки: @username → ссылка t.me
+    assert "@date4you_support" in ab.text
+    assert "https://t.me/date4you_support" in ab.text
+    # проекты автора (оба) как обычные внешние ссылки
+    assert "Мой VPN" in ab.text and "https://vpn.example.com" in ab.text
+    assert "Блог" in ab.text and "https://blog.example.com" in ab.text
+    # /about в футере лендинга и гостевой
+    assert 'href="/about"' in ca.get("/").text
+    # кривая запись проекта без http-ссылки не должна попадать (парсер фильтрует)
+    from config import support_link, _parse_projects
+    assert _parse_projects("Плохой;ОК|https://ok.com") == [{"name": "ОК", "url": "https://ok.com"}]
+    assert support_link()["url"] == "https://t.me/date4you_support"
+step("1.10: /about (текст, поддержка @→t.me, проекты автора), футер-ссылки, фильтр кривых проектов")
 
 print(f"\nВсе проверки пройдены: {OK} блоков ✔")

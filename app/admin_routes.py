@@ -610,7 +610,7 @@ def enforce_date_quota(conn, user) -> None:
         (user["id"],)).fetchone()[0]
     if used >= limit:
         contact = f" Напиши в поддержку {SUPPORT_CONTACT}" if SUPPORT_CONTACT \
-                  else " Напиши в поддержку для расширения."
+                  else " Контакт поддержки — на странице «О проекте»."
         raise HTTPException(400, f"Достигнут лимит {limit} свиданий.{contact}")
 
 
