@@ -8,7 +8,7 @@
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>♥</text></svg>">
 <link rel="stylesheet" href="/static/public.css">
 <style>
-  .legal { max-width: 760px; margin: 0 auto; padding: 40px 22px 80px; }
+  .legal { position: relative; z-index: 1; max-width: 760px; margin: 0 auto; padding: 40px 22px 80px; }
   .legal h1 { font-family: 'Cormorant Garamond', Georgia, serif; font-size: 34px; color: #b65f6f; margin: 0 0 6px; }
   .legal .upd { color: #9a8; font-size: 13px; margin: 0 0 26px; }
   .legal h2 { font-size: 19px; color: #8f4a58; margin: 28px 0 8px; }
@@ -19,6 +19,7 @@
 </style>
 </head>
 <body>
+{% include "public/_bg.html" %}
 <main class="legal">
   <a class="back" href="/">← на главную</a>
 {% if doc == 'terms' %}
@@ -27,5 +28,6 @@
   {% include "public/_privacy.html" %}
 {% endif %}
 </main>
+<script src="/static/ink.js" defer></script>
 </body>
 </html>

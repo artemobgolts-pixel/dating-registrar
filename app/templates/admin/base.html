@@ -60,7 +60,7 @@
     <a href="/admin/" class="{{ 'on' if active == 'dash' else '' }}">Главная</a>
     <a href="/admin/categories" class="{{ 'on' if active == 'cats' else '' }}">Категории</a>
     <a href="/admin/dates" class="{{ 'on' if active == 'dates' else '' }}">Свидания</a>
-    <a href="/admin/questions" class="{{ 'on' if active == 'q' else '' }}">Вопросы{% if unread %} <span class="pill">{{ unread }}</span>{% endif %}</a>
+    <a href="/admin/questions" class="{{ 'on' if active == 'q' else '' }}">Уведомления{% if unread %} <span class="pill">{{ unread }}</span>{% endif %}</a>
     <a href="/admin/profile" class="{{ 'on' if active == 'profile' else '' }}">{{ user['display_name'] or 'Профиль' }}</a>
     {% if user['is_operator'] %}<a href="/operator/" class="op-link">⚙ Оператор</a>{% endif %}
     <form class="inline" method="post" action="/admin/logout">
@@ -73,12 +73,12 @@
 {% set m = request.query_params.get('msg') %}
 {% if m %}<div class="flash{{ ' err' if m.startswith('⚠') else '' }}">{{ m }}</div>{% endif %}
 {% if user and not user['bot_linked'] %}
-<div class="flash" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+<div class="flash tg-connect" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
   <span>🔔 Подключи бота, чтобы получать уведомления, когда выберут свидание.</span>
-  <button id="tg-login" class="btn primary" style="margin-left:auto">Подключить бота</button>
-  <a id="tg-link" href="#" target="_blank" rel="noopener" hidden></a>
-  <span id="tg-hint" hidden>Нажми <b>Start</b> в боте и вернись сюда.</span>
-  <span id="tg-error" class="err" hidden style="width:100%"></span>
+  <button type="button" data-tg-connect class="btn primary" style="margin-left:auto">Подключить бота</button>
+  <a data-tg-link href="#" target="_blank" rel="noopener" hidden></a>
+  <span data-tg-hint hidden>Нажми <b>Start</b> в боте и вернись сюда.</span>
+  <span data-tg-error class="err" hidden style="width:100%"></span>
 </div>
 {% endif %}
 {% block content %}{% endblock %}

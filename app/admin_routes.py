@@ -259,6 +259,13 @@ def admin_image(filename: str, request: Request, conn=Depends(get_db)):
 
 # ----- Экспорт ---------------------------------------------------------------
 
+def _require_operator(request: Request) -> None:
+    """Экспорт/импорт данных — только операторам. Обычный пользователь даже не
+    должен знать о ручках: 404, как и на всей операторской поверхности."""
+    if not request.state.user["is_operator"]:
+        raise HTTPException(404)
+
+
 def _full_dump(conn, uid: int) -> dict:
     cats = [dict(r) for r in conn.execute(
         "SELECT * FROM categories WHERE owner_id=? ORDER BY id", (uid,))]
@@ -301,6 +308,7 @@ def _full_dump(conn, uid: int) -> dict:
 
 @router.get("/export/json")
 def export_json(request: Request, conn=Depends(get_db)):
+    _require_operator(request)
     data = _full_dump(conn, request.state.user["id"])
     day = now_naive().strftime("%Y-%m-%d")
     return Response(json.dumps(data, ensure_ascii=False, indent=2),
@@ -311,6 +319,7 @@ def export_json(request: Request, conn=Depends(get_db)):
 
 @router.get("/export/csv")
 def export_csv(request: Request, conn=Depends(get_db)):
+    _require_operator(request)
     data = _full_dump(conn, request.state.user["id"])
     cat_names = {c["id"]: c["name"] for c in data["categories"]}
     buf = io.StringIO()
@@ -343,6 +352,7 @@ def export_archive(request: Request, conn=Depends(get_db)):
     Полный снимок базы (app.db) кладём ТОЛЬКО оператору — он содержит данные
     всех арендаторов. Обычный пользователь получает выгрузку строго своих данных.
     """
+    _require_operator(request)
     user = request.state.user
     data = _full_dump(conn, user["id"])
     own_files = set()
@@ -363,6 +373,89 @@ def export_archive(request: Request, conn=Depends(get_db)):
     return FileResponse(tmp.name, media_type="application/zip",
                         filename=f"date4you-export-{day}.zip",
                         background=BackgroundTask(os.unlink, tmp.name))
+
+
+@router.post("/import/json")
+async def import_json(request: Request, file: UploadFile = File(...),
+                      conn=Depends(get_db)):
+    """Импорт данных из нашего же export.json — ДОЗАПИСЬЮ к аккаунту оператора.
+
+    Добавляет категории и свидания (с ссылками и привязкой фото/видео по именам
+    файлов) как НОВЫЕ записи. Существующие данные не трогает и не дублирует
+    осознанно — это аддитивный импорт. Брони/вопросы/гостей не переносим:
+    это контент получателей, привязанный к их браузерам. Категориям выдаём
+    свежие секретные ссылки. Файлы фото/видео должны уже лежать в uploads/
+    (например, распакованы из архива) — отсутствующие записи просто пропускаем.
+    """
+    _require_operator(request)
+    uid = request.state.user["id"]
+    raw = await file.read()
+    if len(raw) > 50 * 1024 * 1024:
+        raise HTTPException(400, "Файл слишком большой (макс 50 МБ)")
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        raise HTTPException(400, "Не удалось разобрать JSON — нужен наш export.json")
+    if not isinstance(data, dict) or not isinstance(data.get("dates"), list):
+        raise HTTPException(400, "Это не похоже на наш export.json")
+
+    cat_map: dict[int, int] = {}            # старый id категории → новый
+    n_cats = n_dates = 0
+    # категории
+    for c in data.get("categories", []):
+        if not isinstance(c, dict):
+            continue
+        name = clean_text(str(c.get("name") or ""), 200, "Название") or "Без названия"
+        token = secrets.token_urlsafe(24)
+        cur = conn.execute(
+            "INSERT INTO categories(owner_id, name, description, link_token, "
+            "link_enabled, moderate_proposals, created_at) VALUES(?,?,?,?,?,?,?)",
+            (uid, name, clean_text(str(c.get("description") or ""), 1000, "Описание"),
+             token, 1 if c.get("link_enabled", 1) else 0,
+             1 if c.get("moderate_proposals") else 0, now_iso()))
+        if c.get("id") is not None:
+            cat_map[c["id"]] = cur.lastrowid
+        n_cats += 1
+    # свидания
+    for d in data["dates"]:
+        if not isinstance(d, dict):
+            continue
+        name = clean_text(str(d.get("name") or ""), 200, "Название") or "Без названия"
+        did = insert_date(
+            conn, name=name, place=d.get("place"), starts=d.get("starts_at"),
+            ends=d.get("ends_at"), comment=d.get("comment"),
+            origin="admin", guest_token=None, owner_id=uid,
+            draft=1 if d.get("is_draft") else 0,
+            pay_split=1 if d.get("pay_split") else 0, place_url=d.get("place_url"))
+        if d.get("archived_at"):
+            conn.execute("UPDATE dates SET archived_at=? WHERE id=?",
+                         (now_iso(), did))
+        # ссылки
+        links = [u for u in (d.get("links") or []) if isinstance(u, str)]
+        save_links(conn, did, links[:20])
+        # привязка к импортированным категориям
+        for old_cid in d.get("categories", []):
+            new_cid = cat_map.get(old_cid)
+            if new_cid:
+                conn.execute(
+                    "INSERT OR IGNORE INTO date_categories(date_id, category_id, position) "
+                    "VALUES(?,?,?)", (did, new_cid, next_cat_pos(conn, new_cid)))
+        # фото/видео — по именам файлов, если они уже есть на диске
+        for pos, fn in enumerate(d.get("images") or []):
+            if isinstance(fn, str) and images.SAFE_FILENAME.match(fn) \
+                    and (images.UPLOAD_DIR / fn).exists():
+                conn.execute(
+                    "INSERT INTO date_images(date_id, filename, position) VALUES(?,?,?)",
+                    (did, fn, pos))
+        for pos, fn in enumerate(d.get("videos") or []):
+            if isinstance(fn, str) and images.SAFE_FILENAME.match(fn) \
+                    and (images.UPLOAD_DIR / fn).exists():
+                conn.execute(
+                    "INSERT INTO date_videos(date_id, filename, position) VALUES(?,?,?)",
+                    (did, fn, pos))
+        n_dates += 1
+    conn.commit()
+    return redir("/admin/", f"Импортировано: {n_cats} категорий и {n_dates} свиданий")
 
 
 # ----- Категории -----------------------------------------------------------

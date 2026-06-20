@@ -83,6 +83,14 @@ async def current_user(request: Request, conn=Depends(get_db)):
     if not user or not user["is_active"]:
         request.session.clear()
         raise NeedLogin()
+    # env — источник правды для роли оператора: если telegram_id попал в
+    # OPERATOR_TG_IDS уже после входа, выдаём роль на лету (без перелогина).
+    # Не снимаем роль у назначенных через операторскую панель — только выдаём.
+    if (user["telegram_id"] in OPERATOR_TG_IDS and not user["is_operator"]
+            and user["telegram_id"] != 0):
+        conn.execute("UPDATE users SET is_operator=1 WHERE id=?", (uid,))
+        conn.commit()
+        user = get_user(conn, uid)
     if "csrf" not in request.session:
         request.session["csrf"] = secrets.token_urlsafe(16)
     if request.method == "POST":

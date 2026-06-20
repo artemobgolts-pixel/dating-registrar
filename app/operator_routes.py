@@ -45,13 +45,47 @@ def dashboard(request: Request, conn=Depends(get_db)):
         "bookings": one("SELECT COUNT(*) FROM bookings"),
         "reports": one("SELECT COUNT(*) FROM reports WHERE status='open'"),
     }
+    # «Осиротевшие» легаси-данные (владелец telegram_id=0): их можно забрать себе.
+    legacy = conn.execute(
+        "SELECT u.id, "
+        "(SELECT COUNT(*) FROM categories c WHERE c.owner_id=u.id) AS n_cats, "
+        "(SELECT COUNT(*) FROM dates d WHERE d.owner_id=u.id) AS n_dates "
+        "FROM users u WHERE u.telegram_id=0").fetchone()
+    legacy_data = legacy if legacy and (legacy["n_cats"] or legacy["n_dates"]) else None
     recent = conn.execute(
         "SELECT id, display_name, tg_username, telegram_id, is_active, is_operator, "
         "created_at, last_login_at FROM users WHERE telegram_id<>0 "
         "ORDER BY created_at DESC LIMIT 10").fetchall()
     return templates.TemplateResponse(
         request, "operator/dashboard.html",
-        octx(request, active="dash", stats=stats, recent=recent))
+        octx(request, active="dash", stats=stats, recent=recent,
+             legacy_data=legacy_data))
+
+
+@router.post("/legacy/claim")
+def legacy_claim(request: Request, conn=Depends(get_db)):
+    """Переносит данные служебного легаси-владельца (telegram_id=0) текущему
+    оператору: дореформенные категории и свидания становятся его. Это разовая
+    операция восстановления — после переноса легаси-владелец остаётся пустым."""
+    me = request.state.user["id"]
+    legacy = conn.execute(
+        "SELECT id FROM users WHERE telegram_id=0").fetchone()
+    if not legacy:
+        return redir("/operator/", "Легаси-владельца нет — переносить нечего")
+    lid = legacy["id"]
+    n_cats = conn.execute(
+        "SELECT COUNT(*) FROM categories WHERE owner_id=?", (lid,)).fetchone()[0]
+    n_dates = conn.execute(
+        "SELECT COUNT(*) FROM dates WHERE owner_id=?", (lid,)).fetchone()[0]
+    if not (n_cats or n_dates):
+        return redir("/operator/", "У легаси-владельца нет данных")
+    conn.execute("UPDATE categories SET owner_id=? WHERE owner_id=?", (me, lid))
+    conn.execute("UPDATE dates SET owner_id=? WHERE owner_id=?", (me, lid))
+    conn.commit()
+    log.warning("operator %s claimed legacy data: %d cats, %d dates",
+                me, n_cats, n_dates)
+    return redir("/operator/",
+                 f"Перенесено: {n_cats} категорий и {n_dates} свиданий — теперь твои")
 
 
 PAGE = 30

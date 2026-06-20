@@ -162,9 +162,9 @@ with TestClient(main.app, follow_redirects=False) as c:
     # ---------- вход через Telegram-бота ----------
     r = c.get("/admin/")
     assert r.status_code == 303 and "/login" in r.headers["location"]
-    # страница входа отдаёт кнопку, а не форму логин/пароль
+    # страница входа отдаёт Telegram Login Widget, а не форму логин/пароль
     lp = c.get("/login")
-    assert lp.status_code == 200 and "Войти через Telegram" in lp.text
+    assert lp.status_code == 200 and "telegram-widget.js" in lp.text
 
     # вебхук без секрета — 403 (иначе любой подтвердит чужой код)
     r0 = c.post("/auth/start")
@@ -1493,8 +1493,10 @@ with TestClient(main.app, follow_redirects=False) as ca, \
     assert not db_one("SELECT 1 FROM date_categories WHERE date_id=? AND category_id=?",
                       (dateA, catB))
 
-    # экспорт Боба не содержит Алисиных данных
-    assert "Свидание Алисы" not in cb.get("/admin/export/json").text
+    # экспорт — только операторам: Боб (обычный пользователь) получает 404
+    rexp = cb.get("/admin/export/json")
+    assert rexp.status_code == 404
+    assert "Свидание Алисы" not in rexp.text
 step("изоляция HTTP: Алиса и Боб не видят и не трогают данные друг друга по всем ручкам")
 
 # ---------- операторская админка (поверхность 3) ----------
@@ -1558,6 +1560,79 @@ with TestClient(main.app, follow_redirects=False) as cop, \
     assert opost(f"/operator/users/{uid_nop}/delete").status_code == 303
     assert not db_one("SELECT 1 FROM users WHERE id=?", (uid_nop,))
 step("операторская админка: гейт 404 для не-оператора, баны/квоты/роли/удаление, самозащита")
+
+
+# ---------- #4: импорт JSON (дозапись) + гейт оператора ----------
+main._rates.clear()
+with TestClient(main.app, follow_redirects=False) as cimp, \
+        TestClient(main.app, follow_redirects=False) as cuser:
+    assert tg_login(cimp, 555001, username="boss").json()["status"] == "ok"
+    icsrf = re.search(r'name="csrf" value="([^"]+)"',
+                      cimp.get("/admin/profile").text).group(1)
+    payload = {
+        "categories": [{"id": 7001, "name": "Импорт-Категория", "link_enabled": 1}],
+        "dates": [{"name": "Импортированное свидание", "place": "Кафе",
+                   "comment": "из бэкапа", "categories": [7001],
+                   "links": ["https://example.com"], "images": [], "videos": []}],
+        "guests": [], "questions": [],
+    }
+    blob = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    r = cimp.post("/admin/import/json", data={"csrf": icsrf},
+                  files=[("file", ("export.json", blob, "application/json"))])
+    assert r.status_code == 303, r.status_code
+    imp_owner = db_one("SELECT id FROM users WHERE telegram_id=555001")[0]
+    new_cat = db_one("SELECT id FROM categories WHERE name='Импорт-Категория' AND owner_id=?",
+                     (imp_owner,))
+    assert new_cat, "импортированная категория не создана у оператора"
+    imp_date = db_one("SELECT id FROM dates WHERE name='Импортированное свидание' AND owner_id=?",
+                      (imp_owner,))
+    assert imp_date, "импортированное свидание не создано"
+    # свидание привязано к импортированной категории (ремап старого id → новый)
+    assert db_one("SELECT 1 FROM date_categories WHERE date_id=? AND category_id=?",
+                  (imp_date["id"], new_cat["id"]))
+    # ссылка перенесена
+    assert db_one("SELECT 1 FROM date_links WHERE date_id=? AND url='https://example.com'",
+                  (imp_date["id"],))
+    # импорт — только операторам. У обычного пользователя GET-экспорт прямо 404;
+    # POST-импорт админский обработчик ошибок превращает в 303-flash «⚠», но
+    # данные при этом НЕ импортируются.
+    assert tg_login(cuser, 991100, username="plainuser").json()["status"] == "ok"
+    uid_plain = db_one("SELECT id FROM users WHERE telegram_id=991100")[0]
+    assert cuser.get("/admin/export/json").status_code == 404
+    ucsrf = re.search(r'name="csrf" value="([^"]+)"',
+                      cuser.get("/admin/profile").text).group(1)
+    r = cuser.post("/admin/import/json", data={"csrf": ucsrf},
+                   files=[("file", ("export.json", blob, "application/json"))])
+    assert r.status_code in (303, 404)
+    assert not db_one("SELECT 1 FROM dates WHERE owner_id=? AND name='Импортированное свидание'",
+                      (uid_plain,)), "не-оператор не должен импортировать данные"
+step("#4: импорт export.json дозаписью к оператору (ремап категорий, ссылки); гейт 404 не-оператору")
+
+
+# ---------- #8: авто-роль оператора из env (без перелогина) ----------
+main._rates.clear()
+with TestClient(main.app, follow_redirects=False) as crole:
+    # входим обычным пользователем, затем «добавляем» его id в OPERATOR_TG_IDS
+    assert tg_login(crole, 991200, username="newop").json()["status"] == "ok"
+    uid_role = db_one("SELECT id, is_operator FROM users WHERE telegram_id=991200")
+    assert uid_role["is_operator"] == 0
+    import users as _users
+    import config as _cfg
+    _saved_ops = set(_users.OPERATOR_TG_IDS)
+    _users.OPERATOR_TG_IDS.add(991200)
+    _cfg.OPERATOR_TG_IDS.add(991200)
+    try:
+        # следующий же запрос в кабинет выдаёт роль на лету (current_user)
+        assert "⚙ Оператор" in crole.get("/admin/").text
+        assert db_one("SELECT is_operator FROM users WHERE id=?",
+                      (uid_role["id"],))[0] == 1
+        # и операторская поверхность теперь доступна
+        assert crole.get("/operator/").status_code == 200
+    finally:
+        _users.OPERATOR_TG_IDS.clear(); _users.OPERATOR_TG_IDS.update(_saved_ops)
+        _cfg.OPERATOR_TG_IDS.clear(); _cfg.OPERATOR_TG_IDS.update(_saved_ops)
+step("#8: telegram_id из OPERATOR_TG_IDS получает роль оператора на лету, без перелогина")
+main._rates.clear()
 
 
 # ---------- жалобы: гость → очередь оператора → takedown ----------
@@ -1892,8 +1967,12 @@ with TestClient(main.app, follow_redirects=False) as cl:
     # на странице входа — чекбокс согласия со ссылками на оба документа
     lp = cl.get("/login").text
     assert 'id="tg-consent"' in lp and 'href="/terms"' in lp and 'href="/privacy"' in lp
-    # кнопка входа изначально заблокирована (до согласия)
-    assert "disabled" in lp
+    # виджет входа скрыт до согласия (показывается по чекбоксу через auth.js)
+    assert 'id="tg-widget-wrap" hidden' in lp
+    # вход только через виджет — кнопки deep-link «Войти через Telegram» на входе нет
+    assert "Войти через Telegram" not in lp
+    # надпись про подключение уведомлений в профиле
+    assert "уведомления" in lp.lower()
     # страница входа несёт footer-ссылки на юр-документы
     assert 'href="/terms"' in lp and 'href="/about"' in lp
     # домен ведёт сразу на вход/регистрацию (декоративный лендинг убран)

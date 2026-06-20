@@ -12,6 +12,7 @@
 <link rel="stylesheet" href="/static/admin.css">
 </head>
 <body>
+{% include "public/_bg.html" %}
 <div class="login-page">
   <div class="login-center">
   <div class="login-card">
@@ -26,16 +27,7 @@
           <a href="/terms" target="_blank" rel="noopener">Пользовательское соглашение</a>
           и <a href="/privacy" target="_blank" rel="noopener">Политику конфиденциальности</a>.</span>
       </label>
-      <button id="tg-login" class="btn primary" style="width:100%" disabled>Войти через Telegram</button>
-      <p id="tg-hint" class="login-hint" hidden>
-        Открой бота, нажми <b>Start</b> — и вернись на эту вкладку.
-        <a id="tg-link" href="#" target="_blank" rel="noopener">Открыть бота ещё раз</a>
-      </p>
-      <div id="tg-error" class="err" hidden></div>
-      <p class="login-lead" style="margin:18px 0 8px;font-size:13px;opacity:.8">
-        Вход через бота сразу включает уведомления о выборе свиданий.</p>
 
-      <div class="login-or"><span>или быстрый вход</span></div>
       <div id="tg-widget-wrap" hidden>
         <script async src="https://telegram.org/js/telegram-widget.js?22"
                 data-telegram-login="{{ bot }}"
@@ -44,8 +36,9 @@
                 data-request-access="write"></script>
       </div>
       <p class="login-hint" id="tg-widget-gate">Отметь согласие выше, чтобы войти.</p>
-      <p class="login-hint">Быстрый вход через виджет <b>без уведомлений</b> —
-        бота можно подключить позже в кабинете.</p>
+      <div id="tg-error" class="err" hidden></div>
+      <p class="login-note">После входа можно подключить уведомления в Telegram —
+        в настройках профиля.</p>
     {% endif %}
   </div>
   </div>
@@ -53,6 +46,7 @@
     <a href="/about">О проекте</a> · <a href="/terms">Соглашение</a> · <a href="/privacy">Конфиденциальность</a>
   </footer>
 </div>
+<script src="/static/ink.js" defer></script>
 <script nonce="{{ csp_nonce }}" src="/static/auth.js"></script>
 </body>
 </html>

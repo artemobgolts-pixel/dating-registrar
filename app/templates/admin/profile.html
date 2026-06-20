@@ -45,7 +45,6 @@
     <div class="field">
       <label>Дата рождения</label>
       <input type="date" name="birth_date" value="{{ user['birth_date'] or '' }}">
-      <div class="hint">Только 18+. Можно не указывать</div>
     </div>
 
     <div class="field">
@@ -73,5 +72,24 @@
 <div class="card muted" style="max-width:540px;font-size:13.5px">
   Вход выполнен через Telegram{% if user['tg_username'] %} (@{{ user['tg_username'] }}){% endif %}.
   {% if user['is_operator'] %}<br>Вы оператор платформы.{% endif %}
+</div>
+
+<div class="card" style="max-width:540px">
+  <b>🔔 Уведомления в Telegram</b>
+  {% if user['bot_linked'] %}
+  <p class="muted" style="margin:8px 0 0;font-size:13.5px">
+    Бот подключён — приходят уведомления, когда гость выбирает свидание,
+    задаёт вопрос или предлагает идею.</p>
+  {% else %}
+  <div class="tg-connect">
+    <p class="muted" style="margin:8px 0 12px;font-size:13.5px">
+      Подключи бота, чтобы получать уведомления о выборе свиданий, вопросах
+      и предложениях прямо в Telegram.</p>
+    <button type="button" data-tg-connect class="btn primary">Подключить уведомления</button>
+    <a data-tg-link href="#" target="_blank" rel="noopener" hidden></a>
+    <p data-tg-hint class="hint" hidden style="margin-top:8px">Нажми <b>Start</b> в боте и вернись сюда.</p>
+    <p data-tg-error class="err" hidden style="margin-top:8px"></p>
+  </div>
+  {% endif %}
 </div>
 {% endblock %}

@@ -3,6 +3,19 @@
 {% block content %}
 <h1>Обзор платформы</h1>
 
+{% if legacy_data %}
+<div class="flash" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;background:#fff5e6;border-color:#f0dcb0">
+  <span>📦 Есть дореформенные данные без владельца:
+    <b>{{ legacy_data['n_cats'] }}</b> категорий и <b>{{ legacy_data['n_dates'] }}</b> свиданий.
+    Их можно забрать на свой аккаунт.</span>
+  <form method="post" action="/operator/legacy/claim" style="margin-left:auto"
+        data-confirm="Перенести все дореформенные категории и свидания на свой аккаунт?">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button class="btn primary">Забрать себе</button>
+  </form>
+</div>
+{% endif %}
+
 <div class="cards">
   <div class="stat"><div class="v">{{ stats.users }}</div><div class="l">пользователей</div></div>
   <div class="stat"><div class="v">{{ stats.active }}</div><div class="l">активных</div></div>
