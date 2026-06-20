@@ -2280,10 +2280,10 @@ with TestClient(main.app, follow_redirects=False) as cown:
     assert tg_login(cown, 992401, username="uiowner").json()["status"] == "ok"
     pc = re.search(r'name="csrf" value="([^"]+)"',
                    cown.get("/admin/profile").text).group(1)
-    # #6: в профиле нет старого хинта, пол по умолчанию «Не выбрано»
+    # #6: в профиле нет старого хинта, пол по умолчанию «Не указан»
     pf = cown.get("/admin/profile").text
     assert "Как тебя увидят получатели приглашений" not in pf
-    assert "Не выбрано" in pf
+    assert "Не указан" in pf
     cown.post("/admin/profile", data={"csrf": pc, "display_name": "UIвладелец",
                                       "birth_date": "1991-01-01"})
     cown.post("/admin/categories/create", data={"csrf": pc, "name": "UI-кат"})

@@ -41,6 +41,7 @@
       <p class="muted" style="margin:10px 0 0;font-size:12.5px">Можно отключить или сменить ссылку на странице <a href="/admin/categories/{{ share['id'] }}">категории</a>.</p>
     </div>
     <div class="share-qr-col">
+      <button type="button" class="btn primary qr-share" id="qrShare" data-url="{{ share_url }}" data-name="{{ share['name'] }}">Поделиться</button>
       <button type="button" class="btn ghost qr-toggle" id="qrToggle">Показать QR-код</button>
       <div class="share-qr" id="shareQr">{{ qr_svg | safe }}</div>
       <a class="btn small qr-dl" id="qrDownload" download="date4you-qr.svg" href="#">Скачать QR</a>
@@ -132,6 +133,24 @@
     var markup = new XMLSerializer().serializeToString(svg);
     if (!/^<\?xml/.test(markup)) markup = '<?xml version="1.0" encoding="UTF-8"?>\n' + markup;
     dl.href = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(markup);
+  }
+  // «Поделиться»: системное меню (Web Share API); если недоступно — копируем ссылку.
+  var share = document.getElementById('qrShare');
+  if (share) {
+    share.addEventListener('click', function () {
+      var url = share.getAttribute('data-url');
+      var title = share.getAttribute('data-name') || 'Подборка свиданий';
+      if (navigator.share) {
+        navigator.share({ title: title, text: 'Тебя ждёт сюрприз ♥', url: url })
+          .catch(function () { /* пользователь закрыл меню — не ошибка */ });
+      } else if (navigator.clipboard) {
+        navigator.clipboard.writeText(url).then(function () {
+          var o = share.textContent;
+          share.textContent = 'Ссылка скопирована ✓';
+          setTimeout(function () { share.textContent = o; }, 1600);
+        });
+      }
+    });
   }
 })();
 </script>

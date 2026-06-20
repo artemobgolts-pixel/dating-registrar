@@ -369,7 +369,14 @@
       <textarea name="links" placeholder="https://..."></textarea>
     </div>
     <div class="field">
-      <label>Комментарий <span class="muted" style="font-weight:400">— выдели текст, чтобы отформатировать</span></label>
+      <label>Комментарий <span class="muted" style="font-weight:400">— выдели слово и нажми Ж / К / П / З</span></label>
+      <div class="toolbar" id="propDescToolbar">
+        <button type="button" class="b" data-wrap="**|**" title="Жирный">Ж</button>
+        <button type="button" class="i" data-wrap="*|*" title="Курсив">К</button>
+        <button type="button" class="u" data-wrap="__|__" title="Подчёркнутый">П</button>
+        <button type="button" class="s" data-wrap="~~|~~" title="Зачёркнутый">З</button>
+        <button type="button" data-wrap="[|](https://)" title="Ссылка">🔗</button>
+      </div>
       <div class="rich-ed" id="propDescEditable" contenteditable="true"
            role="textbox" aria-multiline="true"
            data-placeholder="Почему это будет здорово ♥"></div>

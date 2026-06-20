@@ -1063,6 +1063,19 @@ footer .hearts { color: var(--rose); opacity: .55; letter-spacing: 8px; margin-b
 .chk-line input { width: 17px; height: 17px; accent-color: var(--rose); }
 
 /* WYSIWYG-редактор комментария в форме предложения (тот же, что в кабинете) */
+.toolbar { display: flex; gap: 4px; margin-bottom: 6px; flex-wrap: wrap; }
+.toolbar button {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, .7);
+  border-radius: 9px;
+  width: 36px; height: 34px;
+  cursor: pointer; font-size: 14px; color: var(--ink);
+}
+.toolbar button:hover { background: var(--rose-soft); border-color: var(--rose); }
+.toolbar .b { font-weight: 800; }
+.toolbar .i { font-style: italic; }
+.toolbar .u { text-decoration: underline; }
+.toolbar .s { text-decoration: line-through; }
 .rich-ed {
   min-height: 86px;
   border: 1px solid var(--line); border-radius: 14px;

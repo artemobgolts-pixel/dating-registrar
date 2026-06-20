@@ -14,7 +14,7 @@
   <div class="bar" style="margin-bottom:0">
     <div>
       <a href="/admin/categories/{{ c['id'] }}" style="font-weight:600;font-size:16px;text-decoration:none;color:inherit">{{ c['name'] }}</a>
-      <span class="badge">{{ c['dcount'] }} свид.</span>
+      <span class="badge">{{ c['dcount'] }} {{ c['dcount'] | plural('свидание', 'свидания', 'свиданий') }}</span>
       {% if c['moderate_proposals'] %}<span class="badge amber">модерация</span>{% endif %}
       {% if not c['link_enabled'] %}<span class="badge" style="background:#fdeeee;color:#a33">ссылка выкл.</span>{% endif %}
     </div>

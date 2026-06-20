@@ -194,6 +194,7 @@
   var propRich = UI.richEditor({
     textarea: $("#propComment"),
     editable: $("#propDescEditable"),
+    toolbar: $("#propDescToolbar"),
   });
 
   function renderKept(photos) {

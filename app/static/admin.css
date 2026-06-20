@@ -488,6 +488,22 @@ label.chk {
   line-height: 1;
 }
 
+/* название сайта под сердцем — серифом, фирменным градиентом розы */
+.login-brand {
+  text-align: center;
+  font-size: 34px;
+  font-weight: 600;
+  line-height: 1;
+  margin: -6px 0 14px;
+  background: linear-gradient(120deg, var(--rose-2), var(--rose) 60%, #cf8a78);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: var(--rose-2);
+}
+.login-brand .d4 {
+  display: inline-block; transform: translateY(-0.08em);
+  -webkit-text-fill-color: transparent;
+}
+
 .login-lead { color: var(--ink); margin: 0 0 16px; }
 
 /* виджет Telegram центрируем (раньше «съезжал» влево из-за выравнивания по левому краю).
@@ -1347,8 +1363,14 @@ input, textarea, select {
   }
 
   /* нижний капсульный таб-бар (стиль Apple liquid glass): вкладки в одну строку,
-     зафиксированы внизу экрана. Логотип остаётся в шапке сверху. */
-  .top { flex-wrap: nowrap; justify-content: center; padding: 9px 14px; }
+     зафиксированы внизу экрана. Логотип остаётся в шапке сверху.
+     ВАЖНО: у .top убираем backdrop-filter — фильтр создаёт containing block, и
+     position:fixed у вложенного nav привязывался бы к шапке (бар «прилипал» вверху),
+     а не к окну. Без фильтра fixed считается от вьюпорта и бар уезжает вниз. */
+  .top {
+    flex-wrap: nowrap; justify-content: center; padding: 9px 14px;
+    -webkit-backdrop-filter: none; backdrop-filter: none;
+  }
   .top .brand { font-size: 17px; }
   .top nav {
     position: fixed;
@@ -1398,6 +1420,16 @@ input, textarea, select {
   .top nav a { position: relative; }
   /* пустое описание на телефоне — одна аккуратная строка, не «башня» */
   .rich-ed { min-height: 44px; }
+
+  /* быстрые действия на главной: «Создать» во всю строку, «Ссылка»/«Открыть» по половине */
+  .quick { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .quick .btn.primary { grid-column: 1 / -1; }
+  .quick .btn { margin: 0; text-align: center; }
+
+  /* в редакторе свидания «Отмена» — той же ширины и высоты, что «Сохранить» */
+  .savebar { flex-wrap: nowrap; }
+  .savebar .btn.primary { min-width: 0; }
+  .savebar .btn.ghost { flex: 1; padding: 13px 18px; font-size: 17px; text-align: center; }
 
   /* форму создания свидания не должно «таскать» по горизонтали:
      контент клиппим по ширине, элементы не шире контейнера */

@@ -99,6 +99,51 @@
           <input type="file" name="images" id="imagesInput" accept="image/*" multiple hidden>
           <input type="file" name="videos" id="videosInput" accept="video/mp4,video/webm" multiple hidden>
         </div>
+
+        {% if date and photos %}
+        <div class="field" style="margin:14px 0 0">
+          <label>Загруженные фото — первое фото обложка; перетащи плитку, чтобы поменять порядок; кликни, чтобы выбрать зону</label>
+          <div class="thumbs" id="thumbs" data-did="{{ date['id'] }}" style="margin-top:6px">
+            {% for p in photos %}
+            <div class="thumb" data-pid="{{ p['id'] }}">
+              <img src="/admin/uploads/{{ p['filename'] }}" alt="" draggable="false"
+                   loading="lazy" decoding="async"
+                   class="focusable" data-focus="{{ p['focus'] or '50% 50%' }}"
+                   style="object-position:{{ p['focus'] or '50% 50%' }}">
+              <div class="thumb-btns">
+                <a class="btn small" href="/admin/uploads/{{ p['filename'] }}" target="_blank" rel="noopener" title="Открыть">⤢</a>
+                <form class="inline" method="post" action="/admin/dates/{{ date['id'] }}/images/{{ p['id'] }}/delete"
+                      data-confirm="Удалить фото?">
+                  <input type="hidden" name="csrf" value="{{ csrf }}">
+                  <button class="btn small danger">✕</button>
+                </form>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+          <p class="muted" id="orderStatus" style="font-size:12.5px;margin:8px 0 0;visibility:hidden">Сохранено ✓</p>
+        </div>
+        {% endif %}
+
+        {% if date and videos %}
+        <div class="field" style="margin:14px 0 0">
+          <label>Загруженные видео</label>
+          <div style="display:grid;gap:10px">
+            {% for v in videos %}
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+              <video src="/admin/uploads/{{ v['filename'] }}" controls preload="metadata"
+                     style="width:min(100%,360px);border-radius:12px;background:#000"></video>
+              <form class="inline" method="post"
+                    action="/admin/dates/{{ date['id'] }}/videos/{{ v['id'] }}/delete"
+                    data-confirm="Удалить видео?">
+                <input type="hidden" name="csrf" value="{{ csrf }}">
+                <button class="btn small danger">✕ удалить</button>
+              </form>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
       </div>
 
       <div class="sec">
@@ -173,52 +218,6 @@
     </div>
   </div>
 </div>
-
-{% if date and photos %}
-<div class="card">
-  <b>Фотографии</b>
-  <p class="muted" style="margin:4px 0 0;font-size:13px">первое фото — обложка карточки; перетащи плитку, чтобы поменять порядок · кликни по фото, чтобы выбрать зону для карточки</p>
-  <div class="thumbs" id="thumbs" data-did="{{ date['id'] }}" style="margin-top:10px">
-    {% for p in photos %}
-    <div class="thumb" data-pid="{{ p['id'] }}">
-      <img src="/admin/uploads/{{ p['filename'] }}" alt="" draggable="false"
-           loading="lazy" decoding="async"
-           class="focusable" data-focus="{{ p['focus'] or '50% 50%' }}"
-           style="object-position:{{ p['focus'] or '50% 50%' }}">
-      <div class="thumb-btns">
-        <a class="btn small" href="/admin/uploads/{{ p['filename'] }}" target="_blank" rel="noopener" title="Открыть">⤢</a>
-        <form class="inline" method="post" action="/admin/dates/{{ date['id'] }}/images/{{ p['id'] }}/delete"
-              data-confirm="Удалить фото?">
-          <input type="hidden" name="csrf" value="{{ csrf }}">
-          <button class="btn small danger">✕</button>
-        </form>
-      </div>
-    </div>
-    {% endfor %}
-  </div>
-  <p class="muted" id="orderStatus" style="font-size:12.5px;margin:8px 0 0;visibility:hidden">Сохранено ✓</p>
-</div>
-{% endif %}
-
-{% if date and videos %}
-<div class="card">
-  <b>Видео</b>
-  <div style="margin-top:10px;display:grid;gap:10px">
-    {% for v in videos %}
-    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-      <video src="/admin/uploads/{{ v['filename'] }}" controls preload="metadata"
-             style="width:min(100%,360px);border-radius:12px;background:#000"></video>
-      <form class="inline" method="post"
-            action="/admin/dates/{{ date['id'] }}/videos/{{ v['id'] }}/delete"
-            data-confirm="Удалить видео?">
-        <input type="hidden" name="csrf" value="{{ csrf }}">
-        <button class="btn small danger">✕ удалить</button>
-      </form>
-    </div>
-    {% endfor %}
-  </div>
-</div>
-{% endif %}
 
 {% if date %}
 <div class="card">
