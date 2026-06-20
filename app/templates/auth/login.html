@@ -13,6 +13,7 @@
 </head>
 <body>
 <div class="login-page">
+  <div class="login-center">
   <div class="login-card">
     <h1>♥</h1>
     <p class="login-lead">Войди, чтобы собрать свою подборку свиданий.</p>
@@ -47,6 +48,10 @@
         бота можно подключить позже в кабинете.</p>
     {% endif %}
   </div>
+  </div>
+  <footer class="login-foot">
+    <a href="/about">О проекте</a> · <a href="/terms">Соглашение</a> · <a href="/privacy">Конфиденциальность</a>
+  </footer>
 </div>
 <script nonce="{{ csp_nonce }}" src="/static/auth.js"></script>
 </body>

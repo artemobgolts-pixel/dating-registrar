@@ -1371,10 +1371,10 @@ with TestClient(main.app, follow_redirects=False) as cpwa:
     for ic in man["icons"]:
         p = ROOT / ic["src"].lstrip("/")
         assert p.exists(), f"в манифесте указана несуществующая иконка: {ic['src']}"
-    # манифест и theme-color подключены на гостевой странице
-    home = cpwa.get("/").text
+    # манифест и theme-color подключены на странице входа (домен ведёт на /login)
+    home = cpwa.get("/login").text
     assert 'rel="manifest"' in home and 'name="theme-color"' in home
-step("PWA: манифест отдаётся, иконки на диске, подключён на гостевой")
+step("PWA: манифест отдаётся, иконки на диске, подключён на странице входа")
 
 # ---------- изоляция: owner-гейт хелперов get_owned_* ----------
 # Главный инвариант продукта: пользователь видит только свои данные. Здесь
@@ -1894,10 +1894,14 @@ with TestClient(main.app, follow_redirects=False) as cl:
     assert 'id="tg-consent"' in lp and 'href="/terms"' in lp and 'href="/privacy"' in lp
     # кнопка входа изначально заблокирована (до согласия)
     assert "disabled" in lp
-    # лендинг и гостевая несут footer-ссылки + cookie-бар
-    home = cl.get("/").text
-    assert 'href="/terms"' in home and 'id="cookie-bar"' in home
-step("1.8: /terms и /privacy доступны (18+, 152-ФЗ, право на удаление); согласие на входе; cookie-бар")
+    # страница входа несёт footer-ссылки на юр-документы
+    assert 'href="/terms"' in lp and 'href="/about"' in lp
+    # домен ведёт сразу на вход/регистрацию (декоративный лендинг убран)
+    root = cl.get("/")
+    assert root.status_code == 307 and root.headers["location"] == "/login"
+    # cookie-баннер убран — его нет ни на входе, ни на гостевой
+    assert "cookie-bar" not in lp
+step("1.8: /terms и /privacy доступны (18+, 152-ФЗ, право на удаление); согласие на входе; / → /login")
 
 
 # ---------- 1.10: страница «О проекте», поддержка, проекты автора ----------
@@ -1912,8 +1916,8 @@ with TestClient(main.app, follow_redirects=False) as ca:
     # проекты автора (оба) как обычные внешние ссылки
     assert "Мой VPN" in ab.text and "https://vpn.example.com" in ab.text
     assert "Блог" in ab.text and "https://blog.example.com" in ab.text
-    # /about в футере лендинга и гостевой
-    assert 'href="/about"' in ca.get("/").text
+    # /about в футере страницы входа (домен ведёт на /login)
+    assert 'href="/about"' in ca.get("/login").text
     # кривая запись проекта без http-ссылки не должна попадать (парсер фильтрует)
     from config import support_link, _parse_projects
     assert _parse_projects("Плохой;ОК|https://ok.com") == [{"name": "ОК", "url": "https://ok.com"}]

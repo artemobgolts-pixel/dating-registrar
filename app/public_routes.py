@@ -13,7 +13,8 @@ from datetime import datetime, timedelta, timezone
 from fastapi import (APIRouter, BackgroundTasks, Depends, File, Form,
                      HTTPException, Request, UploadFile)
 from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
-                               PlainTextResponse, Response, StreamingResponse)
+                               PlainTextResponse, RedirectResponse, Response,
+                               StreamingResponse)
 
 import db
 import images
@@ -188,9 +189,11 @@ def health():
     return {"ok": True}
 
 
-@router.get("/", response_class=HTMLResponse)
-def home(request: Request):
-    return templates.TemplateResponse(request, "public/home.html")
+@router.get("/")
+def home():
+    # Домен открывает сразу страницу входа/регистрации (а /login уже сам уводит
+    # залогиненного в кабинет). Декоративный лендинг убран по просьбе владельца.
+    return RedirectResponse("/login", status_code=307)
 
 
 @router.get("/favicon.ico", include_in_schema=False)

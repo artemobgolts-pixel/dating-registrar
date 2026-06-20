@@ -35,6 +35,37 @@ router = APIRouter()
 
 TTL_SECONDS = 600          # код входа живёт 10 минут
 
+# Username бота для кнопки входа и deep-link. Берём из env (TG_BOT_USERNAME);
+# если там пусто — определяем по токену через getMe при старте (resolve_bot_username),
+# чтобы вход работал, даже когда владелец прописал только TG_BOT_TOKEN.
+BOT_USERNAME = TG_BOT_USERNAME
+
+
+def resolve_bot_username() -> None:
+    """Узнаёт @username бота по токену, если TG_BOT_USERNAME не задан.
+
+    Так вход работает, даже когда в .env есть только TG_BOT_TOKEN: раньше при
+    пустом username страница входа писала «Вход через Telegram пока не настроен».
+    Идемпотентно и без сети, если username уже известен или токена нет.
+    """
+    global BOT_USERNAME
+    import notify
+    if BOT_USERNAME or not notify.TOKEN:
+        return
+    try:
+        r = httpx.get(f"https://api.telegram.org/bot{notify.TOKEN}/getMe", timeout=10)
+        if r.status_code != 200:
+            log.warning("getMe вернул %s: %s", r.status_code, r.text[:200])
+            return
+        username = ((r.json().get("result") or {}).get("username") or "").lstrip("@")
+        if username:
+            BOT_USERNAME = username
+            log.info("Username бота определён по токену: @%s", username)
+        else:
+            log.warning("getMe не вернул username бота")
+    except Exception:
+        log.exception("Не удалось определить username бота (getMe)")
+
 
 def setup_webhook() -> None:
     """Регистрирует вебхук входа в Telegram при старте (если всё настроено).
@@ -78,7 +109,7 @@ def login_page(request: Request, conn=Depends(get_db)):
     if request.session.get("user_id") and users.get_user(conn, request.session["user_id"]):
         return RedirectResponse("/admin/", status_code=303)
     return templates.TemplateResponse(
-        request, "auth/login.html", {"bot": TG_BOT_USERNAME})
+        request, "auth/login.html", {"bot": BOT_USERNAME})
 
 
 def _verify_widget(data: dict) -> bool:
@@ -134,7 +165,7 @@ def auth_start(request: Request, conn=Depends(get_db)):
     # анти-спам: не больше 10 кодов с одного IP за 10 минут
     if not rate_ok(f"authstart:{ip}", 10, 600):
         raise HTTPException(429, "Слишком много попыток входа. Подожди немного.")
-    if not TG_BOT_USERNAME:
+    if not BOT_USERNAME:
         raise HTTPException(503, "Вход через Telegram не настроен (TG_BOT_USERNAME).")
     _gc_codes(conn)
     code = secrets.token_urlsafe(12)
@@ -143,7 +174,7 @@ def auth_start(request: Request, conn=Depends(get_db)):
         (code, now_iso()))
     conn.commit()
     return JSONResponse({"code": code,
-                         "url": f"https://t.me/{TG_BOT_USERNAME}?start={code}"})
+                         "url": f"https://t.me/{BOT_USERNAME}?start={code}"})
 
 
 @router.get("/auth/poll")

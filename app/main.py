@@ -70,6 +70,7 @@ async def lifespan(app: FastAPI):
     try:
         autoarchive_once()
         backup.make_backup_if_stale(hours=20)
+        auth_routes.resolve_bot_username()
         auth_routes.setup_webhook()
     except Exception:
         log.exception("Ошибка при старте")

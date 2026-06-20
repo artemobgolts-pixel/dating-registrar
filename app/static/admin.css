@@ -386,10 +386,26 @@ label.chk {
 .login-page {
   min-height: 100dvh;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: column;
   padding: 20px;
 }
+
+/* карточка входа центрируется в свободном пространстве, футер прижат к низу */
+.login-center {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.login-foot {
+  text-align: center;
+  padding: 14px 0 4px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.login-foot a { color: var(--rose); opacity: .85; text-decoration: none; }
+.login-foot a:hover { text-decoration: underline; }
 
 .login-card {
   background: #fff;
