@@ -39,7 +39,6 @@
       <label>Имя *</label>
       <input type="text" name="display_name" required maxlength="80"
              value="{{ user['display_name'] or '' }}">
-      <div class="hint">Как тебя увидят получатели приглашений</div>
     </div>
 
     <div class="field">
@@ -50,7 +49,7 @@
     <div class="field">
       <label>Пол</label>
       <select name="gender">
-        <option value="" {{ 'selected' if not user['gender'] else '' }}>—</option>
+        <option value="" {{ 'selected' if not user['gender'] else '' }}>Не выбрано</option>
         <option value="m" {{ 'selected' if user['gender'] == 'm' else '' }}>Мужской</option>
         <option value="f" {{ 'selected' if user['gender'] == 'f' else '' }}>Женский</option>
       </select>
@@ -71,7 +70,7 @@
 
 <div class="card muted" style="max-width:540px;font-size:13.5px">
   Вход выполнен через Telegram{% if user['tg_username'] %} (@{{ user['tg_username'] }}){% endif %}.
-  {% if user['is_operator'] %}<br>Вы оператор платформы.{% endif %}
+  {% if user['is_operator'] %}<br>Вы админ платформы.{% endif %}
 </div>
 
 <div class="card" style="max-width:540px">

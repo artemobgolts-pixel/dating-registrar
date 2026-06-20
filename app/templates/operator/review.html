@@ -1,0 +1,54 @@
+{% extends "operator/base.html" %}
+{% block title %}На проверке{% endblock %}
+{% block content %}
+<h1>На проверке</h1>
+<p class="muted" style="margin:-8px 0 18px">
+  Новые пользователи и категории, помеченные на проверку. Одобрение убирает пометку —
+  на доступ это не влияет (мягкая очередь). Настроить, что попадает сюда, можно в
+  <a class="link" href="/operator/settings">настройках</a>.
+</p>
+
+<h1 style="font-size:18px">Пользователи ({{ users_q|length }})</h1>
+<table>
+  <tr><th>Имя</th><th>Telegram</th><th>Категории</th><th>Свидания</th><th>Регистрация</th><th></th></tr>
+  {% for u in users_q %}
+  <tr>
+    <td><a class="link" href="/operator/users/{{ u['id'] }}">{{ u['display_name'] or '—' }}</a></td>
+    <td class="muted">{% if u['tg_username'] %}@{{ u['tg_username'] }}{% else %}id {{ u['telegram_id'] }}{% endif %}</td>
+    <td>{{ u['n_cats'] }}</td>
+    <td>{{ u['n_dates'] }}</td>
+    <td class="muted">{{ u['created_at'][:10] }}</td>
+    <td>
+      <form class="inline" method="post" action="/operator/review/user/{{ u['id'] }}/approve">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button class="btn small primary">Одобрить</button>
+      </form>
+    </td>
+  </tr>
+  {% else %}<tr><td colspan="6" class="muted">Очередь пуста</td></tr>{% endfor %}
+</table>
+
+<h1 style="font-size:18px;margin-top:24px">Категории ({{ cats_q|length }})</h1>
+<table>
+  <tr><th>Название</th><th>Владелец</th><th>Свиданий</th><th>Ссылка</th><th>Создана</th><th></th></tr>
+  {% for c in cats_q %}
+  <tr>
+    <td><b>{{ c['name'] }}</b></td>
+    <td class="muted">{{ c['owner'] or '—' }}</td>
+    <td>{{ c['n'] }}</td>
+    <td>
+      {% if c['link_token'] %}
+      <a class="link" href="{{ base_url }}/c/{{ c['link_token'] }}" target="_blank" rel="noopener">открыть ↗</a>
+      {% else %}<span class="muted">—</span>{% endif %}
+    </td>
+    <td class="muted">{{ c['created_at'][:10] }}</td>
+    <td>
+      <form class="inline" method="post" action="/operator/review/category/{{ c['id'] }}/approve">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button class="btn small primary">Одобрить</button>
+      </form>
+    </td>
+  </tr>
+  {% else %}<tr><td colspan="6" class="muted">Очередь пуста</td></tr>{% endfor %}
+</table>
+{% endblock %}

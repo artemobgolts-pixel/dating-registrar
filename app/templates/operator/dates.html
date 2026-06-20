@@ -34,6 +34,7 @@
     <td>{% if d['reports'] %}<span class="badge ban">{{ d['reports'] }}</span>{% else %}0{% endif %}</td>
     <td>
       <div class="bar" style="margin:0;gap:6px">
+        <a class="btn small" href="/admin/dates/{{ d['id'] }}/edit">Редактировать</a>
         <form class="inline" method="post" action="/operator/dates/{{ d['id'] }}/archive">
           <input type="hidden" name="csrf" value="{{ csrf }}">
           <button class="btn small">{{ 'Из архива' if d['archived_at'] else 'В архив' }}</button>

@@ -382,12 +382,25 @@ window.UI = (() => {
     var descPrev = document.getElementById("descPreview");
     function field(name) { return form.querySelector('[data-bind="' + name + '"]'); }
 
+    // состояние превью-медиа: показываем блок .photo, только если есть обложка
+    // ИЛИ видео; иначе прячем целиком (без «битой картинки»/пустого плейсхолдера).
+    var hasCover = !!(pv.cover && pv.cover.getAttribute("src"));
+    var hasVideo = !!(pv.vbadge && !pv.vbadge.hidden);
+    function syncPhotoBox() {
+      if (pv.photo) pv.photo.hidden = !(hasCover || hasVideo);
+    }
+
     function setCover(url) {
       if (!pv.cover) return;
-      if (url) { pv.cover.src = url; pv.cover.hidden = false; if (pv["cover-ph"]) pv["cover-ph"].hidden = true; }
-      else { pv.cover.removeAttribute("src"); pv.cover.hidden = true; if (pv["cover-ph"]) pv["cover-ph"].hidden = false; }
+      if (url) { pv.cover.src = url; pv.cover.hidden = false; hasCover = true; }
+      else { pv.cover.removeAttribute("src"); pv.cover.hidden = true; hasCover = false; }
+      syncPhotoBox();
     }
-    function setVideo(has) { if (pv.vbadge) pv.vbadge.hidden = !has; }
+    function setVideo(has) {
+      if (pv.vbadge) pv.vbadge.hidden = !has;
+      hasVideo = !!has;
+      syncPhotoBox();
+    }
 
     function sync() {
       var title = field("title");

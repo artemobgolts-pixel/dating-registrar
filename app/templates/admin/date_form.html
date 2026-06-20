@@ -163,7 +163,7 @@
   <div class="preview-col">
     <div class="preview-cap">Предпросмотр</div>
     <div class="pcard">
-      <div class="photo">
+      <div class="photo" data-preview="photo" {% if not (date and photos) %}hidden{% endif %}>
         <img data-preview="cover" alt=""
              src="{% if date and photos %}/admin/uploads/{{ photos[0]['filename'] }}{% endif %}"
              style="object-position:{{ (photos[0]['focus'] or '50% 50%') if (date and photos) else '50% 50%' }}"

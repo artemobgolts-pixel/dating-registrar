@@ -5,7 +5,7 @@
   "use strict";
   const TOKEN = document.body.dataset.token;
   let MYNAME = document.body.dataset.name || "";
-  let pending = null;
+  const AUTH = document.body.dataset.auth === "1";   // залогинен ли посетитель
 
   const $ = (s) => document.querySelector(s);
   const toastEl = $("#toast");
@@ -15,6 +15,16 @@
     toastEl.classList.add("show");
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => toastEl.classList.remove("show"), 2600);
+  }
+
+  /* Вход обязателен для любого действия. Аноним уходит на /login и возвращается
+     на эту же страницу после входа (?next). */
+  function goLogin() {
+    location.href = "/login?next=" + encodeURIComponent(location.pathname);
+  }
+  function requireAuth(fn) {
+    if (!AUTH) { goLogin(); return; }
+    fn();
   }
 
   /* плавное появление карточек по очереди */
@@ -29,7 +39,7 @@
     catch (_) { toast("Нет связи — попробуй ещё раз"); return { ok: false }; }
     let j = {};
     try { j = await r.json(); } catch (_) {}
-    if (r.status === 412 && j.detail && j.detail.need_name) return { needName: true };
+    if (r.status === 401 && j.detail && j.detail.need_login) { goLogin(); return { ok: false }; }
     if (!r.ok) {
       const d = j.detail;
       toast(typeof d === "string" ? d : (d && d.msg) || "Что-то пошло не так");
@@ -37,34 +47,6 @@
     }
     return { ok: true, j };
   }
-
-  /* --- имя ---------------------------------------------------------------*/
-  const nameDlg = $("#nameDlg"), nameForm = $("#nameForm"), nameInput = $("#nameInput");
-  function withName(fn) {
-    if (MYNAME) { fn(); return; }
-    pending = fn;
-    nameInput.value = "";
-    nameDlg.showModal();
-    setTimeout(() => nameInput.focus(), 60);
-  }
-  $("#nameCancel").onclick = () => { pending = null; nameDlg.close(); };
-  $("#greetEdit").onclick = () => {
-    pending = null;
-    nameInput.value = MYNAME;
-    nameDlg.showModal();
-    setTimeout(() => nameInput.focus(), 60);
-  };
-  nameForm.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const res = await post(`/c/${TOKEN}/name`, new FormData(nameForm));
-    if (!res.ok) return;
-    MYNAME = res.j.name;
-    $("#greetName").textContent = MYNAME;
-    $("#greet").hidden = false;
-    nameDlg.close();
-    const p = pending; pending = null;
-    if (p) p(); else toast(`Приятно познакомиться, ${MYNAME} ♥`);
-  });
 
   /* --- выбор свидания: обновляем карточки на месте, без перезагрузки -------*/
   function setCardState(card, mine) {
@@ -84,7 +66,6 @@
     const fd = new FormData();
     fd.append("date_id", btn.dataset.id);
     const res = await post(`/c/${TOKEN}/book`, fd);
-    if (res.needName) { withName(() => doBook(btn)); return; }
     if (!res.ok) return;
     const card = btn.closest(".card");
     const id = Number(btn.dataset.id);
@@ -104,13 +85,13 @@
     }
   }
   document.querySelectorAll(".btn.book[data-id]").forEach((b) => {
-    b.addEventListener("click", () => withName(() => doBook(b)));
+    b.addEventListener("click", () => requireAuth(() => doBook(b)));
   });
 
   /* --- вопрос --------------------------------------------------------------*/
   const askDlg = $("#askDlg"), askForm = $("#askForm");
   document.querySelectorAll(".btn.ask").forEach((b) => {
-    b.addEventListener("click", () => withName(() => {
+    b.addEventListener("click", () => requireAuth(() => {
       $("#askDateId").value = b.dataset.id;
       $("#askTitle").textContent = b.dataset.name;
       $("#askText").value = "";
@@ -121,7 +102,6 @@
   askForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     const res = await post(`/c/${TOKEN}/question`, new FormData(askForm));
-    if (res.needName) { withName(() => askForm.requestSubmit()); return; }
     if (!res.ok) return;
     askDlg.close();
     toast("Вопрос отправлен 💌 Ответ появится здесь же");
@@ -131,13 +111,13 @@
   /* --- жалоба --------------------------------------------------------------*/
   const reportDlg = $("#reportDlg"), reportForm = $("#reportForm");
   document.querySelectorAll(".report-link[data-id]").forEach((b) => {
-    b.addEventListener("click", () => {
+    b.addEventListener("click", () => requireAuth(() => {
       $("#reportType").value = "date";
       $("#reportTargetId").value = b.dataset.id;
       $("#reportTitle").textContent = b.dataset.name;
       $("#reportReason").value = "";
       reportDlg.showModal();
-    });
+    }));
   });
   $("#reportCancel").onclick = () => reportDlg.close();
   reportForm.addEventListener("submit", async (e) => {
@@ -152,7 +132,7 @@
   const timeDlg = $("#timeDlg"), timeForm = $("#timeForm");
   UI.dateChips(timeDlg, $("#timeStart"), $("#timeEnd"));
   document.querySelectorAll(".chip-suggest").forEach((b) => {
-    b.addEventListener("click", () => withName(() => {
+    b.addEventListener("click", () => requireAuth(() => {
       $("#timeDateId").value = b.dataset.id;
       $("#timeTitle").textContent = b.dataset.name;
       timeForm.reset();
@@ -164,7 +144,6 @@
   timeForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     const res = await post(`/c/${TOKEN}/suggest_time`, new FormData(timeForm));
-    if (res.needName) { withName(() => timeForm.requestSubmit()); return; }
     if (!res.ok) return;
     timeDlg.close();
     toast("Предложение отправлено 📅");
@@ -228,7 +207,9 @@
     const vc = $("#propVidCur");
     vc.hidden = !curVid;
     vc.classList.remove("removed");
-    $("#propVidName").textContent = "видео прикреплено";
+    $("#propVidName").textContent = "Текущее видео";
+    const vh = $("#propVidHint");
+    if (vh) vh.hidden = !curVid;
     editId = meta ? meta.id : null;
     $("#propHead").textContent = meta ? "Изменить предложение" : "Предложить свидание";
     $("#propSubmit").textContent = meta ? "Сохранить ✓" : "Предложить 💡";
@@ -247,15 +228,19 @@
     propDlg.showModal();
   }
 
-  $("#fabPropose").onclick = () => withName(() => openPropose(null));
+  $("#fabPropose").onclick = () => requireAuth(() => openPropose(null));
   document.querySelectorAll(".mine-actions .edit").forEach((b) => {
-    b.addEventListener("click", () => withName(() => openPropose(JSON.parse(b.dataset.meta))));
+    b.addEventListener("click", () => requireAuth(() => openPropose(JSON.parse(b.dataset.meta))));
   });
   $("#propCancel").onclick = () => propDlg.close();
   $("#propVidRm").onclick = () => {
     removedVid = !removedVid;
     $("#propVidName").textContent =
-      removedVid ? "видео будет удалено" : "видео прикреплено";
+      removedVid ? "Видео удалится после сохранения" : "Текущее видео";
+    const vh = $("#propVidHint");
+    if (vh) vh.textContent = removedVid
+      ? "Передумал(а)? Нажми ✕ ещё раз, чтобы оставить видео"
+      : "✕ — удалить это видео при сохранении";
     $("#propVidCur").classList.toggle("removed", removedVid);
   };
 
@@ -281,8 +266,8 @@
     });
     sub.disabled = false;
     bar.hidden = true;
-    if (raw.status === 412 && raw.j.detail && raw.j.detail.need_name) {
-      withName(() => propForm.requestSubmit());
+    if (raw.status === 401 && raw.j.detail && raw.j.detail.need_login) {
+      goLogin();
       return;
     }
     if (raw.status < 200 || raw.status >= 300) {
@@ -299,9 +284,9 @@
 
   document.querySelectorAll(".mine-actions .del").forEach((b) => {
     b.addEventListener("click", async () => {
+      if (!AUTH) { goLogin(); return; }
       if (!confirm(`Удалить «${b.dataset.name}»?`)) return;
       const res = await post(`/c/${TOKEN}/propose/${b.dataset.id}/delete`, new FormData());
-      if (res.needName) { withName(() => b.click()); return; }
       if (!res.ok) return;
       toast("Удалено");
       setTimeout(() => location.reload(), 700);

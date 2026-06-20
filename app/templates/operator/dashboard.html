@@ -3,6 +3,14 @@
 {% block content %}
 <h1>Обзор платформы</h1>
 
+{% if stats.review_users or stats.review_cats %}
+<div class="flash" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;background:#eef3fb;border-color:#c3d4ee">
+  <span>🕵 На проверке:
+    <b>{{ stats.review_users }}</b> пользователей и <b>{{ stats.review_cats }}</b> категорий.</span>
+  <a class="btn" href="/operator/review" style="margin-left:auto">Открыть очередь</a>
+</div>
+{% endif %}
+
 {% if legacy_data %}
 <div class="flash" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;background:#fff5e6;border-color:#f0dcb0">
   <span>📦 Есть дореформенные данные без владельца:
@@ -20,7 +28,7 @@
   <div class="stat"><div class="v">{{ stats.users }}</div><div class="l">пользователей</div></div>
   <div class="stat"><div class="v">{{ stats.active }}</div><div class="l">активных</div></div>
   <div class="stat"><div class="v">{{ stats.banned }}</div><div class="l">забанено</div></div>
-  <div class="stat"><div class="v">{{ stats.operators }}</div><div class="l">операторов</div></div>
+  <div class="stat"><div class="v">{{ stats.operators }}</div><div class="l">админов</div></div>
   <div class="stat"><div class="v">{{ stats.cats }}</div><div class="l"><a class="link" href="/operator/categories">категорий</a></div></div>
   <div class="stat"><div class="v">{{ stats.dates }}</div><div class="l"><a class="link" href="/operator/dates">свиданий</a></div></div>
   <div class="stat"><div class="v">{{ stats.bookings }}</div><div class="l"><a class="link" href="/operator/bookings">броней</a></div></div>
@@ -36,7 +44,7 @@
     <td class="muted">{% if u['tg_username'] %}@{{ u['tg_username'] }}{% else %}id {{ u['telegram_id'] }}{% endif %}</td>
     <td>
       {% if not u['is_active'] %}<span class="badge ban">бан</span>
-      {% elif u['is_operator'] %}<span class="badge op">оператор</span>
+      {% elif u['is_operator'] %}<span class="badge op">админ</span>
       {% else %}<span class="badge">активен</span>{% endif %}
     </td>
     <td class="muted">{{ u['created_at'][:10] }}</td>

@@ -41,6 +41,24 @@ TTL_SECONDS = 600          # код входа живёт 10 минут
 BOT_USERNAME = TG_BOT_USERNAME
 
 
+def _safe_next(raw: str | None) -> str | None:
+    """Безопасный возврат после входа: только локальные пути в наши разделы
+    (гостевая ссылка /c/… или кабинет /admin…). Чужой/протокол-относительный
+    URL отбрасываем (open redirect)."""
+    raw = (raw or "").strip()
+    if not raw or raw.startswith("//") or not raw.startswith("/"):
+        return None
+    if raw.startswith(("/c/", "/admin")):
+        return raw
+    return None
+
+
+def _post_login_redirect(request) -> str:
+    """Куда уводить после успешного входа: сохранённый безопасный next или кабинет."""
+    nxt = _safe_next(request.session.pop("login_next", None))
+    return nxt or "/admin/"
+
+
 def resolve_bot_username() -> None:
     """Узнаёт @username бота по токену, если TG_BOT_USERNAME не задан.
 
@@ -106,8 +124,13 @@ def _gc_codes(conn) -> None:
 
 @router.get("/login", response_class=HTMLResponse)
 def login_page(request: Request, conn=Depends(get_db)):
+    # Запоминаем, куда вернуть после входа (например, на гостевую ссылку, с
+    # которой пользователь нажал «Войти»). Только безопасные локальные пути.
+    nxt = _safe_next(request.query_params.get("next"))
+    if nxt:
+        request.session["login_next"] = nxt
     if request.session.get("user_id") and users.get_user(conn, request.session["user_id"]):
-        return RedirectResponse("/admin/", status_code=303)
+        return RedirectResponse(_post_login_redirect(request), status_code=303)
     return templates.TemplateResponse(
         request, "auth/login.html", {"bot": BOT_USERNAME})
 
@@ -155,7 +178,7 @@ def auth_widget(request: Request, conn=Depends(get_db)):
         raise HTTPException(403, "Доступ закрыт. Напиши в поддержку.")
     request.session["user_id"] = uid
     request.session["csrf"] = secrets.token_urlsafe(16)
-    return RedirectResponse("/admin/", status_code=303)
+    return RedirectResponse(_post_login_redirect(request), status_code=303)
 
 
 @router.post("/auth/start")
@@ -201,7 +224,7 @@ def auth_poll(request: Request, code: str, conn=Depends(get_db)):
     conn.commit()
     request.session["user_id"] = user["id"]
     request.session["csrf"] = secrets.token_urlsafe(16)
-    return JSONResponse({"status": "ok", "redirect": "/admin/"})
+    return JSONResponse({"status": "ok", "redirect": _post_login_redirect(request)})
 
 
 @router.post("/tg/webhook")

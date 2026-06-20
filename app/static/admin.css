@@ -1021,6 +1021,9 @@ input, textarea, select {
 .dcard .ph.g2 { background: linear-gradient(135deg, #cbb38f, #9c8154); }
 .dcard .ph.g3 { background: linear-gradient(135deg, #b98a86, #7a514d); }
 .dcard.archived .ph img { filter: saturate(.5) brightness(.99); }
+/* карточка без обложки: без градиента-плейсхолдера, бейджи едут в тело (.inflow) */
+.dcard.nocover .b { padding-top: 13px; }
+.dcard .b .badges.inflow { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
 .dcard .b { padding: 11px 13px 13px; display: flex; flex-direction: column; flex: 1; }
 .dcard .ttl {
   font-family: var(--serif); font-size: 17.5px; color: var(--ink);

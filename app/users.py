@@ -8,6 +8,7 @@ import secrets
 
 from fastapi import Depends, HTTPException, Request
 
+import settings as app_settings
 from config import OPERATOR_TG_IDS
 from helpers import now_iso
 from web import get_db
@@ -63,8 +64,11 @@ def upsert_on_login(conn, telegram_id: int, *, username: str | None = None,
 
     cur = conn.execute(
         "INSERT INTO users(telegram_id, tg_username, display_name, is_operator, "
-        "bot_linked, created_at, last_login_at) VALUES(?,?,?,?,?,?,?)",
+        "is_reviewed, bot_linked, created_at, last_login_at) VALUES(?,?,?,?,?,?,?,?)",
         (telegram_id, username, first_name or username, 1 if is_op else 0,
+         # операторы — всегда одобрены; остальным is_reviewed=0, только если
+         # включена модерация пользователей (мягкая очередь у админа).
+         0 if (not is_op and app_settings.is_on(conn, app_settings.MODERATE_USERS)) else 1,
          1 if link_bot else 0, now_iso(), now_iso()))
     conn.commit()
     return cur.lastrowid

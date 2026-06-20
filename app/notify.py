@@ -36,6 +36,20 @@ def owner_chat_id(conn, owner_id: int) -> int | None:
     return row["telegram_id"] if row else None
 
 
+# user_chat_id — то же правило, что и owner_chat_id (бот подключён, активен,
+# не легаси). Отдельное имя для читаемости в местах «уведомить автора действия».
+user_chat_id = owner_chat_id
+
+
+def card(title: str, *lines: str) -> str:
+    """Собирает аккуратное многострочное уведомление: жирный заголовок,
+    затем строки (пустые/None пропускаются). Текст внутри строк должен быть
+    уже экранирован через esc(), где это нужно."""
+    body = "\n".join(l for l in lines if l)
+    head = f"<b>{title}</b>"
+    return f"{head}\n{body}" if body else head
+
+
 def send_to(chat_id: int | str, text: str) -> None:
     """Шлёт сообщение конкретному chat_id (напр. тому, кто подтвердил вход).
 

@@ -236,6 +236,33 @@ body::after {
 }
 .greet button:hover { background: var(--rose-soft); color: var(--rose-2); }
 
+/* подпись автора категории — кликабельна для всех (ведёт на профиль /u/<id>) */
+.author {
+  display: inline-flex; align-items: center; gap: 8px;
+  margin-top: 14px; padding: 4px 12px 4px 4px;
+  background: rgba(255, 255, 255, .62);
+  border: 1px solid rgba(240, 228, 225, .9);
+  border-radius: 999px;
+  text-decoration: none; color: var(--rose-2);
+  box-shadow: var(--shadow-soft);
+  transition: background .2s, transform .2s;
+}
+.author:hover { background: rgba(255, 255, 255, .92); transform: translateY(-1px); }
+.author-av {
+  width: 28px; height: 28px; border-radius: 50%; object-fit: cover;
+  display: grid; place-items: center; flex: none;
+}
+.author-av.ph {
+  background: linear-gradient(135deg, var(--rose), var(--rose-2));
+  color: #fff; font-size: 13px;
+}
+.author-name { font-size: 14px; font-weight: 600; letter-spacing: .01em; }
+
+/* кнопка «Войти» в шапке для анонимного посетителя */
+.hero .login-cta {
+  display: inline-block; margin: 16px auto 0;
+}
+
 @keyframes fade-down { from { opacity: 0; transform: translateY(-14px); } to { opacity: 1; transform: none; } }
 @keyframes fade-up { from { opacity: 0; transform: translateY(18px) scale(.985); } to { opacity: 1; transform: none; } }
 
@@ -404,6 +431,26 @@ body::after {
 
 /* карточка без фото получает тонкую градиентную «ленту» сверху */
 .accent { height: 5px; background: linear-gradient(90deg, var(--rose), var(--peach), var(--rose)); opacity: .55; }
+
+/* карточка без фото и видео: без заглушки-«крышки», только заголовок и параметры.
+   Чуть больше воздуха сверху, тонкая роза-акцент слева у заголовка. */
+.card.nophoto .body { padding-top: 20px; }
+.card.nophoto .title { margin-top: 0; }
+
+/* компактная плашка статуса для карточек без фото (вместо большого оверлея) */
+.status-chip {
+  display: inline-flex; align-items: center; gap: 7px;
+  margin: 2px 0 10px; padding: 4px 12px;
+  border-radius: 999px; font-size: 13px; font-weight: 600;
+  background: rgba(143, 74, 88, .1); color: var(--rose-2);
+  border: 1px solid rgba(182, 95, 111, .25);
+}
+.status-chip.mine {
+  background: linear-gradient(135deg, var(--rose), var(--rose-2));
+  color: #fff; border-color: transparent;
+  box-shadow: 0 3px 9px rgba(150, 70, 85, .3);
+}
+.card.past .status-chip { background: rgba(120, 110, 114, .12); color: #7d7174; border-color: rgba(120, 110, 114, .22); }
 
 /* --- прошедшее: тот же стиль, что у выбранного, но приглушённый --- */
 .card.past {
@@ -988,6 +1035,7 @@ footer .hearts { color: var(--rose); opacity: .55; letter-spacing: 8px; margin-b
 }
 .vid-cur.removed { opacity: .45; text-decoration: line-through; }
 .vid-cur button { border: 0; background: none; cursor: pointer; color: inherit; font-size: 14px; }
+.vid-hint { margin: 5px 2px 0; font-size: 12px; color: var(--muted, #9a8a8e); }
 
 .chk-line {
   display: flex; align-items: center; gap: 8px;

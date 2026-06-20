@@ -42,10 +42,11 @@
 {% if layout == 'cards' %}
 <div class="grid">
   {% for r in rows %}
-  <div class="dcard{{ ' archived' if r['archived_at'] else '' }}">
+  <div class="dcard{{ ' archived' if r['archived_at'] else '' }}{{ ' nocover' if not r['cover'] else '' }}">
+    {% if r['cover'] %}
     <div class="ph g{{ r['id'] % 4 }}">
-      {% if r['cover'] %}<img src="/admin/uploads/{{ r['cover'] }}" alt="" loading="lazy"
-        {% if r['cover_focus'] %}style="object-position:{{ r['cover_focus'] }}"{% endif %}>{% endif %}
+      <img src="/admin/uploads/{{ r['cover'] }}" alt="" loading="lazy"
+        {% if r['cover_focus'] %}style="object-position:{{ r['cover_focus'] }}"{% endif %}>
       <div class="badges">
         {% if r['pay_split'] %}<span class="bdg pay">💸 50/50</span>{% endif %}
         {% if r['origin'] == 'guest' %}<span class="bdg guest">💡 предложено</span>{% endif %}
@@ -53,7 +54,16 @@
         {% if r['booked_names'] %}<span class="bdg book">💝 {{ r['booked_names'] }}</span>{% endif %}
       </div>
     </div>
+    {% endif %}
     <div class="b">
+      {% if not r['cover'] %}
+      <div class="badges inflow">
+        {% if r['pay_split'] %}<span class="bdg pay">💸 50/50</span>{% endif %}
+        {% if r['origin'] == 'guest' %}<span class="bdg guest">💡 предложено</span>{% endif %}
+        {% if r['is_draft'] %}<span class="bdg draft">{{ 'на модерации' if r['origin'] == 'guest' else 'черновик' }}</span>{% endif %}
+        {% if r['booked_names'] %}<span class="bdg book">💝 {{ r['booked_names'] }}</span>{% endif %}
+      </div>
+      {% endif %}
       <h3 class="ttl serif"><a href="/admin/dates/{{ r['id'] }}/edit">{{ r['name'] }}</a></h3>
       <div class="meta">
         {{ r['starts_at'] | when(r['ends_at']) or 'дата гибкая' }}{% if r['books'] %} · {{ r['books'] }} {{ r['books'] | plural('бронь', 'брони', 'броней') }}{% endif %}
@@ -98,10 +108,12 @@
 <div class="dlist">
   {% for r in rows %}
   <div class="drow{{ ' archived' if r['archived_at'] else '' }}">
+    {% if r['cover'] %}
     <a class="drow-cover g{{ r['id'] % 4 }}" href="/admin/dates/{{ r['id'] }}/edit" aria-label="Редактировать">
-      {% if r['cover'] %}<img src="/admin/uploads/{{ r['cover'] }}" alt="" loading="lazy"
-        {% if r['cover_focus'] %}style="object-position:{{ r['cover_focus'] }}"{% endif %}>{% endif %}
+      <img src="/admin/uploads/{{ r['cover'] }}" alt="" loading="lazy"
+        {% if r['cover_focus'] %}style="object-position:{{ r['cover_focus'] }}"{% endif %}>
     </a>
+    {% endif %}
     <div class="drow-main">
       <div class="drow-ttl">
         <a href="/admin/dates/{{ r['id'] }}/edit" class="serif">{{ r['name'] }}</a>

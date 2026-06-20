@@ -15,7 +15,7 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>♥</text></svg>">
   <link rel="stylesheet" href="/static/public.css">
 </head>
-<body data-token="{{ token }}" data-name="{{ guest_name or '' }}">
+<body data-token="{{ token }}" data-name="{{ guest_name or '' }}" data-auth="{{ '1' if me else '' }}">
 
 <div class="bg-hearts" aria-hidden="true">
   <span>♥</span><span>♡</span><span>♥</span><span>♡</span><span>♥</span><span>♡</span><span>♥</span>
@@ -65,10 +65,23 @@
   <header class="hero">
     <h1>{{ cat.name }}</h1>
     <div class="hearts" aria-hidden="true"><span>♥</span><span>♥</span><span>♥</span></div>
+
+    {% if owner %}
+    <a class="author" href="/u/{{ owner['id'] }}">
+      {% if owner['avatar_path'] %}
+      <img class="author-av" src="/u/{{ owner['id'] }}/avatar" alt="" width="28" height="28" decoding="async">
+      {% else %}<span class="author-av ph" aria-hidden="true">♥</span>{% endif %}
+      <span class="author-name">{{ owner['display_name'] or owner['tg_username'] or 'Автор' }}</span>
+    </a>
+    {% endif %}
+
+    {% if not me %}
+    <a class="btn book login-cta" href="/login?next=/c/{{ token }}">Войти в аккаунт</a>
+    {% endif %}
+
     <div class="greet" id="greet" {% if not guest_name %}hidden{% endif %}>
       <span class="g-heart" aria-hidden="true">♥</span>
       <b id="greetName">{{ guest_name or '' }}</b>
-      <button type="button" id="greetEdit" aria-label="Изменить имя" title="Изменить имя">✎</button>
     </div>
     {% if cat['description'] %}<p class="cat-desc">{{ cat['description'] | rich }}</p>{% endif %}
     {% if regular or past %}
@@ -82,7 +95,7 @@
     {%- elif d.origin == 'guest' and not d.past %}<span class="badge guest">💡 идея гостя</span>{% endif -%}
     {%- if d.pay_split %}<span class="badge pay">💸 50/50</span>{% endif -%}
   {% endset %}
-  <article class="card{% if d.past %} past{% endif %}{% if d.booked_by_me and not d.past %} booked-me{% endif %}{% if d.booked_others_list and not d.past and not d.booked_by_me %} booked-other{% endif %}"
+  <article class="card{% if d.past %} past{% endif %}{% if d.booked_by_me and not d.past %} booked-me{% endif %}{% if d.booked_others_list and not d.past and not d.booked_by_me %} booked-other{% endif %}{% if not d.images and not d.videos %} nophoto{% endif %}"
            id="date-{{ d.id }}" data-others="{{ d.booked_others }}">
     {% if d.past %}{# архив: без капсулы-штампа, статус показывает оверлей «Было» #}
     {% else %}<div class="seal"{% if not d.booked_by_me %} hidden{% endif %}>♥</div>{% endif %}
@@ -107,17 +120,19 @@
         {% endfor %}
       </div>
     </div>
-    {% else %}
-    <div class="accent" aria-hidden="true"></div>
-    <div class="booked-overlay flat" aria-hidden="true">
-      <div class="bo-inner"><span class="bo-heart">{% if d.past %}✨{% else %}♥{% endif %}</span><span class="bo-text">{% if d.past %}Было{% else %}Забронировано{% endif %}</span>
-        <span class="bo-who">{% if d.booked_by_me %}{{ guest_name or 'ты ♥' }}{% elif d.booked_others_list %}{{ d.booked_others_list[0] }}{% endif %}</span>
-      </div>
-    </div>
     {% endif %}
     <div class="body">
-      {% if not d.images and badges | trim %}<div class="badges inflow">{{ badges }}</div>{% endif %}
+      {# карточка без фото/видео — без заглушки: только бейджи, заголовок и параметры #}
+      {% if not d.images and not d.videos and badges | trim %}<div class="badges inflow">{{ badges }}</div>{% endif %}
       <h2 class="title">{{ d.name }}</h2>
+      {# компактная плашка статуса для карточек без фото (большого оверлея нет):
+         архив всегда помечаем «Было», активные — только когда есть бронь #}
+      {% if not d.images and not d.videos and (d.past or d.booked_by_me or d.booked_others_list) %}
+      <div class="status-chip{% if d.booked_by_me and not d.past %} mine{% endif %}">
+        <span aria-hidden="true">{% if d.past %}✨{% else %}♥{% endif %}</span>
+        <span>{% if d.past %}Было{% else %}Забронировано{% endif %}{% if d.booked_by_me %} · {{ guest_name or 'ты' }}{% elif d.booked_others_list %} · {{ d.booked_others_list[0] }}{% endif %}</span>
+      </div>
+      {% endif %}
       <div class="meta">
         {% if d.starts_at %}
         <div class="when"><span aria-hidden="true">🕐</span>
@@ -232,22 +247,6 @@
 <button class="fab" id="fabPropose" aria-label="Предложить свидание">
   <span class="plus" aria-hidden="true">+</span>
 </button>
-
-<!-- Имя гостя -->
-<dialog id="nameDlg">
-  <h3 class="dlg-head">Как тебя зовут? ♥</h3>
-  <p class="dlg-sub">Имя увидят рядом с твоей бронью и предложениями.</p>
-  <form id="nameForm">
-    <div class="field">
-      <input type="text" name="name" id="nameInput" maxlength="40" required
-             placeholder="Например, Маша" autocomplete="name">
-    </div>
-    <div class="dlg-actions">
-      <button type="button" class="btn ghost" id="nameCancel">Позже</button>
-      <button type="submit" class="btn book">Это я ♥</button>
-    </div>
-  </form>
-</dialog>
 
 <!-- Вопрос -->
 <dialog id="askDlg">
@@ -387,9 +386,10 @@
         <div class="ptiles" id="propVidTiles"></div>
       </div>
       <div class="vid-cur" id="propVidCur" hidden>
-        <span>🎬 <span id="propVidName">видео прикреплено</span></span>
-        <button type="button" id="propVidRm" aria-label="Убрать видео">✕</button>
+        <span>🎬 <span id="propVidName">Текущее видео</span></span>
+        <button type="button" id="propVidRm" aria-label="Удалить видео" title="Удалить видео">✕</button>
       </div>
+      <p class="vid-hint" id="propVidHint" hidden>✕ — удалить это видео при сохранении</p>
     </div>
     <label class="chk-line"><input type="checkbox" name="pay" value="1" id="propPay"> 💸 оплата 50/50</label>
     <div class="upbar" id="propBar" hidden><i></i></div>

@@ -21,15 +21,17 @@ from urllib.parse import urlencode
 
 import backup
 import images
+import notify
 import places
+import settings as app_settings
 from config import BASE_URL, SUPPORT_CONTACT
 from guests import gname
 from helpers import (clean_text, normalize_period, now_iso, now_naive,
                      parse_birth_date, parse_dt_local, parse_links)
 from fastapi.responses import JSONResponse
 from ownership import get_owned_category, get_owned_date
-from public_routes import (add_photos, insert_date, next_cat_pos, ranged_file,
-                           save_links, VIDEO_TYPES)
+from public_routes import (add_photos, insert_date, next_cat_pos, notify_user,
+                           ranged_file, save_links, VIDEO_TYPES)
 from ratelimit import user_throttle
 from tasks import autoarchive_once
 from users import current_user
@@ -475,15 +477,25 @@ def categories_list(request: Request, conn=Depends(get_db)):
 def category_create(request: Request, name: str = Form(...), conn=Depends(get_db)):
     name = clean_text(name, 200, "Название", required=True)
     token = secrets.token_urlsafe(24)
+    # мягкая очередь: при включённой модерации категорий новая помечается
+    # is_reviewed=0 (ссылка работает сразу, админ просто видит её в очереди).
+    reviewed = 0 if app_settings.is_on(conn, app_settings.MODERATE_CATEGORIES) else 1
     conn.execute(
         "INSERT INTO categories(owner_id, name, link_token, link_enabled, "
-        "moderate_proposals, created_at) VALUES(?,?,?,1,1,?)",
-        (request.state.user["id"], name, token, now_iso()))
+        "moderate_proposals, is_reviewed, created_at) VALUES(?,?,?,1,1,?,?)",
+        (request.state.user["id"], name, token, reviewed, now_iso()))
     conn.commit()
     return redir("/admin/categories", "Категория создана")
 
 
 def _cat_or_404(conn, cid: int, user):
+    """Категория, которой можно управлять. Владелец — только свою; админ
+    (is_operator) — любую (пункт «админ правит чужое»)."""
+    if user["is_operator"]:
+        cat = conn.execute("SELECT * FROM categories WHERE id=?", (cid,)).fetchone()
+        if not cat:
+            raise HTTPException(404, "Категория не найдена")
+        return cat
     return get_owned_category(conn, cid, user["id"])
 
 
@@ -500,10 +512,12 @@ def category_detail(cid: int, request: Request, conn=Depends(get_db)):
         "WHERE dc.category_id=? "
         "ORDER BY (d.archived_at IS NOT NULL) ASC, dc.position ASC, d.created_at DESC",
         (cid, cid, cid)).fetchall()
+    # «Прикрепить» — свидания того же владельца, что и категория (для админа,
+    # правящего чужую категорию, это её владелец, а не сам админ).
     attachable = conn.execute(
         "SELECT id, name FROM dates WHERE owner_id=? AND archived_at IS NULL AND id NOT IN "
         "(SELECT date_id FROM date_categories WHERE category_id=?) ORDER BY created_at DESC",
-        (request.state.user["id"], cid)).fetchall()
+        (cat["owner_id"], cid)).fetchall()
     return templates.TemplateResponse(
         request, "admin/category_detail.html",
         actx(request, conn, active="cats", cat=cat, dates=dates, attachable=attachable))
@@ -563,9 +577,10 @@ def category_delete(cid: int, request: Request, conn=Depends(get_db)):
 @router.post("/categories/{cid}/attach")
 def category_attach(cid: int, request: Request, date_id: int = Form(...),
                     conn=Depends(get_db)):
-    _cat_or_404(conn, cid, request.state.user)
-    # привязать можно только СВОЁ свидание — иначе чужое утечёт в категорию
-    get_owned_date(conn, date_id, request.state.user["id"])
+    cat = _cat_or_404(conn, cid, request.state.user)
+    # привязать можно только свидание ТОГО ЖЕ владельца, что и категория, —
+    # иначе чужое утечёт в категорию (для админа контекст = владелец категории)
+    get_owned_date(conn, date_id, cat["owner_id"])
     conn.execute(
         "INSERT OR IGNORE INTO date_categories(date_id, category_id, position) "
         "VALUES(?,?,?)", (date_id, cid, next_cat_pos(conn, cid)))
@@ -787,6 +802,13 @@ def add_videos(conn, date_id: int, files, existing: int) -> list[str]:
 
 
 def _date_or_404(conn, did: int, user):
+    """Свидание, которым можно управлять. Владелец — только своё; админ
+    (is_operator) — любое (пункт «админ правит чужое»)."""
+    if user["is_operator"]:
+        d = conn.execute("SELECT * FROM dates WHERE id=?", (did,)).fetchone()
+        if not d:
+            raise HTTPException(404, "Свидание не найдено")
+        return d
     return get_owned_date(conn, did, user["id"])
 
 
@@ -814,7 +836,8 @@ def date_edit_form(did: int, request: Request, conn=Depends(get_db)):
              booked=booked,
              proposer=proposer,
              links_text="\n".join(r["url"] for r in link_rows),
-             cats=_all_cats(conn, request.state.user["id"]), checked=checked,
+             # категории показываем владельца свидания (админ может править чужое)
+             cats=_all_cats(conn, d["owner_id"]), checked=checked,
              slots=images.MAX_IMAGES - len(photos)))
 
 
@@ -844,9 +867,10 @@ def date_update(did: int, request: Request, bg: BackgroundTasks, name: str = For
         (name, place, place_url, starts, ends, comment,
          1 if draft else 0, 1 if pay else 0, did))
 
-    # привязываем только СВОИ категории (чужие id из формы молча игнорируем)
+    # привязываем только категории владельца свидания (чужие id из формы молча
+    # игнорируем). Для админа, правящего чужое, контекст = владелец свидания.
     own_cats = {r[0] for r in conn.execute(
-        "SELECT id FROM categories WHERE owner_id=?", (request.state.user["id"],))}
+        "SELECT id FROM categories WHERE owner_id=?", (d["owner_id"],))}
     categories = [c for c in categories if c in own_cats]
     # Синхронизируем категории; выборы по отвязанным категориям удаляем
     conn.execute("DELETE FROM date_categories WHERE date_id=?", (did,))
@@ -883,11 +907,20 @@ def date_update(did: int, request: Request, bg: BackgroundTasks, name: str = For
 
 
 @router.post("/dates/{did}/publish")
-def date_publish(did: int, request: Request, next: str = Form("/admin/dates"),
-                 conn=Depends(get_db)):
-    _date_or_404(conn, did, request.state.user)
+def date_publish(did: int, request: Request, bg: BackgroundTasks,
+                 next: str = Form("/admin/dates"), conn=Depends(get_db)):
+    d = _date_or_404(conn, did, request.state.user)
     conn.execute("UPDATE dates SET is_draft=0 WHERE id=?", (did,))
     conn.commit()
+    # если это было предложение гостя — уведомим автора о публикации
+    if d["origin"] == "guest" and d["proposed_by"]:
+        cat = conn.execute(
+            "SELECT c.name FROM categories c JOIN date_categories dc ON dc.category_id=c.id "
+            "WHERE dc.date_id=? LIMIT 1", (did,)).fetchone()
+        notify_user(bg, conn, d["proposed_by"], notify.card(
+            "✅ Твоё предложение опубликовано",
+            f"«{notify.esc(d['name'])}»" + (f" · {notify.esc(cat['name'])}" if cat else ""),
+            "Теперь его видят гости ♥"))
     return redir(next, "Опубликовано — гости теперь видят это свидание")
 
 
@@ -978,18 +1011,24 @@ def date_clone(did: int, request: Request, next: str = Form("/admin/dates"),
 
 
 @router.post("/bookings/{bid}/delete")
-def booking_delete(bid: int, request: Request, next: str = Form("/admin/dates"),
-                   conn=Depends(get_db)):
+def booking_delete(bid: int, request: Request, bg: BackgroundTasks,
+                   next: str = Form("/admin/dates"), conn=Depends(get_db)):
     """Снять чужой выбор со свидания (например, по просьбе гостя)."""
     row = conn.execute(
-        "SELECT b.id, COALESCE(g.name, 'человек') AS nm FROM bookings b "
+        "SELECT b.id, b.user_id, d.name AS dname, c.name AS cname, "
+        "COALESCE(g.name, 'человек') AS nm FROM bookings b "
         "JOIN dates d ON d.id=b.date_id "
+        "JOIN categories c ON c.id=b.category_id "
         "LEFT JOIN guests g ON g.token=b.guest_token "
         "WHERE b.id=? AND d.owner_id=?", (bid, request.state.user["id"])).fetchone()
     if not row:
         raise HTTPException(404, "Выбор не найден")
     conn.execute("DELETE FROM bookings WHERE id=?", (bid,))
     conn.commit()
+    notify_user(bg, conn, row["user_id"], notify.card(
+        "ℹ️ Твой выбор снят",
+        f"«{notify.esc(row['dname'])}» · {notify.esc(row['cname'])}",
+        "Свидание снова свободно — можно выбрать другое ♥"))
     return redir(next, f"Выбор снят — свидание снова свободно ({row['nm']})")
 
 
@@ -1075,45 +1114,64 @@ def questions_list(request: Request, conn=Depends(get_db)):
 
 
 def _owned_question(conn, qid: int, uid: int):
-    """Вопрос вместе с проверкой, что его свидание принадлежит владельцу."""
+    """Вопрос вместе с проверкой, что его свидание принадлежит владельцу.
+    Подтягиваем имена свидания/категории для уведомления автору."""
     return conn.execute(
-        "SELECT q.* FROM questions q JOIN dates d ON d.id=q.date_id "
+        "SELECT q.*, d.name AS date_name, c.name AS cat_name "
+        "FROM questions q JOIN dates d ON d.id=q.date_id "
+        "LEFT JOIN categories c ON c.id=q.category_id "
         "WHERE q.id=? AND d.owner_id=?", (qid, uid)).fetchone()
 
 
+def _notify_answer(bg, conn, q, answer: str) -> None:
+    """Уведомляет автора вопроса (если залогинен и бот подключён) об ответе."""
+    notify_user(bg, conn, q["user_id"], notify.card(
+        "💬 Ответ на твой вопрос",
+        f"«{notify.esc(q['date_name'])}»"
+        + (f" · {notify.esc(q['cat_name'])}" if q["cat_name"] else ""),
+        f"Вопрос: {notify.esc(q['text'])}",
+        f"\nОтвет: {notify.esc(answer)}"))
+
+
 @router.post("/questions/{qid}/accept_time")
-def question_accept_time(qid: int, request: Request, next: str = Form("/admin/questions"),
+def question_accept_time(qid: int, request: Request, bg: BackgroundTasks,
+                         next: str = Form("/admin/questions"),
                          conn=Depends(get_db)):
     """Принять предложенное гостем время: применяем его к свиданию."""
     q = _owned_question(conn, qid, request.state.user["id"])
     if not q or not q["suggest_starts"]:
         raise HTTPException(404, "Это не предложение времени")
+    answer = "✅ Принято! Время назначено ♥"
     conn.execute("UPDATE dates SET starts_at=?, ends_at=? WHERE id=?",
                  (q["suggest_starts"], q["suggest_ends"], q["date_id"]))
     conn.execute(
         "UPDATE questions SET answer=?, answered_at=?, is_read=1 WHERE id=?",
-        ("✅ Принято! Время назначено ♥", now_iso(), qid))
+        (answer, now_iso(), qid))
     conn.commit()
+    _notify_answer(bg, conn, q, answer)
     return redir(next, "Время назначено ♥")
 
 
 @router.post("/questions/{qid}/decline_time")
-def question_decline_time(qid: int, request: Request, next: str = Form("/admin/questions"),
+def question_decline_time(qid: int, request: Request, bg: BackgroundTasks,
+                          next: str = Form("/admin/questions"),
                           conn=Depends(get_db)):
     """Вежливо отказаться от предложенного времени (автор увидит ответ)."""
     q = _owned_question(conn, qid, request.state.user["id"])
     if not q or not q["suggest_starts"]:
         raise HTTPException(404, "Это не предложение времени")
+    answer = "🥺 Это время не получится — предложи, пожалуйста, другое"
     conn.execute(
         "UPDATE questions SET answer=?, answered_at=?, is_read=1 WHERE id=?",
-        ("🥺 Это время не получится — предложи, пожалуйста, другое",
-         now_iso(), qid))
+        (answer, now_iso(), qid))
     conn.commit()
+    _notify_answer(bg, conn, q, answer)
     return redir(next, "Отказ отправлен — автор увидит его на странице")
 
 
 @router.post("/questions/{qid}/answer")
-def question_answer(qid: int, request: Request, text: str = Form(""),
+def question_answer(qid: int, request: Request, bg: BackgroundTasks,
+                    text: str = Form(""),
                     next: str = Form("/admin/questions"), conn=Depends(get_db)):
     q = _owned_question(conn, qid, request.state.user["id"])
     if not q:
@@ -1122,11 +1180,13 @@ def question_answer(qid: int, request: Request, text: str = Form(""),
     if text:
         conn.execute("UPDATE questions SET answer=?, answered_at=?, is_read=1 WHERE id=?",
                      (text, now_iso(), qid))
+        conn.commit()
+        _notify_answer(bg, conn, q, text)
         msg = "Ответ сохранён — автор вопроса увидит его на странице категории"
     else:
         conn.execute("UPDATE questions SET answer=NULL, answered_at=NULL WHERE id=?", (qid,))
+        conn.commit()
         msg = "Ответ удалён"
-    conn.commit()
     return redir(next, msg)
 
 

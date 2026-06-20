@@ -21,7 +21,7 @@
     <td class="muted">{% if u['tg_username'] %}@{{ u['tg_username'] }}{% else %}id {{ u['telegram_id'] }}{% endif %}</td>
     <td>
       {% if not u['is_active'] %}<span class="badge ban">бан</span>
-      {% elif u['is_operator'] %}<span class="badge op">оператор</span>
+      {% elif u['is_operator'] %}<span class="badge op">админ</span>
       {% else %}<span class="badge">активен</span>{% endif %}
     </td>
     <td>{{ u['n_cats'] }}</td>

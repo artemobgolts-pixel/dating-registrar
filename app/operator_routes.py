@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 import images
+import settings as app_settings
 from config import BASE_URL
 from helpers import now_iso
 from users import current_operator, get_user
@@ -44,6 +45,10 @@ def dashboard(request: Request, conn=Depends(get_db)):
         "dates": one("SELECT COUNT(*) FROM dates"),
         "bookings": one("SELECT COUNT(*) FROM bookings"),
         "reports": one("SELECT COUNT(*) FROM reports WHERE status='open'"),
+        # очередь модерации: новые, ждущие проверки (мягкая очередь)
+        "review_users": one(
+            "SELECT COUNT(*) FROM users WHERE telegram_id<>0 AND is_reviewed=0"),
+        "review_cats": one("SELECT COUNT(*) FROM categories WHERE is_reviewed=0"),
     }
     # «Осиротевшие» легаси-данные (владелец telegram_id=0): их можно забрать себе.
     legacy = conn.execute(
@@ -467,6 +472,71 @@ def booking_delete(bid: int, request: Request, conn=Depends(get_db)):
     conn.commit()
     log.warning("operator %s deleted booking %s", request.state.user["id"], bid)
     return redir("/operator/bookings", "Бронь снята — свидание снова свободно")
+
+
+# ---------- настройки модерации (глобальные флаги) ----------
+
+@router.get("/settings", response_class=HTMLResponse)
+def settings_form(request: Request, conn=Depends(get_db)):
+    return templates.TemplateResponse(
+        request, "operator/settings.html",
+        octx(request, active="settings",
+             moderate_users=app_settings.is_on(conn, app_settings.MODERATE_USERS),
+             moderate_categories=app_settings.is_on(conn, app_settings.MODERATE_CATEGORIES)))
+
+
+@router.post("/settings")
+def settings_save(request: Request,
+                  moderate_users: str = Form(""),
+                  moderate_categories: str = Form(""),
+                  conn=Depends(get_db)):
+    """Чекбоксы: присутствие значения = включено. По умолчанию модерация выкл."""
+    app_settings.set_flag(conn, app_settings.MODERATE_USERS,
+                          "1" if moderate_users else "0")
+    app_settings.set_flag(conn, app_settings.MODERATE_CATEGORIES,
+                          "1" if moderate_categories else "0")
+    log.warning("operator %s updated moderation flags: users=%s cats=%s",
+                request.state.user["id"], bool(moderate_users), bool(moderate_categories))
+    return redir("/operator/settings", "Настройки сохранены")
+
+
+# ---------- очередь модерации (новые пользователи и категории) ----------
+
+@router.get("/review", response_class=HTMLResponse)
+def review_queue(request: Request, conn=Depends(get_db)):
+    users_q = conn.execute(
+        "SELECT id, display_name, tg_username, telegram_id, created_at, "
+        "(SELECT COUNT(*) FROM categories c WHERE c.owner_id=users.id) AS n_cats, "
+        "(SELECT COUNT(*) FROM dates d WHERE d.owner_id=users.id) AS n_dates "
+        "FROM users WHERE telegram_id<>0 AND is_reviewed=0 "
+        "ORDER BY created_at DESC").fetchall()
+    cats_q = conn.execute(
+        "SELECT c.id, c.name, c.link_token, c.created_at, u.display_name AS owner, "
+        "(SELECT COUNT(*) FROM date_categories dc WHERE dc.category_id=c.id) AS n "
+        "FROM categories c JOIN users u ON u.id=c.owner_id "
+        "WHERE c.is_reviewed=0 ORDER BY c.created_at DESC").fetchall()
+    return templates.TemplateResponse(
+        request, "operator/review.html",
+        octx(request, active="review", users_q=users_q, cats_q=cats_q,
+             base_url=BASE_URL))
+
+
+@router.post("/review/user/{uid}/approve")
+def review_user_approve(uid: int, request: Request, conn=Depends(get_db)):
+    _target(conn, uid)
+    conn.execute("UPDATE users SET is_reviewed=1 WHERE id=?", (uid,))
+    conn.commit()
+    log.warning("operator %s approved user %s", request.state.user["id"], uid)
+    return redir("/operator/review", "Пользователь одобрен")
+
+
+@router.post("/review/category/{cid}/approve")
+def review_category_approve(cid: int, request: Request, conn=Depends(get_db)):
+    _cat_or_404(conn, cid)
+    conn.execute("UPDATE categories SET is_reviewed=1 WHERE id=?", (cid,))
+    conn.commit()
+    log.warning("operator %s approved category %s", request.state.user["id"], cid)
+    return redir("/operator/review", "Категория одобрена")
 
 
 

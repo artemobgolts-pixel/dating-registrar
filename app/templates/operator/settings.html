@@ -1,0 +1,31 @@
+{% extends "operator/base.html" %}
+{% block title %}Настройки{% endblock %}
+{% block content %}
+<h1>Настройки модерации</h1>
+
+<p class="muted" style="margin:-8px 0 18px">
+  Мягкая очередь: при включённой модерации всё продолжает работать сразу, но новые
+  пользователи и категории попадают в раздел <a class="link" href="/operator/review">«На проверке»</a>,
+  чтобы их можно было посмотреть постфактум. По умолчанию модерация выключена.
+</p>
+
+<form method="post" action="/operator/settings" style="display:grid;gap:16px;max-width:560px">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+
+  <label style="display:flex;gap:10px;align-items:flex-start">
+    <input type="checkbox" name="moderate_users" value="1" {{ 'checked' if moderate_users else '' }}
+           style="margin-top:3px">
+    <span><b>Модерация пользователей</b><br>
+      <span class="muted">Новые пользователи попадают в очередь на проверку.</span></span>
+  </label>
+
+  <label style="display:flex;gap:10px;align-items:flex-start">
+    <input type="checkbox" name="moderate_categories" value="1" {{ 'checked' if moderate_categories else '' }}
+           style="margin-top:3px">
+    <span><b>Модерация категорий</b><br>
+      <span class="muted">Новые категории попадают в очередь на проверку.</span></span>
+  </label>
+
+  <div><button class="btn primary">Сохранить</button></div>
+</form>
+{% endblock %}

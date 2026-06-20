@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>{% block title %}Оператор{% endblock %} · date4you</title>
+<title>{% block title %}Админ{% endblock %} · date4you</title>
 <style nonce="{{ csp_nonce }}">
   :root { --bg:#f6f4f5; --line:#e2dcde; --ink:#2b2326; --muted:#8a7e82;
           --accent:#8f4a58; --danger:#b3261e; }
@@ -55,14 +55,16 @@
 </head>
 <body data-csrf="{{ csrf }}">
 <header>
-  <span class="brand">⚙ Оператор</span>
+  <span class="brand">⚙ Админ</span>
   <nav>
     <a href="/operator/" class="{{ 'on' if active=='dash' else '' }}">Обзор</a>
+    <a href="/operator/review" class="{{ 'on' if active=='review' else '' }}">На проверке</a>
     <a href="/operator/users" class="{{ 'on' if active=='users' else '' }}">Пользователи</a>
     <a href="/operator/categories" class="{{ 'on' if active=='cats' else '' }}">Категории</a>
     <a href="/operator/dates" class="{{ 'on' if active=='dates' else '' }}">Свидания</a>
     <a href="/operator/bookings" class="{{ 'on' if active=='bookings' else '' }}">Брони</a>
     <a href="/operator/reports" class="{{ 'on' if active=='reports' else '' }}">Жалобы</a>
+    <a href="/operator/settings" class="{{ 'on' if active=='settings' else '' }}">Настройки</a>
     <a href="/admin/" class="muted">← в кабинет</a>
   </nav>
   <form method="post" action="/admin/logout">

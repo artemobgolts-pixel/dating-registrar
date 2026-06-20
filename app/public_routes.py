@@ -6,7 +6,6 @@
 
 import json
 import re
-import secrets
 import sqlite3
 from datetime import datetime, timedelta, timezone
 
@@ -20,9 +19,9 @@ import db
 import images
 import notify
 import places
-from config import (AUTHOR_PROJECTS, ABOUT_TEXT, BASE_URL, DOMAIN, GUEST_COOKIE,
-                    LEGACY_GUEST_COOKIE, MSK, SUPPORT_CONTACT, support_link)
-from guests import get_guest, get_guest_name, require_name, set_guest_cookie
+import users
+from config import (AUTHOR_PROJECTS, ABOUT_TEXT, BASE_URL, DOMAIN,
+                    MSK, SUPPORT_CONTACT, support_link)
 from helpers import (_parse, clean_text, fmt_gcal, fmt_when, normalize_period,
                      now_iso, parse_dt_local, parse_links)
 from notify import esc
@@ -31,6 +30,54 @@ from tasks import autoarchive_once
 from web import get_db, templates
 
 router = APIRouter()
+
+
+# ---------------------------------------------------------------------------
+# Идентичность посетителя гостевой страницы
+# ---------------------------------------------------------------------------
+# Раньше гость представлялся только именем (cookie-токен). Теперь все действия
+# (бронь, вопрос, предложение) требуют входа в аккаунт: аноним только смотрит.
+# Залогиненному выдаём стабильный guest_token "u<id>" и держим его имя в guests —
+# так весь код, завязанный на guest_token, работает без правок, а владелец видит
+# реальное имя из профиля.
+
+def viewer(request, conn):
+    """Текущий залогиненный посетитель (строка users) или None для анонима."""
+    uid = request.session.get("user_id")
+    if not uid:
+        return None
+    return conn.execute(
+        "SELECT * FROM users WHERE id=? AND is_active=1", (uid,)).fetchone()
+
+
+def acting_user(request, conn):
+    """Для POST-действий гостя: нужен вход. Нет валидной сессии → 401 с флагом
+    need_login (фронт уводит на /login?next=…)."""
+    u = viewer(request, conn)
+    if not u:
+        raise HTTPException(401, {"need_login": True,
+                                  "msg": "Войди в аккаунт, чтобы продолжить ♥"})
+    return u
+
+
+def viewer_token(user) -> str | None:
+    """Стабильный guest_token залогиненного посетителя."""
+    return f"u{user['id']}" if user else None
+
+
+def ensure_guest_name(conn, user) -> tuple[str, str]:
+    """Заводит/обновляет строку guests для залогиненного посетителя (имя из
+    профиля). Возвращает (guest_token, имя). Без commit — вызывающий коммитит
+    вместе со своим действием."""
+    token = viewer_token(user)
+    name = ((user["display_name"] or "").strip()
+            or (user["tg_username"] or "").strip()
+            or f"Человек #{user['id']}")
+    conn.execute(
+        "INSERT INTO guests(token, name, created_at) VALUES(?,?,?) "
+        "ON CONFLICT(token) DO UPDATE SET name=excluded.name",
+        (token, name, now_iso()))
+    return token, name
 
 
 # ---------------------------------------------------------------------------
@@ -66,6 +113,17 @@ def notify_owner(bg, conn, owner_id: int, text: str) -> None:
         bg.add_task(notify.send_to, chat, text)
 
 
+def notify_user(bg, conn, user_id: int | None, text: str) -> None:
+    """Шлёт уведомление произвольному пользователю (автору вопроса/предложения,
+    гостю при снятии брони). Те же правила доставки, что и у владельца:
+    бот подключён, активен, не легаси. None/нет бота — тихо пропускаем."""
+    if user_id is None:
+        return
+    chat = notify.user_chat_id(conn, user_id)
+    if chat is not None:
+        bg.add_task(notify.send_to, chat, text)
+
+
 def own_proposal_or_403(conn, cat, date_id: int, guest: str | None):
     """Предложение гостя, которое он может править: только его собственное."""
     d = conn.execute(
@@ -95,13 +153,13 @@ def date_payload(conn, row) -> dict:
 
 
 def insert_date(conn, *, name, place, starts, ends, comment, origin, guest_token,
-                owner_id, draft=0, pay_split=0, place_url=None) -> int:
+                owner_id, draft=0, pay_split=0, place_url=None, proposed_by=None) -> int:
     cur = conn.execute(
         "INSERT INTO dates(owner_id, name, place, place_url, starts_at, ends_at, comment, "
-        "origin, guest_token, is_draft, pay_split, created_at) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+        "origin, guest_token, proposed_by, is_draft, pay_split, created_at) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (owner_id, name, place, place_url, starts, ends, comment, origin, guest_token,
-         draft, pay_split, now_iso()),
+         proposed_by, draft, pay_split, now_iso()),
     )
     return cur.lastrowid
 
@@ -240,15 +298,17 @@ def public_category(token: str, request: Request, conn=Depends(get_db)):
 
     autoarchive_once(conn)  # статус «прошло» проставляется мгновенно, без ожидания цикла
 
-    guest = request.cookies.get(GUEST_COOKIE)
-    new_guest = False                      # нужно ли (пере)выставить cookie
-    if not guest:
-        guest = request.cookies.get(LEGACY_GUEST_COOKIE)
-        new_guest = guest is not None      # тихо переезжаем на __Host-имя
-    if not guest:
-        guest = secrets.token_urlsafe(16)
-        new_guest = True
-    guest_name = get_guest_name(conn, guest)
+    # Залогиненный посетитель опознаётся стабильным токеном "u<id>"; аноним —
+    # только смотрит (действия в JS ведут на /login). Имя берём из профиля.
+    me = viewer(request, conn)
+    new_guest = False
+    if me:
+        guest, guest_name = ensure_guest_name(conn, me)
+        conn.commit()
+    else:
+        guest = None
+        guest_name = None
+    owner = users.get_user(conn, cat["owner_id"])
 
     bookings: dict[int, list] = {}
     for b in _booking_rows(conn, cat["id"]):
@@ -308,11 +368,10 @@ def public_category(token: str, request: Request, conn=Depends(get_db)):
         "regular": dates,
         "past": past,
         "guest": guest, "guest_name": guest_name,
+        "me": me, "owner": owner,
         "token": token,
     })
     resp.headers["X-Robots-Tag"] = "noindex"
-    if new_guest:
-        set_guest_cookie(resp, guest)
     return resp
 
 
@@ -326,7 +385,7 @@ def public_image(token: str, filename: str, request: Request, conn=Depends(get_d
     cat = cat_by_token(conn, token)
     if not cat or not cat["link_enabled"]:
         raise HTTPException(404)
-    guest = get_guest(request) or ""
+    guest = viewer_token(viewer(request, conn)) or ""
     ok = conn.execute(
         "SELECT 1 FROM date_images di "
         "JOIN dates d ON d.id=di.date_id "
@@ -393,7 +452,7 @@ def public_video(token: str, filename: str, request: Request, conn=Depends(get_d
     cat = cat_by_token(conn, token)
     if not cat or not cat["link_enabled"]:
         raise HTTPException(404)
-    guest = get_guest(request) or ""
+    guest = viewer_token(viewer(request, conn)) or ""
     ok = conn.execute(
         "SELECT 1 FROM date_videos dv "
         "JOIN dates d ON d.id=dv.date_id "
@@ -469,31 +528,8 @@ def public_ics(token: str, date_id: int, conn=Depends(get_db)):
 
 
 # ---------------------------------------------------------------------------
-# Действия гостя
+# Действия гостя (требуют входа в аккаунт)
 # ---------------------------------------------------------------------------
-
-@router.post("/c/{token}/name")
-def public_name(token: str, request: Request, name: str = Form(...),
-                conn=Depends(get_db)):
-    """Гость представляется (или меняет имя)."""
-    active_cat_or_410(conn, token)
-    guest = get_guest(request)
-    new_guest = False
-    if not guest:
-        guest = secrets.token_urlsafe(16)
-        new_guest = True
-    guest_throttle("name", guest, request)
-    name = clean_text(name, 40, "Имя", required=True)
-    conn.execute(
-        "INSERT INTO guests(token, name, created_at) VALUES(?,?,?) "
-        "ON CONFLICT(token) DO UPDATE SET name=excluded.name",
-        (guest, name, now_iso()))
-    conn.commit()
-    resp = JSONResponse({"ok": True, "name": name})
-    if new_guest:
-        set_guest_cookie(resp, guest)
-    return resp
-
 
 @router.post("/c/{token}/book")
 def public_book(token: str, request: Request, bg: BackgroundTasks,
@@ -503,8 +539,8 @@ def public_book(token: str, request: Request, bg: BackgroundTasks,
     Тап по своему выбору — отмена; тап по другому свиданию — перенос.
     """
     cat = active_cat_or_410(conn, token)
-    guest = get_guest(request)
-    name = require_name(conn, guest)
+    user = acting_user(request, conn)
+    guest, name = ensure_guest_name(conn, user)
     guest_throttle("book", guest, request)
 
     d = date_in_category(conn, cat["id"], date_id)
@@ -518,9 +554,10 @@ def public_book(token: str, request: Request, bg: BackgroundTasks,
     if mine:
         conn.execute("DELETE FROM bookings WHERE id=?", (mine["id"],))
         booked = False
-        notify_owner(bg, conn, cat["owner_id"],
-                     f"🤍 {esc(name)} отменил(а) выбор «{esc(d['name'])}» "
-                     f"в категории «{esc(cat['name'])}»")
+        notify_owner(bg, conn, cat["owner_id"], notify.card(
+            "🤍 Выбор отменён",
+            f"«{esc(d['name'])}» · {esc(cat['name'])}",
+            f"Кто: {esc(name)}"))
     else:
         # одно свидание может выбрать только один человек,
         # а вот гость может выбрать сколько угодно свиданий
@@ -532,17 +569,18 @@ def public_book(token: str, request: Request, bg: BackgroundTasks,
             raise HTTPException(409, f"Уже выбрано: {holder['nm']} ♥")
         try:
             conn.execute(
-                "INSERT INTO bookings(date_id, category_id, guest_token, created_at) "
-                "VALUES(?,?,?,?)",
-                (date_id, cat["id"], guest, now_iso()))
+                "INSERT INTO bookings(date_id, category_id, guest_token, user_id, created_at) "
+                "VALUES(?,?,?,?,?)",
+                (date_id, cat["id"], guest, user["id"], now_iso()))
         except sqlite3.IntegrityError:
             # гонка: кто-то выбрал это свидание между проверкой и записью
             conn.rollback()
             raise HTTPException(409, "Только что заняли это свидание — обнови страницу ♥")
         booked = True
-        notify_owner(bg, conn, cat["owner_id"],
-                     f"💝 {esc(name)} выбрал(а) «{esc(d['name'])}» "
-                     f"в категории «{esc(cat['name'])}»")
+        notify_owner(bg, conn, cat["owner_id"], notify.card(
+            "💝 Новый выбор",
+            f"«{esc(d['name'])}» · {esc(cat['name'])}",
+            f"Кто: {esc(name)}"))
     conn.commit()
     return JSONResponse({"ok": True, "booked": booked, "name": name})
 
@@ -558,8 +596,8 @@ def public_suggest_time(token: str, request: Request, bg: BackgroundTasks,
     с кнопками «Принять/Отказаться», автор видит его (и ответ) под карточкой.
     """
     cat = active_cat_or_410(conn, token)
-    guest = get_guest(request)
-    name = require_name(conn, guest)
+    user = acting_user(request, conn)
+    guest, name = ensure_guest_name(conn, user)
     guest_throttle("question", guest, request)
 
     d = date_in_category(conn, cat["id"], date_id)
@@ -573,14 +611,16 @@ def public_suggest_time(token: str, request: Request, bg: BackgroundTasks,
 
     text = "📅 Предлагаю назначить: " + fmt_when(starts, ends)
     conn.execute(
-        "INSERT INTO questions(date_id, category_id, guest_token, text, "
-        "suggest_starts, suggest_ends, created_at) VALUES(?,?,?,?,?,?,?)",
-        (date_id, cat["id"], guest, text, starts, ends, now_iso()))
+        "INSERT INTO questions(date_id, category_id, guest_token, user_id, text, "
+        "suggest_starts, suggest_ends, created_at) VALUES(?,?,?,?,?,?,?,?)",
+        (date_id, cat["id"], guest, user["id"], text, starts, ends, now_iso()))
     conn.commit()
-    notify_owner(bg, conn, cat["owner_id"],
-                 f"📅 {esc(name)} предлагает время для «{esc(d['name'])}» "
-                 f"({esc(cat['name'])}):\n{fmt_when(starts, ends)}"
-                 f"\n\n{BASE_URL}/admin/questions")
+    notify_owner(bg, conn, cat["owner_id"], notify.card(
+        "📅 Предложено время",
+        f"«{esc(d['name'])}» · {esc(cat['name'])}",
+        f"Кто: {esc(name)}",
+        f"Когда: {fmt_when(starts, ends)} (мск)",
+        f"\n{BASE_URL}/admin/questions"))
     return JSONResponse({"ok": True})
 
 
@@ -589,8 +629,8 @@ def public_question(token: str, request: Request, bg: BackgroundTasks,
                     date_id: int = Form(...), text: str = Form(...),
                     conn=Depends(get_db)):
     cat = active_cat_or_410(conn, token)
-    guest = get_guest(request)
-    name = require_name(conn, guest)
+    user = acting_user(request, conn)
+    guest, name = ensure_guest_name(conn, user)
     guest_throttle("question", guest, request)
 
     d = date_in_category(conn, cat["id"], date_id)
@@ -599,14 +639,17 @@ def public_question(token: str, request: Request, bg: BackgroundTasks,
     text = clean_text(text, 2000, "Вопрос", required=True)
 
     conn.execute(
-        "INSERT INTO questions(date_id, category_id, guest_token, text, created_at) "
-        "VALUES(?,?,?,?,?)",
-        (date_id, cat["id"], guest, text, now_iso()),
+        "INSERT INTO questions(date_id, category_id, guest_token, user_id, text, created_at) "
+        "VALUES(?,?,?,?,?,?)",
+        (date_id, cat["id"], guest, user["id"], text, now_iso()),
     )
     conn.commit()
-    notify_owner(bg, conn, cat["owner_id"],
-                 f"❓ {esc(name)} — вопрос к «{esc(d['name'])}» "
-                 f"({esc(cat['name'])}):\n{esc(text)}\n\n{BASE_URL}/admin/questions")
+    notify_owner(bg, conn, cat["owner_id"], notify.card(
+        "❓ Новый вопрос",
+        f"«{esc(d['name'])}» · {esc(cat['name'])}",
+        f"От: {esc(name)}",
+        f"\n{esc(text)}",
+        f"\n{BASE_URL}/admin/questions"))
     return JSONResponse({"ok": True})
 
 
@@ -620,8 +663,8 @@ def public_propose(token: str, request: Request, bg: BackgroundTasks,
                    video: UploadFile | None = File(None),
                    conn=Depends(get_db)):
     cat = active_cat_or_410(conn, token)
-    guest = get_guest(request)
-    author = require_name(conn, guest)
+    user = acting_user(request, conn)
+    guest, author = ensure_guest_name(conn, user)
     guest_throttle("prop", guest, request)
 
     name = clean_text(name, 200, "Название", required=True)
@@ -634,6 +677,7 @@ def public_propose(token: str, request: Request, bg: BackgroundTasks,
     date_id = insert_date(conn, name=name, place=place, starts=starts, ends=ends,
                           comment=comment, origin="guest", guest_token=guest,
                           owner_id=cat["owner_id"],   # предложение принадлежит владельцу категории
+                          proposed_by=user["id"],     # но автор — гость (для уведомления о публикации)
                           draft=1 if moderated else 0,
                           pay_split=1 if pay else 0, place_url=place_url)
     conn.execute(
@@ -655,14 +699,13 @@ def public_propose(token: str, request: Request, bg: BackgroundTasks,
     if needs_resolve:
         bg.add_task(places.resolve_into_db, date_id, place_url)
 
-    msg = (f"💡 {esc(author)} предложил(а) свидание в «{esc(cat['name'])}»"
-           f"{' — ждёт модерации' if moderated else ''}:\n«{esc(name)}»")
-    if place:
-        msg += f"\n📍 {esc(place)}"
-    when = fmt_when(starts, ends)
-    if when:
-        msg += f"\n🕐 {when} (мск)"
-    msg += f"\n\n{BASE_URL}/admin/dates/{date_id}/edit"
+    msg = notify.card(
+        "💡 Новое предложение" + (" (на модерации)" if moderated else ""),
+        f"«{esc(name)}» · {esc(cat['name'])}",
+        f"От: {esc(author)}",
+        f"📍 {esc(place)}" if place else "",
+        f"🕐 {fmt_when(starts, ends)} (мск)" if fmt_when(starts, ends) else "",
+        f"\n{BASE_URL}/admin/dates/{date_id}/edit")
     notify_owner(bg, conn, cat["owner_id"], msg)
 
     return JSONResponse({"ok": True, "id": date_id, "moderated": moderated})
@@ -681,8 +724,8 @@ def public_propose_edit(token: str, date_id: int, request: Request, bg: Backgrou
                         video: UploadFile | None = File(None),
                         conn=Depends(get_db)):
     cat = active_cat_or_410(conn, token)
-    guest = get_guest(request)
-    author = require_name(conn, guest)
+    user = acting_user(request, conn)
+    guest, author = ensure_guest_name(conn, user)
     d = own_proposal_or_403(conn, cat, date_id, guest)
     guest_throttle("prop", guest, request)
 
@@ -756,9 +799,11 @@ def public_propose_edit(token: str, date_id: int, request: Request, bg: Backgrou
     for v in vid_remove:
         images.delete_file(v["filename"])
 
-    notify_owner(bg, conn, cat["owner_id"],
-                 f"✏️ {esc(author)} изменил(а) своё предложение "
-                 f"«{esc(name)}» ({esc(cat['name'])})\n{BASE_URL}/admin/dates/{date_id}/edit")
+    notify_owner(bg, conn, cat["owner_id"], notify.card(
+        "✏️ Предложение изменено",
+        f"«{esc(name)}» · {esc(cat['name'])}",
+        f"Автор: {esc(author)}",
+        f"\n{BASE_URL}/admin/dates/{date_id}/edit"))
     return JSONResponse({"ok": True})
 
 
@@ -766,8 +811,8 @@ def public_propose_edit(token: str, date_id: int, request: Request, bg: Backgrou
 def public_propose_delete(token: str, date_id: int, request: Request, bg: BackgroundTasks,
                           conn=Depends(get_db)):
     cat = active_cat_or_410(conn, token)
-    guest = get_guest(request)
-    author = require_name(conn, guest)
+    user = acting_user(request, conn)
+    guest, author = ensure_guest_name(conn, user)
     d = own_proposal_or_403(conn, cat, date_id, guest)
     guest_throttle("prop", guest, request)
 
@@ -780,9 +825,10 @@ def public_propose_delete(token: str, date_id: int, request: Request, bg: Backgr
     for fn in files:
         images.delete_file(fn)
 
-    notify_owner(bg, conn, cat["owner_id"],
-                 f"🗑 {esc(author)} удалил(а) своё предложение "
-                 f"«{esc(d['name'])}» ({esc(cat['name'])})")
+    notify_owner(bg, conn, cat["owner_id"], notify.card(
+        "🗑 Предложение удалено",
+        f"«{esc(d['name'])}» · {esc(cat['name'])}",
+        f"Автор: {esc(author)}"))
     return JSONResponse({"ok": True})
 
 
@@ -793,9 +839,8 @@ def public_report(token: str, request: Request, bg: BackgroundTasks,
     """Жалоба гостя на свидание или саму категорию. Контент существует и виден
     по этой ссылке — иначе 404 (нельзя слать жалобы на чужой/скрытый id)."""
     cat = active_cat_or_410(conn, token)
-    guest = get_guest(request)
-    if not guest:
-        raise HTTPException(400, "Обнови страницу и попробуй ещё раз")
+    user = acting_user(request, conn)
+    guest = viewer_token(user)
     guest_throttle("report", guest, request)
 
     if target_type not in ("date", "category"):
@@ -820,8 +865,10 @@ def public_report(token: str, request: Request, bg: BackgroundTasks,
             "status, created_at) VALUES(?,?,?,?,'open',?)",
             (target_type, target_id, guest, reason, now_iso()))
         conn.commit()
-        bg.add_task(notify.notify,
-                    f"🚩 Жалоба на {('категорию' if target_type=='category' else 'свидание')} "
-                    f"«{esc(label)}» ({esc(cat['name'])}).\n"
-                    f"{esc(reason or 'без описания')}\n\n{BASE_URL}/operator/reports")
+        bg.add_task(notify.notify, notify.card(
+            "🚩 Жалоба",
+            f"На {('категорию' if target_type=='category' else 'свидание')}: «{esc(label)}»",
+            f"Категория: {esc(cat['name'])}",
+            f"Причина: {esc(reason or 'без описания')}",
+            f"\n{BASE_URL}/operator/reports"))
     return JSONResponse({"ok": True})

@@ -30,6 +30,11 @@
   v11 — reports: жалобы гостей на контент (очередь модерации оператора).
   v12 — users.bot_linked: 1 = запускал бота (можно слать уведомления);
        вход через виджет оставляет 0 до подключения бота. Бэкофилл = 1.
+  v13 — вход обязателен для гостевых действий + per-user уведомления + модерация:
+       bookings.user_id, questions.user_id, dates.proposed_by (кто совершил
+       действие — для уведомлений автору); users.is_reviewed, categories.is_reviewed
+       (мягкая очередь модерации, по умолчанию 1 = одобрено); таблица settings
+       (глобальные флаги moderate_users/moderate_categories, по умолчанию выкл).
 
 Свежая база создаётся сразу по последней схеме. Существующая —
 докатывается миграциями при старте приложения.
@@ -43,7 +48,7 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "app.db"
 
-LATEST_VERSION = 12
+LATEST_VERSION = 13
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -56,10 +61,17 @@ CREATE TABLE IF NOT EXISTS users (
     gender TEXT,                  -- 'm' | 'f'
     is_active INTEGER NOT NULL DEFAULT 1,    -- 0 = забанен
     is_operator INTEGER NOT NULL DEFAULT 0,  -- суперадмин (модерация/баны/лимиты)
+    is_reviewed INTEGER NOT NULL DEFAULT 1,  -- 0 = новый, ждёт проверки админом (мягкая очередь)
     date_limit INTEGER NOT NULL DEFAULT 30,  -- квота свиданий; оператор поднимает вручную
     bot_linked INTEGER NOT NULL DEFAULT 0,   -- 1 = запускал бота → можно слать уведомления
     created_at TEXT NOT NULL,
     last_login_at TEXT
+);
+
+-- Глобальные флаги платформы (модерация и т.п.). Значения — строки '0'/'1'.
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
 );
 
 -- Одноразовые коды входа через бота (deep-link ?start=<code>). TTL чистится в коде.
@@ -77,6 +89,7 @@ CREATE TABLE IF NOT EXISTS categories (
     link_token TEXT UNIQUE,
     link_enabled INTEGER NOT NULL DEFAULT 1,
     moderate_proposals INTEGER NOT NULL DEFAULT 0,
+    is_reviewed INTEGER NOT NULL DEFAULT 1,  -- 0 = новая, ждёт проверки админом (мягкая очередь)
     description TEXT,          -- видно всем гостям под заголовком страницы
     created_at TEXT NOT NULL
 );
@@ -91,6 +104,7 @@ CREATE TABLE IF NOT EXISTS dates (
     comment TEXT,
     origin TEXT NOT NULL DEFAULT 'admin',   -- 'admin' | 'guest'
     guest_token TEXT,          -- кто предложил (если гость)
+    proposed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,  -- автор предложения (для уведомления о публикации)
     is_draft INTEGER NOT NULL DEFAULT 0,    -- черновик / на модерации: гостям не виден
     pay_split INTEGER NOT NULL DEFAULT 0,   -- бейдж «оплата 50/50»
     place_url TEXT,            -- если «место» вставили ссылкой на карты
@@ -143,6 +157,7 @@ CREATE TABLE IF NOT EXISTS bookings (
     date_id INTEGER NOT NULL REFERENCES dates(id) ON DELETE CASCADE,
     category_id INTEGER NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
     guest_token TEXT NOT NULL,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,  -- залогиненный гость (для уведомлений)
     created_at TEXT NOT NULL
 );
 
@@ -151,6 +166,7 @@ CREATE TABLE IF NOT EXISTS questions (
     date_id INTEGER NOT NULL REFERENCES dates(id) ON DELETE CASCADE,
     category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL,
     guest_token TEXT,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,  -- автор вопроса (уведомить при ответе)
     text TEXT NOT NULL,
     answer TEXT,               -- ответ админа: виден автору вопроса
     answered_at TEXT,
@@ -414,6 +430,25 @@ MIGRATIONS: dict[int, str] = {
         -- уже есть, входили только через deeplink — значит бот у них подключён.
         ALTER TABLE users ADD COLUMN bot_linked INTEGER NOT NULL DEFAULT 0;
         UPDATE users SET bot_linked=1 WHERE telegram_id <> 0;
+    """,
+    13: """
+        -- Вход обязателен для гостевых действий + per-user уведомления + модерация.
+        -- Кто совершил действие (для уведомлений автору): nullable, старые записи
+        -- остаются с NULL (показ по guests.name, как раньше). REFERENCES без
+        -- проверки FK: миграции идут с foreign_keys=OFF, целостность не нарушается
+        -- (новые колонки пустые).
+        ALTER TABLE bookings ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+        ALTER TABLE questions ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+        ALTER TABLE dates ADD COLUMN proposed_by INTEGER REFERENCES users(id) ON DELETE SET NULL;
+        -- Мягкая очередь модерации: 1 = одобрено (дефолт для всех существующих),
+        -- 0 проставляется только новым, когда соответствующий флаг включён.
+        ALTER TABLE users ADD COLUMN is_reviewed INTEGER NOT NULL DEFAULT 1;
+        ALTER TABLE categories ADD COLUMN is_reviewed INTEGER NOT NULL DEFAULT 1;
+        -- Глобальные флаги платформы (moderate_users/moderate_categories).
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
     """,
 }
 
