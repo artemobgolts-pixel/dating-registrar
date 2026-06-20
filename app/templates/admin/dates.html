@@ -66,7 +66,7 @@
       {% endif %}
       <h3 class="ttl serif"><a href="/admin/dates/{{ r['id'] }}/edit">{{ r['name'] }}</a></h3>
       <div class="meta">
-        {{ r['starts_at'] | when(r['ends_at']) or 'дата гибкая' }}{% if r['books'] %} · {{ r['books'] }} {{ r['books'] | plural('бронь', 'брони', 'броней') }}{% endif %}
+        {{ r['starts_at'] | when(r['ends_at']) or 'без даты' }}{% if r['books'] %} · {{ r['books'] }} {{ r['books'] | plural('бронь', 'брони', 'броней') }}{% endif %}
         {% if not cat and r['cats'] %}<br>{{ r['cats'] }}{% endif %}
       </div>
       <div class="foot">
@@ -122,7 +122,7 @@
         {% if r['pay_split'] %}<span class="badge rose">💸 50/50</span>{% endif %}
       </div>
       <div class="drow-meta">
-        <span>{{ r['starts_at'] | when(r['ends_at']) or 'дата гибкая' }}</span>
+        <span>{{ r['starts_at'] | when(r['ends_at']) or 'без даты' }}</span>
         {% if r['cats'] %}<span>· {{ r['cats'] }}</span>{% endif %}
         {% if r['books'] %}<span>· 💝 {{ r['booked_names'] }}</span>{% endif %}
       </div>

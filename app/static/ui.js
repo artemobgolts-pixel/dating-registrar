@@ -127,7 +127,7 @@ window.UI = (() => {
      через DataTransfer — поэтому обычный submit формы (админка) работает,
      а порядок файлов соответствует порядку плиток. */
   function uploader({ zone, input, preview, max, maxBytes, keptCount,
-                      onChange, onError, kind, focusable, onFocus }) {
+                      onChange, onError, kind, focusable, onFocus, noZoneBind }) {
     let files = [];
     let urls = [];
     let focuses = [];                                 // зона кадра на каждое фото («X% Y%»)
@@ -236,18 +236,23 @@ window.UI = (() => {
       sync();
     }
 
-    zone.addEventListener("click", (e) => {
-      if (e.target.closest(".ptile, button, a")) return;
-      input.click();
-    });
-    zone.addEventListener("dragover", (e) => { e.preventDefault(); zone.classList.add("over"); });
-    zone.addEventListener("dragleave", () => zone.classList.remove("over"));
-    zone.addEventListener("drop", (e) => {
-      e.preventDefault();
-      zone.classList.remove("over");
-      if (e.dataTransfer && e.dataTransfer.files) add(e.dataTransfer.files);
-    });
-    input.addEventListener("change", () => add(input.files));
+    // В режиме общего блока «Медиа» одна видимая дроп-зона на два загрузчика
+    // (фото/видео): привязку зоны и input берёт на себя mediaUploader, а здесь
+    // её пропускаем (noZoneBind), оставляя только превью и сортировку.
+    if (!noZoneBind) {
+      zone.addEventListener("click", (e) => {
+        if (e.target.closest(".ptile, button, a")) return;
+        input.click();
+      });
+      zone.addEventListener("dragover", (e) => { e.preventDefault(); zone.classList.add("over"); });
+      zone.addEventListener("dragleave", () => zone.classList.remove("over"));
+      zone.addEventListener("drop", (e) => {
+        e.preventDefault();
+        zone.classList.remove("over");
+        if (e.dataTransfer && e.dataTransfer.files) add(e.dataTransfer.files);
+      });
+      input.addEventListener("change", () => add(input.files));
+    }
 
     // выбор зоны кадра на новых плитках: клик по фото → object-position в %.
     // Тот же расчёт, что для сохранённых фото в редакторе свидания.
@@ -281,8 +286,42 @@ window.UI = (() => {
     return {
       files: () => files.slice(),
       focuses: () => focuses.slice(),
+      addFiles: (list) => add(list),
       clear() { files = []; focuses = []; sync(); },
     };
+  }
+
+  /* --- Общий блок «Медиа»: одна дроп-зона на фото И видео --------------- */
+  /* Одна видимая зона/инпут принимают и фото, и видео. Файлы маршрутизируем по
+     MIME в ДВА базовых uploader (photos→input name="images", videos→name="videos"),
+     поэтому бэкенд не меняется. Превью у фото и видео — отдельные, но визуально
+     идут в одной зоне (плитки добавляются в общий контейнер). */
+  function mediaUploader({ zone, input, photo, video, onError }) {
+    onError = onError || ((m) => alert(m));
+    function route(list) {
+      const imgs = [], vids = [];
+      [...list].forEach((f) => {
+        if (!f) return;
+        const t = f.type || "";
+        if (t.startsWith("video/")) vids.push(f);
+        else imgs.push(f);                 // пустой type (HEIC) считаем фото
+      });
+      if (imgs.length) photo.addFiles(imgs);
+      if (vids.length) video.addFiles(vids);
+    }
+    zone.addEventListener("click", (e) => {
+      if (e.target.closest(".ptile, button, a")) return;
+      input.click();
+    });
+    zone.addEventListener("dragover", (e) => { e.preventDefault(); zone.classList.add("over"); });
+    zone.addEventListener("dragleave", () => zone.classList.remove("over"));
+    zone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      zone.classList.remove("over");
+      if (e.dataTransfer && e.dataTransfer.files) route(e.dataTransfer.files);
+    });
+    input.addEventListener("change", () => { route(input.files); input.value = ""; });
+    return { photo, video };
   }
 
   /* --- Чипы быстрого выбора даты и времени ------------------------------ */
@@ -496,29 +535,95 @@ window.UI = (() => {
 
     // тулбар: применяем оформление к ВЫДЕЛЕНИЮ прямо в редакторе
     var CMD = { "**|**": "bold", "*|*": "italic", "__|__": "underline", "~~|~~": "strikeThrough" };
+
+    function applyWrap(w) {
+      ed.focus();
+      if (CMD[w]) { try { document.execCommand(CMD[w], false, null); } catch (_) {} }
+      else {                                                   // ссылка
+        var sel = window.getSelection();
+        var text = sel && sel.toString();
+        var url = window.prompt("Ссылка (https://…):", "https://");
+        if (url) {
+          if (text) { try { document.execCommand("createLink", false, url); } catch (_) {} }
+          else { try { document.execCommand("insertHTML", false,
+            '<a href="' + url.replace(/"/g, "&quot;") + '">' + escapeHTML(url) + "</a>"); } catch (_) {} }
+        }
+      }
+      toTextarea();
+    }
+
     if (toolbar) toolbar.querySelectorAll("[data-wrap]").forEach(function (btn) {
       btn.addEventListener("mousedown", function (e) { e.preventDefault(); });  // не терять выделение
-      btn.addEventListener("click", function () {
-        ed.focus();
-        var w = btn.getAttribute("data-wrap");
-        if (CMD[w]) { try { document.execCommand(CMD[w], false, null); } catch (_) {} }
-        else {                                                   // ссылка
-          var sel = window.getSelection();
-          var text = sel && sel.toString();
-          var url = window.prompt("Ссылка (https://…):", "https://");
-          if (url) {
-            if (text) { try { document.execCommand("createLink", false, url); } catch (_) {} }
-            else { try { document.execCommand("insertHTML", false,
-              '<a href="' + url.replace(/"/g, "&quot;") + '">' + escapeHTML(url) + "</a>"); } catch (_) {} }
-          }
-        }
-        toTextarea();
+      btn.addEventListener("click", function () { applyWrap(btn.getAttribute("data-wrap")); });
+    });
+
+    // --- всплывающее меню форматирования по выделению (как в Telegram) -------
+    // Появляется у выделенного текста и на ПК, и на телефоне; на мобильном это
+    // основной способ форматирования (статичного тулбара там может не быть).
+    var pop = document.createElement("div");
+    pop.className = "fmt-pop";
+    pop.setAttribute("role", "toolbar");
+    pop.innerHTML =
+      '<button type="button" class="b" data-wrap="**|**" title="Жирный">Ж</button>' +
+      '<button type="button" class="i" data-wrap="*|*" title="Курсив">К</button>' +
+      '<button type="button" class="u" data-wrap="__|__" title="Подчёркнутый">П</button>' +
+      '<button type="button" class="s" data-wrap="~~|~~" title="Зачёркнутый">З</button>' +
+      '<button type="button" data-wrap="[|](https://)" title="Ссылка">🔗</button>';
+    document.body.appendChild(pop);
+    pop.querySelectorAll("[data-wrap]").forEach(function (btn) {
+      btn.addEventListener("mousedown", function (e) { e.preventDefault(); });  // не терять выделение
+      btn.addEventListener("click", function (e) {
+        e.preventDefault();
+        applyWrap(btn.getAttribute("data-wrap"));
+        positionPop();                                         // оформление меняет геометрию
       });
     });
 
+    function selectionInEditor() {
+      var sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
+      var r = sel.getRangeAt(0);
+      var node = r.commonAncestorContainer;
+      if (node.nodeType === 3) node = node.parentNode;
+      return ed.contains(node) ? r : null;
+    }
+
+    function positionPop() {
+      var r = selectionInEditor();
+      if (!r) { pop.classList.remove("show"); return; }
+      var rect = r.getBoundingClientRect();
+      if (!rect.width && !rect.height) { pop.classList.remove("show"); return; }
+      pop.classList.add("show");
+      var pw = pop.offsetWidth, ph = pop.offsetHeight;
+      var left = rect.left + rect.width / 2 - pw / 2;
+      left = Math.max(8, Math.min(left, window.innerWidth - pw - 8));
+      var top = rect.top - ph - 8;
+      if (top < 8) top = rect.bottom + 8;                      // не влезло сверху — снизу
+      pop.style.left = left + "px";
+      pop.style.top = top + "px";
+    }
+
+    function maybeShow() { setTimeout(positionPop, 0); }       // даём финализировать выделение
+    ed.addEventListener("mouseup", maybeShow);
+    ed.addEventListener("keyup", maybeShow);
+    document.addEventListener("selectionchange", function () {
+      if (document.activeElement === ed) maybeShow();
+    });
+    ed.addEventListener("blur", function () {
+      setTimeout(function () {                                 // клик по кнопке меню — до blur
+        if (!pop.contains(document.activeElement)) pop.classList.remove("show");
+      }, 150);
+    });
+    window.addEventListener("scroll", function () {
+      if (pop.classList.contains("show")) positionPop();
+    }, true);
+
     // если форма сабмитится — на всякий случай добиваем актуальный markdown
     if (ta.form) ta.form.addEventListener("submit", function () { if (!syncing) toTextarea(); });
-    return { toTextarea: toTextarea };
+    // fromTextarea — перерисовать редактор из текущего значения textarea (нужно,
+    // когда диалог переиспользуется: открыли на редактирование — подставили текст).
+    function fromTextarea() { ed.innerHTML = renderMarkup(ta.value) || ""; }
+    return { toTextarea: toTextarea, fromTextarea: fromTextarea };
   }
 
   /* --- Меню «⋯» на карточках списка (делегированно, клик-вне закрывает) -- */
@@ -570,6 +675,6 @@ window.UI = (() => {
     });
   }
 
-  return { sortable, burst, uploader, dateChips, postWithProgress,
+  return { sortable, burst, uploader, mediaUploader, dateChips, postWithProgress,
            editorPreview, richEditor, cardMenu, renderMarkup };
 })();

@@ -34,23 +34,9 @@ def upsert_on_login(conn, telegram_id: int, *, username: str | None = None,
     link_bot=True (вход через бота, deeplink) — выставляет bot_linked=1: бот
     запущен, уведомления можно слать. link_bot=False (вход через виджет) — флаг
     не трогает: у новых остаётся 0, пока не подключат бота отдельно.
-
-    «Забор» легаси-владельца: если входящий telegram_id — оператор, а реальной
-    записи под ним ещё нет, но есть служебный легаси-владелец (telegram_id=0),
-    переписываем ему telegram_id — и все легаси-данные становятся его данными.
     """
     is_op = telegram_id in OPERATOR_TG_IDS
     row = get_by_telegram(conn, telegram_id)
-    if not row and is_op:
-        legacy = get_by_telegram(conn, 0)
-        if legacy:
-            conn.execute(
-                "UPDATE users SET telegram_id=?, tg_username=?, is_operator=1, "
-                "bot_linked=CASE WHEN ? THEN 1 ELSE bot_linked END, "
-                "last_login_at=? WHERE id=?",
-                (telegram_id, username, 1 if link_bot else 0, now_iso(), legacy["id"]))
-            conn.commit()
-            return legacy["id"]
 
     if row:
         conn.execute(

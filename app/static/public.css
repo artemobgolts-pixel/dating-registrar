@@ -260,8 +260,18 @@ body::after {
 
 /* кнопка «Войти» в шапке для анонимного посетителя */
 .hero .login-cta {
-  display: inline-block; margin: 16px auto 0;
+  display: inline-block; margin: 0;
 }
+/* элементы шапки (автор · вход · приветствие) — каждый на своей строке,
+   по центру, с воздухом между ними, чтобы не толпились (особенно на телефоне) */
+.hero .author,
+.hero .greet { display: inline-flex; }
+.hero-cta { margin-top: 16px; }
+.hero > .author,
+.hero > .hero-cta,
+.hero > .greet { display: block; width: fit-content; margin-left: auto; margin-right: auto; }
+.hero > .author { margin-top: 14px; }
+.hero > .greet { margin-top: 16px; }
 
 @keyframes fade-down { from { opacity: 0; transform: translateY(-14px); } to { opacity: 1; transform: none; } }
 @keyframes fade-up { from { opacity: 0; transform: translateY(18px) scale(.985); } to { opacity: 1; transform: none; } }
@@ -533,6 +543,9 @@ body::after {
 @media (hover: none) { .gal-nav { display: none; } }
 
 .body { padding: 18px 20px 20px; }
+.title-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.title-row .title { margin-bottom: 8px; }
+.title-row .report-link { margin-top: 0; flex: none; white-space: nowrap; }
 .title {
   font-family: var(--serif);
   font-size: 26px; font-weight: 600; margin: 0 0 8px; line-height: 1.18;
@@ -688,6 +701,11 @@ dialog::backdrop { background: rgba(70, 40, 46, .38); backdrop-filter: blur(5px)
   padding: 12px 14px;
   font: inherit; color: var(--ink);
   transition: border-color .2s, box-shadow .2s, background .3s;
+}
+/* datetime-local на iOS «распирает» строку и съезжает вправо — нормализуем */
+.field input[type="datetime-local"] {
+  -webkit-appearance: none; appearance: none;
+  text-align: left; min-width: 0; max-width: 100%;
 }
 .field input:focus, .field textarea:focus {
   outline: none; border-color: var(--rose);
@@ -1044,6 +1062,43 @@ footer .hearts { color: var(--rose); opacity: .55; letter-spacing: 8px; margin-b
 }
 .chk-line input { width: 17px; height: 17px; accent-color: var(--rose); }
 
+/* WYSIWYG-редактор комментария в форме предложения (тот же, что в кабинете) */
+.rich-ed {
+  min-height: 86px;
+  border: 1px solid var(--line); border-radius: 14px;
+  padding: 12px 14px; font: inherit; color: var(--ink);
+  background: #fffefd; line-height: 1.5; outline: none;
+}
+.rich-ed:focus { border-color: var(--rose); box-shadow: 0 0 0 4px rgba(182, 95, 111, .14); }
+.rich-ed:empty::before { content: attr(data-placeholder); color: var(--muted); }
+.rich-ed a { color: var(--rose-2); }
+
+/* всплывающее меню форматирования по выделению (как в Telegram) */
+.fmt-pop {
+  position: fixed; z-index: 80; display: none;
+  gap: 2px; padding: 4px;
+  background: rgba(43, 35, 38, .96);
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .35);
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+}
+.fmt-pop.show { display: flex; }
+.fmt-pop button {
+  border: 0; background: none; color: #fff;
+  width: 34px; height: 34px; border-radius: 8px;
+  cursor: pointer; font-size: 15px; line-height: 1;
+}
+.fmt-pop button:hover { background: rgba(255, 255, 255, .16); }
+.fmt-pop .b { font-weight: 800; }
+.fmt-pop .i { font-style: italic; }
+.fmt-pop .u { text-decoration: underline; }
+.fmt-pop .s { text-decoration: line-through; }
+
+/* пустой редактор на телефоне — в одну аккуратную строку, не «башня» */
+@media (max-width: 720px) {
+  .rich-ed { min-height: 44px; }
+}
+
 /* ============================================================================
    LIQUID GLASS — матовое стекло в розовой палитре (адаптация glassmorphism).
    Карточки становятся полупрозрачным морозным стеклом: сквозь них просвечивает
@@ -1183,6 +1238,21 @@ footer .hearts { color: var(--rose); opacity: .55; letter-spacing: 8px; margin-b
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .card { background: var(--card); }
   .body { background: transparent; }
+}
+
+/* Мобильная производительность: дорогой backdrop-filter: url(#glassWarp)
+   (SVG-преломление) пересчитывается при каждом репейнте и тормозит прокрутку и
+   переключение на телефоне. Снимаем ссылку на SVG-фильтр, оставляя обычный blur —
+   стекло визуально почти то же, репейнт дешевеет. Анимированный фон НЕ трогаем. */
+@media (max-width: 720px) {
+  .card {
+    -webkit-backdrop-filter: blur(7px) saturate(1.9) brightness(1.08);
+    backdrop-filter: blur(7px) saturate(1.9) brightness(1.08);
+  }
+  .home-card {
+    -webkit-backdrop-filter: blur(8px) saturate(1.05);
+    backdrop-filter: blur(8px) saturate(1.05);
+  }
 }
 
 /* ============================================================================

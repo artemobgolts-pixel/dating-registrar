@@ -23,7 +23,7 @@
     {% else %}
       <label class="consent">
         <input type="checkbox" id="tg-consent">
-        <span>Мне есть 18 лет, и я принимаю
+        <span>Я принимаю
           <a href="/terms" target="_blank" rel="noopener">Пользовательское соглашение</a>
           и <a href="/privacy" target="_blank" rel="noopener">Политику конфиденциальности</a>.</span>
       </label>
@@ -32,8 +32,7 @@
         <script async src="https://telegram.org/js/telegram-widget.js?22"
                 data-telegram-login="{{ bot }}"
                 data-size="large"
-                data-auth-url="/auth/widget"
-                data-request-access="write"></script>
+                data-auth-url="/auth/widget"></script>
       </div>
       <p class="login-hint" id="tg-widget-gate">Отметь согласие выше, чтобы войти.</p>
       <div id="tg-error" class="err" hidden></div>

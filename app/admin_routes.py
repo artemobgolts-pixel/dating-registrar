@@ -30,8 +30,8 @@ from helpers import (clean_text, normalize_period, now_iso, now_naive,
                      parse_birth_date, parse_dt_local, parse_links)
 from fastapi.responses import JSONResponse
 from ownership import get_owned_category, get_owned_date
-from public_routes import (add_photos, insert_date, next_cat_pos, notify_user,
-                           ranged_file, save_links, VIDEO_TYPES)
+from public_routes import (add_photos, insert_date, next_cat_pos, notify_admin,
+                           notify_user, ranged_file, save_links, VIDEO_TYPES)
 from ratelimit import user_throttle
 from tasks import autoarchive_once
 from users import current_user
@@ -474,7 +474,8 @@ def categories_list(request: Request, conn=Depends(get_db)):
 
 
 @router.post("/categories/create")
-def category_create(request: Request, name: str = Form(...), conn=Depends(get_db)):
+def category_create(request: Request, bg: BackgroundTasks, name: str = Form(...),
+                    conn=Depends(get_db)):
     name = clean_text(name, 200, "Название", required=True)
     token = secrets.token_urlsafe(24)
     # мягкая очередь: при включённой модерации категорий новая помечается
@@ -485,6 +486,11 @@ def category_create(request: Request, name: str = Form(...), conn=Depends(get_db
         "moderate_proposals, is_reviewed, created_at) VALUES(?,?,?,1,1,?,?)",
         (request.state.user["id"], name, token, reviewed, now_iso()))
     conn.commit()
+    actor = request.state.user["display_name"] or request.state.user["tg_username"] or "—"
+    notify_admin(bg, conn, request.state.user["id"], notify.card(
+        "🆕 Создана категория",
+        f"«{notify.esc(name)}»",
+        f"Кто: {notify.esc(actor)}"))
     return redir("/admin/categories", "Категория создана")
 
 
@@ -547,6 +553,11 @@ def category_toggle(cid: int, request: Request, conn=Depends(get_db)):
 
 @router.post("/categories/{cid}/moderation")
 def category_moderation(cid: int, request: Request, conn=Depends(get_db)):
+    # Режим модерации предложений — решение платформы, а не владельца категории:
+    # переключать может только оператор (обычному пользователю — 404, как на всей
+    # операторской поверхности).
+    if not request.state.user["is_operator"]:
+        raise HTTPException(404)
     cat = _cat_or_404(conn, cid, request.state.user)
     new_val = 0 if cat["moderate_proposals"] else 1
     conn.execute("UPDATE categories SET moderate_proposals=? WHERE id=?", (new_val, cid))
@@ -567,10 +578,15 @@ def category_regenerate(cid: int, request: Request, conn=Depends(get_db)):
 
 
 @router.post("/categories/{cid}/delete")
-def category_delete(cid: int, request: Request, conn=Depends(get_db)):
-    _cat_or_404(conn, cid, request.state.user)
+def category_delete(cid: int, request: Request, bg: BackgroundTasks, conn=Depends(get_db)):
+    cat = _cat_or_404(conn, cid, request.state.user)
     conn.execute("DELETE FROM categories WHERE id=?", (cid,))
     conn.commit()
+    actor = request.state.user["display_name"] or request.state.user["tg_username"] or "—"
+    notify_admin(bg, conn, cat["owner_id"], notify.card(
+        "🗑 Удалена категория",
+        f"«{notify.esc(cat['name'])}»",
+        f"Кто: {notify.esc(actor)}"))
     return redir("/admin/categories", "Категория удалена (свидания остались)")
 
 
@@ -781,6 +797,11 @@ def date_create(request: Request, bg: BackgroundTasks,
     conn.commit()
     if needs_resolve:
         bg.add_task(places.resolve_into_db, date_id, place_url)
+    actor = request.state.user["display_name"] or request.state.user["tg_username"] or "—"
+    notify_admin(bg, conn, uid, notify.card(
+        "🆕 Создано свидание",
+        f"«{notify.esc(name)}»",
+        f"Кто: {notify.esc(actor)}"))
     return redir("/admin/dates", "Свидание создано")
 
 
@@ -939,8 +960,8 @@ def date_archive(did: int, request: Request, next: str = Form("/admin/dates"),
 
 
 @router.post("/dates/{did}/delete")
-def date_delete(did: int, request: Request, conn=Depends(get_db)):
-    _date_or_404(conn, did, request.state.user)
+def date_delete(did: int, request: Request, bg: BackgroundTasks, conn=Depends(get_db)):
+    d = _date_or_404(conn, did, request.state.user)
     files = [r["filename"] for r in conn.execute(
         "SELECT filename FROM date_images WHERE date_id=?", (did,))]
     files += [r["filename"] for r in conn.execute(
@@ -949,6 +970,11 @@ def date_delete(did: int, request: Request, conn=Depends(get_db)):
     conn.commit()
     for fn in files:                  # файлы — только после коммита
         images.delete_file(fn)
+    actor = request.state.user["display_name"] or request.state.user["tg_username"] or "—"
+    notify_admin(bg, conn, d["owner_id"], notify.card(
+        "🗑 Удалено свидание",
+        f"«{notify.esc(d['name'])}»",
+        f"Кто: {notify.esc(actor)}"))
     return redir("/admin/dates", "Свидание удалено")
 
 

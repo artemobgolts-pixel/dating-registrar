@@ -57,16 +57,12 @@
 <header class="top">
   <a class="brand serif" href="/admin/">♥ date<span class="d4">4</span>you</a>
   <nav>
-    <a href="/admin/" class="{{ 'on' if active == 'dash' else '' }}">Главная</a>
-    <a href="/admin/categories" class="{{ 'on' if active == 'cats' else '' }}">Категории</a>
-    <a href="/admin/dates" class="{{ 'on' if active == 'dates' else '' }}">Свидания</a>
-    <a href="/admin/questions" class="{{ 'on' if active == 'q' else '' }}">Уведомления{% if unread %} <span class="pill">{{ unread }}</span>{% endif %}</a>
-    <a href="/admin/profile" class="{{ 'on' if active == 'profile' else '' }}">{{ user['display_name'] or 'Профиль' }}</a>
-    {% if user['is_operator'] %}<a href="/operator/" class="op-link">⚙ Админ</a>{% endif %}
-    <form class="inline" method="post" action="/admin/logout">
-      <input type="hidden" name="csrf" value="{{ csrf }}">
-      <button class="linklike exit">Выйти</button>
-    </form>
+    <a href="/admin/" class="{{ 'on' if active == 'dash' else '' }}"><span class="ic" aria-hidden="true">🏠</span><span class="lb">Главная</span></a>
+    <a href="/admin/categories" class="{{ 'on' if active == 'cats' else '' }}"><span class="ic" aria-hidden="true">🔗</span><span class="lb">Категории</span></a>
+    <a href="/admin/dates" class="{{ 'on' if active == 'dates' else '' }}"><span class="ic" aria-hidden="true">💝</span><span class="lb">Свидания</span></a>
+    <a href="/admin/questions" class="{{ 'on' if active == 'q' else '' }}"><span class="ic" aria-hidden="true">🔔</span><span class="lb">Уведомления</span>{% if unread %} <span class="pill">{{ unread }}</span>{% endif %}</a>
+    <a href="/admin/profile" class="{{ 'on' if active == 'profile' else '' }}"><span class="ic" aria-hidden="true">👤</span><span class="lb">{{ user['display_name'] or 'Профиль' }}</span></a>
+    {% if user['is_operator'] %}<a href="/operator/" class="op-link"><span class="ic" aria-hidden="true">⚙</span><span class="lb">Админ</span></a>{% endif %}
   </nav>
 </header>
 <main class="wrap">

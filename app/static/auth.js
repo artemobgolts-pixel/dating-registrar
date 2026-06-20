@@ -15,6 +15,12 @@
       var ok = consent.checked;
       if (widgetWrap) widgetWrap.hidden = !ok;
       if (widgetGate) widgetGate.hidden = ok;
+      // дублируем согласие в сессию: серверный /auth/widget без флага вернёт 403,
+      // даже если кто-то покажет виджет правкой DOM
+      if (ok) {
+        fetch("/auth/consent", { method: "POST", credentials: "same-origin" })
+          .catch(function () { /* сеть моргнула — повторим при следующем change */ });
+      }
     };
     consent.addEventListener("change", syncConsent);
     syncConsent();

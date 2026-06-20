@@ -124,6 +124,19 @@ def notify_user(bg, conn, user_id: int | None, text: str) -> None:
         bg.add_task(notify.send_to, chat, text)
 
 
+def notify_admin(bg, conn, owner_id: int | None, text: str) -> None:
+    """Глобальный поток администратора платформы (TG_CHAT_ID): он видит КАЖДОЕ
+    действие всех пользователей. Дополняем готовую карточку строкой «Владелец»,
+    чтобы было подписано, чьего кабинета касается событие. Сетевой вызов — в фон.
+    Если TG_CHAT_ID не задан, notify.notify тихо ничего не делает."""
+    oname = "—"
+    if owner_id:
+        owner = users.get_user(conn, owner_id)
+        if owner:
+            oname = owner["display_name"] or owner["tg_username"] or f"#{owner_id}"
+    bg.add_task(notify.notify, text + f"\nВладелец: {esc(oname)}")
+
+
 def own_proposal_or_403(conn, cat, date_id: int, guest: str | None):
     """Предложение гостя, которое он может править: только его собственное."""
     d = conn.execute(
@@ -375,6 +388,27 @@ def public_category(token: str, request: Request, conn=Depends(get_db)):
     return resp
 
 
+@router.get("/c/{token}/owner-avatar")
+def public_owner_avatar(token: str, conn=Depends(get_db)):
+    """Аватар владельца категории — для шапки гостевой страницы. Без логина:
+    гость (в т.ч. анонимный) должен видеть фото автора. Отдаём только по активной
+    ссылке и только аватар владельца этой категории (чужой файл не утечёт)."""
+    cat = cat_by_token(conn, token)
+    if not cat or not cat["link_enabled"]:
+        raise HTTPException(404)
+    row = conn.execute(
+        "SELECT avatar_path FROM users WHERE id=? AND is_active=1",
+        (cat["owner_id"],)).fetchone()
+    fn = row["avatar_path"] if row else None
+    if not fn or not images.SAFE_FILENAME.match(fn):
+        raise HTTPException(404)
+    path = images.UPLOAD_DIR / fn
+    if not path.exists():
+        raise HTTPException(404)
+    return FileResponse(path, media_type="image/webp",
+                        headers={"Cache-Control": "private, max-age=3600"})
+
+
 @router.get("/c/{token}/image/{filename}")
 def public_image(token: str, filename: str, request: Request, conn=Depends(get_db)):
     """Фото отдаются только по активной ссылке категории. Архивные свидания
@@ -554,10 +588,12 @@ def public_book(token: str, request: Request, bg: BackgroundTasks,
     if mine:
         conn.execute("DELETE FROM bookings WHERE id=?", (mine["id"],))
         booked = False
-        notify_owner(bg, conn, cat["owner_id"], notify.card(
+        card = notify.card(
             "🤍 Выбор отменён",
             f"«{esc(d['name'])}» · {esc(cat['name'])}",
-            f"Кто: {esc(name)}"))
+            f"Кто: {esc(name)}")
+        notify_owner(bg, conn, cat["owner_id"], card)
+        notify_admin(bg, conn, cat["owner_id"], card)
     else:
         # одно свидание может выбрать только один человек,
         # а вот гость может выбрать сколько угодно свиданий
@@ -577,10 +613,12 @@ def public_book(token: str, request: Request, bg: BackgroundTasks,
             conn.rollback()
             raise HTTPException(409, "Только что заняли это свидание — обнови страницу ♥")
         booked = True
-        notify_owner(bg, conn, cat["owner_id"], notify.card(
+        card = notify.card(
             "💝 Новый выбор",
             f"«{esc(d['name'])}» · {esc(cat['name'])}",
-            f"Кто: {esc(name)}"))
+            f"Кто: {esc(name)}")
+        notify_owner(bg, conn, cat["owner_id"], card)
+        notify_admin(bg, conn, cat["owner_id"], card)
     conn.commit()
     return JSONResponse({"ok": True, "booked": booked, "name": name})
 
@@ -615,12 +653,14 @@ def public_suggest_time(token: str, request: Request, bg: BackgroundTasks,
         "suggest_starts, suggest_ends, created_at) VALUES(?,?,?,?,?,?,?,?)",
         (date_id, cat["id"], guest, user["id"], text, starts, ends, now_iso()))
     conn.commit()
-    notify_owner(bg, conn, cat["owner_id"], notify.card(
+    card = notify.card(
         "📅 Предложено время",
         f"«{esc(d['name'])}» · {esc(cat['name'])}",
         f"Кто: {esc(name)}",
         f"Когда: {fmt_when(starts, ends)} (мск)",
-        f"\n{BASE_URL}/admin/questions"))
+        f"\n{BASE_URL}/admin/questions")
+    notify_owner(bg, conn, cat["owner_id"], card)
+    notify_admin(bg, conn, cat["owner_id"], card)
     return JSONResponse({"ok": True})
 
 
@@ -644,12 +684,14 @@ def public_question(token: str, request: Request, bg: BackgroundTasks,
         (date_id, cat["id"], guest, user["id"], text, now_iso()),
     )
     conn.commit()
-    notify_owner(bg, conn, cat["owner_id"], notify.card(
+    card = notify.card(
         "❓ Новый вопрос",
         f"«{esc(d['name'])}» · {esc(cat['name'])}",
         f"От: {esc(name)}",
         f"\n{esc(text)}",
-        f"\n{BASE_URL}/admin/questions"))
+        f"\n{BASE_URL}/admin/questions")
+    notify_owner(bg, conn, cat["owner_id"], card)
+    notify_admin(bg, conn, cat["owner_id"], card)
     return JSONResponse({"ok": True})
 
 
@@ -707,6 +749,7 @@ def public_propose(token: str, request: Request, bg: BackgroundTasks,
         f"🕐 {fmt_when(starts, ends)} (мск)" if fmt_when(starts, ends) else "",
         f"\n{BASE_URL}/admin/dates/{date_id}/edit")
     notify_owner(bg, conn, cat["owner_id"], msg)
+    notify_admin(bg, conn, cat["owner_id"], msg)
 
     return JSONResponse({"ok": True, "id": date_id, "moderated": moderated})
 
@@ -804,6 +847,11 @@ def public_propose_edit(token: str, date_id: int, request: Request, bg: Backgrou
         f"«{esc(name)}» · {esc(cat['name'])}",
         f"Автор: {esc(author)}",
         f"\n{BASE_URL}/admin/dates/{date_id}/edit"))
+    notify_admin(bg, conn, cat["owner_id"], notify.card(
+        "✏️ Предложение изменено",
+        f"«{esc(name)}» · {esc(cat['name'])}",
+        f"Автор: {esc(author)}",
+        f"\n{BASE_URL}/admin/dates/{date_id}/edit"))
     return JSONResponse({"ok": True})
 
 
@@ -826,6 +874,10 @@ def public_propose_delete(token: str, date_id: int, request: Request, bg: Backgr
         images.delete_file(fn)
 
     notify_owner(bg, conn, cat["owner_id"], notify.card(
+        "🗑 Предложение удалено",
+        f"«{esc(d['name'])}» · {esc(cat['name'])}",
+        f"Автор: {esc(author)}"))
+    notify_admin(bg, conn, cat["owner_id"], notify.card(
         "🗑 Предложение удалено",
         f"«{esc(d['name'])}» · {esc(cat['name'])}",
         f"Автор: {esc(author)}"))

@@ -131,8 +131,21 @@ def login_page(request: Request, conn=Depends(get_db)):
         request.session["login_next"] = nxt
     if request.session.get("user_id") and users.get_user(conn, request.session["user_id"]):
         return RedirectResponse(_post_login_redirect(request), status_code=303)
+    # Согласие сбрасываем на каждом заходе: галочку нужно поставить заново.
+    # Виджет на странице скрыт, пока согласие не отмечено (см. auth.js), а здесь —
+    # серверный рубеж: /auth/widget без согласия в сессии вернёт 403.
+    request.session["consent"] = False
     return templates.TemplateResponse(
         request, "auth/login.html", {"bot": BOT_USERNAME})
+
+
+@router.post("/auth/consent")
+def auth_consent(request: Request):
+    """Отметка галочки согласия на странице входа. Кладём флаг в сессию, чтобы
+    серверный обработчик виджета мог убедиться: пользователь принял условия
+    (галочку нельзя обойти, отредактировав DOM)."""
+    request.session["consent"] = True
+    return JSONResponse({"ok": True})
 
 
 def _verify_widget(data: dict) -> bool:
@@ -167,6 +180,10 @@ def auth_widget(request: Request, conn=Depends(get_db)):
     ip = client_ip(request)
     if not rate_ok(f"widget:{ip}", 10, 600):
         raise HTTPException(429, "Слишком много попыток входа. Подожди немного.")
+    # Серверный рубеж согласия: галочку на странице входа нельзя обойти правкой
+    # DOM — без флага в сессии вход не открываем.
+    if not request.session.get("consent"):
+        raise HTTPException(403, "Сначала отметь согласие с условиями на странице входа.")
     data = dict(request.query_params)
     if not data.get("id") or not _verify_widget(data):
         raise HTTPException(403, "Подпись Telegram не подтвердилась. Попробуй ещё раз.")

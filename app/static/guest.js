@@ -164,10 +164,11 @@
     max: MAX_PHOTOS,
     keptCount: () => propTiles.querySelectorAll(".ptile.kept:not(.removed)").length,
     onError: toast,
+    noZoneBind: true,                 // дроп-зону держит общий mediaUploader
   });
   const propVidTiles = $("#propVidTiles");
   const upv = UI.uploader({
-    zone: $("#propVidZone"),
+    zone: $("#propZone"),
     input: $("#propVideo"),
     preview: propVidTiles,
     kind: "video",
@@ -175,9 +176,25 @@
     // если у предложения уже есть видео и его не удалили — слот занят
     keptCount: () => (curVid && !removedVid) ? 1 : 0,
     onError: toast,
+    noZoneBind: true,                 // дроп-зону держит общий mediaUploader
+  });
+  // общий блок «Медиа»: одна зона принимает и фото, и видео
+  if (UI.mediaUploader) UI.mediaUploader({
+    zone: $("#propZone"),
+    input: $("#propMedia"),
+    photo: up,
+    video: upv,
+    onError: toast,
   });
   UI.dateChips(propDlg, $("#propStart"), $("#propEnd"));
   UI.sortable(propTiles, { selector: ".ptile.kept" });
+
+  // редактор комментария с форматированием по выделению (как в Telegram).
+  // Пишет markdown в скрытую textarea name="comment" — сервер рендерит helpers.rich().
+  var propRich = UI.richEditor({
+    textarea: $("#propComment"),
+    editable: $("#propDescEditable"),
+  });
 
   function renderKept(photos) {
     propTiles.querySelectorAll(".ptile.kept").forEach((t) => t.remove());
@@ -225,6 +242,9 @@
     } else {
       $("#propEndWrap").open = false;
     }
+    // редактор форматирования переинициализируем из textarea (reset её очистил,
+    // а для редактирования мы только что подставили сохранённый текст)
+    if (propRich) propRich.fromTextarea();
     propDlg.showModal();
   }
 

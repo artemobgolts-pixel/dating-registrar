@@ -66,6 +66,7 @@
               <label>Начало</label>
               <input type="datetime-local" name="starts_at" id="fStart"
                      value="{{ (date['starts_at'] or '') if date else '' }}">
+              <div class="hint">нажми, чтобы выбрать дату и время</div>
             </div>
             <div class="field" style="margin-bottom:0">
               <label>Конец — если это диапазон</label>
@@ -83,29 +84,20 @@
 
       <div class="sec">
         <h2 class="serif"><span class="n">2</span> Медиа</h2>
-        <div class="field">
-          <label>Фото — осталось мест: {{ slots }} (до 10 МБ каждое) · плитки можно менять местами</label>
-          {% if slots > 0 %}
-          <div class="dropzone" id="adminZone">
-            <div class="dz-ico">📷</div>
-            <div class="dz-hint">нажми или перетащи фото сюда</div>
-            <input type="file" name="images" id="imagesInput" accept="image/*" multiple>
+        <div class="field" style="margin-bottom:0">
+          <label>Фото и видео — перетащи сюда или нажми (фото до {{ slots }} шт по 10 МБ, видео — 2 шт по 60 МБ)</label>
+          <div class="dropzone" id="mediaZone">
+            <div class="dz-ico">📷🎬</div>
+            <div class="dz-hint">нажми или перетащи фото и видео сюда</div>
+            <input type="file" id="mediaInput" accept="image/*,video/mp4,video/webm" multiple>
             <div class="ptiles" id="newTiles"></div>
+            <div class="ptiles" id="newVidTiles"></div>
           </div>
           <p class="muted" id="newFocusHint" style="margin:6px 0 0;font-size:12.5px;display:none">кликни по новому фото, чтобы выбрать зону для карточки</p>
           <input type="hidden" name="image_focuses" id="imageFocuses">
-          {% else %}
-          <p class="muted" style="margin:4px 0 0">Достигнут максимум — удали лишние фото ниже.</p>
-          {% endif %}
-        </div>
-        <div class="field" style="margin-bottom:0">
-          <label>Видео — до 2 шт (mp4/webm, до 60 МБ каждое)</label>
-          <div class="dropzone" id="adminVidZone">
-            <div class="dz-ico">🎬</div>
-            <div class="dz-hint">нажми или перетащи видео сюда</div>
-            <input type="file" name="videos" id="videosInput" accept="video/mp4,video/webm" multiple>
-            <div class="ptiles" id="newVidTiles"></div>
-          </div>
+          <!-- скрытые инпуты для сабмита: mediaUploader раскладывает файлы по MIME -->
+          <input type="file" name="images" id="imagesInput" accept="image/*" multiple hidden>
+          <input type="file" name="videos" id="videosInput" accept="video/mp4,video/webm" multiple hidden>
         </div>
       </div>
 
@@ -279,23 +271,25 @@
   var hasExistingCover = {{ 'true' if (date and photos) else 'false' }};
 
   var inp = document.getElementById('imagesInput');
+  var photoUp = null;
   if (inp) {
     var focusesField = document.getElementById('imageFocuses');
     var focusHint = document.getElementById('newFocusHint');
-    var up = UI.uploader({
-      zone: document.getElementById('adminZone'),
+    photoUp = UI.uploader({
+      zone: document.getElementById('mediaZone'),
       input: inp,
       preview: document.getElementById('newTiles'),
       max: {{ slots if slots and slots > 0 else 0 }},
       keptCount: function () { return 0; },
       focusable: true,
+      noZoneBind: true,             // дроп-зону держит общий mediaUploader
       onFocus: function () {
         // зону выбрали на новой плитке — обновляем скрытое поле для сабмита
-        if (focusesField) focusesField.value = up.focuses().join(',');
+        if (focusesField) focusesField.value = photoUp.focuses().join(',');
       },
       onChange: function (files) {
         // зоны новых фото уходят параллельным массивом (по порядку плиток)
-        if (focusesField) focusesField.value = up.focuses().join(',');
+        if (focusesField) focusesField.value = photoUp.focuses().join(',');
         if (focusHint) focusHint.style.display = (files && files.length) ? 'block' : 'none';
         // если своей обложки ещё нет — показываем первое новое фото как обложку
         if (preview && !hasExistingCover) {
@@ -311,17 +305,29 @@
   }
 
   var vinp = document.getElementById('videosInput');
+  var videoUp = null;
   if (vinp) {
-    UI.uploader({
-      zone: document.getElementById('adminVidZone'),
+    videoUp = UI.uploader({
+      zone: document.getElementById('mediaZone'),
       input: vinp,
       preview: document.getElementById('newVidTiles'),
       kind: 'video',
       max: {{ 2 - (videos | length) if videos else 2 }},
       keptCount: function () { return 0; },
+      noZoneBind: true,             // дроп-зону держит общий mediaUploader
       onChange: function (files) {
         if (preview) preview.setVideo({{ 'true' if (date and videos) else 'false' }} || (files && files.length > 0));
       }
+    });
+  }
+
+  // общий блок «Медиа»: одна зона принимает фото и видео, раскладывает по MIME
+  if (photoUp && videoUp && UI.mediaUploader) {
+    UI.mediaUploader({
+      zone: document.getElementById('mediaZone'),
+      input: document.getElementById('mediaInput'),
+      photo: photoUp,
+      video: videoUp,
     });
   }
 

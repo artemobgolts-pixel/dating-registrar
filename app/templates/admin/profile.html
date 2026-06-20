@@ -3,37 +3,28 @@
 {% block content %}
 <div class="bar">
   <h1 class="serif" style="margin:0">Мой профиль</h1>
-  <div style="display:flex;gap:8px">
-    <a class="btn ghost" href="/u/{{ user['id'] }}">Как видят другие</a>
-    <a class="btn ghost" href="/admin/">← На главную</a>
-  </div>
+  <a class="btn ghost" href="/admin/">← На главную</a>
 </div>
 
 <div class="card" style="max-width:540px">
-  <form method="post" enctype="multipart/form-data">
+  <form method="post" enctype="multipart/form-data" id="profileForm">
     <input type="hidden" name="csrf" value="{{ csrf }}">
 
-    <div class="field" style="display:flex;align-items:center;gap:16px">
+    <div class="field avatar-field">
+      <label class="avatar-pick" title="Нажми, чтобы сменить фото">
+        {% if user['avatar_path'] %}
+        <img src="/admin/avatar/{{ user['avatar_path'] }}" alt="Аватар"
+             width="116" height="116" decoding="async" class="avatar-img">
+        {% else %}
+        <span class="avatar-ph">🙂</span>
+        {% endif %}
+        <span class="avatar-cam" aria-hidden="true">📷</span>
+        <input type="file" name="avatar" id="avatarInput" accept="image/*" hidden>
+      </label>
       {% if user['avatar_path'] %}
-      <img src="/admin/avatar/{{ user['avatar_path'] }}" alt="Аватар"
-           width="72" height="72" decoding="async"
-           style="border-radius:50%;object-fit:cover;border:2px solid #e7d3d7">
-      {% else %}
-      <span style="width:72px;height:72px;border-radius:50%;display:grid;
-                   place-items:center;background:#f3e6e9;font-size:30px">🙂</span>
-      {% endif %}
-      <div>
-        <label>Фото профиля</label>
-        <input type="file" name="avatar" accept="image/*">
-        <div class="hint">jpg/png/webp до 10 МБ</div>
-      </div>
-    </div>
-
-    {% if user['avatar_path'] %}
-    <div class="field">
       <button class="btn small danger" type="submit" form="delAvatar">Удалить фото</button>
+      {% endif %}
     </div>
-    {% endif %}
 
     <div class="field">
       <label>Имя *</label>
@@ -48,11 +39,11 @@
 
     <div class="field">
       <label>Пол</label>
-      <select name="gender">
-        <option value="" {{ 'selected' if not user['gender'] else '' }}>Не выбрано</option>
-        <option value="m" {{ 'selected' if user['gender'] == 'm' else '' }}>Мужской</option>
-        <option value="f" {{ 'selected' if user['gender'] == 'f' else '' }}>Женский</option>
-      </select>
+      <div class="gender-pick">
+        <label class="gender-opt"><input type="radio" name="gender" value="m" {{ 'checked' if user['gender'] == 'm' else '' }}> М</label>
+        <label class="gender-opt"><input type="radio" name="gender" value="f" {{ 'checked' if user['gender'] == 'f' else '' }}> Ж</label>
+        <label class="gender-opt"><input type="radio" name="gender" value="" {{ 'checked' if not user['gender'] else '' }}> Не выбрано</label>
+      </div>
     </div>
 
     <div class="field" style="margin-bottom:0">
@@ -66,11 +57,6 @@
     <input type="hidden" name="csrf" value="{{ csrf }}">
   </form>
   {% endif %}
-</div>
-
-<div class="card muted" style="max-width:540px;font-size:13.5px">
-  Вход выполнен через Telegram{% if user['tg_username'] %} (@{{ user['tg_username'] }}){% endif %}.
-  {% if user['is_operator'] %}<br>Вы админ платформы.{% endif %}
 </div>
 
 <div class="card" style="max-width:540px">
@@ -91,4 +77,25 @@
   </div>
   {% endif %}
 </div>
+
+<div class="card" style="max-width:540px">
+  <form method="post" action="/admin/logout">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button class="btn" type="submit">Выйти из аккаунта</button>
+  </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+(function () {
+  // клик по кругу аватарки уже открывает выбор (label). Выбрали файл —
+  // сразу сохраняем профиль, чтобы фото применилось без отдельной кнопки.
+  var inp = document.getElementById('avatarInput');
+  var form = document.getElementById('profileForm');
+  if (inp && form) inp.addEventListener('change', function () {
+    if (inp.files && inp.files.length) form.submit();
+  });
+})();
+</script>
 {% endblock %}

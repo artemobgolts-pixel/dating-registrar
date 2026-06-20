@@ -69,14 +69,16 @@
     {% if owner %}
     <a class="author" href="/u/{{ owner['id'] }}">
       {% if owner['avatar_path'] %}
-      <img class="author-av" src="/u/{{ owner['id'] }}/avatar" alt="" width="28" height="28" decoding="async">
+      <img class="author-av" src="/c/{{ token }}/owner-avatar" alt="" width="28" height="28" decoding="async">
       {% else %}<span class="author-av ph" aria-hidden="true">♥</span>{% endif %}
       <span class="author-name">{{ owner['display_name'] or owner['tg_username'] or 'Автор' }}</span>
     </a>
     {% endif %}
 
     {% if not me %}
-    <a class="btn book login-cta" href="/login?next=/c/{{ token }}">Войти в аккаунт</a>
+    <div class="hero-cta">
+      <a class="btn book login-cta" href="/login?next=/c/{{ token }}">Войти в аккаунт</a>
+    </div>
     {% endif %}
 
     <div class="greet" id="greet" {% if not guest_name %}hidden{% endif %}>
@@ -124,7 +126,12 @@
     <div class="body">
       {# карточка без фото/видео — без заглушки: только бейджи, заголовок и параметры #}
       {% if not d.images and not d.videos and badges | trim %}<div class="badges inflow">{{ badges }}</div>{% endif %}
-      <h2 class="title">{{ d.name }}</h2>
+      <div class="title-row">
+        <h2 class="title">{{ d.name }}</h2>
+        {% if not d.past and not d.pending and not d.editable %}
+        <button type="button" class="report-link" data-id="{{ d.id }}" data-name="{{ d.name }}">пожаловаться</button>
+        {% endif %}
+      </div>
       {# компактная плашка статуса для карточек без фото (большого оверлея нет):
          архив всегда помечаем «Было», активные — только когда есть бронь #}
       {% if not d.images and not d.videos and (d.past or d.booked_by_me or d.booked_others_list) %}
@@ -187,9 +194,6 @@
           {% endif %}
           <button class="btn ghost ask" data-id="{{ d.id }}" data-name="{{ d.name }}">Спросить 💬</button>
         </div>
-        {% if not d.editable %}
-        <button type="button" class="report-link" data-id="{{ d.id }}" data-name="{{ d.name }}">пожаловаться</button>
-        {% endif %}
         {% endif %}
         {% if d.editable %}
         <div class="mine-actions">
@@ -347,6 +351,7 @@
         <button type="button" class="chip" data-time="21:00">21:00</button>
       </div>
       <input type="datetime-local" name="starts_at" id="propStart">
+      <p class="alt-time">нажми, чтобы выбрать дату и время</p>
     </div>
     <details class="endtime" id="propEndWrap">
       <summary>указать время окончания</summary>
@@ -364,27 +369,24 @@
       <textarea name="links" placeholder="https://..."></textarea>
     </div>
     <div class="field">
-      <label>Комментарий</label>
-      <textarea name="comment" maxlength="2000"
-        placeholder="Почему это будет здорово. Можно **жирный**, *курсив*, __подчёркнутый__"></textarea>
+      <label>Комментарий <span class="muted" style="font-weight:400">— выдели текст, чтобы отформатировать</span></label>
+      <div class="rich-ed" id="propDescEditable" contenteditable="true"
+           role="textbox" aria-multiline="true"
+           data-placeholder="Почему это будет здорово ♥"></div>
+      <textarea name="comment" id="propComment" maxlength="2000" hidden></textarea>
     </div>
     <div class="field">
-      <label>Фото (до 5 штук) — перетащи, чтобы поменять местами</label>
+      <label>Фото и видео (до 5 фото и 1 видео) — перетащи, чтобы поменять местами</label>
       <div class="dropzone" id="propZone">
-        <div class="dz-ico">📷</div>
-        <div class="dz-hint">нажми или перетащи фото сюда</div>
-        <input type="file" name="images" id="propFiles" accept="image/*" multiple>
+        <div class="dz-ico">📷🎬</div>
+        <div class="dz-hint">нажми или перетащи фото и видео сюда</div>
+        <input type="file" id="propMedia" accept="image/*,video/mp4,video/webm" multiple>
         <div class="ptiles" id="propTiles"></div>
-      </div>
-    </div>
-    <div class="field">
-      <label>Видео (mp4 или webm, до 60 МБ) — перетащи сюда</label>
-      <div class="dropzone" id="propVidZone">
-        <div class="dz-ico">🎬</div>
-        <div class="dz-hint">нажми или перетащи видео сюда</div>
-        <input type="file" name="video" id="propVideo" accept="video/mp4,video/webm">
         <div class="ptiles" id="propVidTiles"></div>
       </div>
+      <!-- скрытые инпуты сабмита: mediaUploader раскладывает файлы по MIME -->
+      <input type="file" name="images" id="propFiles" accept="image/*" multiple hidden>
+      <input type="file" name="video" id="propVideo" accept="video/mp4,video/webm" hidden>
       <div class="vid-cur" id="propVidCur" hidden>
         <span>🎬 <span id="propVidName">Текущее видео</span></span>
         <button type="button" id="propVidRm" aria-label="Удалить видео" title="Удалить видео">✕</button>

@@ -137,6 +137,17 @@ def db_all(sql, args=()):
     return rows
 
 
+def set_moderation(cid, on):
+    """Прямое переключение модерации категории в БД. Раньше это делалось POST'ом
+    владельца, но теперь режим модерации — операторская настройка (404 для
+    обычного пользователя), а тестам разных блоков нужно лишь задать состояние."""
+    conn = dbm.connect()
+    conn.execute("UPDATE categories SET moderate_proposals=? WHERE id=?",
+                 (1 if on else 0, cid))
+    conn.commit()
+    conn.close()
+
+
 def set_name(client, tok, name):
     """Гость теперь = залогиненный пользователь. Ставим его display_name (оно же
     будет именем рядом с бронью/предложением) и регистрируем на странице
@@ -192,15 +203,15 @@ with TestClient(main.app, follow_redirects=False) as c:
     # незалогинены: кабинет недоступен
     assert c.get("/admin/").status_code == 303
 
-    # полный поток: оператор (есть в OPERATOR_TG_IDS) входит и «забирает» легаси-владельца
+    # полный поток: оператор (есть в OPERATOR_TG_IDS) входит через поллинг
     poll = tg_login(c, 555001, username="boss", first_name="Шеф")
     assert poll.status_code == 200 and poll.json()["status"] == "ok"
     assert c.get("/admin/").status_code == 200
     me = db_one("SELECT id, is_operator, telegram_id FROM users WHERE telegram_id=555001")
     assert me["is_operator"] == 1
-    # легаси-владелец (telegram_id=0) поглощён: отдельной записи с 0 не осталось
+    # на свежей базе служебного легаси-владельца (telegram_id=0) нет
     assert not db_one("SELECT 1 FROM users WHERE telegram_id=0")
-    step("вход через Telegram: webhook без секрета → 403, поллинг логинит, оператор забрал легаси")
+    step("вход через Telegram: webhook без секрета → 403, поллинг логинит оператора")
 
     # анти-спам /auth/start: 10 кодов на IP за окно, 11-й → 429
     sc = TestClient(main.app, follow_redirects=False)
@@ -284,10 +295,10 @@ with TestClient(main.app, follow_redirects=False) as c:
     # неавторизованный не получит аватар: новый клиент без сессии
     anon = TestClient(main.app, follow_redirects=False)
     assert anon.get(f"/admin/avatar/{av}").status_code == 303  # → /login
-    # несовершеннолетний возраст отклоняется
+    # дата рождения в будущем отклоняется (возрастного гейта 18+ больше нет)
     bad = apost(c, "/admin/profile",
-                {"display_name": "Х", "birth_date": "2020-01-01", "gender": ""})
-    assert bad.status_code == 303 and "18" in c.get(bad.headers["location"]).text
+                {"display_name": "Х", "birth_date": "2999-01-01", "gender": ""})
+    assert bad.status_code == 303 and "будущ" in c.get(bad.headers["location"]).text
     # пустое имя отклоняется
     bad2 = apost(c, "/admin/profile", {"display_name": "  ", "birth_date": ""})
     assert bad2.status_code == 303
@@ -298,7 +309,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert r.status_code == 303
     assert not db_one("SELECT avatar_path FROM users WHERE telegram_id=555001")["avatar_path"]
     assert c.get(f"/admin/avatar/{av}").status_code == 404  # уже не его
-    step("профиль: имя/ДР/пол/аватар сохраняются, 18+ и пустое имя отклоняются, аватар приватный")
+    step("профиль: имя/ДР/пол/аватар сохраняются, будущая ДР и пустое имя отклоняются, аватар приватный")
 
     # ---------- категория и секретная ссылка ----------
     r = apost(c, "/admin/categories/create", {"name": "Лето"})
@@ -1153,7 +1164,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     lp = c.get("/admin/dates").text
     assert 'class="grid"' in lp and 'class="dcard' in lp
     assert 'class="more"' in lp and 'id="viewtog"' in lp
-    assert "дата гибкая" in lp                       # вместо «—»
+    assert "без даты" in lp                          # вместо «—»
     # карточки несут CSRF в формах действий (меню ⋯)
     assert lp.count('name="csrf"') >= 3
     # переключение вида через cookie → SSR рисует стеклянный список (.dlist)
@@ -1166,7 +1177,8 @@ with TestClient(main.app, follow_redirects=False) as c:
     # дашборд: блок «Поделиться» с QR-кодом (инлайновый SVG) и ссылкой
     sh = c.get("/admin/").text
     assert "Поделиться" in sh and "<svg" in sh        # QR нарисован на сервере
-    assert "/c/" in sh and "Копировать" in sh
+    assert "/c/" in sh and "data-copy" in sh          # ссылка копируется по клику
+    assert "Показать QR-код" in sh                     # QR можно раскрыть/скачать
     assert "date4you" in c.get("/admin/dates").text   # ребренд в шапке
     # терминология: «гость/гостья» в админке заменены
     assert "Вопросы гостей" not in c.get("/admin/questions").text
@@ -1644,7 +1656,7 @@ with TestClient(main.app, follow_redirects=False) as crole:
     _cfg.OPERATOR_TG_IDS.add(991200)
     try:
         # следующий же запрос в кабинет выдаёт роль на лету (current_user)
-        assert "⚙ Админ" in crole.get("/admin/").text
+        assert 'href="/operator/"' in crole.get("/admin/").text   # появилась вкладка «Админ»
         assert db_one("SELECT is_operator FROM users WHERE id=?",
                       (uid_role["id"],))[0] == 1
         # и операторская поверхность теперь доступна
@@ -1673,7 +1685,7 @@ with TestClient(main.app, follow_redirects=False) as cown, \
     assert ownpost("/admin/categories/create", {"name": "Жалобная"}).status_code == 303
     rc = db_one("SELECT id, link_token FROM categories WHERE name='Жалобная'")
     rcid, rtok = rc["id"], rc["link_token"]
-    ownpost(f"/admin/categories/{rcid}/moderation", {})  # выкл, чтобы свидание было видно
+    set_moderation(rcid, False)  # выкл, чтобы свидание было видно (модерация — операторская)
     assert ownpost("/admin/dates/new",
                    {"name": "Подозрительное", "categories": str(rcid)}).status_code == 303
     rdid = db_one("SELECT id FROM dates WHERE name='Подозрительное'")[0]
@@ -1804,7 +1816,7 @@ with TestClient(main.app, follow_redirects=False) as cown, \
     assert ownb("/admin/categories/create", {"name": "Бронируемая"}).status_code == 303
     bc = db_one("SELECT id, link_token FROM categories WHERE name='Бронируемая'")
     bcid, btok = bc["id"], bc["link_token"]
-    ownb(f"/admin/categories/{bcid}/moderation", {})           # выкл модерацию
+    set_moderation(bcid, False)                                # выкл модерацию (операторская)
     ownb("/admin/dates/new", {"name": "Прогулка", "categories": str(bcid)})
     bdid = db_one("SELECT id FROM dates WHERE name='Прогулка'")[0]
 
@@ -1900,8 +1912,14 @@ with TestClient(main.app, follow_redirects=False) as cw:
         assert cw.get("/auth/widget", params=bad).status_code == 403
         assert not db_one("SELECT 1 FROM users WHERE telegram_id=990200")
 
-        # валидная подпись → вход, аккаунт создан, но bot_linked=0 (бот не запущен)
+        # без отметки согласия валидная подпись тоже отклоняется (серверный гейт)
         good = _widget_params(990200, _nf.TOKEN)
+        cw.get("/login")                           # сбрасывает consent=False в сессии
+        assert cw.get("/auth/widget", params=good).status_code == 403
+        assert not db_one("SELECT 1 FROM users WHERE telegram_id=990200")
+
+        # отметили согласие → валидная подпись логинит, bot_linked=0 (бот не запущен)
+        assert cw.post("/auth/consent").status_code == 200
         r = cw.get("/auth/widget", params=good)
         assert r.status_code == 303 and r.headers["location"] == "/admin/"
         row = db_one("SELECT id, bot_linked FROM users WHERE telegram_id=990200")
@@ -1980,7 +1998,7 @@ with TestClient(main.app, follow_redirects=False) as cl:
     terms = cl.get("/terms")
     assert terms.status_code == 200
     assert "Пользовательское соглашение" in terms.text
-    assert "18" in terms.text and "/privacy" in terms.text   # 18+ и перелинковка
+    assert "/privacy" in terms.text   # перелинковка на политику
     priv = cl.get("/privacy")
     assert priv.status_code == 200
     assert "Политика конфиденциальности" in priv.text
@@ -2001,7 +2019,7 @@ with TestClient(main.app, follow_redirects=False) as cl:
     assert root.status_code == 307 and root.headers["location"] == "/login"
     # cookie-баннер убран — его нет ни на входе, ни на гостевой
     assert "cookie-bar" not in lp
-step("1.8: /terms и /privacy доступны (18+, 152-ФЗ, право на удаление); согласие на входе; / → /login")
+step("1.8: /terms и /privacy доступны (152-ФЗ, право на удаление); согласие на входе; / → /login")
 
 
 # ---------- 1.10: страница «О проекте», поддержка, проекты автора ----------
@@ -2109,7 +2127,7 @@ with TestClient(main.app, follow_redirects=False) as cown, \
     ownq("/admin/categories/create", {"name": "Вопросная"})
     qc = db_one("SELECT id, link_token FROM categories WHERE name='Вопросная'")
     qtok = qc["link_token"]
-    ownq(f"/admin/categories/{qc['id']}/moderation", {})   # выкл, чтобы предложения публиковались сразу
+    set_moderation(qc['id'], False)   # выкл, чтобы предложения публиковались сразу
     ownq("/admin/dates/new", {"name": "Кофейня", "categories": str(qc["id"])})
     qdid = db_one("SELECT id FROM dates WHERE name='Кофейня'")[0]
 
@@ -2135,7 +2153,7 @@ with TestClient(main.app, follow_redirects=False) as cown, \
         assert any(c == 992102 and "Ответ на твой вопрос" in t for c, t in sent), sent
 
         # публикация гостевого предложения уведомляет его автора
-        ownq(f"/admin/categories/{qc['id']}/moderation", {})   # вкл модерацию
+        set_moderation(qc['id'], True)   # вкл модерацию (операторская настройка)
         main._rates.clear()
         rp = gq.post(f"/c/{qtok}/propose", data={"name": "Прогулка у реки"})
         assert rp.json()["moderated"] is True
@@ -2250,7 +2268,7 @@ step("#11: тумблеры модерации помечают новых is_re
 # ---------- #8: «Оператор» переименован в «Админ» в интерфейсе ----------
 with TestClient(main.app, follow_redirects=False) as cadm:
     assert tg_login(cadm, 555001, username="boss").json()["status"] == "ok"
-    assert "⚙ Админ" in cadm.get("/admin/").text          # ссылка в шапке кабинета
+    assert 'href="/operator/"' in cadm.get("/admin/").text  # ссылка-вкладка «Админ» в шапке кабинета
     op = cadm.get("/operator/").text
     assert "⚙ Админ" in op and "админов" in op            # бренд и счётчик
     assert "Оператор" not in cadm.get("/operator/users").text
@@ -2270,7 +2288,7 @@ with TestClient(main.app, follow_redirects=False) as cown:
                                       "birth_date": "1991-01-01"})
     cown.post("/admin/categories/create", data={"csrf": pc, "name": "UI-кат"})
     uic = db_one("SELECT id, link_token FROM categories WHERE name='UI-кат'")
-    cown.post(f"/admin/categories/{uic['id']}/moderation", data={"csrf": pc})  # выкл
+    set_moderation(uic['id'], False)  # выкл (модерация — операторская настройка)
     # свидание без фото
     cown.post("/admin/dates/new", data={"csrf": pc, "name": "Без картинок",
                                         "categories": str(uic["id"])})

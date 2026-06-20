@@ -133,7 +133,7 @@ def parse_birth_date(s: str | None) -> str | None:
     """Парсит <input type=date> для даты рождения. Пусто → None.
 
     Возвращает ISO yyyy-mm-dd. Отвергает будущее и заведомо нереальный возраст
-    (>120 лет), а также младше 18 — продукт для взрослых знакомств.
+    (>120 лет).
     """
     s = (s or "").strip()
     if not s:
@@ -148,8 +148,6 @@ def parse_birth_date(s: str | None) -> str | None:
     age = (today - d).days // 365
     if age > 120:
         raise HTTPException(400, "Проверь дату рождения")
-    if age < 18:
-        raise HTTPException(400, "Сервис только для совершеннолетних (18+)")
     return d.isoformat()
 
 

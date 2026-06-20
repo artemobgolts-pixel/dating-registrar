@@ -53,19 +53,37 @@ a { color: var(--accent); }
 /* цифра «4» в date4you чуть приподнята — смотрится эстетичнее */
 .brand .d4 { display: inline-block; transform: translateY(-0.08em); }
 
-nav { display: flex; gap: 4px; flex-wrap: wrap; }
+nav { display: flex; gap: 6px; flex-wrap: wrap; }
 
+/* вкладки-капсулы «жидкого стекла» — единый стиль для ПК и мобильного */
 nav a {
-  padding: 7px 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 14px;
   border-radius: 999px;
   color: var(--ink);
   text-decoration: none;
   font-size: 14.5px;
+  border: 1px solid rgba(255, 255, 255, .5);
+  background: rgba(255, 255, 255, .42);
+  -webkit-backdrop-filter: blur(8px) saturate(1.4);
+  backdrop-filter: blur(8px) saturate(1.4);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .7);
+  transition: background .18s, color .18s, transform .15s, box-shadow .2s;
+}
+nav a .ic { font-size: 15px; line-height: 1; }
+nav a:hover { background: rgba(255, 255, 255, .7); transform: translateY(-1px); }
+
+nav a.on {
+  background: linear-gradient(135deg, var(--rose), var(--rose-2));
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 5px 14px rgba(150, 70, 85, .32), inset 0 1px 0 rgba(255, 255, 255, .35);
 }
 
-nav a.on { background: #f6e8eb; color: var(--accent); }
-
-nav a.exit { color: var(--muted); margin-left: 4px; }
+nav a.op-link { color: var(--rose-2); }
+nav a.op-link.on, nav a.on.op-link { color: #fff; }
 
 .pill {
   background: var(--accent);
@@ -172,6 +190,17 @@ input, textarea, select {
 }
 
 input[type=checkbox] { width: auto; }
+
+/* datetime-local на iOS «распирает» строку и съезжает вправо — нормализуем:
+   убираем нативный вид, прижимаем влево, не даём расти шире контейнера */
+input[type=datetime-local], input[type=date] {
+  -webkit-appearance: none;
+  appearance: none;
+  text-align: left;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
 
 /* file-input в нашем стиле: сама кнопка выбора — как .btn ghost,
    текст «файл не выбран» приглушаем. dropzone-инпуты не трогаем (там display:none). */
@@ -455,12 +484,18 @@ label.chk {
   text-align: center;
   margin: 0 0 18px;
   color: var(--accent);
+  font-size: 64px;
+  line-height: 1;
 }
 
 .login-lead { color: var(--ink); margin: 0 0 16px; }
 
-/* виджет Telegram центрируем (раньше «съезжал» влево из-за выравнивания по левому краю) */
-#tg-widget-wrap { display: flex; justify-content: center; margin: 6px 0 4px; min-height: 46px; }
+/* виджет Telegram центрируем (раньше «съезжал» влево из-за выравнивания по левому краю).
+   ВАЖНО: до отметки согласия блок несёт атрибут hidden — display:none его прячет;
+   правило display:flex применяем ТОЛЬКО когда hidden снят (иначе виджет виден всегда
+   и вход срабатывал без галочки). */
+#tg-widget-wrap { display: none; }
+#tg-widget-wrap:not([hidden]) { display: flex; justify-content: center; margin: 6px 0 4px; min-height: 46px; }
 #tg-widget-wrap iframe { margin: 0 auto !important; }
 
 .login-note { color: var(--muted); font-size: 12.5px; margin: 14px 0 0; line-height: 1.45; }
@@ -616,19 +651,13 @@ body {
   background-attachment: fixed;
 }
 
-/* шапка: стекло + всё в одну линию (чинит съехавшее «Выйти») */
+/* шапка: стекло + всё в одну линию */
 .top {
   background: rgba(255, 253, 254, .82);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
 }
-.top nav { display: flex; align-items: center; gap: 2px 14px; flex-wrap: wrap; }
-.top nav form.inline { display: flex; align-items: center; margin: 0; }
-.top nav .linklike {
-  display: inline-flex; align-items: center;
-  padding: 0; margin: 0; border: 0; background: none;
-  font: inherit; line-height: inherit; cursor: pointer;
-}
+.top nav { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
 h1 {
   font-family: "Cormorant Garamond", Georgia, serif;
@@ -1084,17 +1113,37 @@ input, textarea, select {
 .quick { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
 .quick .btn { font-size: 14.5px; padding: 10px 16px; }
 
-.share-grid { display: grid; grid-template-columns: 1fr auto; gap: 20px; align-items: center; }
+.share-grid { display: grid; grid-template-columns: 1fr auto; gap: 20px; align-items: start; }
 @media (max-width: 640px) { .share-grid { grid-template-columns: 1fr; } }
+.share-qr-col { display: flex; flex-direction: column; align-items: center; gap: 10px; }
 .share-qr {
-  width: 156px; height: 156px; flex: none;
+  width: 200px; height: 200px; flex: none;
   background: #fff; border: 1px solid var(--line); border-radius: 14px;
-  padding: 10px; display: grid; place-items: center;
+  padding: 12px; display: grid; place-items: center;
 }
 .share-qr svg { width: 100%; height: 100%; display: block; }
 .share-cat { font-weight: 600; margin-bottom: 8px; }
 .share-pick { margin-bottom: 12px; }
 .share-pick select { width: auto; min-width: 200px; }
+/* на ПК QR показан всегда, кнопка-тоггл не нужна */
+.qr-toggle { display: none; }
+/* кликабельная ссылка-«копировать» вместо отдельной кнопки */
+.copy-code {
+  background: #f6f2f4; padding: 8px 12px; border-radius: 8px;
+  font-size: 12.5px; word-break: break-all; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 8px;
+  transition: background .15s;
+}
+.copy-code:hover { background: #f0e7ea; }
+.copy-code .copy-ico { flex: none; }
+
+@media (max-width: 640px) {
+  /* на телефоне QR прячем за кнопкой «Показать QR-код» (экономим место) */
+  .qr-toggle { display: inline-block; }
+  .share-qr, .qr-dl { display: none; }
+  .share-qr-col.qr-open .share-qr { display: grid; }
+  .share-qr-col.qr-open .qr-dl { display: inline-block; }
+}
 
 /* мини-превью ссылки «как увидит она при отправке» (в духе карточки мессенджера) */
 .og-preview {
@@ -1147,6 +1196,27 @@ input, textarea, select {
 .rich-ed:empty::before { content: attr(data-placeholder); color: var(--muted); }
 .rich-ed a { color: var(--rose-2); }
 
+/* всплывающее меню форматирования по выделению (как в Telegram) */
+.fmt-pop {
+  position: fixed; z-index: 80; display: none;
+  gap: 2px; padding: 4px;
+  background: rgba(43, 35, 38, .96);
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .35);
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+}
+.fmt-pop.show { display: flex; }
+.fmt-pop button {
+  border: 0; background: none; color: #fff;
+  width: 34px; height: 34px; border-radius: 8px;
+  cursor: pointer; font-size: 15px; line-height: 1;
+}
+.fmt-pop button:hover { background: rgba(255, 255, 255, .16); }
+.fmt-pop .b { font-weight: 800; }
+.fmt-pop .i { font-style: italic; }
+.fmt-pop .u { text-decoration: underline; }
+.fmt-pop .s { text-decoration: line-through; }
+
 /* предпросмотр карточки: мета (когда/место), ссылки, видео-бейдж */
 .pcard .pmeta { display: grid; gap: 4px; }
 .pcard .pmeta span { display: block; }
@@ -1191,6 +1261,19 @@ input, textarea, select {
 .drow-meta { font-size: 12.5px; color: var(--muted); margin-top: 3px;
   display: flex; gap: 6px; flex-wrap: wrap; }
 .drow-act { display: flex; align-items: center; gap: 8px; flex: none; }
+/* кнопки строки списка — в нашем стиле (как у карточек): мягкое стекло/роза */
+.drow-act .btn {
+  border-radius: 10px; padding: 8px 14px; font-size: 13.5px; font-weight: 600;
+  background: rgba(255, 255, 255, .7); border: 1px solid var(--line); color: var(--rose-2);
+}
+.drow-act .btn:hover { background: var(--rose-soft); border-color: var(--rose); }
+.drow-act .more {
+  width: 36px; height: 36px; border-radius: 10px;
+  border: 1px solid var(--line); background: rgba(255, 255, 255, .7);
+  cursor: pointer; font-size: 18px; color: var(--muted); line-height: 1;
+  display: grid; place-items: center;
+}
+.drow-act .more:hover { background: var(--rose-soft); }
 @media (max-width: 600px) {
   .drow { flex-wrap: wrap; }
   .drow-act { width: 100%; }
@@ -1204,4 +1287,126 @@ input, textarea, select {
   pointer-events: auto;          /* перебиваем .thumb img { pointer-events:none } */
   object-fit: cover;             /* фокус имеет смысл только при cover-обрезке */
   background: #f5edef;
+}
+
+/* ---------- профиль: кликабельная аватарка по центру ---------- */
+.avatar-field {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+}
+.avatar-pick {
+  position: relative; cursor: pointer;
+  width: 116px; height: 116px; border-radius: 50%;
+  display: block;
+}
+.avatar-pick .avatar-img,
+.avatar-pick .avatar-ph {
+  width: 116px; height: 116px; border-radius: 50%;
+  object-fit: cover; border: 2px solid #e7d3d7; display: block;
+}
+.avatar-pick .avatar-ph {
+  display: grid; place-items: center; background: #f3e6e9; font-size: 46px;
+}
+.avatar-pick .avatar-cam {
+  position: absolute; right: 2px; bottom: 2px;
+  width: 34px; height: 34px; border-radius: 50%;
+  display: grid; place-items: center; font-size: 16px;
+  background: linear-gradient(135deg, var(--rose), var(--rose-2)); color: #fff;
+  border: 2px solid #fff; box-shadow: 0 3px 9px rgba(150, 70, 85, .35);
+}
+.avatar-pick:hover .avatar-cam { transform: scale(1.06); }
+
+/* пол — три кнопки-пилюли (radio) */
+.gender-pick { display: flex; gap: 8px; flex-wrap: wrap; }
+.gender-opt {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 9px 18px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--line); background: rgba(255, 255, 255, .6);
+  font-size: 14px; color: var(--ink); margin: 0;
+  transition: background .15s, color .15s, border-color .15s;
+}
+.gender-opt input { position: absolute; opacity: 0; width: 0; height: 0; }
+.gender-opt:has(input:checked) {
+  background: linear-gradient(135deg, var(--rose), var(--rose-2));
+  color: #fff; border-color: transparent;
+  box-shadow: 0 4px 12px rgba(150, 70, 85, .28);
+}
+.gender-opt:focus-within { box-shadow: 0 0 0 3px rgba(182, 95, 111, .16); }
+
+/* ============================================================
+   МОБИЛЬНАЯ ПРОИЗВОДИТЕЛЬНОСТЬ.
+   Дорогой backdrop-filter: url(#glassWarp) (SVG-преломление) пересчитывается
+   при каждом репейнте — на телефоне это и есть причина медленного переключения
+   вкладок и рывков прокрутки. Снимаем именно ссылку на SVG-фильтр, оставляя
+   обычный blur: стекло визуально почти не меняется, а репейнт резко дешевеет.
+   Анимированный фон (чернила) НЕ трогаем — он остаётся как на ПК.
+   ============================================================ */
+@media (max-width: 720px) {
+  .card {
+    -webkit-backdrop-filter: blur(7px) saturate(1.7) brightness(1.04);
+    backdrop-filter: blur(7px) saturate(1.7) brightness(1.04);
+  }
+
+  /* нижний капсульный таб-бар (стиль Apple liquid glass): вкладки в одну строку,
+     зафиксированы внизу экрана. Логотип остаётся в шапке сверху. */
+  .top { flex-wrap: nowrap; justify-content: center; padding: 9px 14px; }
+  .top .brand { font-size: 17px; }
+  .top nav {
+    position: fixed;
+    left: 10px; right: 10px; bottom: 10px;
+    z-index: 50;
+    display: flex; flex-wrap: nowrap; gap: 4px;
+    justify-content: space-between;
+    padding: 7px 8px;
+    border-radius: 26px;
+    background: rgba(255, 253, 254, .72);
+    -webkit-backdrop-filter: blur(18px) saturate(1.7);
+    backdrop-filter: blur(18px) saturate(1.7);
+    border: 1px solid rgba(255, 255, 255, .65);
+    box-shadow: 0 12px 34px rgba(120, 70, 80, .26), inset 0 1px 0 rgba(255, 255, 255, .85);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .top nav::-webkit-scrollbar { display: none; }
+  .top nav a {
+    flex: 1 0 auto;
+    flex-direction: column;
+    gap: 2px;
+    padding: 6px 9px;
+    border: 0;
+    background: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    box-shadow: none;
+    font-size: 10.5px;
+    text-align: center;
+    border-radius: 16px;
+  }
+  .top nav a .ic { font-size: 20px; }
+  .top nav a .lb {
+    max-width: 64px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .top nav a:hover { transform: none; background: none; }
+  .top nav a.on {
+    background: linear-gradient(135deg, var(--rose), var(--rose-2));
+    color: #fff;
+    box-shadow: 0 4px 12px rgba(150, 70, 85, .34);
+  }
+  /* запас снизу, чтобы контент не уезжал под бар */
+  .wrap { padding-bottom: 96px; }
+  /* пилюля счётчика непрочитанных — компактнее под иконкой */
+  .top nav a .pill { position: absolute; transform: translate(14px, -14px); }
+  .top nav a { position: relative; }
+  /* пустое описание на телефоне — одна аккуратная строка, не «башня» */
+  .rich-ed { min-height: 44px; }
+
+  /* форму создания свидания не должно «таскать» по горизонтали:
+     контент клиппим по ширине, элементы не шире контейнера */
+  .wrap { overflow-x: clip; }
+  .split, .sec, .grid2, form, input, textarea, select { max-width: 100%; }
+  .preview-col { max-width: 100%; }
+
+  /* фильтры списка свиданий: на телефоне переносим и не даём «уезжать» вбок */
+  .controls .filters { flex-wrap: wrap; width: 100%; }
+  .controls .filters select { flex: 1 1 auto; min-width: 0; }
+  .controls .tabs, .controls .viewtog { margin-left: 0; }
 }

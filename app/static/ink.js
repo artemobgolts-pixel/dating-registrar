@@ -567,13 +567,18 @@ void main(){
   if (!reduce) {
     window.addEventListener("mousemove", function (e) { onMove(e.clientX, e.clientY); }, { passive: true });
     window.addEventListener("mousedown", function (e) { onClick(e.clientX, e.clientY); }, { passive: true });
-    window.addEventListener("touchmove", function (e) {
-      var t = e.touches[0]; if (t) onMove(t.clientX, t.clientY);
-    }, { passive: true });
-    window.addEventListener("touchstart", function (e) {
-      var t = e.touches[0];
-      if (t) { pointer.x = t.clientX / window.innerWidth; pointer.y = 1 - t.clientY / window.innerHeight; pointer.px = pointer.x; pointer.py = pointer.y; onClick(t.clientX, t.clientY); }
-    }, { passive: true });
+    // На телефоне/планшете (грубый указатель) НЕ навешиваем след и клик-всплеск от
+    // касаний — по просьбе владельца. Сам анимированный фон (fbm) остаётся прежним:
+    // без ввода тяжёлый решатель жидкости (step) не запускается, фон живёт сам.
+    if (!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches)) {
+      window.addEventListener("touchmove", function (e) {
+        var t = e.touches[0]; if (t) onMove(t.clientX, t.clientY);
+      }, { passive: true });
+      window.addEventListener("touchstart", function (e) {
+        var t = e.touches[0];
+        if (t) { pointer.x = t.clientX / window.innerWidth; pointer.y = 1 - t.clientY / window.innerHeight; pointer.px = pointer.x; pointer.py = pointer.y; onClick(t.clientX, t.clientY); }
+      }, { passive: true });
+    }
   }
 
   // Полное разрешение: клякса теперь очень мелкая (≈ размер курсора), на
