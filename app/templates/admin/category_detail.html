@@ -7,7 +7,8 @@
 </div>
 
 <div class="card">
-  <form method="post" action="/admin/categories/{{ cat['id'] }}/rename" style="display:grid;gap:10px">
+  <form method="post" action="/admin/categories/{{ cat['id'] }}/rename"
+        enctype="multipart/form-data" style="display:grid;gap:10px">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <input name="name" value="{{ cat['name'] }}" required maxlength="200">
     <textarea name="description" maxlength="1000" rows="2"
@@ -18,8 +19,14 @@
            value="{{ cat['og_title'] or '' }}">
     <input name="og_desc" maxlength="200" placeholder="Открой — внутри кое-что приятное"
            value="{{ cat['og_desc'] or '' }}">
+
+    <label class="og-pick">
+      <span class="og-pick-label">🖼 Картинка превью {% if not cat['og_image'] %}<span class="muted">(сейчас стандартная)</span>{% endif %}</span>
+      <input type="file" name="og_image" accept="image/*">
+    </label>
+
     <div class="og-preview" aria-label="так ссылка выглядит при отправке">
-      <img class="og-img" src="/static/og.png" alt="">
+      <img class="og-img" src="{% if cat['og_image'] %}/admin/uploads/{{ cat['og_image'] }}{% else %}/static/og.png{% endif %}" alt="">
       <div class="og-text">
         <div class="og-title">{{ cat['og_title'] or 'Тебя ждёт сюрприз ♥' }}</div>
         <div class="og-desc">{{ cat['og_desc'] or 'Открой — внутри кое-что приятное' }}</div>
@@ -29,6 +36,14 @@
 
     <div><button class="btn primary">Сохранить</button></div>
   </form>
+
+  {% if cat['og_image'] %}
+  <form method="post" action="/admin/categories/{{ cat['id'] }}/og_image/delete"
+        data-confirm="Убрать свою картинку превью и вернуть стандартную?" style="margin-top:8px">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button class="btn small danger">Убрать картинку превью</button>
+  </form>
+  {% endif %}
 </div>
 
 <div class="card">

@@ -204,7 +204,7 @@ def dashboard(request: Request, conn=Depends(get_db)):
     # Для выбранной (или первой) рисуем QR прямо на сервере — инлайновый SVG,
     # под CSP не нужен ни внешний скрипт, ни data:-картинка.
     share_cats = conn.execute(
-        "SELECT id, name, link_token, og_title, og_desc FROM categories "
+        "SELECT id, name, link_token, og_title, og_desc, og_image FROM categories "
         "WHERE owner_id=? AND link_enabled=1 AND link_token IS NOT NULL "
         "ORDER BY created_at DESC", (uid,)).fetchall()
     sel = request.query_params.get("share")
@@ -533,16 +533,48 @@ def category_detail(cid: int, request: Request, conn=Depends(get_db)):
 def category_rename(cid: int, request: Request, name: str = Form(...),
                     description: str = Form(""),
                     og_title: str = Form(""), og_desc: str = Form(""),
+                    og_image: UploadFile | None = File(None),
                     conn=Depends(get_db)):
-    _cat_or_404(conn, cid, request.state.user)
+    cat = _cat_or_404(conn, cid, request.state.user)
     name = clean_text(name, 200, "Название", required=True)
     description = clean_text(description, 1000, "Описание")
     og_title = clean_text(og_title, 120, "Заголовок превью")
     og_desc = clean_text(og_desc, 200, "Описание превью")
-    conn.execute("UPDATE categories SET name=?, description=?, og_title=?, og_desc=? WHERE id=?",
-                 (name, description, og_title, og_desc, cid))
+
+    # картинка превью — опционально; новый файл сжимаем в WebP (как фото свиданий),
+    # старый сносим только после успешной записи
+    new_image = None
+    if og_image is not None and (og_image.filename or "").strip():
+        try:
+            new_image = images.save_upload(og_image)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+
+    old_image = cat["og_image"]
+    if new_image:
+        conn.execute(
+            "UPDATE categories SET name=?, description=?, og_title=?, og_desc=?, og_image=? WHERE id=?",
+            (name, description, og_title, og_desc, new_image, cid))
+    else:
+        conn.execute(
+            "UPDATE categories SET name=?, description=?, og_title=?, og_desc=? WHERE id=?",
+            (name, description, og_title, og_desc, cid))
     conn.commit()
+    if new_image and old_image:          # старую картинку — только после коммита
+        images.delete_file(old_image)
     return redir(f"/admin/categories/{cid}", "Сохранено")
+
+
+@router.post("/categories/{cid}/og_image/delete")
+def category_og_image_delete(cid: int, request: Request, conn=Depends(get_db)):
+    """Убрать свою картинку превью → вернуться к дефолтной /static/og.png."""
+    cat = _cat_or_404(conn, cid, request.state.user)
+    old = cat["og_image"]
+    conn.execute("UPDATE categories SET og_image=NULL WHERE id=?", (cid,))
+    conn.commit()
+    if old:
+        images.delete_file(old)
+    return redir(f"/admin/categories/{cid}", "Картинка превью убрана")
 
 
 @router.post("/categories/{cid}/toggle")

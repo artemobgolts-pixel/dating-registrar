@@ -17,10 +17,23 @@
     toastTimer = setTimeout(() => toastEl.classList.remove("show"), 2600);
   }
 
-  /* Вход обязателен для любого действия. Аноним уходит на /login и возвращается
-     на эту же страницу после входа (?next). */
+  /* Вход обязателен для любого действия. Аноним видит окно входа (модалку с
+     Telegram-виджетом) прямо здесь; после входа Telegram вернёт на эту же
+     страницу (next сохранён через /auth/consent). Если модалки нет — фолбэк
+     на страницу /login. */
+  const loginDlg = $("#loginDlg");
   function goLogin() {
+    if (loginDlg && typeof loginDlg.showModal === "function") {
+      loginDlg.showModal();
+      return;
+    }
     location.href = "/login?next=" + encodeURIComponent(location.pathname);
+  }
+  if (loginDlg) {
+    const lo = $("#loginOpen"), lc = $("#loginClose");
+    if (lo) lo.addEventListener("click", () => loginDlg.showModal());
+    if (lc) lc.addEventListener("click", () => loginDlg.close());
+    loginDlg.addEventListener("click", (e) => { if (e.target === loginDlg) loginDlg.close(); });
   }
   function requireAuth(fn) {
     if (!AUTH) { goLogin(); return; }
@@ -56,6 +69,8 @@
       btn.textContent = mine ? "Твой выбор ♥ · отменить" : "Выбрать ♥";
     }
     card.classList.toggle("booked-me", mine);
+    const seal = card.querySelector(".seal");
+    if (seal) seal.hidden = !mine;                 // восковая печать ♥ (только карточки с фото)
     const who = card.querySelector(".bo-who");     // подпись на оверлее
     if (who) who.textContent = mine ? (MYNAME || "ты ♥") : "";
   }

@@ -16,9 +16,13 @@
       if (widgetWrap) widgetWrap.hidden = !ok;
       if (widgetGate) widgetGate.hidden = ok;
       // дублируем согласие в сессию: серверный /auth/widget без флага вернёт 403,
-      // даже если кто-то покажет виджет правкой DOM
+      // даже если кто-то покажет виджет правкой DOM. На гостевой ссылке окно входа
+      // передаёт next (data-next) — куда вернуться после входа; на /login next уже
+      // сохранён сервером при заходе на страницу.
       if (ok) {
-        fetch("/auth/consent", { method: "POST", credentials: "same-origin" })
+        var nxt = consent.getAttribute("data-next");
+        var url = "/auth/consent" + (nxt ? "?next=" + encodeURIComponent(nxt) : "");
+        fetch(url, { method: "POST", credentials: "same-origin" })
           .catch(function () { /* сеть моргнула — повторим при следующем change */ });
       }
     };

@@ -132,9 +132,12 @@ async def csp_headers(request: Request, call_next):
     request.state.csp_nonce = secrets.token_urlsafe(16)
     resp = await call_next(request)
     if resp.headers.get("content-type", "").startswith("text/html"):
-        # Только страница входа грузит Telegram Login Widget (внешний скрипт +
-        # iframe oauth.telegram.org). Послабление CSP — ровно здесь, не на всём сайте.
-        if request.url.path == "/login":
+        # Telegram Login Widget (внешний скрипт + iframe oauth.telegram.org)
+        # грузится на странице входа /login И на гостевых ссылках /c/<токен>
+        # (вход-модалка прямо со страницы подборки). Послабление CSP — ровно
+        # на этих HTML-страницах, не на всём сайте.
+        p = request.url.path
+        if p == "/login" or p.startswith("/c/"):
             resp.headers["Content-Security-Policy"] = (
                 "default-src 'self'; "
                 f"script-src 'self' 'nonce-{request.state.csp_nonce}' "

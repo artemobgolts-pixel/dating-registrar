@@ -31,7 +31,7 @@
         <code class="copy-code" data-copy="{{ share_url }}" title="Нажми, чтобы скопировать">{{ share_url }} <span class="copy-ico" aria-hidden="true">📋</span></code>
       </div>
       <div class="og-preview" aria-label="так ссылка выглядит при отправке">
-        <img class="og-img" src="/static/og.png" alt="">
+        <img class="og-img" src="{% if share['og_image'] %}/admin/uploads/{{ share['og_image'] }}{% else %}/static/og.png{% endif %}" alt="">
         <div class="og-text">
           <div class="og-title">{{ share['og_title'] or 'Тебя ждёт сюрприз ♥' }}</div>
           <div class="og-desc">{{ share['og_desc'] or 'Открой — внутри кое-что приятное' }}</div>

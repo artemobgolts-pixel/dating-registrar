@@ -429,7 +429,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert not db_one("SELECT 1 FROM dates WHERE name='Аноним'")
     # на гостевой странице анонима — кнопка «Войти», без пилюли с именем
     apage = anon_g.get(f"/c/{tok}").text
-    assert "Войти в аккаунт" in apage and 'data-auth=""' in apage
+    assert ">Войти<" in apage and 'data-auth=""' in apage
 
     # «Аня» — отдельный залогиненный гость; её display_name станет именем у брони
     ga = guest_client(700101, tok, "Аня")
@@ -452,6 +452,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     mycard = re.search(r'<article[^>]*id="date-%d".*?</article>' % did, page, re.S).group(0)
     assert "booked-me" in mycard                        # карточка помечена выбором
     assert "booked-overlay" in mycard and "Забронировано" in mycard    # оверлей на фото
+    assert '<div class="seal">♥' in mycard              # печать ♥ показана (карточка с фото)
     assert "Аня" in mycard                              # имя выбравшего на оверлее
     assert ga.post(f"/c/{tok}/vote", data={"date_id": did}).status_code == 404
     step("выбор работает как переключатель; оверлей «Забронировано» на фото; /vote удалён")
@@ -1164,7 +1165,8 @@ with TestClient(main.app, follow_redirects=False) as c:
     lp = c.get("/admin/dates").text
     assert 'class="grid"' in lp and 'class="dcard' in lp
     assert 'class="more"' in lp and 'id="viewtog"' in lp
-    assert "без даты" in lp                          # вместо «—»
+    assert "без даты" not in lp                       # #13: пустую дату не подписываем
+    assert 'class="dcard-link"' in lp                 # вся карточка кликабельна (#7)
     # карточки несут CSRF в формах действий (меню ⋯)
     assert lp.count('name="csrf"') >= 3
     # переключение вида через cookie → SSR рисует стеклянный список (.dlist)
@@ -1318,6 +1320,7 @@ assert "proposed_by" in dcols             # v13: автор предложени
 ccols = {r[1] for r in conn.execute("PRAGMA table_info(categories)")}
 assert "description" in ccols
 assert "owner_id" in ccols                # v9: владелец категории
+assert {"og_title", "og_desc", "og_image"} <= ccols   # v14/v15: превью ссылки
 assert "owner_id" in dcols                # v9: владелец свидания
 # v13: мягкая очередь модерации + per-user поля + таблица настроек
 assert "is_reviewed" in ccols and "is_reviewed" in {r[1] for r in conn.execute("PRAGMA table_info(users)")}
@@ -2094,8 +2097,9 @@ with TestClient(main.app, follow_redirects=False) as cown, \
     page = anon.get(f"/c/{btok2}").text
     # подпись автора кликабельна и ведёт на его публичный профиль (для всех)
     assert f'/u/{bc["owner_id"]}' in page and "Маргарита" in page
-    # анониму показана кнопка «Войти», ведущая обратно на эту ссылку
-    assert "Войти в аккаунт" in page and f"/login?next=/c/{btok2}" in page
+    # анониму показана кнопка «Войти»; вход — модалкой с возвратом на эту ссылку
+    # (next несёт чекбокс согласия data-next, см. auth.js → /auth/consent?next=)
+    assert ">Войти<" in page and f'data-next="/c/{btok2}"' in page
 step("#1: подпись автора кликабельна (/u/<id>), анониму — кнопка «Войти» с возвратом")
 
 

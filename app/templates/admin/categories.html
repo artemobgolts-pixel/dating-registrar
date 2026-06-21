@@ -10,15 +10,16 @@
 </form>
 
 {% for c in cats %}
-<div class="card">
+<div class="card cat-card">
+  <a class="cat-link" href="/admin/categories/{{ c['id'] }}" aria-label="Открыть «{{ c['name'] }}»"></a>
   <div class="bar" style="margin-bottom:0">
     <div>
-      <a href="/admin/categories/{{ c['id'] }}" style="font-weight:600;font-size:16px;text-decoration:none;color:inherit">{{ c['name'] }}</a>
+      <span class="cat-name">{{ c['name'] }}</span>
       <span class="badge">{{ c['dcount'] }} {{ c['dcount'] | plural('свидание', 'свидания', 'свиданий') }}</span>
       {% if c['moderate_proposals'] %}<span class="badge amber">модерация</span>{% endif %}
       {% if not c['link_enabled'] %}<span class="badge" style="background:#fdeeee;color:#a33">ссылка выкл.</span>{% endif %}
     </div>
-    <a class="btn small" href="/admin/categories/{{ c['id'] }}">Открыть</a>
+    <span class="cat-arrow" aria-hidden="true">→</span>
   </div>
   {% if c['link_enabled'] %}
   <div class="linkbox" style="margin-top:10px">

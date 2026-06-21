@@ -43,6 +43,7 @@
 <div class="grid">
   {% for r in rows %}
   <div class="dcard{{ ' archived' if r['archived_at'] else '' }}{{ ' nocover' if not r['cover'] else '' }}">
+    <a class="dcard-link" href="/admin/dates/{{ r['id'] }}/edit" aria-label="Редактировать «{{ r['name'] }}»"></a>
     {% if r['cover'] %}
     <div class="ph g{{ r['id'] % 4 }}">
       <img src="/admin/uploads/{{ r['cover'] }}" alt="" loading="lazy"
@@ -51,8 +52,8 @@
         {% if r['pay_split'] %}<span class="bdg pay">💸 50/50</span>{% endif %}
         {% if r['origin'] == 'guest' %}<span class="bdg guest">💡 предложено</span>{% endif %}
         {% if r['is_draft'] %}<span class="bdg draft">{{ 'на модерации' if r['origin'] == 'guest' else 'черновик' }}</span>{% endif %}
-        {% if r['booked_names'] %}<span class="bdg book">💝 {{ r['booked_names'] }}</span>{% endif %}
       </div>
+      {% if r['booked_names'] %}<div class="badges book-corner"><span class="bdg book">💝 {{ r['booked_names'] }}</span></div>{% endif %}
     </div>
     {% endif %}
     <div class="b">
@@ -66,11 +67,13 @@
       {% endif %}
       <h3 class="ttl serif"><a href="/admin/dates/{{ r['id'] }}/edit">{{ r['name'] }}</a></h3>
       <div class="meta">
-        {{ r['starts_at'] | when(r['ends_at']) or 'без даты' }}{% if r['books'] %} · {{ r['books'] }} {{ r['books'] | plural('бронь', 'брони', 'броней') }}{% endif %}
+        {% set when_str = r['starts_at'] | when(r['ends_at']) %}
+        {% if when_str %}{{ when_str }}{% endif %}
+        {%- if r['books'] %}{% if when_str %} · {% endif %}{{ r['books'] }} {{ r['books'] | plural('бронь', 'брони', 'броней') }}{% endif %}
         {% if not cat and r['cats'] %}<br>{{ r['cats'] }}{% endif %}
       </div>
       <div class="foot">
-        <a class="edit" href="/admin/dates/{{ r['id'] }}/edit">Редактировать</a>
+        <span class="edit-hint">Редактировать</span>
         <div class="menu-wrap">
         <button type="button" class="more" aria-label="Ещё действия" aria-haspopup="true" aria-expanded="false">⋯</button>
         <div class="menu">
@@ -108,6 +111,7 @@
 <div class="dlist">
   {% for r in rows %}
   <div class="drow{{ ' archived' if r['archived_at'] else '' }}">
+    <a class="drow-link" href="/admin/dates/{{ r['id'] }}/edit" aria-label="Редактировать «{{ r['name'] }}»"></a>
     {% if r['cover'] %}
     <a class="drow-cover g{{ r['id'] % 4 }}" href="/admin/dates/{{ r['id'] }}/edit" aria-label="Редактировать">
       <img src="/admin/uploads/{{ r['cover'] }}" alt="" loading="lazy"
@@ -122,9 +126,10 @@
         {% if r['pay_split'] %}<span class="badge rose">💸 50/50</span>{% endif %}
       </div>
       <div class="drow-meta">
-        <span>{{ r['starts_at'] | when(r['ends_at']) or 'без даты' }}</span>
-        {% if r['cats'] %}<span>· {{ r['cats'] }}</span>{% endif %}
-        {% if r['books'] %}<span>· 💝 {{ r['booked_names'] }}</span>{% endif %}
+        {% set when_str = r['starts_at'] | when(r['ends_at']) %}
+        {% if when_str %}<span>{{ when_str }}</span>{% endif %}
+        {% if r['cats'] %}<span>{% if when_str %}· {% endif %}{{ r['cats'] }}</span>{% endif %}
+        {% if r['books'] %}<span>{% if when_str or r['cats'] %}· {% endif %}💝 {{ r['booked_names'] }}</span>{% endif %}
       </div>
     </div>
     <div class="drow-act">

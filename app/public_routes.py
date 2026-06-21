@@ -15,6 +15,7 @@ from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
                                PlainTextResponse, RedirectResponse, Response,
                                StreamingResponse)
 
+import auth_routes
 import db
 import images
 import notify
@@ -382,6 +383,12 @@ def public_category(token: str, request: Request, conn=Depends(get_db)):
         "past": past,
         "guest": guest, "guest_name": guest_name,
         "me": me, "owner": owner,
+        # автор смотрит свою же страницу: не дублируем имя (пилюля автора +
+        # приветствие — одно и то же лицо). Прячем приветствие, оставляем автора.
+        "owner_is_me": bool(me and owner and me["id"] == owner["id"]),
+        # бот для вход-модалки (Telegram Login Widget). Анониму — кнопка «Войти»
+        # открывает окно с этим виджетом прямо на гостевой.
+        "bot": auth_routes.BOT_USERNAME,
         "token": token,
     })
     resp.headers["X-Robots-Tag"] = "noindex"
@@ -407,6 +414,25 @@ def public_owner_avatar(token: str, conn=Depends(get_db)):
         raise HTTPException(404)
     return FileResponse(path, media_type="image/webp",
                         headers={"Cache-Control": "private, max-age=3600"})
+
+
+@router.get("/c/{token}/og-image")
+def public_og_image(token: str, conn=Depends(get_db)):
+    """Картинка превью ссылки (og:image) — её запрашивают краулеры мессенджеров
+    (Telegram, WhatsApp) без cookie, поэтому отдаём публично по активной ссылке.
+    Только og_image этой категории; нет своей — 404 (шаблон укажет /static/og.png).
+    Кэш публичный: превью одинаково для всех, файл-имя меняется при замене."""
+    cat = cat_by_token(conn, token)
+    if not cat or not cat["link_enabled"]:
+        raise HTTPException(404)
+    fn = cat["og_image"]
+    if not fn or not images.SAFE_FILENAME.match(fn):
+        raise HTTPException(404)
+    path = images.UPLOAD_DIR / fn
+    if not path.exists():
+        raise HTTPException(404)
+    return FileResponse(path, media_type="image/webp",
+                        headers={"Cache-Control": "public, max-age=3600"})
 
 
 @router.get("/c/{token}/image/{filename}")

@@ -38,6 +38,8 @@
   v14 — categories.og_title/og_desc: редактируемый текст превью секретной ссылки
        (как она выглядит при отправке в мессенджере). NULL = дефолтный текст
        «Тебя ждёт сюрприз ♥ / Открой — внутри кое-что приятное».
+  v15 — categories.og_image: своя картинка превью ссылки (WebP, как фото свиданий).
+       NULL = дефолтная /static/og.png.
 
 Свежая база создаётся сразу по последней схеме. Существующая —
 докатывается миграциями при старте приложения.
@@ -51,7 +53,7 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "app.db"
 
-LATEST_VERSION = 14
+LATEST_VERSION = 15
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -96,6 +98,7 @@ CREATE TABLE IF NOT EXISTS categories (
     description TEXT,          -- видно всем гостям под заголовком страницы
     og_title TEXT,             -- заголовок превью ссылки (NULL = дефолт)
     og_desc TEXT,              -- описание превью ссылки (NULL = дефолт)
+    og_image TEXT,             -- картинка превью ссылки, WebP-файл (NULL = /static/og.png)
     created_at TEXT NOT NULL
 );
 
@@ -461,6 +464,11 @@ MIGRATIONS: dict[int, str] = {
         -- приятное» (рендерится в шаблоне).
         ALTER TABLE categories ADD COLUMN og_title TEXT;
         ALTER TABLE categories ADD COLUMN og_desc TEXT;
+    """,
+    15: """
+        -- Своя картинка превью ссылки (WebP, как фото свиданий). NULL = дефолт
+        -- /static/og.png. Отдаётся публично через /c/<токен>/og-image.
+        ALTER TABLE categories ADD COLUMN og_image TEXT;
     """,
 }
 
