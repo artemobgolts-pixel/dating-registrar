@@ -250,9 +250,12 @@ body::after {
 .author:hover { background: rgba(255, 255, 255, .92); transform: translateY(-1px); }
 .author-av {
   width: 28px; height: 28px; border-radius: 50%; object-fit: cover;
-  display: grid; place-items: center; flex: none;
+  flex: none; display: block;
 }
+/* плейсхолдер (без фото) — это <span>, его центрируем; на <img> grid не вешаем,
+   иначе object-fit:cover не применяется и квадратное фото «плющит» в круг */
 .author-av.ph {
+  display: grid; place-items: center;
   background: linear-gradient(135deg, var(--rose), var(--rose-2));
   color: #fff; font-size: 13px;
 }
@@ -354,7 +357,7 @@ body::after {
     0 0 0 6px rgba(182, 95, 111, .07);
 }
 @keyframes border-shine { to { background-position: 0 0, 300% 0; } }
-.card.booked-me .gal-count { display: none; }   /* угол занят печатью */
+.card.booked-me .gal-count { display: none; }   /* угол занят оверлеем */
 
 /* выбрано кем-то другим: спокойная розовая рамка и мягкая заливка */
 .card.booked-other {
@@ -420,24 +423,6 @@ body::after {
     radial-gradient(120% 80% at 50% 50%, rgba(143, 74, 88, .14), rgba(40, 20, 28, .32));
 }
 .card.booked-other .bo-text { font-size: 22px; }
-
-/* восковая печать ♥ на выбранной карточке */
-.seal {
-  position: absolute; top: 12px; right: 12px; z-index: 6;
-  width: 46px; height: 46px; border-radius: 50%;
-  display: grid; place-items: center;
-  font-size: 20px; color: #fff;
-  background: radial-gradient(circle at 32% 28%, #d4798c, var(--rose) 45%, var(--rose-2));
-  border: 2px solid rgba(255, 255, 255, .9);
-  box-shadow: 0 8px 18px rgba(150, 70, 85, .4), inset 0 -2px 5px rgba(0, 0, 0, .18);
-  transform: rotate(-12deg);
-  animation: seal-in .5s var(--ease) both;
-}
-.seal[hidden] { display: none; }
-@keyframes seal-in {
-  from { transform: scale(.2) rotate(30deg); opacity: 0; }
-  to   { transform: scale(1) rotate(-12deg); opacity: 1; }
-}
 
 /* карточка без фото получает тонкую градиентную «ленту» сверху */
 .accent { height: 5px; background: linear-gradient(90deg, var(--rose), var(--peach), var(--rose)); opacity: .55; }
@@ -1083,7 +1068,10 @@ footer .hearts { color: var(--rose); opacity: .55; letter-spacing: 8px; margin-b
   background: #fffefd; line-height: 1.5; outline: none;
 }
 .rich-ed:focus { border-color: var(--rose); box-shadow: 0 0 0 4px rgba(182, 95, 111, .14); }
+/* пустой редактор — одна аккуратная строка; при фокусе/наборе подрастает */
+.rich-ed:empty { min-height: 0; }
 .rich-ed:empty::before { content: attr(data-placeholder); color: var(--muted); }
+.rich-ed:focus:empty { min-height: 44px; }
 .rich-ed a { color: var(--rose-2); }
 
 /* всплывающее меню форматирования по выделению (как в Telegram) */

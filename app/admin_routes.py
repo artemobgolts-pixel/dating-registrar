@@ -204,7 +204,7 @@ def dashboard(request: Request, conn=Depends(get_db)):
     # Для выбранной (или первой) рисуем QR прямо на сервере — инлайновый SVG,
     # под CSP не нужен ни внешний скрипт, ни data:-картинка.
     share_cats = conn.execute(
-        "SELECT id, name, link_token FROM categories "
+        "SELECT id, name, link_token, og_title, og_desc FROM categories "
         "WHERE owner_id=? AND link_enabled=1 AND link_token IS NOT NULL "
         "ORDER BY created_at DESC", (uid,)).fetchall()
     sel = request.query_params.get("share")
@@ -531,12 +531,16 @@ def category_detail(cid: int, request: Request, conn=Depends(get_db)):
 
 @router.post("/categories/{cid}/rename")
 def category_rename(cid: int, request: Request, name: str = Form(...),
-                    description: str = Form(""), conn=Depends(get_db)):
+                    description: str = Form(""),
+                    og_title: str = Form(""), og_desc: str = Form(""),
+                    conn=Depends(get_db)):
     _cat_or_404(conn, cid, request.state.user)
     name = clean_text(name, 200, "Название", required=True)
     description = clean_text(description, 1000, "Описание")
-    conn.execute("UPDATE categories SET name=?, description=? WHERE id=?",
-                 (name, description, cid))
+    og_title = clean_text(og_title, 120, "Заголовок превью")
+    og_desc = clean_text(og_desc, 200, "Описание превью")
+    conn.execute("UPDATE categories SET name=?, description=?, og_title=?, og_desc=? WHERE id=?",
+                 (name, description, og_title, og_desc, cid))
     conn.commit()
     return redir(f"/admin/categories/{cid}", "Сохранено")
 

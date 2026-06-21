@@ -56,6 +56,9 @@
   </div>
 </div>
 {% else %}
-<p class="muted">{{ 'Вопросов пока нет.' if f == 'all' else 'Непрочитанных вопросов нет 🎉' }}</p>
+<div class="empty-state notif-empty">
+  <div class="big">🔔</div>
+  <p>{{ 'Уведомлений пока нет' if f == 'all' else 'Непрочитанных уведомлений нет' }}</p>
+</div>
 {% endfor %}
 {% endblock %}

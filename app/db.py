@@ -35,6 +35,9 @@
        действие — для уведомлений автору); users.is_reviewed, categories.is_reviewed
        (мягкая очередь модерации, по умолчанию 1 = одобрено); таблица settings
        (глобальные флаги moderate_users/moderate_categories, по умолчанию выкл).
+  v14 — categories.og_title/og_desc: редактируемый текст превью секретной ссылки
+       (как она выглядит при отправке в мессенджере). NULL = дефолтный текст
+       «Тебя ждёт сюрприз ♥ / Открой — внутри кое-что приятное».
 
 Свежая база создаётся сразу по последней схеме. Существующая —
 докатывается миграциями при старте приложения.
@@ -48,7 +51,7 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "app.db"
 
-LATEST_VERSION = 13
+LATEST_VERSION = 14
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -91,6 +94,8 @@ CREATE TABLE IF NOT EXISTS categories (
     moderate_proposals INTEGER NOT NULL DEFAULT 0,
     is_reviewed INTEGER NOT NULL DEFAULT 1,  -- 0 = новая, ждёт проверки админом (мягкая очередь)
     description TEXT,          -- видно всем гостям под заголовком страницы
+    og_title TEXT,             -- заголовок превью ссылки (NULL = дефолт)
+    og_desc TEXT,              -- описание превью ссылки (NULL = дефолт)
     created_at TEXT NOT NULL
 );
 
@@ -449,6 +454,13 @@ MIGRATIONS: dict[int, str] = {
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
         );
+    """,
+    14: """
+        -- Редактируемое превью секретной ссылки (как она выглядит при отправке).
+        -- NULL = дефолтный текст «Тебя ждёт сюрприз ♥ / Открой — внутри кое-что
+        -- приятное» (рендерится в шаблоне).
+        ALTER TABLE categories ADD COLUMN og_title TEXT;
+        ALTER TABLE categories ADD COLUMN og_desc TEXT;
     """,
 }
 

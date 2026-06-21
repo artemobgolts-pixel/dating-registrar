@@ -56,8 +56,6 @@
       btn.textContent = mine ? "Твой выбор ♥ · отменить" : "Выбрать ♥";
     }
     card.classList.toggle("booked-me", mine);
-    const seal = card.querySelector(".seal");
-    if (seal) seal.hidden = !mine;                 // восковая печать ♥
     const who = card.querySelector(".bo-who");     // подпись на оверлее
     if (who) who.textContent = mine ? (MYNAME || "ты ♥") : "";
   }

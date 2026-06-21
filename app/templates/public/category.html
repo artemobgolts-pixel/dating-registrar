@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
   <title>{{ cat.name }}</title>
-  <meta property="og:title" content="Тебя ждёт сюрприз ♥">
-  <meta property="og:description" content="Открой — внутри кое-что приятное">
+  <meta property="og:title" content="{{ cat['og_title'] or 'Тебя ждёт сюрприз ♥' }}">
+  <meta property="og:description" content="{{ cat['og_desc'] or 'Открой — внутри кое-что приятное' }}">
   <meta property="og:image" content="{{ BASE_URL }}/static/og.png">
   <meta property="og:type" content="website">
   <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
@@ -99,8 +99,6 @@
   {% endset %}
   <article class="card{% if d.past %} past{% endif %}{% if d.booked_by_me and not d.past %} booked-me{% endif %}{% if d.booked_others_list and not d.past and not d.booked_by_me %} booked-other{% endif %}{% if not d.images and not d.videos %} nophoto{% endif %}"
            id="date-{{ d.id }}" data-others="{{ d.booked_others }}">
-    {% if d.past %}{# архив: без капсулы-штампа, статус показывает оверлей «Было» #}
-    {% else %}<div class="seal"{% if not d.booked_by_me %} hidden{% endif %}>♥</div>{% endif %}
     {% if d.images or d.videos %}
     <div class="gal-wrap">
       {% if badges | trim %}<div class="badges">{{ badges }}</div>{% endif %}

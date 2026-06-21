@@ -450,7 +450,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     page = ga.get(f"/c/{tok}").text
     assert "Твой выбор ♥" in page                      # кнопка-переключатель
     mycard = re.search(r'<article[^>]*id="date-%d".*?</article>' % did, page, re.S).group(0)
-    assert "booked-me" in mycard and '<div class="seal">♥' in mycard   # печать видна
+    assert "booked-me" in mycard                        # карточка помечена выбором
     assert "booked-overlay" in mycard and "Забронировано" in mycard    # оверлей на фото
     assert "Аня" in mycard                              # имя выбравшего на оверлее
     assert ga.post(f"/c/{tok}/vote", data={"date_id": did}).status_code == 404
@@ -582,7 +582,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     page = ga.get(f"/c/{tok}").text
     for d_ in (did, did_r):
         cd = re.search(r'<article[^>]*id="date-%d".*?</article>' % d_, page, re.S).group(0)
-        assert "booked-me" in cd and '<div class="seal">♥' in cd
+        assert "booked-me" in cd
     r = ga.post(f"/c/{tok}/book", data={"date_id": did_r})  # повторный тап — снять
     assert r.json()["booked"] is False
     rows = db_all("SELECT date_id FROM bookings WHERE category_id=? AND guest_token IN "

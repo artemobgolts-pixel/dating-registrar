@@ -22,8 +22,7 @@
   </div>
   {% if c['link_enabled'] %}
   <div class="linkbox" style="margin-top:10px">
-    <code>{{ BASE_URL }}/c/{{ c['link_token'] }}</code>
-    <button type="button" class="btn small" data-copy='{{ BASE_URL }}/c/{{ c['link_token'] }}'>Копировать</button>
+    <code class="copy-code" data-copy='{{ BASE_URL }}/c/{{ c['link_token'] }}' title="Нажми, чтобы скопировать">{{ BASE_URL }}/c/{{ c['link_token'] }} <span class="copy-ico" aria-hidden="true">📋</span></code>
   </div>
   {% endif %}
 </div>

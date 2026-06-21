@@ -12,12 +12,27 @@
     <input name="name" value="{{ cat['name'] }}" required maxlength="200">
     <textarea name="description" maxlength="1000" rows="2"
       placeholder="Описание — его увидят под заголовком. Можно **жирный**, *курсив*, __подчёркнутый__">{{ cat['description'] or '' }}</textarea>
+
+    <label style="margin-top:4px">Превью ссылки — как она выглядит при отправке</label>
+    <input name="og_title" maxlength="120" placeholder="Тебя ждёт сюрприз ♥"
+           value="{{ cat['og_title'] or '' }}">
+    <input name="og_desc" maxlength="200" placeholder="Открой — внутри кое-что приятное"
+           value="{{ cat['og_desc'] or '' }}">
+    <div class="og-preview" aria-label="так ссылка выглядит при отправке">
+      <img class="og-img" src="/static/og.png" alt="">
+      <div class="og-text">
+        <div class="og-title">{{ cat['og_title'] or 'Тебя ждёт сюрприз ♥' }}</div>
+        <div class="og-desc">{{ cat['og_desc'] or 'Открой — внутри кое-что приятное' }}</div>
+        <div class="og-host">date4you.online</div>
+      </div>
+    </div>
+
     <div><button class="btn primary">Сохранить</button></div>
   </form>
 </div>
 
 <div class="card">
-  <b>Секретная ссылка</b>
+  <b>Ссылка</b>
   {% if cat['link_enabled'] %}
   <div class="linkbox" style="margin-top:10px">
     <code class="copy-code" data-copy='{{ BASE_URL }}/c/{{ cat['link_token'] }}' title="Нажми, чтобы скопировать">{{ BASE_URL }}/c/{{ cat['link_token'] }} <span class="copy-ico" aria-hidden="true">📋</span></code>

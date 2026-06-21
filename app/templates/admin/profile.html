@@ -37,7 +37,7 @@
       <input type="date" name="birth_date" value="{{ user['birth_date'] or '' }}">
     </div>
 
-    <div class="field">
+    <div class="field" style="margin-bottom:0">
       <label>Пол</label>
       <div class="gender-pick">
         <label class="gender-opt"><input type="radio" name="gender" value="m" {{ 'checked' if user['gender'] == 'm' else '' }}> Мужской</label>
@@ -46,9 +46,7 @@
       </div>
     </div>
 
-    <div class="field" style="margin-bottom:0">
-      <button class="btn primary" type="submit">Сохранить</button>
-    </div>
+    <p class="autosave-note" id="autosaveNote" aria-live="polite">Изменения сохраняются автоматически</p>
   </form>
 
   {% if user['avatar_path'] %}
@@ -81,7 +79,7 @@
 <div class="card" style="max-width:540px">
   <form method="post" action="/admin/logout">
     <input type="hidden" name="csrf" value="{{ csrf }}">
-    <button class="btn danger" type="submit" style="width:100%">Выйти из аккаунта</button>
+    <button class="btn logout-btn" type="submit">Выйти из аккаунта</button>
   </form>
 </div>
 {% endblock %}
@@ -89,13 +87,51 @@
 {% block scripts %}
 <script nonce="{{ csp_nonce }}">
 (function () {
-  // клик по кругу аватарки уже открывает выбор (label). Выбрали файл —
-  // сразу сохраняем профиль, чтобы фото применилось без отдельной кнопки.
-  var inp = document.getElementById('avatarInput');
   var form = document.getElementById('profileForm');
-  if (inp && form) inp.addEventListener('change', function () {
+  var inp = document.getElementById('avatarInput');
+  var note = document.getElementById('autosaveNote');
+  if (!form) return;
+
+  // Аватар меняет показанную картинку — проще перезагрузить страницу обычным
+  // сабмитом (так применится новое фото и flash «сохранено»).
+  if (inp) inp.addEventListener('change', function () {
     if (inp.files && inp.files.length) form.submit();
   });
+
+  // Автосохранение остальных полей: шлём форму фоновым fetch с дебаунсом,
+  // без перезагрузки. Имя обязательно — пустое не сохраняем.
+  var timer = null, saving = false;
+  function flash(text, ok) {
+    if (!note) return;
+    note.textContent = text;
+    note.classList.toggle('saved', ok === true);
+    note.classList.toggle('err', ok === false);
+  }
+  async function save() {
+    var name = form.querySelector('[name="display_name"]');
+    if (name && !name.value.trim()) { flash('Имя не может быть пустым', false); return; }
+    saving = true;
+    flash('Сохранение…');
+    var fd = new FormData(form);
+    fd.delete('avatar');                 // аватар идёт отдельным сабмитом
+    try {
+      var r = await fetch('/admin/profile', {
+        method: 'POST', body: fd,
+        headers: { 'X-Requested-With': 'fetch' },
+      });
+      flash(r.ok ? 'Сохранено ✓' : 'Не удалось сохранить', r.ok);
+    } catch (_) {
+      flash('Нет связи — не сохранено', false);
+    }
+    saving = false;
+  }
+  function schedule() {
+    flash('Изменения сохраняются автоматически');
+    clearTimeout(timer);
+    timer = setTimeout(save, 700);
+  }
+  form.addEventListener('input', schedule);
+  form.addEventListener('change', schedule);
 })();
 </script>
 {% endblock %}
