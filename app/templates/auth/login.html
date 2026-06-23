@@ -9,7 +9,7 @@
 <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
 <link rel="manifest" href="/static/manifest.json">
 <meta name="theme-color" content="#b65f6f">
-<link rel="stylesheet" href="/static/admin.css">
+<link rel="stylesheet" href="{{ asset('admin.css') }}">
 </head>
 <body>
 {% include "public/_bg.html" %}
@@ -17,7 +17,7 @@
   <div class="login-center">
   <div class="login-card">
     <h1>♥</h1>
-    <div class="login-brand serif">date<span class="d4">4</span>you</div>
+    <div class="login-brand">date<span class="d4">4</span>you</div>
     <p class="login-lead">Войди, чтобы собрать свою подборку свиданий.</p>
     {% if not bot %}
       <div class="err">Вход через Telegram пока не настроен.</div>
@@ -46,7 +46,7 @@
     <a href="/about">О проекте</a> · <a href="/terms">Соглашение</a> · <a href="/privacy">Конфиденциальность</a>
   </footer>
 </div>
-<script src="/static/ink.js" defer></script>
-<script nonce="{{ csp_nonce }}" src="/static/auth.js"></script>
+<script src="{{ asset('ink.js') }}" defer></script>
+<script nonce="{{ csp_nonce }}" src="{{ asset('auth.js') }}"></script>
 </body>
 </html>

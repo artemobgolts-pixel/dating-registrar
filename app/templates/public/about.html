@@ -6,7 +6,7 @@
 <meta name="robots" content="noindex, nofollow">
 <title>О проекте · date4you</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>♥</text></svg>">
-<link rel="stylesheet" href="/static/public.css">
+<link rel="stylesheet" href="{{ asset('public.css') }}">
 <style>
   .legal { position: relative; z-index: 1; max-width: 680px; margin: 0 auto; padding: 40px 22px 80px; }
   .legal h1 { font-family: 'Cormorant Garamond', Georgia, serif; font-size: 34px; color: #b65f6f; margin: 0 0 18px; }
@@ -53,6 +53,6 @@
   </ul>
   {% endif %}
 </main>
-<script src="/static/ink.js" defer></script>
+<script src="{{ asset('ink.js') }}" defer></script>
 </body>
 </html>

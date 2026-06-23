@@ -276,11 +276,14 @@ body::after {
 .login-corner:active { transform: scale(.97); }
 @media (max-width: 520px) { .login-corner { top: 10px; right: 10px; padding: 8px 16px; font-size: 13.5px; } }
 
-/* элементы шапки (автор · приветствие) — каждый на своей строке, по центру */
-.hero .author,
-.hero .greet { display: inline-flex; }
+/* автор и приветствие — каждый на своей строке, по центру.
+   ВАЖНО: display:flex (а не block), иначе аватар-кружок и имя внутри пилюли
+   перестают лежать в ряд и аватарка «отваливается» на отдельную строку. */
 .hero > .author,
-.hero > .greet { display: block; width: fit-content; margin-left: auto; margin-right: auto; }
+.hero > .greet {
+  display: flex; align-items: center;
+  width: fit-content; margin-left: auto; margin-right: auto;
+}
 .hero > .author { margin-top: 14px; }
 .hero > .greet { margin-top: 16px; }
 

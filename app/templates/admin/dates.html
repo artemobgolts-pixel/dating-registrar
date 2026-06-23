@@ -66,12 +66,14 @@
       </div>
       {% endif %}
       <h3 class="ttl serif"><a href="/admin/dates/{{ r['id'] }}/edit">{{ r['name'] }}</a></h3>
+      {% set when_str = r['starts_at'] | when(r['ends_at']) %}
+      {% if when_str or r['books'] or (not cat and r['cats']) %}
       <div class="meta">
-        {% set when_str = r['starts_at'] | when(r['ends_at']) %}
-        {% if when_str %}{{ when_str }}{% endif %}
-        {%- if r['books'] %}{% if when_str %} · {% endif %}{{ r['books'] }} {{ r['books'] | plural('бронь', 'брони', 'броней') }}{% endif %}
-        {% if not cat and r['cats'] %}<br>{{ r['cats'] }}{% endif %}
+        {%- if when_str %}{{ when_str }}{% endif -%}
+        {%- if r['books'] %}{% if when_str %} · {% endif %}{{ r['books'] }} {{ r['books'] | plural('бронь', 'брони', 'броней') }}{% endif -%}
+        {%- if not cat and r['cats'] %}<br>{{ r['cats'] }}{% endif -%}
       </div>
+      {% endif %}
       <div class="foot">
         <span class="edit-hint">Редактировать</span>
         <div class="menu-wrap">
@@ -125,12 +127,14 @@
         {% if r['origin'] == 'guest' %}<span class="badge">💡 предложено</span>{% endif %}
         {% if r['pay_split'] %}<span class="badge rose">💸 50/50</span>{% endif %}
       </div>
+      {% set when_str = r['starts_at'] | when(r['ends_at']) %}
+      {% if when_str or r['cats'] or r['books'] %}
       <div class="drow-meta">
-        {% set when_str = r['starts_at'] | when(r['ends_at']) %}
         {% if when_str %}<span>{{ when_str }}</span>{% endif %}
         {% if r['cats'] %}<span>{% if when_str %}· {% endif %}{{ r['cats'] }}</span>{% endif %}
         {% if r['books'] %}<span>{% if when_str or r['cats'] %}· {% endif %}💝 {{ r['booked_names'] }}</span>{% endif %}
       </div>
+      {% endif %}
     </div>
     <div class="drow-act">
       <a class="btn small" href="/admin/dates/{{ r['id'] }}/edit">Редактировать</a>

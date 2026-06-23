@@ -9,7 +9,7 @@
 <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
 <link rel="manifest" href="/static/manifest.json">
 <meta name="theme-color" content="#b65f6f">
-<link rel="stylesheet" href="/static/admin.css">
+<link rel="stylesheet" href="{{ asset('admin.css') }}">
 </head>
 <body data-csrf="{{ csrf }}">
 <!-- Фон «растекающиеся чернила» — тот же WebGL-шейдер, что на гостевой и
@@ -55,7 +55,7 @@
   </filter>
 </svg>
 <header class="top">
-  <a class="brand serif" href="/admin/">date<span class="d4">4</span>you</a>
+  <a class="brand" href="/admin/">date<span class="d4">4</span>you</a>
   <nav>
     <a href="/admin/" class="{{ 'on' if active == 'dash' else '' }}"><span class="ic" aria-hidden="true">🏠</span><span class="lb">Главная</span></a>
     <a href="/admin/categories" class="{{ 'on' if active == 'cats' else '' }}"><span class="ic" aria-hidden="true">🔗</span><span class="lb">Категории</span></a>
@@ -83,8 +83,8 @@
 {% endif %}
 {% block content %}{% endblock %}
 </main>
-<script src="/static/ink.js" defer></script>
-<script src="/static/ui.js"></script>
+<script src="{{ asset('ink.js') }}" defer></script>
+<script src="{{ asset('ui.js') }}"></script>
 <script nonce="{{ csp_nonce }}">
 function copyText(t, btn) {
   navigator.clipboard.writeText(t).then(function () {
@@ -107,7 +107,7 @@ document.addEventListener('change', function (e) {
 });
 </script>
 {% if user and not user['bot_linked'] %}
-<script nonce="{{ csp_nonce }}" src="/static/auth.js"></script>
+<script nonce="{{ csp_nonce }}" src="{{ asset('auth.js') }}"></script>
 {% endif %}
 {% block scripts %}{% endblock %}
 </body>

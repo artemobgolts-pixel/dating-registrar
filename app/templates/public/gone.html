@@ -9,7 +9,7 @@
 <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
 <link rel="manifest" href="/static/manifest.json">
 <meta name="theme-color" content="#b65f6f">
-<link rel="stylesheet" href="/static/public.css">
+<link rel="stylesheet" href="{{ asset('public.css') }}">
 </head>
 <body>
 <div class="bg-hearts" aria-hidden="true">
@@ -60,6 +60,6 @@
     <div class="home-dots" aria-hidden="true">♥ ♥ ♥</div>
   </div>
 </main>
-<script src="/static/ink.js" defer></script>
+<script src="{{ asset('ink.js') }}" defer></script>
 </body>
 </html>

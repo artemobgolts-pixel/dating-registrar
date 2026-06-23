@@ -1,5 +1,6 @@
 """Общая веб-инфраструктура: шаблоны, подключение к базе, редиректы."""
 
+import os
 from urllib.parse import quote
 
 from fastapi import Request
@@ -11,6 +12,23 @@ from config import BASE_URL
 from helpers import (fmt_host, fmt_short, fmt_ts, fmt_when, fmt_ymaps,
                      placename, plural, rich)
 
+_STATIC_DIR = "static"
+
+
+def asset(name: str) -> str:
+    """Ссылка на статику с версией по mtime файла: /static/admin.css?v=<mtime>.
+
+    Статика отдаётся с Cache-Control: max-age=3600 без версионирования имён, из-за
+    чего правки CSS/JS доезжали до пользователя только через час (или после
+    жёсткой перезагрузки). Версия в query меняется при каждом изменении файла и
+    автоматически инвалидирует кэш — на деплое новые стили применяются сразу.
+    """
+    try:
+        ver = int(os.path.getmtime(os.path.join(_STATIC_DIR, name)))
+    except OSError:
+        ver = 0
+    return f"/static/{name}?v={ver}"
+
 
 def _template_globals(request: Request) -> dict:
     return {"csp_nonce": getattr(request.state, "csp_nonce", "")}
@@ -18,6 +36,7 @@ def _template_globals(request: Request) -> dict:
 
 templates = Jinja2Templates(directory="templates",
                             context_processors=[_template_globals])
+templates.env.globals["asset"] = asset
 templates.env.filters["when"] = fmt_when
 templates.env.filters["ts"] = fmt_ts
 templates.env.filters["short"] = fmt_short
