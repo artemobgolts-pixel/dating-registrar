@@ -535,7 +535,7 @@ label.chk {
 
 .login-card h1 {
   text-align: center;
-  margin: 0 0 18px;
+  margin: 0 0 6px;
   color: var(--accent);
   font-size: 72px;
   line-height: 1;
@@ -547,11 +547,11 @@ label.chk {
   text-align: center;
   font-size: 62px;
   font-weight: 400;
-  line-height: 1.3;             /* рукописный шрифт: длинные выносные элементы */
+  line-height: 1.05;            /* плотно к сердцу и лиду, но место хвостам букв */
   /* хвосты букв (y, длинная «g») не должны срезаться снизу */
-  padding: 4px 6px 14px;
+  padding: 0 6px 8px;
   overflow: visible;
-  margin: -6px 0 12px;
+  margin: 0 0 8px;
   background: linear-gradient(120deg, var(--rose-2), var(--rose) 60%, #cf8a78);
   -webkit-background-clip: text; background-clip: text;
   -webkit-text-fill-color: transparent; color: var(--rose-2);
@@ -1221,13 +1221,14 @@ input, textarea, select {
 
 .share-grid { display: grid; grid-template-columns: 1fr auto; gap: 20px; align-items: start; }
 @media (max-width: 640px) { .share-grid { grid-template-columns: 1fr; } }
-.share-qr-col { display: flex; flex-direction: column; align-items: center; gap: 12px; justify-content: flex-start; }
+/* QR-колонка прижата к верху (как текст слева), без растягивания по высоте строки */
+.share-qr-col { display: flex; flex-direction: column; align-items: center; gap: 10px; justify-content: flex-start; align-self: start; }
 .share-qr {
-  width: 360px; max-width: 100%;
+  width: 240px; max-width: 100%;
   aspect-ratio: 1 / 1;          /* всегда квадрат: высота = ширине, без пустоты снизу */
   flex: none;
   background: #fff; border: 1px solid var(--line); border-radius: 16px;
-  padding: 18px; display: grid; place-items: center;
+  padding: 14px; display: grid; place-items: center;
 }
 .share-qr svg { width: 100%; height: 100%; display: block; }
 .share-cat { font-weight: 600; margin-bottom: 8px; }
@@ -1261,6 +1262,10 @@ input, textarea, select {
   position: absolute; inset: 0; z-index: 1;
   border-radius: var(--r);
 }
+/* Вся шапка карточки прозрачна для кликов — иначе .bar (тот же z-index, что у
+   .cat-link, но позже в DOM) перехватывает клик и проглатывает его, и карточка
+   не открывается. Кликабельным оставляем только токен-ссылку (copy-code). */
+.cat-card .bar,
 .cat-card .bar > div,
 .cat-card .linkbox { position: relative; z-index: 2; pointer-events: none; }
 .cat-card .linkbox .copy-code { pointer-events: auto; }   /* токен остаётся кликабельным */

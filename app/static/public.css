@@ -32,6 +32,9 @@
 
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; scrollbar-gutter: stable; }
+/* атрибут hidden должен побеждать любые авторские display-правила (.greet,
+   .author, .seal и т.п. задают display и иначе перекрывают hidden) */
+[hidden] { display: none !important; }
 
 body {
   margin: 0;
@@ -278,9 +281,11 @@ body::after {
 
 /* автор и приветствие — каждый на своей строке, по центру.
    ВАЖНО: display:flex (а не block), иначе аватар-кружок и имя внутри пилюли
-   перестают лежать в ряд и аватарка «отваливается» на отдельную строку. */
-.hero > .author,
-.hero > .greet {
+   перестают лежать в ряд и аватарка «отваливается» на отдельную строку.
+   :not([hidden]) обязателен — иначе display:flex перебивает атрибут hidden и
+   приветствие показывается даже когда сервер его скрыл (дубль имени автора). */
+.hero > .author:not([hidden]),
+.hero > .greet:not([hidden]) {
   display: flex; align-items: center;
   width: fit-content; margin-left: auto; margin-right: auto;
 }
