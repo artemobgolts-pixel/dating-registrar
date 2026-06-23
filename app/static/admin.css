@@ -525,9 +525,9 @@ label.chk {
   backdrop-filter: blur(14px) saturate(1.6);
   border: 1px solid rgba(255, 255, 255, .6);
   border-radius: 18px;
-  padding: 28px 26px;
+  padding: 34px 30px;
   width: 100%;
-  max-width: 360px;
+  max-width: 400px;
   box-shadow: 0 18px 48px rgba(150, 80, 95, .16),
     inset 0 2px 1px rgba(255, 255, 255, .9);
   text-align: center;
@@ -537,7 +537,7 @@ label.chk {
   text-align: center;
   margin: 0 0 18px;
   color: var(--accent);
-  font-size: 64px;
+  font-size: 72px;
   line-height: 1;
 }
 
@@ -545,13 +545,13 @@ label.chk {
 .login-brand {
   font-family: var(--script);
   text-align: center;
-  font-size: 46px;
+  font-size: 62px;
   font-weight: 400;
   line-height: 1.3;             /* рукописный шрифт: длинные выносные элементы */
   /* хвосты букв (y, длинная «g») не должны срезаться снизу */
-  padding: 4px 6px 10px;
+  padding: 4px 6px 14px;
   overflow: visible;
-  margin: -6px 0 10px;
+  margin: -6px 0 12px;
   background: linear-gradient(120deg, var(--rose-2), var(--rose) 60%, #cf8a78);
   -webkit-background-clip: text; background-clip: text;
   -webkit-text-fill-color: transparent; color: var(--rose-2);
@@ -565,7 +565,7 @@ label.chk {
   -webkit-text-fill-color: transparent; color: var(--rose-2);
 }
 
-.login-lead { color: var(--ink); margin: 0 0 16px; }
+.login-lead { color: var(--ink); margin: 0 0 16px; font-size: 17px; line-height: 1.5; }
 
 /* виджет Telegram центрируем (раньше «съезжал» влево из-за выравнивания по левому краю).
    ВАЖНО: до отметки согласия блок несёт атрибут hidden — display:none его прячет;
@@ -575,7 +575,7 @@ label.chk {
 #tg-widget-wrap:not([hidden]) { display: flex; justify-content: center; margin: 6px 0 4px; min-height: 46px; }
 #tg-widget-wrap iframe { margin: 0 auto !important; }
 
-.login-note { color: var(--muted); font-size: 12.5px; margin: 14px 0 0; line-height: 1.45; }
+.login-note { color: var(--muted); font-size: 13.5px; margin: 14px 0 0; line-height: 1.5; }
 
 .err {
   background: #fdeeee;
@@ -603,7 +603,7 @@ label.chk {
 /* чекбокс согласия при входе */
 .consent {
   display: flex; gap: 9px; align-items: flex-start;
-  font-size: 12.5px; color: #6b545a; line-height: 1.45;
+  font-size: 14px; color: #6b545a; line-height: 1.5;
   margin: 4px 0 14px; text-align: left; cursor: pointer;
 }
 .consent input { margin-top: 2px; flex: none; }
@@ -1223,7 +1223,9 @@ input, textarea, select {
 @media (max-width: 640px) { .share-grid { grid-template-columns: 1fr; } }
 .share-qr-col { display: flex; flex-direction: column; align-items: center; gap: 12px; justify-content: flex-start; }
 .share-qr {
-  width: 360px; height: 360px; flex: none; max-width: 100%;
+  width: 360px; max-width: 100%;
+  aspect-ratio: 1 / 1;          /* всегда квадрат: высота = ширине, без пустоты снизу */
+  flex: none;
   background: #fff; border: 1px solid var(--line); border-radius: 16px;
   padding: 18px; display: grid; place-items: center;
 }

@@ -377,15 +377,26 @@ def public_category(token: str, request: Request, conn=Depends(get_db)):
     ).fetchall()
     past = [enrich(r, past=True) for r in past_rows]
 
+    # автор смотрит свою же страницу: не дублируем имя (пилюля автора +
+    # приветствие — одно и то же лицо). Прячем приветствие, оставляем автора.
+    # Совпадение по id ИЛИ по отображаемому имени: при входе под другим
+    # аккаунтом с тем же именем дубль всё равно выглядит некрасиво.
+    owner_name = (owner["display_name"] or owner["tg_username"] or "") if owner else ""
+    owner_is_me = bool(
+        me and owner and (
+            me["id"] == owner["id"]
+            or (guest_name and owner_name
+                and guest_name.strip().casefold() == owner_name.strip().casefold())
+        )
+    )
+
     resp = templates.TemplateResponse(request, "public/category.html", {
         "cat": cat,
         "regular": dates,
         "past": past,
         "guest": guest, "guest_name": guest_name,
         "me": me, "owner": owner,
-        # автор смотрит свою же страницу: не дублируем имя (пилюля автора +
-        # приветствие — одно и то же лицо). Прячем приветствие, оставляем автора.
-        "owner_is_me": bool(me and owner and me["id"] == owner["id"]),
+        "owner_is_me": owner_is_me,
         # бот для вход-модалки (Telegram Login Widget). Анониму — кнопка «Войти»
         # открывает окно с этим виджетом прямо на гостевой.
         "bot": auth_routes.BOT_USERNAME,
