@@ -13,10 +13,10 @@
 
 {% if share %}
 <div class="card">
-  <b>🔗 Поделиться</b>
-  <p class="muted" style="margin:6px 0 14px;font-size:13.5px">Отправь эту ссылку — по ней человек откроет твою подборку свиданий.</p>
   <div class="share-grid">
     <div>
+      <b>🔗 Поделиться</b>
+      <p class="muted" style="margin:6px 0 14px;font-size:13.5px">Отправь эту ссылку — по ней человек откроет твою подборку свиданий.</p>
       {% if share_cats | length > 1 %}
       <form method="get" action="/admin/" class="share-pick">
         <label>Категория</label>
