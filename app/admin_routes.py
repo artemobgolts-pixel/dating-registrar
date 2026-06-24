@@ -30,8 +30,9 @@ from helpers import (clean_text, normalize_period, now_iso, now_naive,
                      parse_birth_date, parse_dt_local, parse_links)
 from fastapi.responses import JSONResponse
 from ownership import get_owned_category, get_owned_date
-from public_routes import (add_photos, insert_date, next_cat_pos, notify_admin,
-                           notify_user, ranged_file, save_links, VIDEO_TYPES)
+from public_routes import (add_photos, copy_date_media_and_links, insert_date,
+                           next_cat_pos, notify_admin, notify_user, ranged_file,
+                           save_links, VIDEO_TYPES)
 from ratelimit import user_throttle
 from tasks import autoarchive_once
 from users import current_user
@@ -1035,38 +1036,9 @@ def date_clone(did: int, request: Request, next: str = Form("/admin/dates"),
             "INSERT OR IGNORE INTO date_categories(date_id, category_id, position) "
             "VALUES(?,?,?)", (new_id, cid, next_cat_pos(conn, cid)))
 
-    # ссылки
-    for r in conn.execute(
-            "SELECT url, position FROM date_links WHERE date_id=? ORDER BY position, id",
-            (did,)).fetchall():
-        conn.execute("INSERT INTO date_links(date_id, url, position) VALUES(?,?,?)",
-                     (new_id, r["url"], r["position"]))
-
-    # фото и видео — физические копии файлов; битые/пропавшие просто пропускаем
-    copied: list[str] = []
-    try:
-        for r in conn.execute(
-                "SELECT filename, position, focus FROM date_images WHERE date_id=? "
-                "ORDER BY position, id", (did,)).fetchall():
-            fn = images.copy_file(r["filename"])
-            if fn:
-                copied.append(fn)
-                conn.execute(
-                    "INSERT INTO date_images(date_id, filename, position, focus) VALUES(?,?,?,?)",
-                    (new_id, fn, r["position"], r["focus"]))
-        for r in conn.execute(
-                "SELECT filename, position FROM date_videos WHERE date_id=? "
-                "ORDER BY position, id", (did,)).fetchall():
-            fn = images.copy_file(r["filename"])
-            if fn:
-                copied.append(fn)
-                conn.execute(
-                    "INSERT INTO date_videos(date_id, filename, position) VALUES(?,?,?)",
-                    (new_id, fn, r["position"]))
-    except Exception:
-        for fn in copied:               # не оставляем осиротевшие копии на диске
-            images.delete_file(fn)
-        raise
+    # ссылки и физические копии фото/видео — общий хелпер (его же зовёт «добавить
+    # себе» по share-ссылке). При ошибке он сам подчистит осиротевшие копии.
+    copy_date_media_and_links(conn, did, new_id)
     conn.commit()
     return redir(f"/admin/dates/{new_id}/edit",
                  "Свидание скопировано — это черновик, проверь и опубликуй")

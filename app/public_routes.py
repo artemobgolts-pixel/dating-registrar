@@ -6,6 +6,7 @@
 
 import json
 import re
+import secrets
 import sqlite3
 from datetime import datetime, timedelta, timezone
 
@@ -28,7 +29,7 @@ from helpers import (_parse, clean_text, fmt_gcal, fmt_when, normalize_period,
 from notify import esc
 from ratelimit import guest_throttle
 from tasks import autoarchive_once
-from web import get_db, templates
+from web import get_db, redir, templates
 
 router = APIRouter()
 
@@ -168,12 +169,17 @@ def date_payload(conn, row) -> dict:
 
 def insert_date(conn, *, name, place, starts, ends, comment, origin, guest_token,
                 owner_id, draft=0, pay_split=0, place_url=None, proposed_by=None) -> int:
+    # Каждое свидание получает стабильную секретную ссылку /d/<share_token>
+    # сразу при создании — через неё им можно поделиться, чтобы другой
+    # пользователь добавил копию себе. Генерим здесь, чтобы ВСЕ пути создания
+    # (админ, клон, импорт, гостевое предложение) получили токен без правок.
+    share_token = secrets.token_urlsafe(16)
     cur = conn.execute(
         "INSERT INTO dates(owner_id, name, place, place_url, starts_at, ends_at, comment, "
-        "origin, guest_token, proposed_by, is_draft, pay_split, created_at) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "origin, guest_token, proposed_by, is_draft, pay_split, share_token, created_at) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (owner_id, name, place, place_url, starts, ends, comment, origin, guest_token,
-         proposed_by, draft, pay_split, now_iso()),
+         proposed_by, draft, pay_split, share_token, now_iso()),
     )
     return cur.lastrowid
 
@@ -190,6 +196,49 @@ def save_links(conn, date_id: int, links: list[str]) -> None:
     for i, u in enumerate(links):
         conn.execute("INSERT INTO date_links(date_id, url, position) VALUES(?,?,?)",
                      (date_id, u, i))
+
+
+def copy_date_media_and_links(conn, src_id: int, new_id: int) -> None:
+    """Переносит на новое свидание ссылки и физические копии фото/видео исходного.
+
+    Фото/видео — отдельные файлы с новыми именами (images.copy_file); фокус кадра
+    сохраняем. Битые/пропавшие файлы просто пропускаем. При ошибке удаляем уже
+    скопированные файлы и пробрасываем исключение — чтобы не оставлять сирот на
+    диске. Категории/брони/вопросы НЕ трогаем: это решает вызывающий (клон копирует
+    категории сам, «добавить себе» — нет). Коммит — на вызывающем.
+
+    Используется и клонированием свидания админом, и «добавить себе» по /d/<токен>.
+    """
+    for r in conn.execute(
+            "SELECT url, position FROM date_links WHERE date_id=? ORDER BY position, id",
+            (src_id,)).fetchall():
+        conn.execute("INSERT INTO date_links(date_id, url, position) VALUES(?,?,?)",
+                     (new_id, r["url"], r["position"]))
+
+    copied: list[str] = []
+    try:
+        for r in conn.execute(
+                "SELECT filename, position, focus FROM date_images WHERE date_id=? "
+                "ORDER BY position, id", (src_id,)).fetchall():
+            fn = images.copy_file(r["filename"])
+            if fn:
+                copied.append(fn)
+                conn.execute(
+                    "INSERT INTO date_images(date_id, filename, position, focus) VALUES(?,?,?,?)",
+                    (new_id, fn, r["position"], r["focus"]))
+        for r in conn.execute(
+                "SELECT filename, position FROM date_videos WHERE date_id=? "
+                "ORDER BY position, id", (src_id,)).fetchall():
+            fn = images.copy_file(r["filename"])
+            if fn:
+                copied.append(fn)
+                conn.execute(
+                    "INSERT INTO date_videos(date_id, filename, position) VALUES(?,?,?)",
+                    (new_id, fn, r["position"]))
+    except Exception:
+        for fn in copied:               # не оставляем осиротевшие копии на диске
+            images.delete_file(fn)
+        raise
 
 
 def _next_img_pos(conn, date_id: int) -> int:
@@ -536,6 +585,118 @@ def public_video(token: str, filename: str, request: Request, conn=Depends(get_d
     if not ok or not path.exists():
         raise HTTPException(404)
     return ranged_file(path, VIDEO_TYPES[ext], request)
+
+
+# ---------------------------------------------------------------------------
+# Поделиться отдельным свиданием: /d/<share_token>
+# ---------------------------------------------------------------------------
+# По стабильной секретной ссылке свидания любой залогиненный пользователь может
+# добавить КОПИЮ свидания себе в коллекцию (новый owner_id = он сам). Так свидание
+# переиспользуется в чужих категориях, не нарушая изоляцию: оригинал и копия —
+# независимые записи разных владельцев. Аноним только смотрит превью (как и на
+# гостевой странице категории), действие требует входа.
+
+def date_by_share(conn, token: str):
+    return conn.execute(
+        "SELECT * FROM dates WHERE share_token=?", (token,)).fetchone()
+
+
+@router.get("/d/{token}", response_class=HTMLResponse)
+def shared_date(token: str, request: Request, conn=Depends(get_db)):
+    d = date_by_share(conn, token)
+    if not d:
+        return templates.TemplateResponse(request, "public/gone.html", status_code=404)
+    me = viewer(request, conn)
+    owner = users.get_user(conn, d["owner_id"])
+    owner_name = (owner["display_name"] or owner["tg_username"] or "Автор") if owner else "Автор"
+    payload = date_payload(conn, d)
+    is_mine = bool(me and me["id"] == d["owner_id"])
+    resp = templates.TemplateResponse(request, "public/share.html", {
+        "d": payload,
+        "token": token,
+        "me": me,
+        "owner_name": owner_name,
+        "is_mine": is_mine,
+    })
+    resp.headers["X-Robots-Tag"] = "noindex"
+    return resp
+
+
+@router.get("/d/{token}/image/{filename}")
+def shared_date_image(token: str, filename: str, conn=Depends(get_db)):
+    """Фото свидания по share-ссылке. Отдаём только фото ЭТОГО свидания —
+    чужой файл по прямой ссылке не утечёт."""
+    if not images.SAFE_FILENAME.match(filename):
+        raise HTTPException(404)
+    d = date_by_share(conn, token)
+    if not d:
+        raise HTTPException(404)
+    ok = conn.execute(
+        "SELECT 1 FROM date_images WHERE date_id=? AND filename=?",
+        (d["id"], filename)).fetchone()
+    path = images.UPLOAD_DIR / filename
+    if not ok or not path.exists():
+        raise HTTPException(404)
+    return FileResponse(path, media_type="image/webp",
+                        headers={"Cache-Control": "private, max-age=604800, immutable"})
+
+
+@router.get("/d/{token}/video/{filename}")
+def shared_date_video(token: str, filename: str, request: Request, conn=Depends(get_db)):
+    """Видео свидания по share-ссылке — те же правила, что и у фото, + Range."""
+    if not images.SAFE_FILENAME.match(filename):
+        raise HTTPException(404)
+    ext = filename.rsplit(".", 1)[-1]
+    if ext not in VIDEO_TYPES:
+        raise HTTPException(404)
+    d = date_by_share(conn, token)
+    if not d:
+        raise HTTPException(404)
+    ok = conn.execute(
+        "SELECT 1 FROM date_videos WHERE date_id=? AND filename=?",
+        (d["id"], filename)).fetchone()
+    path = images.UPLOAD_DIR / filename
+    if not ok or not path.exists():
+        raise HTTPException(404)
+    return ranged_file(path, VIDEO_TYPES[ext], request)
+
+
+@router.post("/d/{token}/add")
+def shared_date_add(token: str, request: Request, conn=Depends(get_db)):
+    """Добавить копию свидания себе в коллекцию (нужен вход).
+
+    Копия — отдельное активное свидание получателя со СВОИМ свежим share_token
+    (его сгенерит insert_date). Категории/брони/вопросы не переносятся. Файлы
+    фото/видео — физические копии (новые имена). Свою же ссылку добавлять незачем —
+    отбиваем, чтобы не плодить дубли у себя."""
+    d = date_by_share(conn, token)
+    if not d:
+        raise HTTPException(404, "Свидание не найдено")
+    user = acting_user(request, conn)
+    guest_throttle("dadd", viewer_token(user), request)
+    if user["id"] == d["owner_id"]:
+        raise HTTPException(400, "Это твоё свидание — оно уже в твоей коллекции")
+
+    # квота получателя: активные (не архивные) свидания не должны превышать лимит
+    used = conn.execute(
+        "SELECT COUNT(*) FROM dates WHERE owner_id=? AND archived_at IS NULL",
+        (user["id"],)).fetchone()[0]
+    if used >= user["date_limit"]:
+        raise HTTPException(400, f"Достигнут лимит {user['date_limit']} свиданий — "
+                                 "удали или заархивируй лишние и попробуй снова")
+
+    new_id = insert_date(
+        conn, name=d["name"], place=d["place"], starts=d["starts_at"], ends=d["ends_at"],
+        comment=d["comment"], origin="admin", guest_token=None, owner_id=user["id"],
+        draft=0, pay_split=d["pay_split"], place_url=d["place_url"])
+    try:
+        copy_date_media_and_links(conn, d["id"], new_id)
+    except Exception:
+        conn.rollback()
+        raise
+    conn.commit()
+    return redir(f"/admin/dates/{new_id}/edit",
+                 "Свидание добавлено в твою коллекцию ♥ Привяжи его к своим категориям")
 
 
 # ---------------------------------------------------------------------------

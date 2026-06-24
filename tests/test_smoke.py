@@ -1069,6 +1069,80 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert all((main.images.UPLOAD_DIR / fn).exists() for fn in orig_files)
     step("клон свидания: дубль-черновик, копии файлов с новыми именами, брони не переносятся")
 
+    # ---------- поделиться свиданием → добавить себе (/d/<share_token>) ----------
+    # владелец A создаёт активное свидание с фото+видео+ссылкой; у него есть
+    # стабильная share-ссылка. Другой пользователь B добавляет копию себе.
+    r = apost(c, "/admin/dates/new",
+              {"name": "Поделюсь", "categories": str(vcid), "place": "Сад",
+               "links": "share.example"},
+              files=[("images", ("s.png", png((70, 30, 90)), "image/png")),
+                     ("videos", ("sv.mp4", MP4, "video/mp4"))])
+    assert r.status_code == 303
+    shared = db_one("SELECT * FROM dates WHERE name='Поделюсь'")
+    assert shared["share_token"], "у свидания должен быть share_token"
+    stok = shared["share_token"]
+    a_files = {x["filename"] for x in db_all(
+        "SELECT filename FROM date_images WHERE date_id=?", (shared["id"],))}
+    a_files |= {x["filename"] for x in db_all(
+        "SELECT filename FROM date_videos WHERE date_id=?", (shared["id"],))}
+
+    # аноним видит превью и приглашение войти, но не форму «Добавить себе»
+    anon = TestClient(main.app, follow_redirects=False)
+    pg = anon.get(f"/d/{stok}")
+    assert pg.status_code == 200
+    assert "Поделюсь" in pg.text and "Войти, чтобы добавить" in pg.text
+    assert "Добавить себе" not in pg.text
+    assert pg.headers.get("x-robots-tag") == "noindex"
+    # фото свидания отдаётся по share-ссылке
+    a_photo = db_one("SELECT filename FROM date_images WHERE date_id=?", (shared["id"],))
+    assert anon.get(f"/d/{stok}/image/{a_photo['filename']}").status_code == 200
+    # битый токен → 404 (страница «ссылка не действует»)
+    assert anon.get("/d/нет-такого").status_code == 404
+    assert anon.post("/d/нет-такого/add").status_code == 404
+
+    # пользователь B логинится, видит форму «Добавить себе»
+    cb = guest_client(700621, vtok, "Получатель")
+    bp = cb.get(f"/d/{stok}")
+    assert bp.status_code == 200
+    assert f'action="/d/{stok}/add"' in bp.text and "Добавить себе" in bp.text
+    b_uid = db_one("SELECT id FROM users WHERE telegram_id=?", (700621,))["id"]
+
+    # добавляем себе → 303 в редактор нового свидания B
+    r = cb.post(f"/d/{stok}/add")
+    assert r.status_code == 303 and "/admin/dates/" in r.headers["location"]
+    mine = db_one("SELECT * FROM dates WHERE owner_id=? AND name='Поделюсь'", (b_uid,))
+    assert mine is not None and mine["id"] != shared["id"]
+    assert mine["archived_at"] is None and mine["is_draft"] == 0    # активное, не черновик
+    assert mine["place"] == "Сад"
+    assert mine["share_token"] and mine["share_token"] != stok       # свой свежий токен
+    # ссылка перенесена, категории/брони — нет
+    assert db_one("SELECT url FROM date_links WHERE date_id=?", (mine["id"],))["url"] \
+        == "https://share.example"
+    assert not db_one("SELECT 1 FROM date_categories WHERE date_id=?", (mine["id"],))
+    assert not db_one("SELECT 1 FROM bookings WHERE date_id=?", (mine["id"],))
+    # файлы — отдельные копии (новые имена, оба существуют на диске)
+    b_files = {x["filename"] for x in db_all(
+        "SELECT filename FROM date_images WHERE date_id=?", (mine["id"],))}
+    b_files |= {x["filename"] for x in db_all(
+        "SELECT filename FROM date_videos WHERE date_id=?", (mine["id"],))}
+    assert len(b_files) == 2 and b_files.isdisjoint(a_files)
+    assert all((main.images.UPLOAD_DIR / fn).exists() for fn in b_files)
+    # своё же свидание добавить нельзя (отбой)
+    assert c.post(f"/d/{stok}/add").status_code == 400
+    cb.close()
+    anon.close()
+    refresh_csrf(c)                                # вернём CSRF владельцу A для след. блоков
+    step("поделиться свиданием: /d/<токен> превью, добавить себе → копия активна, файлы скопированы, категории/брони не переносятся")
+
+    # ---------- Фича 1+2: кнопка «Открыть» на категории, «Выйти» в шапке ----------
+    cats_page = c.get("/admin/categories").text
+    assert f'href="/c/{vtok}"' in cats_page and "Открыть" in cats_page
+    # «Выйти» теперь в шапке любой админ-страницы (форма POST /admin/logout)
+    assert 'action="/admin/logout"' in cats_page and "Выйти" in cats_page
+    # из профиля большая кнопка-логаут убрана
+    assert "logout-btn" not in c.get("/admin/profile").text
+    step("UI: кнопка «Открыть» на карточке категории; «Выйти» вынесена в шапку")
+
     # битый «видеофайл» (на самом деле png-байты) — мягкая ошибка
     r = apost(c, "/admin/dates/new", {"name": "Битое видео", "categories": str(vcid)},
               files=[("videos", ("x.mp4", png(), "video/mp4"))])

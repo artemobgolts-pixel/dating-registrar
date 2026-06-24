@@ -68,12 +68,16 @@ a { color: var(--accent); }
 
 nav { display: flex; gap: 6px; flex-wrap: wrap; }
 
-/* колокольчик уведомлений — в правом конце верхней панели (и на ПК, и на мобиле).
-   Вынесен из nav: на телефоне nav уезжает в нижний таб-бар, а колокольчик
-   остаётся сверху справа со счётчиком непрочитанных. */
+/* колокольчик уведомлений + кнопка «Выйти» — в правом конце верхней панели
+   (и на ПК, и на мобиле). Вынесены из nav в группу .top-right: на телефоне nav
+   уезжает в нижний таб-бар, а эта группа остаётся сверху справа. */
+.top-right {
+  margin-left: auto;            /* прижимаем группу к правому краю .top */
+  display: flex; align-items: center; gap: 8px;
+  flex: none;
+}
 .bell {
   position: relative;
-  margin-left: auto;            /* прижимаем к правому краю .top */
   flex: none;
   display: inline-flex; align-items: center; justify-content: center;
   width: 42px; height: 42px;
@@ -1269,6 +1273,8 @@ input, textarea, select {
 .cat-card .bar > div,
 .cat-card .linkbox { position: relative; z-index: 2; pointer-events: none; }
 .cat-card .linkbox .copy-code { pointer-events: auto; }   /* токен остаётся кликабельным */
+/* кнопка «Открыть» — над оверлеем-ссылкой, иначе клик уводил бы в детали категории */
+.cat-card .linkbox .btn { pointer-events: auto; position: relative; z-index: 2; }
 .cat-card .cat-name { font-weight: 600; font-size: 16px; color: var(--ink); }
 .cat-card:hover .cat-name { color: var(--rose-2); }
 .cat-card .cat-arrow {
@@ -1442,23 +1448,29 @@ input, textarea, select {
   background: #f5edef;
 }
 
-/* кнопка «Выйти из аккаунта» — спокойная, не «тревожная» красная заливка:
-   тонкая роза-рамка, серифовая надпись в тон бренду, по центру карточки */
-.logout-btn {
-  display: flex; align-items: center; justify-content: center; gap: 8px;
-  width: 100%;
-  font-family: var(--serif); font-size: 18px; font-weight: 600; letter-spacing: .01em;
-  padding: 12px 18px; border-radius: 13px;
+/* кнопка «Выйти» в шапке (справа от колокольчика): прямоугольная и компактная,
+   прежний спокойный розовый стиль — тонкая роза-рамка, текст в тон бренду,
+   эмодзи ↩. Не во всю ширину, обычный кегль (не серифовый, как было в профиле). */
+.logout-top { margin: 0; }
+.logout-mini {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 13.5px; font-weight: 600;
+  padding: 9px 14px; border-radius: 11px;
   color: var(--rose-2);
-  background: rgba(255, 255, 255, .6);
+  background: rgba(255, 255, 255, .42);
   border: 1px solid #ecd6d3;
-  transition: background .18s, border-color .18s, box-shadow .2s;
+  -webkit-backdrop-filter: blur(8px) saturate(1.4);
+  backdrop-filter: blur(8px) saturate(1.4);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .7);
+  cursor: pointer; white-space: nowrap;
+  transition: background .18s, border-color .18s, box-shadow .2s, transform .15s;
 }
-.logout-btn::before { content: "↩"; font-size: 16px; }
-.logout-btn:hover {
+.logout-mini::before { content: "↩"; font-size: 15px; }
+.logout-mini:hover {
   background: var(--rose-soft); border-color: var(--rose);
   box-shadow: 0 4px 14px rgba(150, 70, 85, .14);
 }
+.logout-mini:active { transform: scale(.97); }
 
 /* подпись автосохранения профиля (вместо кнопки «Сохранить») */
 .autosave-note {
@@ -1536,8 +1548,10 @@ input, textarea, select {
     -webkit-backdrop-filter: none; backdrop-filter: none;
   }
   .top .brand { font-size: 23px; }
-  /* колокольчик остаётся сверху справа; margin-left:auto уже прижимает его */
-  .top .bell { width: 40px; height: 40px; }
+  /* группа справа (колокольчик + «Выйти») остаётся сверху справа; margin-left:auto
+     на .top-right уже прижимает её. Колокольчик чуть компактнее. */
+  .top .top-right .bell { width: 40px; height: 40px; }
+  .top .logout-mini { padding: 8px 12px; font-size: 12.5px; }
   .top nav {
     position: fixed;
     left: 10px; right: 10px; bottom: 10px;

@@ -43,12 +43,12 @@ BOT_USERNAME = TG_BOT_USERNAME
 
 def _safe_next(raw: str | None) -> str | None:
     """Безопасный возврат после входа: только локальные пути в наши разделы
-    (гостевая ссылка /c/… или кабинет /admin…). Чужой/протокол-относительный
-    URL отбрасываем (open redirect)."""
+    (гостевая ссылка /c/…, share-ссылка свидания /d/… или кабинет /admin…). Чужой/
+    протокол-относительный URL отбрасываем (open redirect)."""
     raw = (raw or "").strip()
     if not raw or raw.startswith("//") or not raw.startswith("/"):
         return None
-    if raw.startswith(("/c/", "/admin")):
+    if raw.startswith(("/c/", "/d/", "/admin")):
         return raw
     return None
 

@@ -40,6 +40,10 @@
        «Тебя ждёт сюрприз ♥ / Открой — внутри кое-что приятное».
   v15 — categories.og_image: своя картинка превью ссылки (WebP, как фото свиданий).
        NULL = дефолтная /static/og.png.
+  v16 — dates.share_token: стабильная секретная ссылка на ОТДЕЛЬНОЕ свидание
+       (/d/<токен>). По ней другой залогиненный пользователь добавляет копию
+       свидания себе в коллекцию. Уникальный индекс (несколько NULL допустимо);
+       существующие свидания получают токен бэкофиллом.
 
 Свежая база создаётся сразу по последней схеме. Существующая —
 докатывается миграциями при старте приложения.
@@ -53,7 +57,7 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "app.db"
 
-LATEST_VERSION = 15
+LATEST_VERSION = 16
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -116,6 +120,7 @@ CREATE TABLE IF NOT EXISTS dates (
     is_draft INTEGER NOT NULL DEFAULT 0,    -- черновик / на модерации: гостям не виден
     pay_split INTEGER NOT NULL DEFAULT 0,   -- бейдж «оплата 50/50»
     place_url TEXT,            -- если «место» вставили ссылкой на карты
+    share_token TEXT,          -- секретная ссылка на это свидание (/d/<токен>) для «добавить себе»
     archived_at TEXT,          -- NULL = активно
     created_at TEXT NOT NULL
 );
@@ -205,6 +210,7 @@ CREATE INDEX IF NOT EXISTS idx_dc_cat ON date_categories(category_id);
 CREATE INDEX IF NOT EXISTS idx_q_read ON questions(is_read);
 CREATE INDEX IF NOT EXISTS idx_cat_owner ON categories(owner_id);
 CREATE INDEX IF NOT EXISTS idx_dates_owner ON dates(owner_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_dates_share ON dates(share_token);
 CREATE INDEX IF NOT EXISTS idx_reports_status ON reports(status, created_at);
 """
 
@@ -469,6 +475,16 @@ MIGRATIONS: dict[int, str] = {
         -- Своя картинка превью ссылки (WebP, как фото свиданий). NULL = дефолт
         -- /static/og.png. Отдаётся публично через /c/<токен>/og-image.
         ALTER TABLE categories ADD COLUMN og_image TEXT;
+    """,
+    16: """
+        -- Секретная ссылка на ОТДЕЛЬНОЕ свидание (/d/<токен>): по ней другой
+        -- залогиненный пользователь добавляет копию свидания себе в коллекцию.
+        -- Бэкофилл уникальных токенов средствами SQLite (16 байт hex), чтобы у
+        -- всех существующих свиданий тоже была ссылка. Уникальный индекс
+        -- допускает несколько NULL, но после бэкофилла их не остаётся.
+        ALTER TABLE dates ADD COLUMN share_token TEXT;
+        UPDATE dates SET share_token = lower(hex(randomblob(16))) WHERE share_token IS NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_dates_share ON dates(share_token);
     """,
 }
 

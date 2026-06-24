@@ -63,11 +63,17 @@
     <a href="/admin/profile" class="{{ 'on' if active == 'profile' else '' }}"><span class="ic" aria-hidden="true">👤</span><span class="lb">{{ user['display_name'] or 'Профиль' }}</span></a>
     {% if user['is_operator'] %}<a href="/operator/" class="op-link"><span class="ic" aria-hidden="true">⚙</span><span class="lb">Админ</span></a>{% endif %}
   </nav>
-  <a class="bell {{ 'on' if active == 'q' else '' }}" href="/admin/questions"
-     aria-label="Уведомления{% if unread %} ({{ unread }} непрочитанных){% endif %}">
-    <span class="bell-ic" aria-hidden="true">🔔</span>
-    {% if unread %}<span class="bell-count">{{ unread }}</span>{% endif %}
-  </a>
+  <div class="top-right">
+    <a class="bell {{ 'on' if active == 'q' else '' }}" href="/admin/questions"
+       aria-label="Уведомления{% if unread %} ({{ unread }} непрочитанных){% endif %}">
+      <span class="bell-ic" aria-hidden="true">🔔</span>
+      {% if unread %}<span class="bell-count">{{ unread }}</span>{% endif %}
+    </a>
+    <form class="logout-top" method="post" action="/admin/logout">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button type="submit" class="logout-mini">Выйти</button>
+    </form>
+  </div>
 </header>
 <main class="wrap">
 {% set m = request.query_params.get('msg') %}

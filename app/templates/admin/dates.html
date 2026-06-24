@@ -91,6 +91,9 @@
             <input type="hidden" name="next" value="/admin/dates?view={{ view }}{{ qs_keep }}">
             <button type="submit">📋 Дублировать</button>
           </form>
+          {% if r['share_token'] %}
+          <button type="button" data-copy="{{ BASE_URL }}/d/{{ r['share_token'] }}">🔗 Поделиться</button>
+          {% endif %}
           <form method="post" action="/admin/dates/{{ r['id'] }}/archive">
             <input type="hidden" name="csrf" value="{{ csrf }}">
             <input type="hidden" name="next" value="/admin/dates?view={{ view }}{{ qs_keep }}">
@@ -138,6 +141,9 @@
     </div>
     <div class="drow-act">
       <a class="btn small" href="/admin/dates/{{ r['id'] }}/edit">Редактировать</a>
+      {% if r['share_token'] %}
+      <button type="button" class="btn small" data-copy="{{ BASE_URL }}/d/{{ r['share_token'] }}">🔗 Поделиться</button>
+      {% endif %}
       <div class="menu-wrap">
       <button type="button" class="more" aria-label="Ещё действия" aria-haspopup="true" aria-expanded="false">⋯</button>
       <div class="menu">
