@@ -57,7 +57,9 @@ if ! command -v rclone >/dev/null 2>&1; then
   echo "→ Ставлю rclone…"
   curl -fsSL https://rclone.org/install.sh | sudo bash
 fi
-rclone version | head -1
+# Без пайпа в head: под set -euo pipefail head закрывает пайп раньше, rclone
+# ловит SIGPIPE и роняет скрипт. Печатаем версию целиком — это безопасно.
+rclone version || true
 
 # 2) ремоут S3 (idempotent: пере-создаём с актуальными ключами)
 echo "→ Настраиваю rclone-ремоут '$REMOTE_NAME'…"
