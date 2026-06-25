@@ -65,6 +65,29 @@
     <button type="button" class="login-corner" id="loginOpen">Войти</button>
     {% endif %}
 
+    {# Поддержка автора и его проект (VPN) — сайт бесплатный. Круглые кнопки
+       с подписью, в левом верхнем углу; на мобиле подпись скрывается. #}
+    {% if SUPPORT_URL or VPN_URL %}
+    <div class="promo-corner">
+      {% if SUPPORT_URL %}
+      <a class="promo-btn" href="{{ SUPPORT_URL }}" target="_blank" rel="noopener" aria-label="Помощь">
+        <span class="promo-ic" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="19" height="19" fill="currentColor">
+            <path d="M9.78 16.3 9.6 20.1c.36 0 .52-.16.71-.34l1.7-1.63 3.53 2.58c.65.36 1.11.17 1.28-.6l2.32-10.9c.21-.96-.35-1.34-.98-1.1L4.27 12.5c-.94.36-.93.88-.16 1.12l3.7 1.15 8.6-5.42c.4-.27.77-.12.47.15z"/>
+          </svg>
+        </span>
+        <span class="promo-lb">Помощь</span>
+      </a>
+      {% endif %}
+      {% if VPN_URL %}
+      <a class="promo-btn" href="{{ VPN_URL }}" target="_blank" rel="noopener" aria-label="VPN">
+        <img class="promo-img" src="/static/vpn-logo.webp" alt="" width="42" height="42" decoding="async">
+        <span class="promo-lb">VPN</span>
+      </a>
+      {% endif %}
+    </div>
+    {% endif %}
+
 <div class="wrap">
   <header class="hero">
     <h1>{{ cat.name }}</h1>

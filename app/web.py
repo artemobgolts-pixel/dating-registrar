@@ -8,7 +8,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 import db
-from config import BASE_URL
+from config import BASE_URL, SUPPORT_URL, VPN_URL
 from helpers import (fmt_host, fmt_short, fmt_ts, fmt_when, fmt_ymaps,
                      placename, plural, rich)
 
@@ -46,6 +46,8 @@ templates.env.filters["placename"] = placename
 templates.env.filters["rich"] = rich
 templates.env.filters["plural"] = plural
 templates.env.globals["BASE_URL"] = BASE_URL
+templates.env.globals["SUPPORT_URL"] = SUPPORT_URL
+templates.env.globals["VPN_URL"] = VPN_URL
 
 
 def get_db():

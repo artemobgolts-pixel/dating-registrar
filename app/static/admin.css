@@ -97,6 +97,20 @@ nav { display: flex; gap: 6px; flex-wrap: wrap; }
   box-shadow: 0 5px 14px rgba(150, 70, 85, .32), inset 0 1px 0 rgba(255, 255, 255, .35);
 }
 .bell-ic { font-size: 19px; line-height: 1; }
+.bell-ic.tg-ic { color: #229ED9; display: inline-flex; }
+.bell-ic.tg-ic svg { display: block; }
+/* кнопки-ссылки «Помощь»/«VPN» рядом с колокольчиком: тот же круглый глянец,
+   но с подписью справа от иконки (на широком экране). */
+.bell-link {
+  width: auto; gap: 7px; padding: 0 14px 0 9px;
+  color: var(--ink); font-size: 13.5px; font-weight: 600;
+}
+.bell-link .bell-ic { font-size: 18px; }
+.bell-img {
+  width: 24px; height: 24px; border-radius: 50%; object-fit: cover;
+  flex: none; display: block;
+}
+.bell-lb { line-height: 1; }
 .bell-count {
   position: absolute; top: -3px; right: -3px;
   min-width: 18px; height: 18px; padding: 0 5px;
@@ -1551,6 +1565,9 @@ input, textarea, select {
   /* группа справа (колокольчик + «Выйти») остаётся сверху справа; margin-left:auto
      на .top-right уже прижимает её. Колокольчик чуть компактнее. */
   .top .top-right .bell { width: 40px; height: 40px; }
+  /* на телефоне «Помощь»/«VPN» прячут подпись — остаётся круглая иконка как у колокольчика */
+  .top .top-right .bell-link { width: 40px; padding: 0; gap: 0; }
+  .top .top-right .bell-link .bell-lb { display: none; }
   .top .logout-mini { padding: 8px 12px; font-size: 12.5px; }
   .top nav {
     position: fixed;

@@ -59,6 +59,12 @@ def _parse_projects(raw: str) -> list[dict]:
 
 # Проекты автора (VPN и т.п.) — показываются на /about. См. формат в _parse_projects.
 AUTHOR_PROJECTS = _parse_projects(os.getenv("AUTHOR_PROJECTS", ""))
+
+# Кнопки в шапке кабинета и на гостевой странице подборки:
+#   «Помощь» — связь с автором/поддержка, «VPN» — проект автора (сайт бесплатный).
+# Пустое значение прячет соответствующую кнопку.
+SUPPORT_URL = os.getenv("SUPPORT_URL", "https://t.me/artiwayn").strip()
+VPN_URL = os.getenv("VPN_URL", "https://lk.artik-vpn.site?campaign=date4you").strip()
 # Короткий текст «о проекте» для /about (опционально).
 ABOUT_TEXT = os.getenv("ABOUT_TEXT", "").strip()
 
