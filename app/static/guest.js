@@ -66,7 +66,8 @@
     const btn = card.querySelector(".btn.book");
     if (btn) {
       btn.classList.toggle("on", mine);
-      btn.textContent = mine ? "Твой выбор ♥ · отменить" : "Выбрать ♥";
+      btn.textContent = mine ? "Выбрано ♥" : "Выбрать ♥";
+      btn.title = mine ? "Нажми, чтобы отменить выбор" : "";
     }
     card.classList.toggle("booked-me", mine);
     const seal = card.querySelector(".seal");

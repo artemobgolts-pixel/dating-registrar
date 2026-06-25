@@ -218,3 +218,17 @@ def plural(n: int, one: str, few: str, many: str) -> str:
     if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14:
         return few
     return many
+
+
+# Варианты оплаты свидания (колонка pay_split): 0 — не указано, 1 — 50/50,
+# 2 — платит автор, 3 — платит гость. Текст для карточки/превью.
+PAY_LABELS = {1: "💸 50/50", 2: "💸 Я плачу", 3: "💸 Ты оплатишь"}
+
+
+def pay_label(value) -> str:
+    """Подпись капсулы оплаты по значению pay_split (пусто, если не задано)."""
+    try:
+        return PAY_LABELS.get(int(value or 0), "")
+    except (TypeError, ValueError):
+        return ""
+

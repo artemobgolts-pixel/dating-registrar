@@ -27,7 +27,7 @@ import settings as app_settings
 from config import BASE_URL, SUPPORT_CONTACT
 from guests import gname
 from helpers import (clean_text, normalize_period, now_iso, now_naive,
-                     parse_birth_date, parse_dt_local, parse_links)
+                     parse_birth_date, parse_dt_local, parse_links, pay_label)
 from fastapi.responses import JSONResponse
 from ownership import get_owned_category, get_owned_date
 from public_routes import (add_photos, copy_date_media_and_links, insert_date,
@@ -239,15 +239,21 @@ def _qr_svg(data: str) -> str:
 def admin_image(filename: str, request: Request, conn=Depends(get_db)):
     if not images.SAFE_FILENAME.match(filename):
         raise HTTPException(404)
-    # файл виден, только если принадлежит свиданию владельца (через фото или видео)
+    # файл виден, только если принадлежит владельцу: фото/видео свидания или
+    # картинка превью его категории. Оператор (правит чужое) видит любой файл.
     uid = request.state.user["id"]
-    owns = conn.execute(
-        "SELECT 1 FROM date_images di JOIN dates d ON d.id=di.date_id "
-        "WHERE di.filename=? AND d.owner_id=? "
-        "UNION ALL "
-        "SELECT 1 FROM date_videos dv JOIN dates d ON d.id=dv.date_id "
-        "WHERE dv.filename=? AND d.owner_id=? LIMIT 1",
-        (filename, uid, filename, uid)).fetchone()
+    if request.state.user["is_operator"]:
+        owns = True
+    else:
+        owns = conn.execute(
+            "SELECT 1 FROM date_images di JOIN dates d ON d.id=di.date_id "
+            "WHERE di.filename=? AND d.owner_id=? "
+            "UNION ALL "
+            "SELECT 1 FROM date_videos dv JOIN dates d ON d.id=dv.date_id "
+            "WHERE dv.filename=? AND d.owner_id=? "
+            "UNION ALL "
+            "SELECT 1 FROM categories WHERE og_image=? AND owner_id=? LIMIT 1",
+            (filename, uid, filename, uid, filename, uid)).fetchone()
     if not owns:
         raise HTTPException(404)
     path = images.UPLOAD_DIR / filename
@@ -327,12 +333,12 @@ def export_csv(request: Request, conn=Depends(get_db)):
     cat_names = {c["id"]: c["name"] for c in data["categories"]}
     buf = io.StringIO()
     w = csv.writer(buf, delimiter=";")
-    w.writerow(["id", "Название", "Место", "Начало", "Конец", "50/50", "Черновик",
+    w.writerow(["id", "Название", "Место", "Начало", "Конец", "Оплата", "Неактивно",
                 "Архив", "Источник", "Выборы", "Кто выбрал", "Категории", "Ссылки"])
     for d in data["dates"]:
         w.writerow([
             d["id"], d["name"], d["place"] or "", d["starts_at"] or "", d["ends_at"] or "",
-            "да" if d["pay_split"] else "",
+            pay_label(d["pay_split"]).replace("💸 ", ""),
             "да" if d["is_draft"] else "",
             "да" if d["archived_at"] else "",
             "гость" if d["origin"] == "guest" else "админ",
@@ -484,7 +490,7 @@ def category_create(request: Request, bg: BackgroundTasks, name: str = Form(...)
     reviewed = 0 if app_settings.is_on(conn, app_settings.MODERATE_CATEGORIES) else 1
     conn.execute(
         "INSERT INTO categories(owner_id, name, link_token, link_enabled, "
-        "moderate_proposals, is_reviewed, created_at) VALUES(?,?,?,1,1,?,?)",
+        "moderate_proposals, is_reviewed, created_at) VALUES(?,?,?,1,0,?,?)",
         (request.state.user["id"], name, token, reviewed, now_iso()))
     conn.commit()
     actor = request.state.user["display_name"] or request.state.user["tg_username"] or "—"
@@ -525,9 +531,22 @@ def category_detail(cid: int, request: Request, conn=Depends(get_db)):
         "SELECT id, name FROM dates WHERE owner_id=? AND archived_at IS NULL AND id NOT IN "
         "(SELECT date_id FROM date_categories WHERE category_id=?) ORDER BY created_at DESC",
         (cat["owner_id"], cid)).fetchall()
+    # авто-превью ссылки: если своей картинки нет, берём первое фото активного
+    # свидания этой категории (для дефолтного OG-превью вместо иконки).
+    auto_og = None
+    if not cat["og_image"]:
+        row = conn.execute(
+            "SELECT di.filename FROM date_categories dc "
+            "JOIN dates d ON d.id=dc.date_id "
+            "JOIN date_images di ON di.date_id=d.id "
+            "WHERE dc.category_id=? AND d.archived_at IS NULL AND d.is_draft=0 "
+            "ORDER BY dc.position ASC, di.position ASC, di.id ASC LIMIT 1",
+            (cid,)).fetchone()
+        auto_og = row["filename"] if row else None
     return templates.TemplateResponse(
         request, "admin/category_detail.html",
-        actx(request, conn, active="cats", cat=cat, dates=dates, attachable=attachable))
+        actx(request, conn, active="cats", cat=cat, dates=dates, attachable=attachable,
+             auto_og=auto_og))
 
 
 @router.post("/categories/{cid}/rename")
@@ -600,7 +619,7 @@ def category_moderation(cid: int, request: Request, conn=Depends(get_db)):
     conn.execute("UPDATE categories SET moderate_proposals=? WHERE id=?", (new_val, cid))
     conn.commit()
     return redir(f"/admin/categories/{cid}",
-                 "Предложения гостей теперь попадают на модерацию (вкладка «Черновики»)"
+                 "Предложения гостей теперь попадают на модерацию (вкладка «Неактивные»)"
                  if new_val else "Предложения гостей теперь публикуются сразу")
 
 
@@ -637,6 +656,8 @@ def category_attach(cid: int, request: Request, date_id: int = Form(...),
     conn.execute(
         "INSERT OR IGNORE INTO date_categories(date_id, category_id, position) "
         "VALUES(?,?,?)", (date_id, cid, next_cat_pos(conn, cid)))
+    # попав хотя бы в одну категорию, свидание становится активным
+    conn.execute("UPDATE dates SET is_draft=0 WHERE id=?", (date_id,))
     conn.commit()
     return redir(f"/admin/categories/{cid}", "Свидание добавлено в категорию")
 
@@ -668,6 +689,11 @@ def category_detach(cid: int, request: Request, date_id: int = Form(...),
     _cat_or_404(conn, cid, request.state.user)
     conn.execute("DELETE FROM date_categories WHERE date_id=? AND category_id=?", (date_id, cid))
     conn.execute("DELETE FROM bookings WHERE date_id=? AND category_id=?", (date_id, cid))
+    # если это была последняя категория свидания — оно становится неактивным
+    still = conn.execute(
+        "SELECT 1 FROM date_categories WHERE date_id=? LIMIT 1", (date_id,)).fetchone()
+    if not still:
+        conn.execute("UPDATE dates SET is_draft=1 WHERE id=?", (date_id,))
     conn.commit()
     return redir(f"/admin/categories/{cid}", "Свидание убрано из категории")
 
@@ -775,6 +801,17 @@ def enforce_date_quota(conn, user) -> None:
         raise HTTPException(400, f"Достигнут лимит {limit} свиданий.{contact}")
 
 
+def parse_pay(value) -> int:
+    """Вариант оплаты из формы → 0..3 (0 не указано, 1 — 50/50, 2 — я плачу,
+    3 — ты оплатишь). Любое неизвестное значение трактуем как 0."""
+    try:
+        v = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return v if v in (1, 2, 3) else 0
+
+
+
 @router.get("/dates/new", response_class=HTMLResponse)
 def date_new_form(request: Request, conn=Depends(get_db)):
     checked = set()
@@ -792,7 +829,7 @@ def date_create(request: Request, bg: BackgroundTasks,
                 name: str = Form(...), place: str = Form(""),
                 starts_at: str = Form(""), ends_at: str = Form(""),
                 links: str = Form(""), comment: str = Form(""),
-                draft: str | None = Form(None), pay: str | None = Form(None),
+                pay: str | None = Form(None),
                 categories: list[int] = Form(default=[]),
                 photos: list[UploadFile] = File(default=[], alias="images"),
                 videos: list[UploadFile] = File(default=[], alias="videos"),
@@ -807,19 +844,20 @@ def date_create(request: Request, bg: BackgroundTasks,
     starts, ends = normalize_period(parse_dt_local(starts_at), parse_dt_local(ends_at))
     link_list = parse_links(links)
 
-    date_id = insert_date(conn, name=name, place=place, starts=starts, ends=ends,
-                          comment=comment, origin="admin", guest_token=None,
-                          owner_id=uid,
-                          draft=1 if draft else 0,
-                          pay_split=1 if pay else 0, place_url=place_url)
     # привязываем только СВОИ категории (чужие id из формы молча игнорируем)
     own_cats = {r[0] for r in conn.execute(
         "SELECT id FROM categories WHERE owner_id=?", (uid,))}
-    for cid in categories:
-        if cid in own_cats:
-            conn.execute(
-                "INSERT OR IGNORE INTO date_categories(date_id, category_id, position) "
-                "VALUES(?,?,?)", (date_id, cid, next_cat_pos(conn, cid)))
+    attach = [c for c in categories if c in own_cats]
+    # свидание без категорий неактивно автоматически (гости его не видят)
+    date_id = insert_date(conn, name=name, place=place, starts=starts, ends=ends,
+                          comment=comment, origin="admin", guest_token=None,
+                          owner_id=uid,
+                          draft=0 if attach else 1,
+                          pay_split=parse_pay(pay), place_url=place_url)
+    for cid in attach:
+        conn.execute(
+            "INSERT OR IGNORE INTO date_categories(date_id, category_id, position) "
+            "VALUES(?,?,?)", (date_id, cid, next_cat_pos(conn, cid)))
     save_links(conn, date_id, link_list)
     saved_files: list[str] = []
     try:
@@ -904,7 +942,7 @@ def date_update(did: int, request: Request, bg: BackgroundTasks, name: str = For
                 place: str = Form(""),
                 starts_at: str = Form(""), ends_at: str = Form(""),
                 links: str = Form(""), comment: str = Form(""),
-                draft: str | None = Form(None), pay: str | None = Form(None),
+                pay: str | None = Form(None),
                 categories: list[int] = Form(default=[]),
                 photos: list[UploadFile] = File(default=[], alias="images"),
                 videos: list[UploadFile] = File(default=[], alias="videos"),
@@ -919,17 +957,20 @@ def date_update(did: int, request: Request, bg: BackgroundTasks, name: str = For
     starts, ends = normalize_period(parse_dt_local(starts_at), parse_dt_local(ends_at))
     link_list = parse_links(links)
 
-    conn.execute(
-        "UPDATE dates SET name=?, place=?, place_url=?, starts_at=?, ends_at=?, "
-        "comment=?, is_draft=?, pay_split=? WHERE id=?",
-        (name, place, place_url, starts, ends, comment,
-         1 if draft else 0, 1 if pay else 0, did))
-
     # привязываем только категории владельца свидания (чужие id из формы молча
     # игнорируем). Для админа, правящего чужое, контекст = владелец свидания.
     own_cats = {r[0] for r in conn.execute(
         "SELECT id FROM categories WHERE owner_id=?", (d["owner_id"],))}
     categories = [c for c in categories if c in own_cats]
+    # свидание без категорий неактивно автоматически (гости его не видят)
+    is_draft = 0 if categories else 1
+
+    conn.execute(
+        "UPDATE dates SET name=?, place=?, place_url=?, starts_at=?, ends_at=?, "
+        "comment=?, is_draft=?, pay_split=? WHERE id=?",
+        (name, place, place_url, starts, ends, comment,
+         is_draft, parse_pay(pay), did))
+
     # Синхронизируем категории; выборы по отвязанным категориям удаляем
     conn.execute("DELETE FROM date_categories WHERE date_id=?", (did,))
     if categories:
@@ -1018,10 +1059,10 @@ def date_delete(did: int, request: Request, bg: BackgroundTasks, conn=Depends(ge
 @router.post("/dates/{did}/clone")
 def date_clone(did: int, request: Request, next: str = Form("/admin/dates"),
                conn=Depends(get_db)):
-    """Дубль свидания: копируем запись, ссылки, категории и файлы (с новыми
-    именами на диске). Брони и вопросы НЕ переносим — клон это свежее
-    предложение. Клон создаётся черновиком, чтобы гости не увидели дубль
-    раньше времени. Карта (place_url) уже распознана — резолвить не нужно."""
+    """Дубль свидания: копируем запись, ссылки и файлы (с новыми именами на
+    диске). Категории, брони и вопросы НЕ переносим — клон это свежее
+    предложение без категории, поэтому он неактивен (гости не видят дубль),
+    пока владелец не добавит его в категорию. Карта (place_url) уже распознана."""
     src = _date_or_404(conn, did, request.state.user)
     new_id = insert_date(
         conn, name=f"{src['name']} (копия)", place=src["place"],
@@ -1029,19 +1070,12 @@ def date_clone(did: int, request: Request, next: str = Form("/admin/dates"),
         origin="admin", guest_token=None, draft=1, owner_id=request.state.user["id"],
         pay_split=src["pay_split"], place_url=src["place_url"])
 
-    # категории — в конец каждого списка
-    for cid in [r[0] for r in conn.execute(
-            "SELECT category_id FROM date_categories WHERE date_id=?", (did,))]:
-        conn.execute(
-            "INSERT OR IGNORE INTO date_categories(date_id, category_id, position) "
-            "VALUES(?,?,?)", (new_id, cid, next_cat_pos(conn, cid)))
-
     # ссылки и физические копии фото/видео — общий хелпер (его же зовёт «добавить
     # себе» по share-ссылке). При ошибке он сам подчистит осиротевшие копии.
     copy_date_media_and_links(conn, did, new_id)
     conn.commit()
     return redir(f"/admin/dates/{new_id}/edit",
-                 "Свидание скопировано — это черновик, проверь и опубликуй")
+                 "Свидание скопировано — оно неактивно, добавь его в категорию")
 
 
 @router.post("/bookings/{bid}/delete")

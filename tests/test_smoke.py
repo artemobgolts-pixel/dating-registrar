@@ -318,8 +318,9 @@ with TestClient(main.app, follow_redirects=False) as c:
     cid = int(re.search(r"/admin/categories/(\d+)", page).group(1))
     detail = c.get(f"/admin/categories/{cid}").text
     tok = re.search(r"https://t\.local/c/([A-Za-z0-9_-]+)", detail).group(1)
-    # новый дефолт для публичного продукта: модерация предложений ВКЛючена
-    assert db_one("SELECT moderate_proposals FROM categories WHERE id=?", (cid,))[0] == 1
+    # модерация предложений по умолчанию ВЫКЛючена — оператор включает её осознанно;
+    # иначе бейдж «модерация» висел на каждой новой категории (баг)
+    assert db_one("SELECT moderate_proposals FROM categories WHERE id=?", (cid,))[0] == 0
     step("категория создана, секретная ссылка получена")
 
     r = c.get(f"/c/{tok}")
@@ -448,7 +449,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     r = ga.post(f"/c/{tok}/book", data={"date_id": did})
     assert r.json()["booked"] is True
     page = ga.get(f"/c/{tok}").text
-    assert "Твой выбор ♥" in page                      # кнопка-переключатель
+    assert "Выбрано ♥" in page                         # кнопка-переключатель
     mycard = re.search(r'<article[^>]*id="date-%d".*?</article>' % did, page, re.S).group(0)
     assert "booked-me" in mycard                        # карточка помечена выбором
     assert "booked-overlay" in mycard and "Забронировано" in mycard    # оверлей на фото
@@ -561,7 +562,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert "booked-other" in card1                         # карточка перекрашена
     assert "booked-overlay" in card1 and "Забронировано" in card1   # оверлей на фото
     assert "Аня" in card1                                  # имя того, кто занял
-    assert "Уже занято" in card1                           # кнопка выбора заблокирована
+    assert "Занято" in card1                           # кнопка выбора заблокирована
 
     r = g2.post(f"/c/{tok}/book", data={"date_id": did2})  # свободное — можно
     assert r.json()["booked"] is True
@@ -687,23 +688,30 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert "Кино под пледом" not in ga.get(f"/c/{tok}").text
     step("чужому правка запрещена; удаление чистит файлы; роут /choose выпилен")
 
-    # ---------- черновики ----------
-    r = apost(c, "/admin/dates/new",
-              {"name": "Сюрприз", "draft": "1", "categories": str(cid)})
+    # ---------- неактивные: свидание без категории скрыто от гостей ----------
+    r = apost(c, "/admin/dates/new", {"name": "Сюрприз"})   # без категорий → неактивно
     assert r.status_code == 303
     did4 = db_one("SELECT id FROM dates WHERE name='Сюрприз'")["id"]
+    assert db_one("SELECT is_draft FROM dates WHERE id=?", (did4,))["is_draft"] == 1
     assert "Сюрприз" not in ga.get(f"/c/{tok}").text
     dpage = c.get("/admin/dates?view=drafts").text
-    assert "Сюрприз" in dpage and "Опубликовать" in dpage
-    r = apost(c, f"/admin/dates/{did4}/publish", {"next": "/admin/dates?view=drafts"})
+    assert "Сюрприз" in dpage and "неактивно" in dpage
+    # привязка к категории активирует свидание автоматически
+    r = apost(c, f"/admin/categories/{cid}/attach", {"date_id": str(did4)})
     assert r.status_code == 303
+    assert db_one("SELECT is_draft FROM dates WHERE id=?", (did4,))["is_draft"] == 0
     assert "Сюрприз" in ga.get(f"/c/{tok}").text
-    step("черновик скрыт от гостей, публикуется кнопкой из вкладки «Черновики»")
+    # отвязка от последней категории снова делает его неактивным
+    r = apost(c, f"/admin/categories/{cid}/detach", {"date_id": str(did4)})
+    assert r.status_code == 303
+    assert db_one("SELECT is_draft FROM dates WHERE id=?", (did4,))["is_draft"] == 1
+    assert "Сюрприз" not in ga.get(f"/c/{tok}").text
+    step("неактивное: без категории скрыто от гостей; привязка/отвязка переключает активность")
 
     # ---------- модерация предложений ----------
     r = apost(c, f"/admin/categories/{cid}/moderation", {})
     assert r.status_code == 303
-    assert "Черновики" in c.get(f"/admin/categories/{cid}").text
+    assert "Неактивные" in c.get(f"/admin/categories/{cid}").text
 
     main._rates.clear()
     r = ga.post(f"/c/{tok}/propose", data={"name": "Тайное место"},
@@ -744,7 +752,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert "<b>1</b><span>броней сейчас" in c.get("/admin/").text   # Борис на «Без даты»
     r = apost(c, f"/admin/dates/{did}/archive", {"next": "/admin/dates?view=archived"})
     page = ga.get(f"/c/{tok}").text
-    assert "Твой выбор ♥" in page
+    assert "Выбрано ♥" in page
     assert "<b>2</b><span>броней сейчас" in c.get("/admin/").text
     step("архив остаётся на странице (оверлей «Было», фото видны), выбор и .ics закрыты")
 
@@ -776,7 +784,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert new_tok != tok
     tok = new_tok
     page = ga.get(f"/c/{tok}").text
-    assert "Твой выбор ♥" in page and 'id="greetName">Аня<' in page
+    assert "Выбрано ♥" in page and 'id="greetName">Аня<' in page
     step("выключенная ссылка отдаёт 404/410 (и для фото); после перегенерации брони и имя целы")
 
     # ---------- привязка к категории ----------
@@ -1047,14 +1055,14 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert r.status_code == 303
     clone = db_one("SELECT * FROM dates WHERE name='Оригинал (копия)'")
     assert clone is not None and clone["id"] != orig["id"]
-    assert clone["is_draft"] == 1                       # клон — черновик
+    assert clone["is_draft"] == 1                       # клон неактивен (без категории)
     assert clone["place"] == "Парк" and clone["pay_split"] == 1
     assert clone["comment"] == "будет здорово"
-    # ссылка и категория перенесены
+    # ссылка перенесена; категории НЕ переносятся — клон неактивен, пока его не добавят
     assert db_one("SELECT url FROM date_links WHERE date_id=?", (clone["id"],))["url"] \
         == "https://ya.ru"
     assert db_one("SELECT 1 FROM date_categories WHERE date_id=? AND category_id=?",
-                  (clone["id"], vcid))
+                  (clone["id"], vcid)) is None
     # файлы — отдельные копии (новые имена, оба существуют на диске)
     clone_files = {x["filename"] for x in db_all(
         "SELECT filename FROM date_images WHERE date_id=?", (clone["id"],))}
@@ -1086,12 +1094,12 @@ with TestClient(main.app, follow_redirects=False) as c:
     a_files |= {x["filename"] for x in db_all(
         "SELECT filename FROM date_videos WHERE date_id=?", (shared["id"],))}
 
-    # аноним видит превью и приглашение войти, но не форму «Добавить себе»
+    # аноним видит превью и приглашение войти, но не форму «Сохранить к себе»
     anon = TestClient(main.app, follow_redirects=False)
     pg = anon.get(f"/d/{stok}")
     assert pg.status_code == 200
-    assert "Поделюсь" in pg.text and "Войти, чтобы добавить" in pg.text
-    assert "Добавить себе" not in pg.text
+    assert "Поделюсь" in pg.text and "Войти и сохранить" in pg.text
+    assert "Сохранить к себе" not in pg.text
     assert pg.headers.get("x-robots-tag") == "noindex"
     # фото свидания отдаётся по share-ссылке
     a_photo = db_one("SELECT filename FROM date_images WHERE date_id=?", (shared["id"],))
@@ -1100,11 +1108,11 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert anon.get("/d/нет-такого").status_code == 404
     assert anon.post("/d/нет-такого/add").status_code == 404
 
-    # пользователь B логинится, видит форму «Добавить себе»
+    # пользователь B логинится, видит форму «Сохранить к себе»
     cb = guest_client(700621, vtok, "Получатель")
     bp = cb.get(f"/d/{stok}")
     assert bp.status_code == 200
-    assert f'action="/d/{stok}/add"' in bp.text and "Добавить себе" in bp.text
+    assert f'action="/d/{stok}/add"' in bp.text and "Сохранить к себе" in bp.text
     b_uid = db_one("SELECT id FROM users WHERE telegram_id=?", (700621,))["id"]
 
     # добавляем себе → 303 в редактор нового свидания B
@@ -1185,13 +1193,18 @@ with TestClient(main.app, follow_redirects=False) as c:
     ids = [r[0] for r in db_all(
         "SELECT date_id FROM date_categories WHERE category_id=?", (vcid,))]
     assert len(ids) >= 3
-    reordered = [ids[-1]] + ids[:-1]            # последнее свидание — первым
+    # на первое место ставим заведомо видимое (не-черновик, не гостевое предложение)
+    # свидание — иначе гость его не увидит и проверка порядка будет ложной
+    visible = [i for i in ids if not db_one(
+        "SELECT is_draft FROM dates WHERE id=?", (i,))["is_draft"]]
+    head = visible[-1]
+    reordered = [head] + [i for i in ids if i != head]
     r = apost(c, f"/admin/categories/{vcid}/dates_reorder",
               {"order": ",".join(map(str, reordered))})
     assert r.status_code == 200 and r.json()["ok"]
     gpage = c.get(f"/c/{vtok}").text
     first_id = int(re.search(r'<article[^>]*id="date-(\d+)"', gpage).group(1))
-    assert first_id == reordered[0]
+    assert first_id == head
     # неполный набор id — отбой
     r = apost(c, f"/admin/categories/{vcid}/dates_reorder",
               {"order": str(reordered[0])})
@@ -1216,11 +1229,13 @@ with TestClient(main.app, follow_redirects=False) as c:
     _qc.close()
     for i in range(1, 32):
         apost(c, "/admin/dates/new", {"name": f"Лист {i:02d}"})
-    p1 = c.get("/admin/dates").text
+    # свидания без категории неактивны → живут во вкладке «Неактивные»;
+    # проверяем пагинацию именно там (30 на страницу, старые уезжают дальше)
+    p1 = c.get("/admin/dates?view=drafts").text
     assert "Лист 31" in p1 and "Лист 01" not in p1
     assert "стр. 1 из 2" in p1 and "page=2" in p1
-    p2 = c.get("/admin/dates?view=active&page=2").text
-    assert "Лист 01" in p2 and "Ужин на крыше" in p2
+    p2 = c.get("/admin/dates?view=drafts&page=2").text
+    assert "Лист 01" in p2
     step("пагинация: 30 на страницу, старые уезжают на следующую")
 
     # ---------- редизайн кабинета (date4you): форма, список, дашборд ----------

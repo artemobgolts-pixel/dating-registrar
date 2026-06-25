@@ -7,7 +7,7 @@
   <title>{{ cat.name }}</title>
   <meta property="og:title" content="{{ cat['og_title'] or 'Тебя ждёт сюрприз ♥' }}">
   <meta property="og:description" content="{{ cat['og_desc'] or 'Открой — внутри кое-что приятное' }}">
-  <meta property="og:image" content="{% if cat['og_image'] %}{{ BASE_URL }}/c/{{ token }}/og-image{% else %}{{ BASE_URL }}/static/og.png{% endif %}">
+  <meta property="og:image" content="{% if og_available %}{{ BASE_URL }}/c/{{ token }}/og-image{% else %}{{ BASE_URL }}/static/og.png{% endif %}">
   <meta property="og:type" content="website">
   <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
   <link rel="manifest" href="/static/manifest.json">
@@ -61,14 +61,9 @@
   </filter>
 </svg>
 
-    {% if not me %}
-    <button type="button" class="login-corner" id="loginOpen">Войти</button>
-    {% endif %}
-
-    {# Поддержка автора и его проект (VPN) — сайт бесплатный. Круглые кнопки
-       с подписью, в левом верхнем углу; на мобиле подпись скрывается. #}
-    {% if SUPPORT_URL or VPN_URL %}
-    <div class="promo-corner">
+    {# Правый верхний угол: поддержка автора, его проект (VPN) и вход.
+       Порядок как в шапке кабинета — Помощь, VPN, затем «Войти». #}
+    <div class="corner-actions">
       {% if SUPPORT_URL %}
       <a class="promo-btn" href="{{ SUPPORT_URL }}" target="_blank" rel="noopener" aria-label="Помощь">
         <span class="promo-ic" aria-hidden="true">
@@ -85,8 +80,10 @@
         <span class="promo-lb">VPN</span>
       </a>
       {% endif %}
+      {% if not me %}
+      <button type="button" class="login-corner" id="loginOpen">Войти</button>
+      {% endif %}
     </div>
-    {% endif %}
 
 <div class="wrap">
   <header class="hero">
@@ -116,7 +113,7 @@
   {% set badges %}
     {%- if d.pending %}<span class="badge wait">⏳ ждёт проверки</span>
     {%- elif d.origin == 'guest' and not d.past %}<span class="badge guest">💡 идея гостя</span>{% endif -%}
-    {%- if d.pay_split %}<span class="badge pay">💸 50/50</span>{% endif -%}
+    {%- if d.pay_split %}<span class="badge pay">{{ d.pay_split | pay_label }}</span>{% endif -%}
   {% endset %}
   <article class="card{% if d.past %} past{% endif %}{% if d.booked_by_me and not d.past %} booked-me{% endif %}{% if d.booked_others_list and not d.past and not d.booked_by_me %} booked-other{% endif %}{% if not d.images and not d.videos %} nophoto{% endif %}"
            id="date-{{ d.id }}" data-others="{{ d.booked_others }}">
@@ -206,9 +203,9 @@
         {% else %}
         <div class="actions">
           {% if d.booked_by_me %}
-          <button class="btn book on" data-id="{{ d.id }}">Твой выбор ♥ · отменить</button>
+          <button class="btn book on" data-id="{{ d.id }}">Выбрано ♥</button>
           {% elif d.booked_others_list %}
-          <button class="btn book" data-id="{{ d.id }}" disabled>Уже занято</button>
+          <button class="btn book" data-id="{{ d.id }}" disabled>Занято</button>
           {% else %}
           <button class="btn book" data-id="{{ d.id }}">Выбрать ♥</button>
           {% endif %}

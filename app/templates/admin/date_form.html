@@ -10,7 +10,7 @@
 {% if date and date['origin'] == 'guest' %}
 <div class="card" style="background:rgba(253,248,241,.8);border-color:#f1e2c8">
   💡 Это свидание предложил(а) <b>{{ proposer }}</b>.
-  {% if date['is_draft'] %}<br>⏳ Оно ждёт модерации: выключи тумблер «Черновик» и сохрани — или нажми «Опубликовать» ниже.{% endif %}
+  {% if date['is_draft'] %}<br>⏳ Оно ждёт проверки — нажми «Одобрить предложение» ниже, чтобы опубликовать.{% endif %}
 </div>
 {% endif %}
 
@@ -46,7 +46,7 @@
                  data-bind="title" value="{{ date['name'] if date else '' }}">
         </div>
         <div class="field">
-          <label>Место — адрес или ссылка на карты (название подтянется само)</label>
+          <label>Место — адрес или ссылка на карты</label>
           <input type="text" name="place" maxlength="500" data-bind="place"
                  value="{{ (date['place'] or '') if date else '' }}">
           <div class="hint" id="placeResolved">{% if date and date['place_url'] %}📍 ссылка на карты: {{ date['place'] }}{% endif %}</div>
@@ -66,10 +66,9 @@
               <label>Начало</label>
               <input type="datetime-local" name="starts_at" id="fStart"
                      value="{{ (date['starts_at'] or '') if date else '' }}">
-              <div class="hint">нажми, чтобы выбрать дату и время</div>
             </div>
             <div class="field" style="margin-bottom:0">
-              <label>Конец — если это диапазон</label>
+              <label>Конец — если диапазон</label>
               <input type="datetime-local" name="ends_at" id="fEnd"
                      value="{{ (date['ends_at'] or '') if date else '' }}">
               <div class="chips" style="margin:8px 0 0">
@@ -85,10 +84,10 @@
       <div class="sec">
         <h2 class="serif"><span class="n">2</span> Медиа</h2>
         <div class="field" style="margin-bottom:0">
-          <label>Фото и видео — перетащи сюда или нажми (фото до {{ slots }} шт по 10 МБ, видео — 2 шт по 60 МБ)</label>
+          <label>Фото и видео <span class="muted" style="font-weight:400">— фото до {{ slots }} шт, видео до 2</span></label>
           <div class="dropzone" id="mediaZone">
             <div class="dz-ico">📷🎬</div>
-            <div class="dz-hint">нажми или перетащи фото и видео сюда</div>
+            <div class="dz-hint">нажми или перетащи сюда</div>
             <input type="file" id="mediaInput" accept="image/*,video/mp4,video/webm" multiple>
             <div class="ptiles" id="newTiles"></div>
             <div class="ptiles" id="newVidTiles"></div>
@@ -102,7 +101,7 @@
 
         {% if date and photos %}
         <div class="field" style="margin:14px 0 0">
-          <label>Загруженные фото — первое фото обложка; перетащи плитку, чтобы поменять порядок; кликни, чтобы выбрать зону</label>
+          <label>Загруженные фото <span class="muted" style="font-weight:400">— первое обложка; перетащи для порядка, кликни для зоны кадра</span></label>
           <div class="thumbs" id="thumbs" data-did="{{ date['id'] }}" style="margin-top:6px">
             {% for p in photos %}
             <div class="thumb" data-pid="{{ p['id'] }}">
@@ -149,7 +148,7 @@
       <div class="sec">
         <h2 class="serif"><span class="n">3</span> Детали</h2>
         <div class="field">
-          <label>Комментарий <span class="muted" style="font-weight:400">— выдели слово и нажми Ж / К / П / З</span></label>
+          <label>Комментарий <span class="muted" style="font-weight:400">— выдели текст и нажми Ж / К / П / З</span></label>
           <div class="toolbar" id="descToolbar" data-target="descInput">
             <button type="button" class="b" data-wrap="**|**" title="Жирный">Ж</button>
             <button type="button" class="i" data-wrap="*|*" title="Курсив">К</button>
@@ -162,11 +161,15 @@
           <textarea name="comment" id="descInput" maxlength="2000" data-bind="desc" hidden>{{ (date['comment'] or '') if date else '' }}</textarea>
           <div class="descprev" id="descPreview"></div>
         </div>
-        <label class="toggle">
-          <input type="checkbox" name="pay" value="1" data-bind="pay" {% if date and date['pay_split'] %}checked{% endif %}>
-          <span class="sw"></span>
-          <span class="tcol"><span class="t">💸 Оплата 50/50</span><span class="d">покажем зелёную капсулу на карточке</span></span>
-        </label>
+        <div class="field" style="margin:4px 0 0">
+          <label>Оплата</label>
+          <div class="pay-pick" id="payPick">
+            <label class="pay-opt"><input type="radio" name="pay" value="0" data-bind="pay" {% if not (date and date['pay_split']) %}checked{% endif %}> Не важно</label>
+            <label class="pay-opt"><input type="radio" name="pay" value="1" data-bind="pay" {% if date and date['pay_split'] == 1 %}checked{% endif %}>💸 50/50</label>
+            <label class="pay-opt"><input type="radio" name="pay" value="2" data-bind="pay" {% if date and date['pay_split'] == 2 %}checked{% endif %}>Я плачу</label>
+            <label class="pay-opt"><input type="radio" name="pay" value="3" data-bind="pay" {% if date and date['pay_split'] == 3 %}checked{% endif %}>Ты оплатишь</label>
+          </div>
+        </div>
         <div class="field" style="margin:8px 0 0">
           <label>Ссылки — каждая с новой строки</label>
           <textarea name="links" placeholder="https://…">{{ links_text }}</textarea>
@@ -174,23 +177,14 @@
       </div>
 
       <div class="sec">
-        <h2 class="serif"><span class="n">4</span> Видимость</h2>
-        <label class="toggle">
-          <input type="checkbox" name="draft" value="1" {% if date and date['is_draft'] %}checked{% endif %}>
-          <span class="sw"></span>
-          <span class="tcol"><span class="t">Черновик</span><span class="d">скрыто, пока не опубликуешь</span></span>
-        </label>
-        <label style="margin-top:6px">Категории</label>
+        <h2 class="serif"><span class="n">4</span> Категории</h2>
+        <p class="muted" style="margin:0 0 10px;font-size:13px">Пока свидание не добавлено ни в одну категорию, оно неактивно — гости его не видят.</p>
         <div class="chips-cat">
           {% for c in cats %}
           <label class="chip-cat"><input type="checkbox" name="categories" value="{{ c['id'] }}" {% if c['id'] in checked %}checked{% endif %}> {{ c['name'] }}</label>
           {% else %}
           <span class="muted">категорий пока нет — <a href="/admin/categories">создать</a></span>
           {% endfor %}
-        </div>
-        <div class="savebar">
-          <button class="btn primary">Сохранить</button>
-          <a class="btn ghost" href="/admin/dates">Отмена</a>
         </div>
       </div>
     </form>
@@ -209,7 +203,7 @@
       </div>
       <div class="body">
         <h3 class="ttl"><span data-preview="title">{{ date['name'] if date else 'Без названия' }}</span>
-          <span class="pay" data-preview="pay" {% if not (date and date['pay_split']) %}hidden{% endif %}>💸 50/50</span></h3>
+          <span class="pay" data-preview="pay" {% if not (date and date['pay_split']) %}hidden{% endif %}>{{ pay_label(date['pay_split']) if date else '' }}</span></h3>
         <div class="pmeta" data-preview="meta"></div>
         <p class="desc" data-preview="desc"></p>
         <div class="plinks" data-preview="links"></div>
@@ -219,14 +213,19 @@
   </div>
 </div>
 
+<div class="savebar">
+  <button class="btn primary" form="dateForm">Сохранить</button>
+  <a class="btn ghost" href="/admin/dates">Отмена</a>
+</div>
+
 {% if date %}
 <div class="card">
   <div style="display:flex;gap:8px;flex-wrap:wrap">
-    {% if date['is_draft'] %}
+    {% if date['is_draft'] and date['origin'] == 'guest' %}
     <form class="inline" method="post" action="/admin/dates/{{ date['id'] }}/publish">
       <input type="hidden" name="csrf" value="{{ csrf }}">
       <input type="hidden" name="next" value="/admin/dates/{{ date['id'] }}/edit">
-      <button class="btn primary">Опубликовать</button>
+      <button class="btn primary">Одобрить предложение</button>
     </form>
     {% endif %}
     <form class="inline" method="post" action="/admin/dates/{{ date['id'] }}/archive">

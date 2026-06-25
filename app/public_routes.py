@@ -456,6 +456,9 @@ def public_category(token: str, request: Request, conn=Depends(get_db)):
         "guest": guest, "guest_name": guest_name,
         "me": me, "owner": owner,
         "owner_is_me": owner_is_me,
+        # есть ли картинка для og:image — своя или авто (первое фото свидания).
+        # Если да, мета-тег ведёт на /c/<токен>/og-image, иначе на /static/og.png.
+        "og_available": bool(cat["og_image"]) or any(d.get("images") for d in dates),
         # бот для вход-модалки (Telegram Login Widget). Анониму — кнопка «Войти»
         # открывает окно с этим виджетом прямо на гостевой.
         "bot": auth_routes.BOT_USERNAME,
@@ -490,12 +493,22 @@ def public_owner_avatar(token: str, conn=Depends(get_db)):
 def public_og_image(token: str, conn=Depends(get_db)):
     """Картинка превью ссылки (og:image) — её запрашивают краулеры мессенджеров
     (Telegram, WhatsApp) без cookie, поэтому отдаём публично по активной ссылке.
-    Только og_image этой категории; нет своей — 404 (шаблон укажет /static/og.png).
-    Кэш публичный: превью одинаково для всех, файл-имя меняется при замене."""
+    Берём свою og_image категории; если её нет — первое фото активного свидания
+    этой категории; если и его нет — 404 (шаблон укажет /static/og.png)."""
     cat = cat_by_token(conn, token)
     if not cat or not cat["link_enabled"]:
         raise HTTPException(404)
     fn = cat["og_image"]
+    if not fn:
+        # авто-превью: первое фото активного свидания категории
+        row = conn.execute(
+            "SELECT di.filename FROM date_categories dc "
+            "JOIN dates d ON d.id=dc.date_id "
+            "JOIN date_images di ON di.date_id=d.id "
+            "WHERE dc.category_id=? AND d.archived_at IS NULL AND d.is_draft=0 "
+            "ORDER BY dc.position ASC, di.position ASC, di.id ASC LIMIT 1",
+            (cat["id"],)).fetchone()
+        fn = row["filename"] if row else None
     if not fn or not images.SAFE_FILENAME.match(fn):
         raise HTTPException(404)
     path = images.UPLOAD_DIR / fn

@@ -57,7 +57,7 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "app.db"
 
-LATEST_VERSION = 16
+LATEST_VERSION = 17
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -485,6 +485,13 @@ MIGRATIONS: dict[int, str] = {
         ALTER TABLE dates ADD COLUMN share_token TEXT;
         UPDATE dates SET share_token = lower(hex(randomblob(16))) WHERE share_token IS NULL;
         CREATE UNIQUE INDEX IF NOT EXISTS idx_dates_share ON dates(share_token);
+    """,
+    17: """
+        -- Сброс ложного флага модерации: из-за бага в category_create все
+        -- категории создавались с moderate_proposals=1, и на каждой висел бейдж
+        -- «модерация». Возвращаем к дефолту 0 (выключено) — оператор включает
+        -- модерацию осознанно на нужной категории.
+        UPDATE categories SET moderate_proposals=0;
     """,
 }
 

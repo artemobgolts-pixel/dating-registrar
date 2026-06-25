@@ -64,11 +64,6 @@
     {% if user['is_operator'] %}<a href="/operator/" class="op-link"><span class="ic" aria-hidden="true">⚙</span><span class="lb">Админ</span></a>{% endif %}
   </nav>
   <div class="top-right">
-    <a class="bell {{ 'on' if active == 'q' else '' }}" href="/admin/questions"
-       aria-label="Уведомления{% if unread %} ({{ unread }} непрочитанных){% endif %}">
-      <span class="bell-ic" aria-hidden="true">🔔</span>
-      {% if unread %}<span class="bell-count">{{ unread }}</span>{% endif %}
-    </a>
     {% if SUPPORT_URL %}
     <a class="bell bell-link" href="{{ SUPPORT_URL }}" target="_blank" rel="noopener"
        aria-label="Помощь">
@@ -87,9 +82,14 @@
       <span class="bell-lb">VPN</span>
     </a>
     {% endif %}
+    <a class="bell {{ 'on' if active == 'q' else '' }}" href="/admin/questions"
+       aria-label="Уведомления{% if unread %} ({{ unread }} непрочитанных){% endif %}">
+      <span class="bell-ic" aria-hidden="true">🔔</span>
+      {% if unread %}<span class="bell-count">{{ unread }}</span>{% endif %}
+    </a>
     <form class="logout-top" method="post" action="/admin/logout">
       <input type="hidden" name="csrf" value="{{ csrf }}">
-      <button type="submit" class="logout-mini">Выйти</button>
+      <button type="submit" class="logout-mini" aria-label="Выйти" title="Выйти"></button>
     </form>
   </div>
 </header>
@@ -97,12 +97,12 @@
 {% set m = request.query_params.get('msg') %}
 {% if m %}<div class="flash{{ ' err' if m.startswith('⚠') else '' }}">{{ m }}</div>{% endif %}
 {% if user and not user['bot_linked'] %}
-<div class="flash tg-connect" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-  <span>🔔 Подключи бота, чтобы получать уведомления, когда выберут свидание.</span>
-  <button type="button" data-tg-connect class="btn primary" style="margin-left:auto">Подключить бота</button>
+<div class="flash tg-connect">
+  <span class="tg-connect-msg">🔔 Подключи бота, чтобы получать уведомления, когда выберут свидание.</span>
+  <button type="button" data-tg-connect class="btn primary">Подключить бота</button>
   <a data-tg-link href="#" target="_blank" rel="noopener" hidden></a>
   <span data-tg-hint hidden>Нажми <b>Start</b> в боте и вернись сюда.</span>
-  <span data-tg-error class="err" hidden style="width:100%"></span>
+  <span data-tg-error class="err" hidden></span>
 </div>
 {% endif %}
 {% block content %}{% endblock %}

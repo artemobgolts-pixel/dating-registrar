@@ -12,7 +12,7 @@
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <input name="name" value="{{ cat['name'] }}" required maxlength="200">
     <textarea name="description" maxlength="1000" rows="2"
-      placeholder="Описание — его увидят под заголовком. Можно **жирный**, *курсив*, __подчёркнутый__">{{ cat['description'] or '' }}</textarea>
+      placeholder="Описание под заголовком. Можно **жирный**, *курсив*, __подчёркнутый__">{{ cat['description'] or '' }}</textarea>
 
     <label style="margin-top:4px">Превью ссылки — как она выглядит при отправке</label>
     <input name="og_title" maxlength="120" placeholder="Тебя ждёт сюрприз ♥"
@@ -21,18 +21,24 @@
            value="{{ cat['og_desc'] or '' }}">
 
     <label class="og-pick">
-      <span class="og-pick-label">🖼 Картинка превью {% if not cat['og_image'] %}<span class="muted">(сейчас стандартная)</span>{% endif %}</span>
+      <span class="og-pick-label">🖼 Картинка превью
+        {% if not cat['og_image'] %}<span class="muted">({{ 'сейчас — фото из свиданий' if auto_og else 'сейчас стандартная' }})</span>{% endif %}</span>
       <input type="file" name="og_image" accept="image/*">
     </label>
 
     <div class="og-preview" aria-label="так ссылка выглядит при отправке">
-      <img class="og-img" src="{% if cat['og_image'] %}/admin/uploads/{{ cat['og_image'] }}{% else %}/static/og.png{% endif %}" alt="">
+      <img class="og-img" src="{% if cat['og_image'] %}/admin/uploads/{{ cat['og_image'] }}{% elif auto_og %}/admin/uploads/{{ auto_og }}{% else %}/static/og.png{% endif %}" alt="">
       <div class="og-text">
         <div class="og-title">{{ cat['og_title'] or 'Тебя ждёт сюрприз ♥' }}</div>
         <div class="og-desc">{{ cat['og_desc'] or 'Открой — внутри кое-что приятное' }}</div>
         <div class="og-host">date4you.online</div>
       </div>
     </div>
+
+    <p class="muted og-note" style="margin:2px 0 0;font-size:12.5px">
+      ⚠ Если ты уже отправлял(а) ссылку, мессенджеры запомнили старое превью.
+      Чтобы получатели увидели новое — <b>перегенерируй ссылку</b> ниже.
+    </p>
 
     <div><button class="btn primary">Сохранить</button></div>
   </form>
@@ -74,7 +80,7 @@
   <b>Предложения</b>
   <p class="muted" style="margin:8px 0 10px;font-size:13.5px">
     {% if cat['moderate_proposals'] %}
-    Сейчас: новые предложения попадают на вкладку «Черновики» и публикуются после твоей проверки. Автор видит своё предложение с пометкой «ждёт проверки».
+    Сейчас: новые предложения попадают на вкладку «Неактивные» и публикуются после твоей проверки. Автор видит своё предложение с пометкой «ждёт проверки».
     {% else %}
     Сейчас: новые предложения сразу появляются на странице.
     {% endif %}
@@ -102,7 +108,7 @@
       <td class="drag-h" title="Перетащи, чтобы изменить порядок">⋮⋮</td>
       <td>
         <a href="/admin/dates/{{ d['id'] }}/edit">{{ d['name'] }}</a>
-        {% if d['is_draft'] %}<span class="badge amber">{{ 'на модерации' if d['origin'] == 'guest' else 'черновик' }}</span>{% endif %}
+        {% if d['is_draft'] %}<span class="badge amber">{{ 'на модерации' if d['origin'] == 'guest' else 'неактивно' }}</span>{% endif %}
         {% if d['origin'] == 'guest' %}<span class="badge">💡 предложено</span>{% endif %}
         {% if d['archived_at'] %}<span class="badge">архив</span>{% endif %}
       </td>

@@ -81,7 +81,7 @@
     <article class="card{% if not d.images and not d.videos %} nophoto{% endif %}">
       {% if d.images or d.videos %}
       <div class="gal-wrap">
-        {% if d.pay_split %}<div class="badges"><span class="badge pay">💸 50/50</span></div>{% endif %}
+        {% if d.pay_split %}<div class="badges"><span class="badge pay">{{ d.pay_split | pay_label }}</span></div>{% endif %}
         <div class="gallery">
           {% for im in d.images %}
           <img src="/d/{{ token }}/image/{{ im['filename'] }}" alt=""
@@ -97,7 +97,7 @@
       {% endif %}
       <div class="body">
         {% if not d.images and not d.videos and d.pay_split %}
-        <div class="badges inflow"><span class="badge pay">💸 50/50</span></div>
+        <div class="badges inflow"><span class="badge pay">{{ d.pay_split | pay_label }}</span></div>
         {% endif %}
         <h2 class="title">{{ d.name }}</h2>
         <div class="meta">
@@ -127,13 +127,13 @@
     <p>Это твоё свидание — оно уже в твоей коллекции.</p>
     <a class="btn book" href="/admin/dates">К моим свиданиям</a>
     {% elif me %}
-    <p>Нравится? Добавь это свидание себе — потом используешь в своих категориях.</p>
+    <p>Нравится? Сохрани это свидание к себе — потом добавишь в свои категории.</p>
     <form method="post" action="/d/{{ token }}/add">
-      <button type="submit" class="btn book">Добавить себе ♥</button>
+      <button type="submit" class="btn book">Сохранить к себе ♥</button>
     </form>
     {% else %}
-    <p>Войди, чтобы добавить это свидание себе в коллекцию.</p>
-    <a class="btn book" href="/login?next=/d/{{ token }}">Войти, чтобы добавить</a>
+    <p>Войди, чтобы сохранить это свидание к себе.</p>
+    <a class="btn book" href="/login?next=/d/{{ token }}">Войти и сохранить</a>
     {% endif %}
   </div>
 

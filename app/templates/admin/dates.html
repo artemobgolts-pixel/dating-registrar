@@ -9,7 +9,7 @@
 <div class="controls">
   <div class="tabs">
     <a href="/admin/dates?view=active{{ qs_keep }}" class="{{ 'on' if view == 'active' else '' }}">Активные</a>
-    <a href="/admin/dates?view=drafts{{ qs_keep }}" class="{{ 'on' if view == 'drafts' else '' }}">Черновики{% if drafts_n %} <span class="pill">{{ drafts_n }}</span>{% endif %}</a>
+    <a href="/admin/dates?view=drafts{{ qs_keep }}" class="{{ 'on' if view == 'drafts' else '' }}">Неактивные{% if drafts_n %} <span class="pill">{{ drafts_n }}</span>{% endif %}</a>
     <a href="/admin/dates?view=archived{{ qs_keep }}" class="{{ 'on' if view == 'archived' else '' }}">Архив</a>
   </div>
 
@@ -49,9 +49,9 @@
       <img src="/admin/uploads/{{ r['cover'] }}" alt="" loading="lazy"
         {% if r['cover_focus'] %}style="object-position:{{ r['cover_focus'] }}"{% endif %}>
       <div class="badges">
-        {% if r['pay_split'] %}<span class="bdg pay">💸 50/50</span>{% endif %}
+        {% if r['pay_split'] %}<span class="bdg pay">{{ r['pay_split'] | pay_label }}</span>{% endif %}
         {% if r['origin'] == 'guest' %}<span class="bdg guest">💡 предложено</span>{% endif %}
-        {% if r['is_draft'] %}<span class="bdg draft">{{ 'на модерации' if r['origin'] == 'guest' else 'черновик' }}</span>{% endif %}
+        {% if r['is_draft'] %}<span class="bdg draft">{{ 'на модерации' if r['origin'] == 'guest' else 'неактивно' }}</span>{% endif %}
       </div>
       {% if r['booked_names'] %}<div class="badges book-corner"><span class="bdg book">💝 {{ r['booked_names'] }}</span></div>{% endif %}
     </div>
@@ -59,9 +59,9 @@
     <div class="b">
       {% if not r['cover'] %}
       <div class="badges inflow">
-        {% if r['pay_split'] %}<span class="bdg pay">💸 50/50</span>{% endif %}
+        {% if r['pay_split'] %}<span class="bdg pay">{{ r['pay_split'] | pay_label }}</span>{% endif %}
         {% if r['origin'] == 'guest' %}<span class="bdg guest">💡 предложено</span>{% endif %}
-        {% if r['is_draft'] %}<span class="bdg draft">{{ 'на модерации' if r['origin'] == 'guest' else 'черновик' }}</span>{% endif %}
+        {% if r['is_draft'] %}<span class="bdg draft">{{ 'на модерации' if r['origin'] == 'guest' else 'неактивно' }}</span>{% endif %}
         {% if r['booked_names'] %}<span class="bdg book">💝 {{ r['booked_names'] }}</span>{% endif %}
       </div>
       {% endif %}
@@ -75,7 +75,7 @@
       </div>
       {% endif %}
       <div class="foot">
-        <span class="edit-hint">Редактировать</span>
+        <a class="edit-hint" href="/admin/dates/{{ r['id'] }}/edit">Редактировать</a>
         <div class="menu-wrap">
         <button type="button" class="more" aria-label="Ещё действия" aria-haspopup="true" aria-expanded="false">⋯</button>
         <div class="menu">
@@ -126,9 +126,9 @@
     <div class="drow-main">
       <div class="drow-ttl">
         <a href="/admin/dates/{{ r['id'] }}/edit" class="serif">{{ r['name'] }}</a>
-        {% if r['is_draft'] %}<span class="badge amber">{{ 'на модерации' if r['origin'] == 'guest' else 'черновик' }}</span>{% endif %}
+        {% if r['is_draft'] %}<span class="badge amber">{{ 'на модерации' if r['origin'] == 'guest' else 'неактивно' }}</span>{% endif %}
         {% if r['origin'] == 'guest' %}<span class="badge">💡 предложено</span>{% endif %}
-        {% if r['pay_split'] %}<span class="badge rose">💸 50/50</span>{% endif %}
+        {% if r['pay_split'] %}<span class="badge rose">{{ r['pay_split'] | pay_label }}</span>{% endif %}
       </div>
       {% set when_str = r['starts_at'] | when(r['ends_at']) %}
       {% if when_str or r['cats'] or r['books'] %}
@@ -194,7 +194,7 @@
     <p>Архив пуст. Сюда уезжают прошедшие свидания.</p>
     {% elif view == 'drafts' %}
     <div class="big">📝</div>
-    <p>Черновиков нет. Сюда попадают скрытые свидания и предложения на модерации.</p>
+    <p>Неактивных свиданий нет. Сюда попадают свидания без категории и предложения на модерации.</p>
     <a class="btn primary" href="/admin/dates/new">+ Создать свидание</a>
     {% else %}
     <div class="big">🌷</div>

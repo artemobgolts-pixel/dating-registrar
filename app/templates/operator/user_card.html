@@ -73,7 +73,7 @@
     <td>{{ d['name'] }}</td>
     <td>
       {% if d['archived_at'] %}<span class="muted">архив</span>
-      {% elif d['is_draft'] %}<span class="badge">черновик</span>
+      {% elif d['is_draft'] %}<span class="badge">неактивно</span>
       {% else %}<span class="badge">активно</span>{% endif %}
     </td>
     <td class="muted">{{ 'гость' if d['origin']=='guest' else 'владелец' }}</td>

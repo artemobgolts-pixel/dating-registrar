@@ -99,10 +99,11 @@ nav { display: flex; gap: 6px; flex-wrap: wrap; }
 .bell-ic { font-size: 19px; line-height: 1; }
 .bell-ic.tg-ic { color: #229ED9; display: inline-flex; }
 .bell-ic.tg-ic svg { display: block; }
-/* кнопки-ссылки «Помощь»/«VPN» рядом с колокольчиком: тот же круглый глянец,
-   но с подписью справа от иконки (на широком экране). */
+/* кнопки-ссылки «Помощь»/«VPN» рядом с колокольчиком: капсула-пилюля
+   (как на гостевых ссылках), иконка слева + подпись справа. */
 .bell-link {
   width: auto; gap: 7px; padding: 0 14px 0 9px;
+  border-radius: 999px;
   color: var(--ink); font-size: 13.5px; font-weight: 600;
 }
 .bell-link .bell-ic { font-size: 18px; }
@@ -192,6 +193,19 @@ h1 { font-size: 22px; margin: 6px 0 16px; }
   background: #fdeeee;
   border-color: #f3cfcf;
   color: #a33;
+}
+
+/* баннер «Подключи бота»: на ПК текст и кнопка в строку, кнопка справа;
+   на телефоне кнопка уезжает под текст во всю ширину (без кривого переноса). */
+.tg-connect {
+  display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+}
+.tg-connect .tg-connect-msg { flex: 1 1 auto; min-width: 0; }
+.tg-connect [data-tg-connect] { flex: none; margin-left: auto; }
+.tg-connect [data-tg-error] { flex-basis: 100%; }
+@media (max-width: 560px) {
+  .tg-connect .tg-connect-msg { flex-basis: 100%; }
+  .tg-connect [data-tg-connect] { width: 100%; margin-left: 0; }
 }
 
 .muted { color: var(--muted); }
@@ -1049,17 +1063,16 @@ input, textarea, select {
 }
 .savebar .autosave { font-size: 12px; color: var(--muted); margin-left: auto; }
 .savebar .btn.primary {
-  flex: 1; min-width: 180px;
-  font-family: var(--serif); font-size: 19px; font-weight: 600; letter-spacing: .01em;
-  padding: 13px 22px; border-radius: 13px;
+  flex: 1; min-width: 160px;
+  font-size: 15px; font-weight: 600; letter-spacing: .01em;
+  padding: 9px 20px; border-radius: 12px;
   box-shadow: 0 8px 20px rgba(150, 70, 85, .4);
 }
 .savebar .btn.primary::before { content: "💾 "; }
-/* «Отмена» — той же высоты, что «Сохранить»: тот же серифовый кегль и
-   вертикальные паддинги, чтобы кнопки стояли вровень */
+/* «Отмена» — той же высоты, что «Сохранить» */
 .savebar .btn.ghost {
-  font-family: var(--serif); font-size: 19px; font-weight: 600; letter-spacing: .01em;
-  padding: 13px 22px; border-radius: 13px; text-align: center;
+  font-size: 15px; font-weight: 600; letter-spacing: .01em;
+  padding: 9px 20px; border-radius: 12px; text-align: center;
 }
 .btn.ghost {
   background: rgba(255, 255, 255, .6);
@@ -1201,7 +1214,7 @@ input, textarea, select {
 .dcard .foot { display: flex; align-items: center; gap: 7px; position: relative; z-index: 3; margin-top: auto; }
 .dcard .edit-hint {
   flex: 1; text-align: center; padding: 8px; border-radius: 10px;
-  font-size: 13.5px; font-weight: 600; pointer-events: none;
+  font-size: 13.5px; font-weight: 600; text-decoration: none; cursor: pointer;
   background: rgba(255, 255, 255, .7); border: 1px solid var(--line); color: var(--rose-2);
   transition: background .15s, border-color .15s;
 }
@@ -1462,14 +1475,14 @@ input, textarea, select {
   background: #f5edef;
 }
 
-/* кнопка «Выйти» в шапке (справа от колокольчика): прямоугольная и компактная,
-   прежний спокойный розовый стиль — тонкая роза-рамка, текст в тон бренду,
-   эмодзи ↩. Не во всю ширину, обычный кегль (не серифовый, как было в профиле). */
+/* кнопка «Выйти» в шапке (справа от колокольчика): только значок ↩,
+   круглая капсула того же стиля и размера, что у колокольчика. */
 .logout-top { margin: 0; }
 .logout-mini {
-  display: inline-flex; align-items: center; gap: 6px;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 42px; height: 42px; flex: none;
   font-size: 13.5px; font-weight: 600;
-  padding: 9px 14px; border-radius: 11px;
+  border-radius: 50%;
   color: var(--rose-2);
   background: rgba(255, 255, 255, .42);
   border: 1px solid #ecd6d3;
@@ -1479,7 +1492,7 @@ input, textarea, select {
   cursor: pointer; white-space: nowrap;
   transition: background .18s, border-color .18s, box-shadow .2s, transform .15s;
 }
-.logout-mini::before { content: "↩"; font-size: 15px; }
+.logout-mini::before { content: "↩"; font-size: 17px; }
 .logout-mini:hover {
   background: var(--rose-soft); border-color: var(--rose);
   box-shadow: 0 4px 14px rgba(150, 70, 85, .14);
@@ -1538,6 +1551,24 @@ input, textarea, select {
 }
 .gender-opt:focus-within { box-shadow: 0 0 0 3px rgba(182, 95, 111, .16); }
 
+/* оплата — четыре кнопки-пилюли (radio), переносятся при нехватке места */
+.pay-pick { display: flex; gap: 8px; flex-wrap: wrap; }
+.pay-opt {
+  display: inline-flex; align-items: center; justify-content: center;
+  flex: 1 1 auto;
+  padding: 9px 14px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--line); background: rgba(255, 255, 255, .6);
+  font-size: 14px; color: var(--ink); margin: 0; white-space: nowrap;
+  transition: background .15s, color .15s, border-color .15s;
+}
+.pay-opt input { position: absolute; opacity: 0; width: 0; height: 0; }
+.pay-opt:has(input:checked) {
+  background: linear-gradient(135deg, #34b36b, #15734a);
+  color: #fff; border-color: transparent;
+  box-shadow: 0 4px 12px rgba(21, 115, 74, .26);
+}
+.pay-opt:focus-within { box-shadow: 0 0 0 3px rgba(52, 179, 107, .18); }
+
 /* ============================================================
    МОБИЛЬНАЯ ПРОИЗВОДИТЕЛЬНОСТЬ.
    Дорогой backdrop-filter: url(#glassWarp) (SVG-преломление) пересчитывается
@@ -1568,7 +1599,7 @@ input, textarea, select {
   /* на телефоне «Помощь»/«VPN» прячут подпись — остаётся круглая иконка как у колокольчика */
   .top .top-right .bell-link { width: 40px; padding: 0; gap: 0; }
   .top .top-right .bell-link .bell-lb { display: none; }
-  .top .logout-mini { padding: 8px 12px; font-size: 12.5px; }
+  .top .logout-mini { width: 40px; height: 40px; }
   .top nav {
     position: fixed;
     left: 10px; right: 10px; bottom: 10px;
