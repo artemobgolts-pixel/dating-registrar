@@ -75,6 +75,38 @@ def send_to(chat_id: int | str, text: str) -> None:
         log.warning("Не удалось отправить сообщение в Telegram: %s", e)
 
 
+def send_document(chat_id: int | str, path, caption: str | None = None,
+                  filename: str | None = None) -> bool:
+    """Шлёт файл документом конкретному chat_id (напр. снимок базы для бэкапа).
+
+    Как и send_to, требует только TOKEN (не CHAT). Ошибки не валят вызвавшего:
+    недоставленный бэкап логируем, но фоновую задачу не роняем. Возвращает True
+    при успешной отправке. Блокирующий httpx — звать из потока, не из event loop.
+    """
+    if not TOKEN:
+        return False
+    path = str(path)
+    try:
+        with open(path, "rb") as f:
+            data: dict[str, str] = {"chat_id": str(chat_id)}
+            if caption:
+                data["caption"] = caption
+                data["parse_mode"] = "HTML"
+            r = httpx.post(
+                f"https://api.telegram.org/bot{TOKEN}/sendDocument",
+                data=data,
+                files={"document": (filename or os.path.basename(path), f)},
+                timeout=60,
+            )
+        if r.status_code >= 400:
+            log.warning("Telegram sendDocument %s: %s", r.status_code, r.text[:200])
+            return False
+        return True
+    except Exception as e:
+        log.warning("Не удалось отправить документ в Telegram: %s", e)
+        return False
+
+
 # Алёрты о сбоях (500-е) оператору. Дедупликация по тексту, чтобы всплеск
 # одинаковых ошибок не превратился в флуд: одинаковый алёрт — не чаще раза в окно.
 _ALERT_WINDOW = 300          # секунд

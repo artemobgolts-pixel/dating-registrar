@@ -23,6 +23,11 @@ TG_BOT_USERNAME = os.getenv("TG_BOT_USERNAME", "").strip().lstrip("@")
 # Секрет вебхука: Telegram шлёт его в заголовке X-Telegram-Bot-Api-Secret-Token.
 # Без него вебхук принимать нельзя — иначе кто угодно «подтвердит» чужой код.
 TG_WEBHOOK_SECRET = os.getenv("TG_WEBHOOK_SECRET", "").strip()
+# Куда слать ежесуточный снимок базы документом в Telegram (gzip). Отдельная
+# переменная, а не TG_CHAT_ID: в базе ПДн посторонних — отправка наружу должна
+# быть осознанным opt-in. Пусто — снимки в TG не уходят (остаётся облако/диск).
+# Заводи закрытый канал/«Избранное», не обычный диалог с уведомлениями.
+TG_BACKUP_CHAT_ID = os.getenv("TG_BACKUP_CHAT_ID", "").strip()
 
 
 def _parse_operator_ids(raw: str) -> set[int]:

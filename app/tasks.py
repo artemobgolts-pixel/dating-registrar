@@ -1,14 +1,23 @@
 """Фоновые задачи: авто-архив просроченных свиданий и ежесуточный бэкап."""
 
 import asyncio
+import gzip
 import logging
+import shutil
 import sqlite3
+import tempfile
+from pathlib import Path
 
 import backup
 import db
+import notify
+from config import TG_BACKUP_CHAT_ID
 from helpers import _parse, now_iso, now_naive
 
 log = logging.getLogger("tasks")
+
+# Лимит Bot API на размер файла, отправляемого ботом, — 50 МБ. С запасом.
+TG_DOC_LIMIT = 49 * 1024 * 1024
 
 
 def autoarchive_once(conn: sqlite3.Connection | None = None) -> int:
@@ -57,6 +66,36 @@ async def autoarchive_loop() -> None:
             log.exception("Ошибка авто-архивации")
 
 
+def ship_backup_to_tg(snapshot: Path) -> bool:
+    """Жмёт снимок базы gzip и шлёт документом в TG_BACKUP_CHAT_ID.
+
+    Включается только если задан TG_BACKUP_CHAT_ID (осознанный opt-in: в базе
+    ПДн посторонних). Снимок сжимается во временный .db.gz; gzip обычно даёт
+    5–10× и держит файл под лимитом Bot API. Если даже сжатый превышает лимит —
+    предупреждаем, не шлём (TG отвергнет, а облачный бэкап всё равно есть)."""
+    if not TG_BACKUP_CHAT_ID:
+        return False
+    tmp = Path(tempfile.gettempdir()) / (snapshot.name + ".gz")
+    try:
+        with open(snapshot, "rb") as fin, gzip.open(tmp, "wb", compresslevel=6) as fout:
+            shutil.copyfileobj(fin, fout)
+        size = tmp.stat().st_size
+        if size > TG_DOC_LIMIT:
+            log.warning("Бэкап %s сжат до %.1f МБ — больше лимита TG (49 МБ), "
+                        "в Telegram не отправлен (облачный бэкап остаётся)",
+                        snapshot.name, size / 1024 / 1024)
+            return False
+        caption = (f"📦 Бэкап базы <code>{notify.esc(snapshot.name)}</code>\n"
+                   f"{size / 1024 / 1024:.1f} МБ (gzip)")
+        return notify.send_document(TG_BACKUP_CHAT_ID, tmp, caption=caption,
+                                    filename=tmp.name)
+    except Exception:
+        log.exception("Ошибка отправки бэкапа в Telegram")
+        return False
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
 async def backup_loop() -> None:
     while True:
         await asyncio.sleep(6 * 3600)
@@ -64,6 +103,10 @@ async def backup_loop() -> None:
             made = backup.make_backup_if_stale(hours=20)
             if made:
                 log.info("Авто-бэкап: %s", made)
+                if TG_BACKUP_CHAT_ID:
+                    sent = await asyncio.to_thread(ship_backup_to_tg, made)
+                    if sent:
+                        log.info("Бэкап отправлен в Telegram: %s", made.name)
         except asyncio.CancelledError:
             raise
         except Exception:
