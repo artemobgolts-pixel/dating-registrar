@@ -14,6 +14,7 @@ import os
 import re
 import secrets
 import shutil
+import hashlib
 from pathlib import Path
 
 from PIL import Image, ImageOps
@@ -28,6 +29,10 @@ except Exception:                      # pragma: no cover
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 UPLOAD_DIR = DATA_DIR / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+# Кэш сгенерированных коллажей-превью ссылок (og:image из фото свиданий).
+# Имя файла = хэш набора исходников, поэтому при смене фото коллаж перегенерится.
+OG_CACHE_DIR = DATA_DIR / "og-cache"
+OG_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_BYTES = 10 * 1024 * 1024   # 10 МБ на файл
 MAX_IMAGES = 5                 # до 5 фото на свидание
@@ -180,3 +185,90 @@ def save_videos_batch(uploads) -> list[str]:
             delete_file(name)
         raise
     return saved
+
+
+# ---------------------------------------------------------------------------
+# Коллаж-превью ссылки (og:image). Когда у категории нет своей картинки, OG
+# собирается сеткой из фото её свиданий: 1 фото — целиком, 2–4 — сетка 2×2,
+# 5–8 — сетка 4×2. Размер 1200×630 (стандарт Open Graph). Результат кэшируется
+# на диск по хэшу набора исходников — краулеры мессенджеров не пересобирают.
+# ---------------------------------------------------------------------------
+
+OG_W, OG_H = 1200, 630
+
+
+def _grid_for(n: int) -> tuple[int, int]:
+    """Колонки×строки сетки под количество фото."""
+    if n <= 1:
+        return 1, 1
+    if n == 2:
+        return 2, 1
+    if n <= 4:
+        return 2, 2
+    return 4, 2          # 5..8
+
+
+def og_collage_name(filenames: list[str]) -> str | None:
+    """Имя кэш-файла коллажа для набора фото (хэш отсортированного набора,
+    но порядок учитываем — он влияет на раскладку). None, если фото нет."""
+    files = [f for f in filenames if f][:8]
+    if not files:
+        return None
+    h = hashlib.sha256("\n".join(files).encode()).hexdigest()[:24]
+    return f"og_{h}.webp"
+
+
+def build_og_collage(filenames: list[str]) -> str | None:
+    """Собирает коллаж из фото свиданий и кэширует на диск. Возвращает путь к
+    готовому файлу (внутри OG_CACHE_DIR) или None, если собрать не из чего.
+
+    Битые/пропавшие исходники пропускаем; сетку берём по факту собранных фото.
+    Кэш переиспользуем, если файл уже есть (имя завязано на набор исходников)."""
+    files = [f for f in filenames if f][:8]
+    if not files:
+        return None
+    name = og_collage_name(files)
+    out = OG_CACHE_DIR / name
+    if out.exists():
+        return str(out)
+
+    # открываем то, что реально лежит на диске
+    imgs = []
+    for fn in files:
+        p = UPLOAD_DIR / Path(fn).name
+        if not p.exists():
+            continue
+        try:
+            im = Image.open(p)
+            im.load()
+            imgs.append(im.convert("RGB"))
+        except Exception:
+            continue
+    if not imgs:
+        return None
+
+    cols, rows = _grid_for(len(imgs))
+    canvas = Image.new("RGB", (OG_W, OG_H), (250, 245, 242))
+    cell_w = OG_W // cols
+    cell_h = OG_H // rows
+    for idx in range(cols * rows):
+        src = imgs[idx % len(imgs)]        # если фото меньше клеток — повторяем
+        tile = ImageOps.fit(src, (cell_w, cell_h), Image.LANCZOS, centering=(0.5, 0.5))
+        x = (idx % cols) * cell_w
+        y = (idx // cols) * cell_h
+        canvas.paste(tile, (x, y))
+
+    tmp = out.with_suffix(".tmp.webp")
+    canvas.save(tmp, "WEBP", quality=82, method=4)
+    tmp.replace(out)
+    return str(out)
+
+
+def clear_og_cache() -> None:
+    """Чистит весь кэш коллажей (зовётся, когда фото категории могли измениться).
+    Дёшево: файлов мало, краулеры пересоберут при следующем запросе."""
+    for p in OG_CACHE_DIR.glob("og_*.webp"):
+        try:
+            p.unlink()
+        except OSError:
+            pass

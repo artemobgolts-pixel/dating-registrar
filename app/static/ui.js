@@ -454,7 +454,7 @@ window.UI = (() => {
       if (pv.pay) {
         var payChecked = form.querySelector('[data-bind="pay"]:checked');
         var payVal = payChecked ? payChecked.value : "0";
-        var PAY = { "1": "💸 50/50", "2": "💸 Я плачу", "3": "💸 Ты оплатишь" };
+        var PAY = { "1": "💸 50/50", "2": "👌 Я плачу", "3": "🫵 Ты платишь" };
         if (PAY[payVal]) { pv.pay.textContent = PAY[payVal]; pv.pay.hidden = false; }
         else { pv.pay.hidden = true; }
       }
@@ -681,6 +681,55 @@ window.UI = (() => {
     });
   }
 
+  /* --- «жидкое стекло» для вкладок: скользящий индикатор активной вкладки ----
+     Вкладки — обычные ссылки (полная перезагрузка). Индикатор ставим под
+     активную вкладку на загрузке; при клике плавно «перетекаем» к выбранной
+     вкладке и только потом отпускаем переход — отсюда ощущение текучести. */
+  function glassTabs(container) {
+    if (!container) return;
+    const tabs = [...container.querySelectorAll("a")];
+    if (!tabs.length) return;
+    let ind = container.querySelector(".tab-ind");
+    if (!ind) {
+      ind = document.createElement("span");
+      ind.className = "tab-ind";
+      container.appendChild(ind);
+    }
+    const place = (el, animate) => {
+      if (!el) return;
+      if (!animate) container.classList.add("no-anim");
+      ind.style.width = el.offsetWidth + "px";
+      ind.style.transform = "translateX(" + (el.offsetLeft - container.scrollLeft) + "px)";
+      if (!animate) {
+        // форсируем reflow и снимаем no-anim, чтобы дальше переходы работали
+        void ind.offsetWidth;
+        container.classList.remove("no-anim");
+      }
+    };
+    const active = container.querySelector("a.on") || tabs[0];
+    place(active, false);
+    // переставляем при ресайзе (ширины вкладок могли измениться)
+    let rt;
+    window.addEventListener("resize", () => {
+      clearTimeout(rt);
+      rt = setTimeout(() => place(container.querySelector("a.on") || tabs[0], false), 120);
+    });
+    tabs.forEach((a) => {
+      a.addEventListener("click", (e) => {
+        // только левый клик без модификаторов и не «открыть в новой вкладке»
+        if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
+        const href = a.getAttribute("href");
+        // вкладки вида data-layout (viewtog) сами управляют переходом — только анимируем
+        if (!href || href === "#") { place(a, true); return; }
+        e.preventDefault();
+        tabs.forEach((t) => t.classList.toggle("on", t === a));
+        place(a, true);
+        // даём индикатору дотечь, затем переходим
+        setTimeout(() => { location.href = href; }, 230);
+      });
+    });
+  }
+
   return { sortable, burst, uploader, mediaUploader, dateChips, postWithProgress,
-           editorPreview, richEditor, cardMenu, renderMarkup };
+           editorPreview, richEditor, cardMenu, renderMarkup, glassTabs };
 })();

@@ -76,6 +76,9 @@
       {% endif %}
       <div class="foot">
         <a class="edit-hint" href="/admin/dates/{{ r['id'] }}/edit">Редактировать</a>
+        {% if r['share_token'] %}
+        <a class="btn small open-date" href="/d/{{ r['share_token'] }}" target="_blank" rel="noopener" title="Открыть страницу свидания">Открыть</a>
+        {% endif %}
         <div class="menu-wrap">
         <button type="button" class="more" aria-label="Ещё действия" aria-haspopup="true" aria-expanded="false">⋯</button>
         <div class="menu">
@@ -142,6 +145,7 @@
     <div class="drow-act">
       <a class="btn small" href="/admin/dates/{{ r['id'] }}/edit">Редактировать</a>
       {% if r['share_token'] %}
+      <a class="btn small open-date" href="/d/{{ r['share_token'] }}" target="_blank" rel="noopener">Открыть</a>
       <button type="button" class="btn small" data-copy="{{ BASE_URL }}/d/{{ r['share_token'] }}">🔗 Поделиться</button>
       {% endif %}
       <div class="menu-wrap">
@@ -210,6 +214,7 @@
 <script nonce="{{ csp_nonce }}">
 (function () {
   if (window.UI && UI.cardMenu) UI.cardMenu(document);
+  if (window.UI && UI.glassTabs) UI.glassTabs(document.querySelector('.tabs'));
 
   // переключатель вида: cookie + перезагрузка (SSR сразу рисует нужный вид)
   var tog = document.getElementById('viewtog');

@@ -495,21 +495,49 @@ label.chk {
   word-break: break-all;
 }
 
-.tabs { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+/* вкладки-капсулы со «скользящим стеклом»: трек — матовое стекло, активная
+   вкладка подсвечена общим индикатором .tab-ind, который перетекает между
+   вкладками (см. UI.glassTabs в ui.js). flex-wrap отключаем — индикатор
+   считает позиции в одну строку; на узких экранах трек горизонтально скроллится. */
+.tabs {
+  position: relative;
+  display: inline-flex; gap: 4px; margin-bottom: 14px;
+  padding: 4px; border-radius: 999px;
+  background: rgba(255, 255, 255, .5);
+  border: 1px solid rgba(255, 255, 255, .65);
+  -webkit-backdrop-filter: blur(10px) saturate(1.5);
+  backdrop-filter: blur(10px) saturate(1.5);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .7), 0 4px 14px rgba(150, 80, 95, .1);
+  max-width: 100%; overflow-x: auto; scrollbar-width: none;
+}
+.tabs::-webkit-scrollbar { display: none; }
 
 .tabs a {
-  padding: 7px 14px;
+  position: relative; z-index: 1;
+  padding: 8px 16px;
   border-radius: 999px;
-  border: 1px solid var(--line);
+  border: 0;
   text-decoration: none;
   color: var(--ink);
-  font-size: 14px;
-  background: #fff;
+  font-size: 14px; white-space: nowrap;
+  background: transparent;
+  transition: color .25s var(--ease);
 }
+.tabs a.on { color: #fff; }
 
-.tabs a.on { background: var(--ink); color: #fff; border-color: var(--ink); }
-
-.tabs a.on .pill { background: #fff; color: var(--ink); }
+/* скользящий стеклянный индикатор активной вкладки */
+.tabs .tab-ind {
+  position: absolute; top: 4px; left: 0; z-index: 0;
+  height: calc(100% - 8px); width: 0;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--rose), var(--rose-2));
+  box-shadow: 0 5px 14px rgba(150, 70, 85, .34), inset 0 1px 0 rgba(255, 255, 255, .3);
+  transform: translateX(0);
+  transition: transform .42s cubic-bezier(.34, 1.3, .5, 1), width .42s cubic-bezier(.34, 1.3, .5, 1);
+  will-change: transform, width;
+  pointer-events: none;
+}
+.tabs.no-anim .tab-ind { transition: none; }
 
 .actions-cell { display: flex; gap: 6px; flex-wrap: wrap; }
 
@@ -804,8 +832,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   box-shadow: 0 0 0 3px rgba(182, 95, 111, .16);
 }
 
-.tabs a.on { background: #b65f6f; border-color: #b65f6f; color: #fff; }
-.tabs a.on .pill { background: #fff; color: #8f4a58; }
+.tabs a.on .pill { background: rgba(255, 255, 255, .35); color: #fff; }
 .pill { background: #b65f6f; }
 
 .flash { border-radius: 12px; box-shadow: 0 6px 18px rgba(120, 70, 80, .1); }
@@ -1063,9 +1090,8 @@ input, textarea, select {
 }
 .savebar .autosave { font-size: 12px; color: var(--muted); margin-left: auto; }
 .savebar .btn.primary {
-  flex: 1; min-width: 160px;
   font-size: 15px; font-weight: 600; letter-spacing: .01em;
-  padding: 9px 20px; border-radius: 12px;
+  padding: 9px 26px; border-radius: 12px;
   box-shadow: 0 8px 20px rgba(150, 70, 85, .4);
 }
 .savebar .btn.primary::before { content: "💾 "; }
@@ -1073,6 +1099,11 @@ input, textarea, select {
 .savebar .btn.ghost {
   font-size: 15px; font-weight: 600; letter-spacing: .01em;
   padding: 9px 20px; border-radius: 12px; text-align: center;
+}
+/* на телефоне кнопки растягиваем во всю ширину для удобного тапа */
+@media (max-width: 560px) {
+  .savebar .btn.primary { flex: 1; }
+  .savebar .btn.ghost { flex: none; }
 }
 .btn.ghost {
   background: rgba(255, 255, 255, .6);
@@ -1219,6 +1250,14 @@ input, textarea, select {
   transition: background .15s, border-color .15s;
 }
 .dcard:hover .edit-hint { background: var(--rose-soft); border-color: var(--rose); }
+/* «Открыть» в подвале карточки — компактная кнопка над оверлей-ссылкой */
+.dcard .foot .open-date {
+  flex: none; position: relative; z-index: 3;
+  padding: 8px 12px; border-radius: 10px; font-weight: 600;
+  background: rgba(255, 255, 255, .7); border: 1px solid var(--line); color: var(--rose-2);
+  text-decoration: none; transition: background .15s, border-color .15s;
+}
+.dcard .foot .open-date:hover { background: var(--rose-soft); border-color: var(--rose); }
 .menu-wrap { position: relative; flex: none; }
 .more {
   width: 36px; height: 36px; border-radius: 10px;
@@ -1321,17 +1360,19 @@ input, textarea, select {
   .qr-share { display: inline-block; }
 }
 
-/* мини-превью ссылки «как увидит она при отправке» (в духе карточки мессенджера) */
+/* мини-превью ссылки «как увидит она при отправке» — карточка мессенджера:
+   широкая картинка (1.91:1, как og:image) сверху, текст под ней */
 .og-preview {
-  display: flex; align-items: stretch;
+  display: flex; flex-direction: column;
   margin-top: 14px; max-width: 380px;
   border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
   background: rgba(255, 255, 255, .7);
 }
 .og-preview .og-img {
-  width: 84px; height: 84px; object-fit: cover; flex: none; display: block;
+  width: 100%; aspect-ratio: 1200 / 630; height: auto;
+  object-fit: cover; display: block; background: #f5edef;
 }
-.og-preview .og-text { padding: 10px 12px; min-width: 0; align-self: center; }
+.og-preview .og-text { padding: 10px 12px; min-width: 0; }
 .og-preview .og-title {
   font-weight: 600; font-size: 14px; color: var(--ink);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -1343,10 +1384,30 @@ input, textarea, select {
 .og-preview .og-host {
   font-size: 11.5px; color: var(--muted); margin-top: 4px; text-transform: lowercase;
 }
-/* выбор картинки превью ссылки */
-.og-pick { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--muted); }
-.og-pick .og-pick-label { font-weight: 600; color: var(--ink); }
-.og-pick input[type=file] { font-size: 13px; }
+/* подпись поля и зона выбора картинки превью (drag-drop как у свиданий) */
+.field-label { display: block; font-weight: 600; color: var(--ink); font-size: 14px; margin-top: 4px; }
+.field-label .muted { font-weight: 400; }
+.og-zone { margin-top: 2px; }
+.og-zone .dz-ico { font-size: 20px; }
+/* кнопка «Сохранить» в редакторе категории — заметная, не во всю ширину */
+.cat-save { margin-top: 4px; }
+.cat-save .btn.primary { font-size: 15px; font-weight: 600; padding: 9px 26px; }
+
+/* закрываемое предупреждение про перегенерацию ссылки */
+.og-warn {
+  display: flex; align-items: flex-start; gap: 10px;
+  margin: 2px 0 0; padding: 10px 12px;
+  background: #fff7ed; border: 1px solid #f3dcb4; border-radius: 12px;
+  font-size: 12.8px; color: #8a5a1a; line-height: 1.45;
+}
+.og-warn-ic { flex: none; font-size: 14px; line-height: 1.4; }
+.og-warn-text { flex: 1; min-width: 0; }
+.og-warn-text b { color: #6b440f; }
+.og-warn-x {
+  flex: none; border: 0; background: none; cursor: pointer;
+  color: #b58a4a; font-size: 14px; line-height: 1; padding: 2px 4px; border-radius: 6px;
+}
+.og-warn-x:hover { background: rgba(180, 138, 74, .14); }
 
 /* ---------- дружелюбные пустые состояния ---------- */
 .empty-state {

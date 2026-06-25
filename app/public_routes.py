@@ -493,28 +493,32 @@ def public_owner_avatar(token: str, conn=Depends(get_db)):
 def public_og_image(token: str, conn=Depends(get_db)):
     """Картинка превью ссылки (og:image) — её запрашивают краулеры мессенджеров
     (Telegram, WhatsApp) без cookie, поэтому отдаём публично по активной ссылке.
-    Берём свою og_image категории; если её нет — первое фото активного свидания
-    этой категории; если и его нет — 404 (шаблон укажет /static/og.png)."""
+    Своя og_image категории в приоритете; иначе — коллаж из фото её свиданий
+    (сетка 2×2 или 4×2); если фото нет — 404 (шаблон укажет /static/og.png)."""
     cat = cat_by_token(conn, token)
     if not cat or not cat["link_enabled"]:
         raise HTTPException(404)
     fn = cat["og_image"]
-    if not fn:
-        # авто-превью: первое фото активного свидания категории
-        row = conn.execute(
-            "SELECT di.filename FROM date_categories dc "
-            "JOIN dates d ON d.id=dc.date_id "
-            "JOIN date_images di ON di.date_id=d.id "
-            "WHERE dc.category_id=? AND d.archived_at IS NULL AND d.is_draft=0 "
-            "ORDER BY dc.position ASC, di.position ASC, di.id ASC LIMIT 1",
-            (cat["id"],)).fetchone()
-        fn = row["filename"] if row else None
-    if not fn or not images.SAFE_FILENAME.match(fn):
+    if fn:
+        if not images.SAFE_FILENAME.match(fn):
+            raise HTTPException(404)
+        path = images.UPLOAD_DIR / fn
+        if not path.exists():
+            raise HTTPException(404)
+        return FileResponse(path, media_type="image/webp",
+                            headers={"Cache-Control": "public, max-age=3600"})
+    # своей картинки нет — собираем коллаж из фото активных свиданий категории
+    rows = conn.execute(
+        "SELECT di.filename FROM date_categories dc "
+        "JOIN dates d ON d.id=dc.date_id "
+        "JOIN date_images di ON di.date_id=d.id "
+        "WHERE dc.category_id=? AND d.archived_at IS NULL AND d.is_draft=0 "
+        "ORDER BY dc.position ASC, di.position ASC, di.id ASC LIMIT 8",
+        (cat["id"],)).fetchall()
+    collage = images.build_og_collage([r["filename"] for r in rows])
+    if not collage:
         raise HTTPException(404)
-    path = images.UPLOAD_DIR / fn
-    if not path.exists():
-        raise HTTPException(404)
-    return FileResponse(path, media_type="image/webp",
+    return FileResponse(collage, media_type="image/webp",
                         headers={"Cache-Control": "public, max-age=3600"})
 
 
@@ -624,6 +628,16 @@ def date_by_share(conn, token: str):
         "SELECT * FROM dates WHERE share_token=?", (token,)).fetchone()
 
 
+def share_action_cat(conn, d):
+    """Категория-контекст для действий гостя по share-ссылке: первая активная
+    категория свидания (брони/вопросы привязаны к категории). None, если
+    свидание ни в одной категории (тогда выбор недоступен, остаётся «сохранить»)."""
+    return conn.execute(
+        "SELECT c.* FROM categories c JOIN date_categories dc ON dc.category_id=c.id "
+        "WHERE dc.date_id=? AND c.link_enabled=1 ORDER BY dc.position LIMIT 1",
+        (d["id"],)).fetchone()
+
+
 @router.get("/d/{token}", response_class=HTMLResponse)
 def shared_date(token: str, request: Request, conn=Depends(get_db)):
     d = date_by_share(conn, token)
@@ -632,17 +646,156 @@ def shared_date(token: str, request: Request, conn=Depends(get_db)):
     me = viewer(request, conn)
     owner = users.get_user(conn, d["owner_id"])
     owner_name = (owner["display_name"] or owner["tg_username"] or "Автор") if owner else "Автор"
-    payload = date_payload(conn, d)
     is_mine = bool(me and me["id"] == d["owner_id"])
+
+    payload = date_payload(conn, d)
+    # гостю (не автору) показываем полноценную карточку с действиями. Контекст
+    # выбора — первая активная категория свидания; без неё выбор недоступен.
+    act_cat = None if is_mine else share_action_cat(conn, d)
+    guest = guest_name = None
+    if me and not is_mine:
+        guest, guest_name = ensure_guest_name(conn, me)
+        conn.commit()
+
+    payload["pending"] = False
+    payload["past"] = bool(d["archived_at"])
+    payload["editable"] = False
+    payload["booked_by_me"] = False
+    payload["booked_others_list"] = []
+    payload["booked_others"] = ""
+    payload["my_questions"] = []
+    if act_cat:
+        entries = _booking_rows(conn, act_cat["id"])
+        mine = [e for e in entries if e["date_id"] == d["id"] and e["guest_token"] == guest]
+        others = [e["name"] for e in entries
+                  if e["date_id"] == d["id"] and e["guest_token"] != guest]
+        payload["booked_by_me"] = bool(mine)
+        payload["booked_others_list"] = others
+        payload["booked_others"] = ", ".join(others)
+        if guest:
+            payload["my_questions"] = conn.execute(
+                "SELECT text, answer FROM questions WHERE date_id=? AND guest_token=? "
+                "ORDER BY created_at", (d["id"], guest)).fetchall()
+    if not payload["past"] and d["starts_at"]:
+        payload["gcal"] = fmt_gcal(d["name"], d["starts_at"], d["ends_at"],
+                                   d["place"], d["comment"],
+                                   [l["url"] for l in payload["links"]])
+
     resp = templates.TemplateResponse(request, "public/share.html", {
         "d": payload,
         "token": token,
         "me": me,
+        "guest_name": guest_name,
         "owner_name": owner_name,
         "is_mine": is_mine,
+        "can_act": bool(act_cat),     # доступны ли выбор/вопрос (есть категория)
+        "bot": auth_routes.BOT_USERNAME,
     })
     resp.headers["X-Robots-Tag"] = "noindex"
     return resp
+
+
+def _share_act_or_410(conn, token: str):
+    """Свидание по share-токену + его категория-контекст для действий.
+    410, если ссылки нет; 409-логику (нет категории) обрабатывает вызывающий."""
+    d = date_by_share(conn, token)
+    if not d:
+        raise HTTPException(404, "Свидание не найдено")
+    return d, share_action_cat(conn, d)
+
+
+@router.post("/d/{token}/book")
+def shared_date_book(token: str, request: Request, bg: BackgroundTasks,
+                     conn=Depends(get_db)):
+    """Выбор свидания по share-ссылке. Контекст — первая активная категория
+    свидания (как на странице категории). Автор своё свидание не «выбирает»."""
+    d, cat = _share_act_or_410(conn, token)
+    if not cat:
+        raise HTTPException(400, "Это свидание пока нельзя выбрать")
+    user = acting_user(request, conn)
+    if user["id"] == d["owner_id"]:
+        raise HTTPException(400, "Это твоё свидание")
+    guest, name = ensure_guest_name(conn, user)
+    guest_throttle("book", guest, request)
+
+    mine = conn.execute(
+        "SELECT id FROM bookings WHERE date_id=? AND category_id=? AND guest_token=?",
+        (d["id"], cat["id"], guest)).fetchone()
+    if mine:
+        conn.execute("DELETE FROM bookings WHERE id=?", (mine["id"],))
+        booked = False
+        card = notify.card("🤍 Выбор отменён", f"«{esc(d['name'])}»", f"Кто: {esc(name)}")
+        notify_owner(bg, conn, d["owner_id"], card)
+        notify_admin(bg, conn, d["owner_id"], card)
+    else:
+        holder = conn.execute("SELECT guest_token FROM bookings WHERE date_id=?",
+                              (d["id"],)).fetchone()
+        if holder and holder["guest_token"] != guest:
+            raise HTTPException(409, "Уже выбрано ♥")
+        try:
+            conn.execute(
+                "INSERT INTO bookings(date_id, category_id, guest_token, user_id, created_at) "
+                "VALUES(?,?,?,?,?)", (d["id"], cat["id"], guest, user["id"], now_iso()))
+        except sqlite3.IntegrityError:
+            conn.rollback()
+            raise HTTPException(409, "Только что заняли это свидание — обнови страницу ♥")
+        booked = True
+        card = notify.card("💝 Новый выбор", f"«{esc(d['name'])}»", f"Кто: {esc(name)}")
+        notify_owner(bg, conn, d["owner_id"], card)
+        notify_admin(bg, conn, d["owner_id"], card)
+    conn.commit()
+    return JSONResponse({"ok": True, "booked": booked, "name": name})
+
+
+@router.post("/d/{token}/question")
+def shared_date_question(token: str, request: Request, bg: BackgroundTasks,
+                         text: str = Form(...), conn=Depends(get_db)):
+    """Вопрос по свиданию с share-ссылки. category_id берём из активной категории
+    (колонка nullable — но контекст полезен автору)."""
+    d, cat = _share_act_or_410(conn, token)
+    user = acting_user(request, conn)
+    guest, name = ensure_guest_name(conn, user)
+    guest_throttle("question", guest, request)
+    text = clean_text(text, 2000, "Вопрос", required=True)
+    conn.execute(
+        "INSERT INTO questions(date_id, category_id, guest_token, user_id, text, created_at) "
+        "VALUES(?,?,?,?,?,?)",
+        (d["id"], cat["id"] if cat else None, guest, user["id"], text, now_iso()))
+    conn.commit()
+    card = notify.card("❓ Новый вопрос", f"«{esc(d['name'])}»",
+                       f"Кто: {esc(name)}", f"\n{esc(text)}",
+                       f"\n{BASE_URL}/admin/questions")
+    notify_owner(bg, conn, d["owner_id"], card)
+    notify_admin(bg, conn, d["owner_id"], card)
+    return JSONResponse({"ok": True})
+
+
+@router.post("/d/{token}/suggest_time")
+def shared_date_suggest(token: str, request: Request, bg: BackgroundTasks,
+                        starts_at: str = Form(""), ends_at: str = Form(""),
+                        conn=Depends(get_db)):
+    """Гость предлагает время для свидания без даты по share-ссылке."""
+    d, cat = _share_act_or_410(conn, token)
+    user = acting_user(request, conn)
+    guest, name = ensure_guest_name(conn, user)
+    guest_throttle("question", guest, request)
+    if d["starts_at"]:
+        raise HTTPException(400, "У этого свидания уже назначено время")
+    starts, ends = normalize_period(parse_dt_local(starts_at), parse_dt_local(ends_at))
+    if not starts:
+        raise HTTPException(400, "Выбери хотя бы дату и время начала")
+    text = "📅 Предлагаю назначить: " + fmt_when(starts, ends)
+    conn.execute(
+        "INSERT INTO questions(date_id, category_id, guest_token, user_id, text, "
+        "suggest_starts, suggest_ends, created_at) VALUES(?,?,?,?,?,?,?,?)",
+        (d["id"], cat["id"] if cat else None, guest, user["id"], text, starts, ends, now_iso()))
+    conn.commit()
+    card = notify.card("📅 Предложено время", f"«{esc(d['name'])}»",
+                       f"Кто: {esc(name)}", f"Когда: {fmt_when(starts, ends)} (мск)",
+                       f"\n{BASE_URL}/admin/questions")
+    notify_owner(bg, conn, d["owner_id"], card)
+    notify_admin(bg, conn, d["owner_id"], card)
+    return JSONResponse({"ok": True})
 
 
 @router.get("/d/{token}/image/{filename}")
@@ -749,7 +902,20 @@ def public_ics(token: str, date_id: int, conn=Depends(get_db)):
     d = date_in_category(conn, cat["id"], date_id)
     if not d or not d["starts_at"]:
         raise HTTPException(404, "У этого свидания нет даты")
+    return _ics_response(conn, d, f"date-{d['id']}-{cat['id']}@{DOMAIN}")
 
+
+@router.get("/d/{token}/ics")
+def shared_ics(token: str, conn=Depends(get_db)):
+    """Календарь для свидания по share-ссылке."""
+    d = date_by_share(conn, token)
+    if not d or not d["starts_at"]:
+        raise HTTPException(404, "У этого свидания нет даты")
+    return _ics_response(conn, d, f"date-{d['id']}-share@{DOMAIN}")
+
+
+def _ics_response(conn, d, uid: str) -> Response:
+    """Собирает .ics-файл для одного свидания (общий код для /c и /d)."""
     start = _parse(d["starts_at"]).replace(tzinfo=MSK)
     end = (_parse(d["ends_at"]).replace(tzinfo=MSK) if d["ends_at"]
            else start + timedelta(hours=2))
@@ -759,12 +925,12 @@ def public_ics(token: str, date_id: int, conn=Depends(get_db)):
     if d["comment"]:
         desc_parts.append(d["comment"])
     desc_parts += [r["url"] for r in conn.execute(
-        "SELECT url FROM date_links WHERE date_id=? ORDER BY position, id", (date_id,))]
+        "SELECT url FROM date_links WHERE date_id=? ORDER BY position, id", (d["id"],))]
 
     lines = [
         "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//date4you//RU",
         "CALSCALE:GREGORIAN", "METHOD:PUBLISH", "BEGIN:VEVENT",
-        f"UID:date-{d['id']}-{cat['id']}@{DOMAIN}",
+        f"UID:{uid}",
         "DTSTAMP:" + datetime.now(timezone.utc).strftime(f),
         "DTSTART:" + start.astimezone(timezone.utc).strftime(f),
         "DTEND:" + end.astimezone(timezone.utc).strftime(f),
@@ -779,7 +945,7 @@ def public_ics(token: str, date_id: int, conn=Depends(get_db)):
     body = "\r\n".join(_ics_fold(l) for l in lines) + "\r\n"
     return Response(body, media_type="text/calendar; charset=utf-8",
                     headers={"Content-Disposition":
-                             f'attachment; filename="date-{date_id}.ics"'})
+                             f'attachment; filename="date-{d["id"]}.ics"'})
 
 
 # ---------------------------------------------------------------------------

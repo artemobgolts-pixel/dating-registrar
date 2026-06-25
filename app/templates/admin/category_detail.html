@@ -20,14 +20,17 @@
     <input name="og_desc" maxlength="200" placeholder="Открой — внутри кое-что приятное"
            value="{{ cat['og_desc'] or '' }}">
 
-    <label class="og-pick">
-      <span class="og-pick-label">🖼 Картинка превью
-        {% if not cat['og_image'] %}<span class="muted">({{ 'сейчас — фото из свиданий' if auto_og else 'сейчас стандартная' }})</span>{% endif %}</span>
-      <input type="file" name="og_image" accept="image/*">
-    </label>
+    <label class="field-label">🖼 Картинка превью
+      {% if not cat['og_image'] %}<span class="muted">({{ 'сейчас — коллаж из фото свиданий' if auto_og else 'сейчас стандартная' }})</span>{% endif %}</label>
+    <div class="dropzone og-zone" id="ogZone">
+      <div class="dz-ico">🖼</div>
+      <div class="dz-hint">нажми или перетащи картинку превью</div>
+      <input type="file" name="og_image" id="ogInput" accept="image/*">
+      <div class="ptiles" id="ogTiles"></div>
+    </div>
 
     <div class="og-preview" aria-label="так ссылка выглядит при отправке">
-      <img class="og-img" src="{% if cat['og_image'] %}/admin/uploads/{{ cat['og_image'] }}{% elif auto_og %}/admin/uploads/{{ auto_og }}{% else %}/static/og.png{% endif %}" alt="">
+      <img class="og-img" id="ogPreviewImg" src="{% if cat['og_image'] or auto_og %}/admin/categories/{{ cat['id'] }}/og-preview{% else %}/static/og.png{% endif %}" alt="">
       <div class="og-text">
         <div class="og-title">{{ cat['og_title'] or 'Тебя ждёт сюрприз ♥' }}</div>
         <div class="og-desc">{{ cat['og_desc'] or 'Открой — внутри кое-что приятное' }}</div>
@@ -35,12 +38,14 @@
       </div>
     </div>
 
-    <p class="muted og-note" style="margin:2px 0 0;font-size:12.5px">
-      ⚠ Если ты уже отправлял(а) ссылку, мессенджеры запомнили старое превью.
-      Чтобы получатели увидели новое — <b>перегенерируй ссылку</b> ниже.
-    </p>
+    <div class="og-warn" role="alert">
+      <span class="og-warn-ic" aria-hidden="true">⚠</span>
+      <span class="og-warn-text">Если ты уже отправлял(а) ссылку, мессенджеры запомнили старое превью.
+        Чтобы получатели увидели новое — <b>перегенерируй ссылку</b> ниже.</span>
+      <button type="button" class="og-warn-x" data-dismiss aria-label="Закрыть">✕</button>
+    </div>
 
-    <div><button class="btn primary">Сохранить</button></div>
+    <div class="cat-save"><button class="btn primary">Сохранить</button></div>
   </form>
 
   {% if cat['og_image'] %}
@@ -57,7 +62,7 @@
   {% if cat['link_enabled'] %}
   <div class="linkbox" style="margin-top:10px">
     <code class="copy-code" data-copy='{{ BASE_URL }}/c/{{ cat['link_token'] }}' title="Нажми, чтобы скопировать">{{ BASE_URL }}/c/{{ cat['link_token'] }} <span class="copy-ico" aria-hidden="true">📋</span></code>
-    <a class="btn small" href="/c/{{ cat['link_token'] }}" target="_blank" rel="noopener">Открыть</a>
+    <a class="btn small primary" href="/c/{{ cat['link_token'] }}" target="_blank" rel="noopener">Открыть</a>
   </div>
   {% else %}
   <p class="muted" style="margin:10px 0 0">Ссылка отключена — страница недоступна.</p>
@@ -65,12 +70,12 @@
   <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
     <form class="inline" method="post" action="/admin/categories/{{ cat['id'] }}/toggle">
       <input type="hidden" name="csrf" value="{{ csrf }}">
-      <button class="btn small">{{ 'Отключить ссылку' if cat['link_enabled'] else 'Включить ссылку' }}</button>
+      <button class="btn small ghost">{{ 'Отключить ссылку' if cat['link_enabled'] else 'Включить ссылку' }}</button>
     </form>
     <form class="inline" method="post" action="/admin/categories/{{ cat['id'] }}/regenerate"
           data-confirm="Сгенерировать новую ссылку? Старая перестанет работать, но все брони и вопросы сохранятся.">
       <input type="hidden" name="csrf" value="{{ csrf }}">
-      <button class="btn small">Перегенерировать</button>
+      <button class="btn small ghost">↻ Перегенерировать</button>
     </form>
   </div>
 </div>
@@ -142,7 +147,7 @@
       <option value="" disabled selected>Добавить существующее свидание…</option>
       {% for a in attachable %}<option value="{{ a['id'] }}">{{ a['name'] }}</option>{% endfor %}
     </select>
-    <button class="btn">Добавить</button>
+    <button class="btn primary">Добавить</button>
   </form>
   {% endif %}
 </div>
@@ -159,20 +164,43 @@
 {% block scripts %}
 <script nonce="{{ csp_nonce }}">
 (function () {
+  if (!window.UI) return;
+
+  // drag-drop выбор картинки превью (как в редакторе свидания, но одно фото).
+  // Живо обновляем мини-превью ссылки выбранным файлом.
+  var ogZone = document.getElementById('ogZone');
+  var ogInput = document.getElementById('ogInput');
+  var ogImg = document.getElementById('ogPreviewImg');
+  if (ogZone && ogInput && UI.uploader) {
+    UI.uploader({
+      zone: ogZone,
+      input: ogInput,
+      preview: document.getElementById('ogTiles'),
+      max: 1,
+      keptCount: function () { return 0; },
+      kind: 'image',
+      onChange: function (files) {
+        if (ogImg && files && files.length) ogImg.src = URL.createObjectURL(files[0]);
+      }
+    });
+  }
+
+  // порядок свиданий в категории (drag-and-drop)
   var tb = document.getElementById('catRows');
-  if (!tb || !window.UI) return;
-  UI.sortable(tb, { selector: 'tr.drag-row', onChange: function () {
-    var order = Array.prototype.map.call(
-      tb.querySelectorAll('tr.drag-row'),
-      function (t) { return t.dataset.did; }).join(',');
-    var fd = new FormData();
-    fd.append('csrf', '{{ csrf }}');
-    fd.append('order', order);
-    fetch('/admin/categories/' + tb.dataset.cid + '/dates_reorder',
-          { method: 'POST', body: fd })
-      .then(function (r) { if (!r.ok) alert('Не удалось сохранить порядок'); })
-      .catch(function () { alert('Нет связи — порядок не сохранён'); });
-  }});
+  if (tb) {
+    UI.sortable(tb, { selector: 'tr.drag-row', onChange: function () {
+      var order = Array.prototype.map.call(
+        tb.querySelectorAll('tr.drag-row'),
+        function (t) { return t.dataset.did; }).join(',');
+      var fd = new FormData();
+      fd.append('csrf', '{{ csrf }}');
+      fd.append('order', order);
+      fetch('/admin/categories/' + tb.dataset.cid + '/dates_reorder',
+            { method: 'POST', body: fd })
+        .then(function (r) { if (!r.ok) alert('Не удалось сохранить порядок'); })
+        .catch(function () { alert('Нет связи — порядок не сохранён'); });
+    }});
+  }
 })();
 </script>
 {% endblock %}

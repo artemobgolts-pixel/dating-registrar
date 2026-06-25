@@ -531,22 +531,49 @@ def category_detail(cid: int, request: Request, conn=Depends(get_db)):
         "SELECT id, name FROM dates WHERE owner_id=? AND archived_at IS NULL AND id NOT IN "
         "(SELECT date_id FROM date_categories WHERE category_id=?) ORDER BY created_at DESC",
         (cat["owner_id"], cid)).fetchall()
-    # авто-превью ссылки: если своей картинки нет, берём первое фото активного
-    # свидания этой категории (для дефолтного OG-превью вместо иконки).
-    auto_og = None
+    # авто-превью ссылки: если своей картинки нет, показываем коллаж из фото
+    # свиданий этой категории (тот же, что уйдёт в og:image). Здесь — только
+    # флаг наличия; саму картинку отдаёт /admin/categories/{cid}/og-preview.
+    auto_og = False
     if not cat["og_image"]:
-        row = conn.execute(
-            "SELECT di.filename FROM date_categories dc "
+        auto_og = conn.execute(
+            "SELECT 1 FROM date_categories dc "
             "JOIN dates d ON d.id=dc.date_id "
             "JOIN date_images di ON di.date_id=d.id "
-            "WHERE dc.category_id=? AND d.archived_at IS NULL AND d.is_draft=0 "
-            "ORDER BY dc.position ASC, di.position ASC, di.id ASC LIMIT 1",
-            (cid,)).fetchone()
-        auto_og = row["filename"] if row else None
+            "WHERE dc.category_id=? AND d.archived_at IS NULL AND d.is_draft=0 LIMIT 1",
+            (cid,)).fetchone() is not None
     return templates.TemplateResponse(
         request, "admin/category_detail.html",
         actx(request, conn, active="cats", cat=cat, dates=dates, attachable=attachable,
              auto_og=auto_og))
+
+
+@router.get("/categories/{cid}/og-preview")
+def category_og_preview(cid: int, request: Request, conn=Depends(get_db)):
+    """Коллаж-превью ссылки для редактора категории (когда своей картинки нет).
+    Та же сборка, что и публичный og:image, но за owner-гейтом."""
+    cat = _cat_or_404(conn, cid, request.state.user)
+    if cat["og_image"]:
+        # своя картинка — отдаём её (та же проверка владения, что в /uploads)
+        if not images.SAFE_FILENAME.match(cat["og_image"]):
+            raise HTTPException(404)
+        path = images.UPLOAD_DIR / cat["og_image"]
+        if not path.exists():
+            raise HTTPException(404)
+        return FileResponse(path, media_type="image/webp",
+                            headers={"Cache-Control": "private, max-age=300"})
+    rows = conn.execute(
+        "SELECT di.filename FROM date_categories dc "
+        "JOIN dates d ON d.id=dc.date_id "
+        "JOIN date_images di ON di.date_id=d.id "
+        "WHERE dc.category_id=? AND d.archived_at IS NULL AND d.is_draft=0 "
+        "ORDER BY dc.position ASC, di.position ASC, di.id ASC LIMIT 8",
+        (cid,)).fetchall()
+    collage = images.build_og_collage([r["filename"] for r in rows])
+    if not collage:
+        raise HTTPException(404)
+    return FileResponse(collage, media_type="image/webp",
+                        headers={"Cache-Control": "private, max-age=300"})
 
 
 @router.post("/categories/{cid}/rename")

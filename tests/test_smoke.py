@@ -1098,7 +1098,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     anon = TestClient(main.app, follow_redirects=False)
     pg = anon.get(f"/d/{stok}")
     assert pg.status_code == 200
-    assert "Поделюсь" in pg.text and "Войти и сохранить" in pg.text
+    assert "Поделюсь" in pg.text and 'href="/login?next=/d/' in pg.text
     assert "Сохранить к себе" not in pg.text
     assert pg.headers.get("x-robots-tag") == "noindex"
     # фото свидания отдаётся по share-ссылке
@@ -1108,12 +1108,24 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert anon.get("/d/нет-такого").status_code == 404
     assert anon.post("/d/нет-такого/add").status_code == 404
 
-    # пользователь B логинится, видит форму «Сохранить к себе»
+    # пользователь B логинится, видит карточку с «Выбрать» и форму «Сохранить к себе»
     cb = guest_client(700621, vtok, "Получатель")
     bp = cb.get(f"/d/{stok}")
     assert bp.status_code == 200
     assert f'action="/d/{stok}/add"' in bp.text and "Сохранить к себе" in bp.text
+    assert "Выбрать ♥" in bp.text                     # полноценный гостевой UI
     b_uid = db_one("SELECT id FROM users WHERE telegram_id=?", (700621,))["id"]
+
+    # B может выбрать свидание прямо со страницы шаринга (контекст — категория)
+    rb = cb.post(f"/d/{stok}/book")
+    assert rb.status_code == 200 and rb.json()["booked"] is True
+    assert db_one("SELECT 1 FROM bookings WHERE date_id=? AND user_id=?",
+                  (shared["id"], b_uid))
+    # повторный тап снимает выбор
+    rb = cb.post(f"/d/{stok}/book")
+    assert rb.status_code == 200 and rb.json()["booked"] is False
+    # автор своё же свидание выбрать не может
+    assert c.post(f"/d/{stok}/book").status_code == 400
 
     # добавляем себе → 303 в редактор нового свидания B
     r = cb.post(f"/d/{stok}/add")

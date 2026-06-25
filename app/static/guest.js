@@ -6,6 +6,10 @@
   const TOKEN = document.body.dataset.token;
   let MYNAME = document.body.dataset.name || "";
   const AUTH = document.body.dataset.auth === "1";   // залогинен ли посетитель
+  // База для действий: на странице категории — /c/<токен>, на странице
+  // отдельного свидания (шаринг) — /d/<токен>. Бэкенд там и там даёт
+  // совместимые ручки book/question/suggest_time.
+  const ACT = document.body.dataset.actionBase || ("/c/" + TOKEN);
 
   const $ = (s) => document.querySelector(s);
   const toastEl = $("#toast");
@@ -79,7 +83,7 @@
   async function doBook(btn) {
     const fd = new FormData();
     fd.append("date_id", btn.dataset.id);
-    const res = await post(`/c/${TOKEN}/book`, fd);
+    const res = await post(`${ACT}/book`, fd);
     if (!res.ok) return;
     const card = btn.closest(".card");
     const id = Number(btn.dataset.id);
@@ -115,7 +119,7 @@
   $("#askCancel").onclick = () => askDlg.close();
   askForm.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const res = await post(`/c/${TOKEN}/question`, new FormData(askForm));
+    const res = await post(`${ACT}/question`, new FormData(askForm));
     if (!res.ok) return;
     askDlg.close();
     toast("Вопрос отправлен 💌 Ответ появится здесь же");
@@ -136,7 +140,7 @@
   $("#reportCancel").onclick = () => reportDlg.close();
   reportForm.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const res = await post(`/c/${TOKEN}/report`, new FormData(reportForm));
+    const res = await post(`${ACT}/report`, new FormData(reportForm));
     if (!res.ok) return;
     reportDlg.close();
     toast("Спасибо, жалоба отправлена. Модератор проверит 🙏");
@@ -157,7 +161,7 @@
   $("#timeCancel").onclick = () => timeDlg.close();
   timeForm.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const res = await post(`/c/${TOKEN}/suggest_time`, new FormData(timeForm));
+    const res = await post(`${ACT}/suggest_time`, new FormData(timeForm));
     if (!res.ok) return;
     timeDlg.close();
     toast("Предложение отправлено 📅");
@@ -166,6 +170,9 @@
 
   /* --- предложение / редактирование ----------------------------------------*/
   const propDlg = $("#propDlg"), propForm = $("#propForm");
+  // Блок «предложить своё свидание» есть только на странице категории. На
+  // странице отдельного свидания (шаринг) этих элементов нет — пропускаем.
+  if (propDlg && propForm) {
   const propTiles = $("#propTiles");
   let editId = null, removed = new Set();
   let curVid = null, removedVid = false;
@@ -327,6 +334,7 @@
       setTimeout(() => location.reload(), 700);
     });
   });
+  }  /* /if (propDlg) — конец блока «предложить свидание» */
 
   /* --- календарь -------------------------------------------------------------*/
   const calDlg = $("#calDlg");

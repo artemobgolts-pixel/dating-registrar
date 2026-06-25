@@ -6,7 +6,7 @@
   <meta name="robots" content="noindex, nofollow">
   <title>{{ d.name }} · date4you</title>
   <meta property="og:title" content="Свидание: {{ d.name }}">
-  <meta property="og:description" content="Тебе предлагают свидание — открой и добавь себе ♥">
+  <meta property="og:description" content="Тебе предлагают свидание — открой ♥">
   <meta property="og:type" content="website">
   <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
   <link rel="manifest" href="/static/manifest.json">
@@ -29,7 +29,8 @@
     .share-from { color: var(--muted); font-size: 13.5px; }
   </style>
 </head>
-<body>
+<body data-token="{{ token }}" data-name="{{ guest_name or '' }}"
+      data-auth="{{ '1' if me else '' }}" data-action-base="/d/{{ token }}">
 
 <div class="bg-hearts" aria-hidden="true">
   <span>♥</span><span>♡</span><span>♥</span><span>♡</span><span>♥</span><span>♡</span><span>♥</span>
@@ -70,6 +71,10 @@
   </filter>
 </svg>
 
+{% if not me %}
+<button type="button" class="login-corner" id="loginOpen">Войти</button>
+{% endif %}
+
 <div class="wrap">
   <header class="hero">
     <h1>{{ d.name }}</h1>
@@ -78,10 +83,17 @@
   </header>
 
   <section class="cards">
-    <article class="card{% if not d.images and not d.videos %} nophoto{% endif %}">
+    <article class="card{% if d.booked_by_me %} booked-me{% elif d.booked_others_list %} booked-other{% endif %}{% if not d.images and not d.videos %} nophoto{% endif %}"
+             id="date-{{ d.id }}" data-others="{{ d.booked_others }}">
       {% if d.images or d.videos %}
       <div class="gal-wrap">
+        <div class="seal"{% if not d.booked_by_me %} hidden{% endif %}>♥</div>
         {% if d.pay_split %}<div class="badges"><span class="badge pay">{{ d.pay_split | pay_label }}</span></div>{% endif %}
+        <div class="booked-overlay" aria-hidden="true">
+          <div class="bo-inner"><span class="bo-heart">♥</span><span class="bo-text">Забронировано</span>
+            <span class="bo-who">{% if d.booked_by_me %}{{ guest_name or 'ты ♥' }}{% elif d.booked_others_list %}{{ d.booked_others_list[0] }}{% endif %}</span>
+          </div>
+        </div>
         <div class="gallery">
           {% for im in d.images %}
           <img src="/d/{{ token }}/image/{{ im['filename'] }}" alt=""
@@ -99,11 +111,31 @@
         {% if not d.images and not d.videos and d.pay_split %}
         <div class="badges inflow"><span class="badge pay">{{ d.pay_split | pay_label }}</span></div>
         {% endif %}
-        <h2 class="title">{{ d.name }}</h2>
+        <div class="title-row">
+          <h2 class="title">{{ d.name }}</h2>
+          {% if me and not is_mine %}
+          <button type="button" class="report-link" data-id="{{ d.id }}" data-name="{{ d.name }}">пожаловаться</button>
+          {% endif %}
+        </div>
+        {% if not d.images and not d.videos and (d.booked_by_me or d.booked_others_list) %}
+        <div class="status-chip{% if d.booked_by_me %} mine{% endif %}">
+          <span aria-hidden="true">♥</span>
+          <span>Забронировано{% if d.booked_by_me %} · {{ guest_name or 'ты' }}{% elif d.booked_others_list %} · {{ d.booked_others_list[0] }}{% endif %}</span>
+        </div>
+        {% endif %}
         <div class="meta">
           {% if d.starts_at %}
           <div class="when"><span aria-hidden="true">🕐</span>
             <span>{{ d.starts_at | when(d.ends_at) }}</span>
+            {% if d.gcal %}
+            <a href="#" class="cal-link" data-gcal="{{ d.gcal }}"
+               data-ics="/d/{{ token }}/ics">в календарь</a>
+            {% endif %}
+          </div>
+          {% elif can_act %}
+          <div class="when">
+            <button type="button" class="chip-suggest suggest"
+                    data-id="{{ d.id }}" data-name="{{ d.name }}">📅 предложить дату</button>
           </div>
           {% endif %}
           {% if d.place %}
@@ -116,6 +148,30 @@
         {% if d.links %}
         <div class="links">
           {% for l in d.links %}<a href="{{ l.url }}" target="_blank" rel="noopener">🔗 {{ l.url | host }}</a>{% endfor %}
+        </div>
+        {% endif %}
+
+        {% if not is_mine and can_act %}
+        <div class="actions">
+          {% if d.booked_by_me %}
+          <button class="btn book on" data-id="{{ d.id }}">Выбрано ♥</button>
+          {% elif d.booked_others_list %}
+          <button class="btn book" data-id="{{ d.id }}" disabled>Занято</button>
+          {% else %}
+          <button class="btn book" data-id="{{ d.id }}">Выбрать ♥</button>
+          {% endif %}
+          <button class="btn ghost ask" data-id="{{ d.id }}" data-name="{{ d.name }}">Спросить 💬</button>
+        </div>
+        {% endif %}
+        {% if d.my_questions %}
+        <div class="qa">
+          {% for q in d.my_questions %}
+          <div class="qa-item">
+            <div class="qa-q">{{ q.text }}</div>
+            {% if q.answer %}<div class="qa-a">{{ q.answer }}</div>
+            {% else %}<div class="qa-wait">пока без ответа…</div>{% endif %}
+          </div>
+          {% endfor %}
         </div>
         {% endif %}
       </div>
@@ -132,8 +188,8 @@
       <button type="submit" class="btn book">Сохранить к себе ♥</button>
     </form>
     {% else %}
-    <p>Войди, чтобы сохранить это свидание к себе.</p>
-    <a class="btn book" href="/login?next=/d/{{ token }}">Войти и сохранить</a>
+    <p>Войди, чтобы выбрать это свидание или сохранить к себе.</p>
+    <a class="btn book" href="/login?next=/d/{{ token }}">Войти</a>
     {% endif %}
   </div>
 
@@ -146,6 +202,137 @@
   </footer>
 </div>
 
+<!-- Вход прямо со страницы свидания (модалка с Telegram Login Widget) -->
+<dialog id="loginDlg" class="login-dlg">
+  <button type="button" class="dlg-x" id="loginClose" aria-label="Закрыть">✕</button>
+  <div class="login-dlg-head">
+    <div class="ld-heart" aria-hidden="true">♥</div>
+    <h3 class="dlg-head">Войти, чтобы выбрать свидание</h3>
+    <p class="dlg-sub">Вход через Telegram — быстро и без пароля&nbsp;♥</p>
+  </div>
+  {% if not bot %}
+    <div class="err">Вход через Telegram пока не настроен.</div>
+  {% else %}
+    <label class="consent">
+      <input type="checkbox" id="tg-consent" data-next="/d/{{ token }}">
+      <span>Я принимаю
+        <a href="/terms" target="_blank" rel="noopener">Пользовательское соглашение</a>
+        и <a href="/privacy" target="_blank" rel="noopener">Политику конфиденциальности</a>.</span>
+    </label>
+    <div id="tg-widget-wrap" hidden>
+      <script async src="https://telegram.org/js/telegram-widget.js?22"
+              data-telegram-login="{{ bot }}"
+              data-size="large"
+              data-auth-url="/auth/widget"></script>
+    </div>
+    <p class="login-hint" id="tg-widget-gate">Отметь согласие выше, чтобы войти.</p>
+    <div id="tg-error" class="err" hidden></div>
+  {% endif %}
+</dialog>
+
+<!-- Вопрос -->
+<dialog id="askDlg">
+  <h3 class="dlg-head">Спросить про «<span id="askTitle"></span>»</h3>
+  <p class="dlg-sub">Увидит только организатор — ответ появится прямо здесь&nbsp;♥</p>
+  <form id="askForm">
+    <input type="hidden" name="date_id" id="askDateId">
+    <div class="field">
+      <textarea name="text" id="askText" maxlength="2000" required
+                placeholder="Например: а можно прийти с пледом?"></textarea>
+    </div>
+    <div class="dlg-actions">
+      <button type="button" class="btn ghost" id="askCancel">Отмена</button>
+      <button type="submit" class="btn book">Отправить 💌</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Пожаловаться на контент -->
+<dialog id="reportDlg">
+  <h3 class="dlg-head">Пожаловаться на «<span id="reportTitle"></span>»</h3>
+  <p class="dlg-sub">Сообщите, если контент нарушает правила — модератор проверит.</p>
+  <form id="reportForm">
+    <input type="hidden" name="target_type" id="reportType">
+    <input type="hidden" name="target_id" id="reportTargetId">
+    <div class="field">
+      <textarea name="reason" id="reportReason" maxlength="1000"
+                placeholder="Что не так? (необязательно)"></textarea>
+    </div>
+    <div class="dlg-actions">
+      <button type="button" class="btn ghost" id="reportCancel">Отмена</button>
+      <button type="submit" class="btn book">Отправить жалобу</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Предложить время для свидания без даты -->
+<dialog id="timeDlg">
+  <h3 class="dlg-head">Когда удобно?</h3>
+  <p class="dlg-sub">Предложишь время для «<span id="timeTitle"></span>» — организатор увидит&nbsp;♥</p>
+  <form id="timeForm">
+    <input type="hidden" name="date_id" id="timeDateId">
+    <div class="field">
+      <div class="chips">
+        <button type="button" class="chip" data-day="today">Сегодня</button>
+        <button type="button" class="chip" data-day="tomorrow">Завтра</button>
+      </div>
+      <div class="chips">
+        <button type="button" class="chip" data-time="12:00">12:00</button>
+        <button type="button" class="chip" data-time="15:00">15:00</button>
+        <button type="button" class="chip" data-time="19:00">19:00</button>
+        <button type="button" class="chip" data-time="21:00">21:00</button>
+      </div>
+      <label class="alt-time" for="timeStart">или выбери другое время</label>
+      <input type="datetime-local" name="starts_at" id="timeStart" required>
+    </div>
+    <details class="endtime">
+      <summary>и время окончания</summary>
+      <div class="field">
+        <div class="chips">
+          <button type="button" class="chip" data-dur="1">+1 час</button>
+          <button type="button" class="chip" data-dur="2">+2 часа</button>
+          <button type="button" class="chip" data-dur="3">+3 часа</button>
+        </div>
+        <input type="datetime-local" name="ends_at" id="timeEnd">
+      </div>
+    </details>
+    <div class="dlg-actions">
+      <button type="button" class="btn ghost" id="timeCancel">Отмена</button>
+      <button type="submit" class="btn book">Предложить 📅</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- В календарь -->
+<dialog id="calDlg">
+  <h3 class="dlg-head">Добавить в календарь</h3>
+  <div class="cal-btns">
+    <a id="calGoogle" href="#" target="_blank" rel="noopener">
+      <span class="ico">🗓</span>
+      <span>Google Календарь<br><small>откроется страница добавления</small></span>
+    </a>
+    <a id="calIcs" href="#">
+      <span class="ico">📎</span>
+      <span>Файл .ics<br><small>Apple Calendar, Outlook и другие</small></span>
+    </a>
+  </div>
+  <div class="dlg-actions">
+    <button type="button" class="btn ghost" id="calCancel">Закрыть</button>
+  </div>
+</dialog>
+
+<div class="lightbox" id="lightbox">
+  <button class="lb-x" id="lbX" aria-label="Закрыть">✕</button>
+  <button class="lb-prev" id="lbPrev" aria-label="Предыдущее фото">‹</button>
+  <img alt="" decoding="async">
+  <button class="lb-next" id="lbNext" aria-label="Следующее фото">›</button>
+  <div class="lb-count" id="lbCount"></div>
+</div>
+<div class="toast" id="toast"></div>
+
 <script src="{{ asset('ink.js') }}" defer></script>
+<script src="{{ asset('ui.js') }}"></script>
+{% if not me %}<script nonce="{{ csp_nonce }}" src="{{ asset('auth.js') }}"></script>{% endif %}
+<script src="{{ asset('guest.js') }}" defer></script>
 </body>
 </html>
