@@ -317,6 +317,16 @@ def home():
     return RedirectResponse("/login", status_code=307)
 
 
+@router.head("/", include_in_schema=False)
+def home_head():
+    # UptimeRobot и прочие мониторинги по умолчанию проверяют доступность
+    # запросом HEAD. FastAPI не добавляет HEAD к GET-маршрутам сам, поэтому без
+    # этого обработчика HEAD / отвечает 405 и мониторинг считает сайт упавшим.
+    # Отдаём пустой 200 напрямую (а не редирект на /login, как делает GET): иначе
+    # монитор пойдёт за 307 на /login — тоже GET-only — и снова получит 405.
+    return Response(status_code=200)
+
+
 @router.get("/favicon.ico", include_in_schema=False)
 def favicon():
     return FileResponse("static/apple-touch-icon.png", media_type="image/png",
