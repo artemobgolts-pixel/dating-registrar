@@ -43,10 +43,31 @@
     });
   }
 
+  // --- общие для всех страниц кабинета: стеклянный индикатор главной навигации -
+  function initNav() {
+    // скользящий индикатор как у вкладок — только на ПК (на телефоне nav — это
+    // фиксированный нижний бар со скроллом, там индикатор неуместен)
+    if (!window.UI || !UI.glassTabs) return;
+    if (!window.matchMedia("(min-width: 721px)").matches) return;
+    UI.glassTabs(document.querySelector("nav.glass-nav"));
+  }
+
   // --- список свиданий: меню ⋯, стеклянные вкладки, переключатель вида -------
   function initDates() {
     if (window.UI && UI.cardMenu) UI.cardMenu(document);
     if (window.UI && UI.glassTabs) UI.glassTabs(document.querySelector(".tabs"));
+
+    // на телефоне — только карточки: если из cookie пришёл список, переключаем
+    // на карточки один раз (переключатель вида на мобиле скрыт из CSS)
+    var dlist = document.querySelector(".dlist");
+    if (dlist && window.matchMedia("(max-width: 720px)").matches &&
+        !sessionStorage.getItem("forcedCards")) {
+      sessionStorage.setItem("forcedCards", "1");
+      document.cookie = "layout=cards;path=/admin;max-age=31536000;samesite=lax";
+      if (window.Turbo && Turbo.visit) Turbo.visit(location.href, { action: "replace" });
+      else location.reload();
+      return;
+    }
 
     var tog = document.getElementById("viewtog");
     if (tog && !tog.dataset.ready) {
@@ -149,7 +170,6 @@
         status.style.visibility = "visible";
         setTimeout(function () { status.style.visibility = "hidden"; }, 1600);
       }
-      function pvCover() { return document.querySelector('[data-preview="cover"]'); }
       function saveOrder() {
         var order = Array.prototype.map.call(th.querySelectorAll(".thumb"),
           function (t) { return t.dataset.pid; }).join(",");
@@ -160,30 +180,37 @@
           .then(function (r) { r.ok ? flashStatus() : alert("Не удалось сохранить порядок — обнови страницу"); })
           .catch(function () { alert("Нет связи — порядок не сохранён"); });
       }
-      // тап (без перетаскивания) по фото → выбор зоны фокуса; вызывается из
-      // sortable.onTap, т.к. pointer capture при сортировке глотает обычный click
-      function pickFocus(thumb, e) {
-        var img = thumb.querySelector("img.focusable");
-        if (!img) return;
-        var rect = img.getBoundingClientRect();
-        if (!rect.width || !rect.height) return;
-        var x = Math.round(Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)) * 100);
-        var y = Math.round(Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height)) * 100);
-        var focus = x + "% " + y + "%";
-        img.style.objectPosition = focus;
-        img.dataset.focus = focus;
-        if (preview && thumb === th.querySelector(".thumb") && pvCover()) {
-          pvCover().style.objectPosition = focus;
-        }
-        var fd = new FormData();
-        fd.append("csrf", document.body.dataset.csrf);
-        fd.append("focus", focus);
-        fetch("/admin/dates/" + th.dataset.did + "/images/" + thumb.dataset.pid + "/focus",
-              { method: "POST", body: fd })
-          .then(function (r) { r.ok ? flashStatus("Зона фото сохранена ✓") : alert("Не удалось сохранить зону фокуса"); })
-          .catch(function () { alert("Нет связи — зона не сохранена"); });
+      // Блок «Медиа» теперь ТОЛЬКО меняет порядок (перетаскивание). Зона фокуса
+      // выбирается кликом по картинке в окне предпросмотра — см. ниже.
+      UI.sortable(th, { selector: ".thumb", onChange: saveOrder });
+
+      // первая плитка = обложка (её зону фокуса и правим в предпросмотре)
+      function firstThumb() { return th.querySelector(".thumb"); }
+
+      // выбор зоны фокуса прямо в предпросмотре свидания: клик по обложке →
+      // object-position в %, сохраняем для ПЕРВОЙ (обложечной) фотографии.
+      var pvCover = document.querySelector('[data-preview="cover"]');
+      if (pvCover) {
+        pvCover.classList.add("focus-pickable");
+        pvCover.addEventListener("click", function (e) {
+          var t = firstThumb(); if (!t) return;          // нет сохранённых фото — нечего фокусировать
+          var rect = pvCover.getBoundingClientRect();
+          if (!rect.width || !rect.height) return;
+          var x = Math.round(Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)) * 100);
+          var y = Math.round(Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height)) * 100);
+          var focus = x + "% " + y + "%";
+          pvCover.style.objectPosition = focus;
+          var timg = t.querySelector("img");
+          if (timg) { timg.style.objectPosition = focus; timg.dataset.focus = focus; }
+          var fd = new FormData();
+          fd.append("csrf", document.body.dataset.csrf);
+          fd.append("focus", focus);
+          fetch("/admin/dates/" + th.dataset.did + "/images/" + t.dataset.pid + "/focus",
+                { method: "POST", body: fd })
+            .then(function (r) { r.ok ? flashStatus("Зона обложки сохранена ✓") : alert("Не удалось сохранить зону фокуса"); })
+            .catch(function () { alert("Нет связи — зона не сохранена"); });
+        });
       }
-      UI.sortable(th, { selector: ".thumb", onChange: saveOrder, onTap: pickFocus });
     }
   }
 
@@ -317,6 +344,7 @@
   // Запускаем инициализаторы на каждой загрузке (в т.ч. после Turbo-перехода).
   // Каждый сам проверяет наличие своих элементов, поэтому безопасно звать все.
   function initPage() {
+    initNav();
     initDates();
     initDateForm();
     initCategory();

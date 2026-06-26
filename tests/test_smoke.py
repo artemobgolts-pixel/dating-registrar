@@ -750,9 +750,10 @@ with TestClient(main.app, follow_redirects=False) as c:
     page = ga.get(f"/c/{tok}").text
     assert "Ужин на крыше" in page
     card = re.search(r'<article[^>]*id="date-%d".*?</article>' % did, page, re.S).group(0)
-    assert "booked-overlay" in card and "Было" in card   # статус архива — оверлей «Было»
+    # архив, выбранный гостем: статус «Проведено с {автор}» вместо «Было»
+    assert "booked-overlay" in card and "Проведено с" in card
     assert 'class="card past"' in card                # карточка в общем списке
-    assert "было:" in card                            # выбор на память (архив)
+    assert "проведено с" in card                      # подпись-память под карточкой
     assert "Выбрать ♥" not in card                    # действий в архиве нет
     assert ga.get(f"/c/{tok}/image/{fn_did}").status_code == 200   # фото остаётся
     assert ga.get(f"/c/{tok}/ics/{did}").status_code == 404
@@ -1163,9 +1164,12 @@ with TestClient(main.app, follow_redirects=False) as c:
     refresh_csrf(c)                                # вернём CSRF владельцу A для след. блоков
     step("поделиться свиданием: /d/<токен> превью, добавить себе → копия активна, файлы скопированы, категории/брони не переносятся")
 
-    # ---------- Фича 1+2: кнопка «Открыть» на категории, «Выйти» в шапке ----------
+    # ---------- категории: ссылка-токен и шапка с «Выйти» ----------
     cats_page = c.get("/admin/categories").text
-    assert f'href="/c/{vtok}"' in cats_page and "Открыть" in cats_page
+    # кнопка «Открыть» на карточке категории убрана; ссылка копируется по data-copy,
+    # а сама карточка ведёт в детали категории (aria-label «Открыть …» — не кнопка)
+    assert f'/c/{vtok}' in cats_page and 'open-link' not in cats_page
+    assert 'class="cat-link"' in cats_page
     # «Выйти» теперь в шапке любой админ-страницы (форма POST /admin/logout)
     assert 'action="/admin/logout"' in cats_page and "Выйти" in cats_page
     # из профиля большая кнопка-логаут убрана

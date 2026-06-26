@@ -1,5 +1,6 @@
 {% extends "admin/base.html" %}
 {% block title %}{{ cat['name'] }}{% endblock %}
+{% block head %}<meta name="turbo-cache-control" content="no-cache">{% endblock %}
 {% block content %}
 <div class="bar">
   <h1 style="margin:0">{{ cat['name'] }}</h1>

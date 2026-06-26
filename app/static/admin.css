@@ -152,6 +152,43 @@ nav a.on {
 nav a.op-link { color: var(--rose-2); }
 nav a.op-link.on, nav a.on.op-link { color: #fff; }
 
+/* «жидкое стекло» для главной навигации (только ПК): вместо отдельных капсул —
+   единый матовый трек с перетекающим индикатором, как у вкладок свиданий.
+   На мобиле .glass-nav превращается в нижний бар (см. медиазапрос) — там этот
+   режим отключён. */
+@media (min-width: 721px) {
+  nav.glass-nav {
+    position: relative;
+    gap: 4px; padding: 4px; border-radius: 999px;
+    background: rgba(255, 255, 255, .5);
+    border: 1px solid rgba(255, 255, 255, .65);
+    -webkit-backdrop-filter: blur(10px) saturate(1.5);
+    backdrop-filter: blur(10px) saturate(1.5);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .7), 0 4px 14px rgba(150, 80, 95, .1);
+  }
+  nav.glass-nav a {
+    position: relative; z-index: 1;
+    border: 0; background: transparent; box-shadow: none;
+    -webkit-backdrop-filter: none; backdrop-filter: none;
+    transition: color .25s var(--ease), transform .15s;
+  }
+  nav.glass-nav a:hover { background: transparent; transform: none; color: var(--rose-2); }
+  nav.glass-nav a.on {
+    background: transparent; box-shadow: none; color: #fff;
+  }
+  nav.glass-nav .tab-ind {
+    position: absolute; top: 4px; left: 0; z-index: 0;
+    height: calc(100% - 8px); width: 0;
+    border-radius: 999px;
+    background: linear-gradient(135deg, var(--rose), var(--rose-2));
+    box-shadow: 0 5px 14px rgba(150, 70, 85, .34), inset 0 1px 0 rgba(255, 255, 255, .3);
+    transform: translateX(0);
+    transition: transform .42s cubic-bezier(.34, 1.3, .5, 1), width .42s cubic-bezier(.34, 1.3, .5, 1);
+    pointer-events: none;
+  }
+  nav.glass-nav.no-anim .tab-ind { transition: none; }
+}
+
 .pill {
   background: var(--accent);
   color: #fff;
@@ -1249,7 +1286,7 @@ input, textarea, select {
    под содержимым; интерактив (заголовок-ссылка, меню ⋯) поднят над ним. */
 .dcard-link { position: absolute; inset: 0; z-index: 1; border-radius: 18px; }
 .dcard .ph, .dcard .b { position: relative; }
-.dcard .ttl, .dcard .menu-wrap, .dcard .badges { position: relative; z-index: 3; }
+.dcard .ttl, .dcard .menu-wrap { position: relative; z-index: 3; }
 .dcard:hover .ttl a { color: var(--rose); }
 
 /* подвал карточки: подсказка «Редактировать» + меню ⋯ */
@@ -1360,6 +1397,22 @@ input, textarea, select {
   opacity: .5; transition: opacity .2s, transform .2s;
 }
 .cat-card:hover .cat-arrow { opacity: 1; transform: translateX(3px); }
+
+/* миниатюра превью ссылки в списке категорий: широкий кадр 1.91:1 слева,
+   содержимое справа. На узких экранах — картинка сверху, контент под ней. */
+.cat-card.has-thumb { display: flex; gap: 14px; align-items: stretch; }
+.cat-card .cat-thumb {
+  position: relative; z-index: 2; pointer-events: none;
+  width: 168px; flex: none; align-self: center;
+  aspect-ratio: 1200 / 630; object-fit: cover;
+  border-radius: 12px; background: #f5edef;
+  border: 1px solid var(--line);
+}
+.cat-card.has-thumb .cat-body { flex: 1; min-width: 0; }
+@media (max-width: 560px) {
+  .cat-card.has-thumb { flex-direction: column; gap: 10px; }
+  .cat-card .cat-thumb { width: 100%; align-self: stretch; }
+}
 
 @media (max-width: 640px) {
   /* на телефоне QR прячем за кнопкой «Показать QR-код» (экономим место),
@@ -1482,6 +1535,8 @@ input, textarea, select {
   -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
 }
 .pcard .photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* обложка в предпросмотре кликабельна для выбора зоны кадра (item 8) */
+.pcard .photo img.focus-pickable { cursor: crosshair; }
 
 /* ---------- вид «Список»: стеклянные строки ---------- */
 .dlist { display: flex; flex-direction: column; gap: 10px; }
@@ -1740,7 +1795,10 @@ input, textarea, select {
   /* фильтры списка свиданий: на телефоне переносим и не даём «уезжать» вбок */
   .controls .filters { flex-wrap: wrap; width: 100%; }
   .controls .filters select { flex: 1 1 auto; min-width: 0; }
-  .controls .tabs, .controls .viewtog { margin-left: 0; }
+  .controls .tabs { margin-left: 0; }
+  /* на телефоне только карточки: переключатель вида прячем, список (если вдруг
+     пришёл из cookie) показываем сеткой — admin.js дополнительно ставит cookie */
+  .controls .viewtog { display: none; }
 }
 
 /* ============================================================

@@ -455,6 +455,7 @@ def public_category(token: str, request: Request, conn=Depends(get_db)):
         "past": past,
         "guest": guest, "guest_name": guest_name,
         "me": me, "owner": owner,
+        "owner_name": owner_name,
         "owner_is_me": owner_is_me,
         # есть ли картинка для og:image — своя или авто (первое фото свидания).
         # Если да, мета-тег ведёт на /c/<токен>/og-image, иначе на /static/og.png.

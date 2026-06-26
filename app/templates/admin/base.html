@@ -20,6 +20,7 @@
 <script src="{{ asset('ui.js') }}" data-turbo-track="reload" defer></script>
 <script src="{{ asset('admin.js') }}" data-turbo-track="reload" defer></script>
 <script src="{{ asset('ink.js') }}" data-turbo-track="reload" defer></script>
+{% block head %}{% endblock %}
 </head>
 <body data-csrf="{{ csrf }}">
 <!-- Фон «растекающиеся чернила» — тот же WebGL-шейдер, что на гостевой и
@@ -68,7 +69,7 @@
 </svg>
 <header class="top">
   <a class="brand" href="/admin/">date<span class="d4">4</span>you</a>
-  <nav>
+  <nav class="glass-nav">
     <a href="/admin/" class="{{ 'on' if active == 'dash' else '' }}"><span class="ic" aria-hidden="true">🏠</span><span class="lb">Главная</span></a>
     <a href="/admin/categories" class="{{ 'on' if active == 'cats' else '' }}"><span class="ic" aria-hidden="true">🔗</span><span class="lb">Категории</span></a>
     <a href="/admin/dates" class="{{ 'on' if active == 'dates' else '' }}"><span class="ic" aria-hidden="true">💝</span><span class="lb">Свидания</span></a>

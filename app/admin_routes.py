@@ -472,7 +472,14 @@ async def import_json(request: Request, file: UploadFile = File(...),
 @router.get("/categories", response_class=HTMLResponse)
 def categories_list(request: Request, conn=Depends(get_db)):
     cats = conn.execute(
-        "SELECT c.*, (SELECT COUNT(*) FROM date_categories dc WHERE dc.category_id=c.id) AS dcount "
+        "SELECT c.*, "
+        "(SELECT COUNT(*) FROM date_categories dc WHERE dc.category_id=c.id) AS dcount, "
+        # есть ли превью ссылки: своя картинка ИЛИ хотя бы одно фото активного
+        # свидания категории (тогда соберётся коллаж). Для миниатюры в списке.
+        "(c.og_image IS NOT NULL OR EXISTS("
+        "  SELECT 1 FROM date_categories dc JOIN dates d ON d.id=dc.date_id "
+        "  JOIN date_images di ON di.date_id=d.id "
+        "  WHERE dc.category_id=c.id AND d.archived_at IS NULL AND d.is_draft=0)) AS has_og "
         "FROM categories c WHERE c.owner_id=? ORDER BY c.created_at DESC",
         (request.state.user["id"],)
     ).fetchall()

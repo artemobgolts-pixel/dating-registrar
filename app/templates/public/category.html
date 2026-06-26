@@ -122,8 +122,8 @@
       {% if not d.past %}<div class="seal"{% if not d.booked_by_me %} hidden{% endif %}>♥</div>{% endif %}
       {% if badges | trim %}<div class="badges">{{ badges }}</div>{% endif %}
       <div class="booked-overlay" aria-hidden="true">
-        <div class="bo-inner"><span class="bo-heart">{% if d.past %}✨{% else %}♥{% endif %}</span><span class="bo-text">{% if d.past %}Было{% else %}Забронировано{% endif %}</span>
-          <span class="bo-who">{% if d.booked_by_me %}{{ guest_name or 'ты ♥' }}{% elif d.booked_others_list %}{{ d.booked_others_list[0] }}{% endif %}</span>
+        <div class="bo-inner"><span class="bo-heart">{% if d.past %}✨{% else %}♥{% endif %}</span><span class="bo-text">{% if d.past %}{% if d.booked_by_me and owner_name and not owner_is_me %}Проведено с {{ owner_name }}{% else %}Было{% endif %}{% else %}Забронировано{% endif %}</span>
+          <span class="bo-who">{% if not d.past %}{% if d.booked_by_me %}{{ guest_name or 'ты ♥' }}{% elif d.booked_others_list %}{{ d.booked_others_list[0] }}{% endif %}{% endif %}</span>
         </div>
       </div>
       <div class="gallery">
@@ -186,7 +186,12 @@
       {% endif %}
 
       {% if d.past %}
-        {% if d.booked_label %}
+        {% if d.booked_by_me and owner_name and not owner_is_me %}
+        <div class="booked">
+          <span class="avs"><span class="av me">♥</span></span>
+          <span class="who">проведено с {{ owner_name }}</span>
+        </div>
+        {% elif d.booked_label %}
         <div class="booked">
           <span class="avs">
             {% if d.booked_by_me %}<span class="av me">♥</span>{% endif %}

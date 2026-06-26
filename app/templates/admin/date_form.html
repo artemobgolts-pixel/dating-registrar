@@ -1,5 +1,9 @@
 {% extends "admin/base.html" %}
 {% block title %}{{ 'Редактировать свидание' if date else 'Новое свидание' }}{% endblock %}
+{# Форма со server-rendered состоянием (отмеченные категории, фото). Запрещаем
+   Turbo кэшировать/превьюить страницу — иначе при входе показывался устаревший
+   снимок формы (категории выглядели «сброшенными»). #}
+{% block head %}<meta name="turbo-cache-control" content="no-cache">{% endblock %}
 {% block content %}
 <div class="crumb">Свидания › {{ 'Редактирование' if date else 'Новое' }}</div>
 <div class="bar">
@@ -105,7 +109,7 @@
 
         {% if date and photos %}
         <div class="field" style="margin:14px 0 0">
-          <label>Загруженные фото <span class="muted" style="font-weight:400">— первое обложка; перетащи для порядка, кликни для зоны кадра</span></label>
+          <label>Загруженные фото <span class="muted" style="font-weight:400">— первое обложка; перетащи, чтобы поменять порядок</span></label>
           <div class="thumbs" id="thumbs" data-did="{{ date['id'] }}" style="margin-top:6px">
             {% for p in photos %}
             <div class="thumb" data-pid="{{ p['id'] }}">
@@ -196,7 +200,7 @@
 
   <!-- ПРАВО: живой предпросмотр -->
   <div class="preview-col">
-    <div class="preview-cap">Предпросмотр</div>
+    <div class="preview-cap">Предпросмотр{% if date and photos %} <span class="muted" style="font-weight:400;font-size:12px">— кликни по фото, чтобы выбрать зону кадра</span>{% endif %}</div>
     <div class="pcard">
       <div class="photo" data-preview="photo" {% if not (date and photos) %}hidden{% endif %}>
         <img data-preview="cover" alt=""
