@@ -190,9 +190,11 @@ with TestClient(main.app, follow_redirects=False) as c:
     # ---------- вход через Telegram-бота ----------
     r = c.get("/admin/")
     assert r.status_code == 303 and "/login" in r.headers["location"]
-    # страница входа отдаёт Telegram Login Widget, а не форму логин/пароль
+    # страница входа отдаёт Telegram Login Widget (он подгружается динамически из
+    # auth.js по data-bot, когда отмечено согласие), а не форму логин/пароль
     lp = c.get("/login")
-    assert lp.status_code == 200 and "telegram-widget.js" in lp.text
+    assert lp.status_code == 200 and 'id="tg-widget-wrap"' in lp.text \
+        and "tg-consent" in lp.text
 
     # вебхук без секрета — 403 (иначе любой подтвердит чужой код)
     r0 = c.post("/auth/start")
@@ -385,7 +387,13 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert "<script nonce=" not in rr.text        # инлайна на гостевой больше нет
     rr2 = c.get("/admin/")
     m2 = re.search(r"'nonce-([^']+)'", rr2.headers.get("content-security-policy", ""))
-    assert m2 and f'nonce="{m2.group(1)}"' in rr2.text
+    assert m2, "у /admin/ должен быть per-request nonce в CSP"
+    # инициализация кабинета вынесена во внешний admin.js (под Turbo+CSP инлайн с
+    # per-request nonce не переживает подмену <body>); сам admin.js подключён
+    assert "/static/admin.js" in rr2.text and "/static/vendor/turbo.min.js" in rr2.text
+    # любой инлайн-скрипт на админ-странице обязан нести актуальный nonce
+    for mscript in re.finditer(r"<script(?![^>]*\bsrc=)([^>]*)>", rr2.text):
+        assert f'nonce="{m2.group(1)}"' in mscript.group(0), "инлайн-скрипт без nonce"
     assert "content-security-policy" not in c.get(f"/c/{tok}/image/{fn_did}").headers
     for html_page in (rr.text,
                       c.get("/admin/dates").text,
@@ -1094,11 +1102,12 @@ with TestClient(main.app, follow_redirects=False) as c:
     a_files |= {x["filename"] for x in db_all(
         "SELECT filename FROM date_videos WHERE date_id=?", (shared["id"],))}
 
-    # аноним видит превью и приглашение войти, но не форму «Сохранить к себе»
+    # аноним видит превью и приглашение войти (кнопка открывает модалку входа,
+    # а не уводит на /login), но не форму «Сохранить к себе»
     anon = TestClient(main.app, follow_redirects=False)
     pg = anon.get(f"/d/{stok}")
     assert pg.status_code == 200
-    assert "Поделюсь" in pg.text and 'href="/login?next=/d/' in pg.text
+    assert "data-login-open" in pg.text and 'id="loginDlg"' in pg.text
     assert "Сохранить к себе" not in pg.text
     assert pg.headers.get("x-robots-tag") == "noindex"
     # фото свидания отдаётся по share-ссылке
@@ -2110,8 +2119,9 @@ with TestClient(main.app, follow_redirects=False) as cl:
     # на странице входа — чекбокс согласия со ссылками на оба документа
     lp = cl.get("/login").text
     assert 'id="tg-consent"' in lp and 'href="/terms"' in lp and 'href="/privacy"' in lp
-    # виджет входа скрыт до согласия (показывается по чекбоксу через auth.js)
-    assert 'id="tg-widget-wrap" hidden' in lp
+    # виджет входа скрыт до согласия (показывается по чекбоксу через auth.js,
+    # который динамически подгружает telegram-widget.js по data-bot)
+    assert 'id="tg-widget-wrap"' in lp and "hidden" in lp and 'data-bot=' in lp
     # вход только через виджет — кнопки deep-link «Войти через Telegram» на входе нет
     assert "Войти через Telegram" not in lp
     # надпись про подключение уведомлений в профиле

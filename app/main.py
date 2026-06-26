@@ -105,9 +105,9 @@ app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY,
 
 
 class CachedStatic(StaticFiles):
-    """StaticFiles + Cache-Control. Без версионирования имён ставим умеренный TTL
-    с обязательной ревалидацией: шрифты/иконки/картинки кэшируем надолго (меняются
-    редко), CSS/JS — на час, чтобы правки доезжали до пользователей быстро."""
+    """StaticFiles + Cache-Control. Файлы с версией-хэшем в query (?v=…, их даёт
+    web.asset) контентно-адресуемы — кэшируем их навсегда (immutable, год). Без
+    версии: шрифты/иконки/картинки — надолго, CSS/JS — на час с ревалидацией."""
 
     LONG = {".woff2", ".woff", ".ttf", ".png", ".jpg", ".jpeg", ".webp", ".ico", ".svg"}
 
@@ -115,7 +115,11 @@ class CachedStatic(StaticFiles):
         resp = await super().get_response(path, scope)
         ext = os.path.splitext(path)[1].lower()
         if resp.status_code == 200:
-            if ext in self.LONG:
+            qs = scope.get("query_string", b"")
+            if b"v=" in qs:
+                # имя версионировано по содержимому → можно кэшировать максимально
+                resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+            elif ext in self.LONG:
                 resp.headers["Cache-Control"] = "public, max-age=2592000"   # 30 дней
             else:
                 resp.headers["Cache-Control"] = "public, max-age=3600, must-revalidate"
@@ -134,10 +138,10 @@ async def csp_headers(request: Request, call_next):
     if resp.headers.get("content-type", "").startswith("text/html"):
         # Telegram Login Widget (внешний скрипт + iframe oauth.telegram.org)
         # грузится на странице входа /login И на гостевых ссылках /c/<токен>
-        # (вход-модалка прямо со страницы подборки). Послабление CSP — ровно
-        # на этих HTML-страницах, не на всём сайте.
+        # и /d/<токен> (вход-модалка прямо со страницы подборки/свидания).
+        # Послабление CSP — ровно на этих HTML-страницах, не на всём сайте.
         p = request.url.path
-        if p == "/login" or p.startswith("/c/"):
+        if p == "/login" or p.startswith("/c/") or p.startswith("/d/"):
             resp.headers["Content-Security-Policy"] = (
                 "default-src 'self'; "
                 f"script-src 'self' 'nonce-{request.state.csp_nonce}' "

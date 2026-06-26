@@ -34,8 +34,15 @@
     location.href = "/login?next=" + encodeURIComponent(location.pathname);
   }
   if (loginDlg) {
-    const lo = $("#loginOpen"), lc = $("#loginClose");
-    if (lo) lo.addEventListener("click", () => loginDlg.showModal());
+    const lc = $("#loginClose");
+    // любой триггер входа: угловая кнопка #loginOpen и любой [data-login-open]
+    // (например «Войти» в CTA на странице свидания) открывают ту же модалку
+    document.addEventListener("click", (e) => {
+      if (e.target.closest("#loginOpen, [data-login-open]")) {
+        e.preventDefault();
+        loginDlg.showModal();
+      }
+    });
     if (lc) lc.addEventListener("click", () => loginDlg.close());
     loginDlg.addEventListener("click", (e) => { if (e.target === loginDlg) loginDlg.close(); });
   }

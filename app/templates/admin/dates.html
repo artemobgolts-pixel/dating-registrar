@@ -210,24 +210,3 @@
 {% endif %}
 {% endblock %}
 
-{% block scripts %}
-<script nonce="{{ csp_nonce }}">
-(function () {
-  if (window.UI && UI.cardMenu) UI.cardMenu(document);
-  if (window.UI && UI.glassTabs) UI.glassTabs(document.querySelector('.tabs'));
-
-  // переключатель вида: cookie + перезагрузка (SSR сразу рисует нужный вид)
-  var tog = document.getElementById('viewtog');
-  if (tog) {
-    tog.addEventListener('click', function (e) {
-      var a = e.target.closest('[data-layout]');
-      if (!a) return;
-      e.preventDefault();
-      var v = a.getAttribute('data-layout');
-      document.cookie = 'layout=' + v + ';path=/admin;max-age=31536000;samesite=lax';
-      location.reload();
-    });
-  }
-})();
-</script>
-{% endblock %}

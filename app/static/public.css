@@ -667,8 +667,8 @@ body::after {
 .links a:hover { background: #f3dcd9; transform: translateY(-1px); }
 
 /* --- бейджи: на фото — поверх, без фото — в потоке над заголовком --------- */
-.badges { position: absolute; top: 12px; left: 12px; display: flex; gap: 6px; z-index: 3; }
-.badges.inflow { position: static; margin: 0 0 10px; }
+.badges { position: absolute; top: 12px; left: 12px; display: flex; gap: 6px; flex-wrap: wrap; z-index: 3; max-width: calc(100% - 24px); }
+.badges.inflow { position: static; margin: 0 0 10px; flex-wrap: wrap; max-width: 100%; }
 .badge {
   font-size: 11px; letter-spacing: .05em;
   padding: 5px 12px; border-radius: 999px;

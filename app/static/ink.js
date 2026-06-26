@@ -16,6 +16,10 @@
 
   var host = document.querySelector(".bg-smoke");
   if (!host) return;
+  // Под Turbo фон помечен data-turbo-permanent и переживает переходы вместе со
+  // своим canvas. Если скрипт исполнится повторно — выходим, чтобы не плодить
+  // второй WebGL-контекст и RAF-цикл на том же узле.
+  if (host.classList.contains("has-ink") || host.querySelector(".ink-canvas")) return;
 
   var reduce = window.matchMedia &&
     window.matchMedia("(prefers-reduced-motion: reduce)").matches;

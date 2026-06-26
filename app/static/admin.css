@@ -1100,6 +1100,17 @@ input, textarea, select {
   font-size: 15px; font-weight: 600; letter-spacing: .01em;
   padding: 9px 20px; border-radius: 12px; text-align: center;
 }
+/* действия над свиданием в той же панели: «Одобрить»/«В архив»/«Удалить».
+   «В архив» и «Удалить» прижаты вправо, отделены от «Сохранить»/«Отмена». */
+.savebar .btn.approve {
+  background: linear-gradient(135deg, #34b36b, #15734a); border-color: transparent; color: #fff;
+  font-weight: 600; padding: 9px 18px; border-radius: 12px;
+}
+.savebar .btn.archive-btn { margin-left: auto; }
+.savebar .btn.archive-btn, .savebar .btn.danger { padding: 9px 16px; border-radius: 12px; }
+@media (max-width: 560px) {
+  .savebar .btn.archive-btn { margin-left: 0; }
+}
 /* на телефоне кнопки растягиваем во всю ширину для удобного тапа */
 @media (max-width: 560px) {
   .savebar .btn.primary { flex: 1; }
@@ -1730,4 +1741,25 @@ input, textarea, select {
   .controls .filters { flex-wrap: wrap; width: 100%; }
   .controls .filters select { flex: 1 1 auto; min-width: 0; }
   .controls .tabs, .controls .viewtog { margin-left: 0; }
+}
+
+/* ============================================================
+   Turbo Drive: мелочи, делающие навигацию «дорогой»
+   ============================================================ */
+/* розовый прогресс-бар Turbo (показывается, если переход дольше ~500мс) */
+.turbo-progress-bar {
+  height: 3px;
+  background: linear-gradient(90deg, var(--rose), var(--peach), var(--rose-2));
+  box-shadow: 0 0 10px rgba(182, 95, 111, .5);
+}
+/* мягкое проявление контента при переходе между страницами */
+@media (prefers-reduced-motion: no-preference) {
+  .wrap > .bar, .wrap > .crumb, .grid, .dlist, .split, .card {
+    animation: turbo-fade .26s var(--ease) both;
+  }
+  html.turbo-loading .wrap { opacity: .6; transition: opacity .15s; }
+}
+@keyframes turbo-fade {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
 }

@@ -189,7 +189,7 @@
     </form>
     {% else %}
     <p>Войди, чтобы выбрать это свидание или сохранить к себе.</p>
-    <a class="btn book" href="/login?next=/d/{{ token }}">Войти</a>
+    <button type="button" class="btn book" data-login-open>Войти</button>
     {% endif %}
   </div>
 
@@ -219,12 +219,7 @@
         <a href="/terms" target="_blank" rel="noopener">Пользовательское соглашение</a>
         и <a href="/privacy" target="_blank" rel="noopener">Политику конфиденциальности</a>.</span>
     </label>
-    <div id="tg-widget-wrap" hidden>
-      <script async src="https://telegram.org/js/telegram-widget.js?22"
-              data-telegram-login="{{ bot }}"
-              data-size="large"
-              data-auth-url="/auth/widget"></script>
-    </div>
+    <div id="tg-widget-wrap" data-bot="{{ bot }}" hidden></div>
     <p class="login-hint" id="tg-widget-gate">Отметь согласие выше, чтобы войти.</p>
     <div id="tg-error" class="err" hidden></div>
   {% endif %}

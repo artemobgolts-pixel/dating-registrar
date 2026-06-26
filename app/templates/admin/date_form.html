@@ -35,7 +35,11 @@
 
 <div class="split">
   <div>
-    <form method="post" enctype="multipart/form-data" id="dateForm">
+    <form method="post" enctype="multipart/form-data" id="dateForm"
+          data-slots="{{ slots if slots and slots > 0 else 0 }}"
+          data-vslots="{{ 2 - (videos | length) if videos else 2 }}"
+          data-has-cover="{{ '1' if (date and photos) else '' }}"
+          data-has-video="{{ '1' if (date and videos) else '' }}">
       <input type="hidden" name="csrf" value="{{ csrf }}">
 
       <div class="sec">
@@ -216,178 +220,31 @@
 <div class="savebar">
   <button class="btn primary" form="dateForm">Сохранить</button>
   <a class="btn ghost" href="/admin/dates">Отмена</a>
+  {% if date %}
+  {% if date['is_draft'] and date['origin'] == 'guest' %}
+  <button class="btn approve" form="approveForm">Одобрить</button>
+  {% endif %}
+  <button class="btn archive-btn" form="archiveForm">{{ 'Вернуть из архива' if date['archived_at'] else 'В архив' }}</button>
+  <button class="btn danger" form="deleteForm">Удалить</button>
+  {% endif %}
 </div>
 
 {% if date %}
-<div class="card">
-  <div style="display:flex;gap:8px;flex-wrap:wrap">
-    {% if date['is_draft'] and date['origin'] == 'guest' %}
-    <form class="inline" method="post" action="/admin/dates/{{ date['id'] }}/publish">
-      <input type="hidden" name="csrf" value="{{ csrf }}">
-      <input type="hidden" name="next" value="/admin/dates/{{ date['id'] }}/edit">
-      <button class="btn primary">Одобрить предложение</button>
-    </form>
-    {% endif %}
-    <form class="inline" method="post" action="/admin/dates/{{ date['id'] }}/archive">
-      <input type="hidden" name="csrf" value="{{ csrf }}">
-      <input type="hidden" name="next" value="/admin/dates/{{ date['id'] }}/edit">
-      <button class="btn">{{ 'Вернуть из архива' if date['archived_at'] else 'В архив' }}</button>
-    </form>
-    <form class="inline" method="post" action="/admin/dates/{{ date['id'] }}/delete"
-          data-confirm="Удалить свидание безвозвратно? Фото, брони и вопросы к нему тоже удалятся.">
-      <input type="hidden" name="csrf" value="{{ csrf }}">
-      <button class="btn danger">Удалить свидание</button>
-    </form>
-  </div>
-</div>
+{# Действия над свиданием — отдельные формы (нельзя вкладывать в #dateForm),
+   их сабмит-кнопки вынесены в .savebar через атрибут form="…" #}
+{% if date['is_draft'] and date['origin'] == 'guest' %}
+<form id="approveForm" method="post" action="/admin/dates/{{ date['id'] }}/publish" hidden>
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="next" value="/admin/dates/{{ date['id'] }}/edit">
+</form>
 {% endif %}
-{% endblock %}
-
-{% block scripts %}
-<script nonce="{{ csp_nonce }}">
-(function () {
-  var form = document.getElementById('dateForm');
-  var start = document.getElementById('fStart');
-  var end = document.getElementById('fEnd');
-  if (form && start) UI.dateChips(form, start, end);
-
-  // WYSIWYG-редактор описания: форматирование видно прямо в поле,
-  // в скрытую textarea пишется markdown (его рендерит сервер).
-  if (window.UI && UI.richEditor) {
-    UI.richEditor({
-      textarea: document.getElementById('descInput'),
-      editable: document.getElementById('descEditable'),
-      toolbar: document.getElementById('descToolbar')
-    });
-  }
-
-  // живой предпросмотр карточки (дата, место, ссылки, фото, видео)
-  var preview = null;
-  if (form && window.UI && UI.editorPreview) preview = UI.editorPreview(form);
-
-  // есть ли уже сохранённые фото (обложка остаётся за первым из них)
-  var hasExistingCover = {{ 'true' if (date and photos) else 'false' }};
-
-  var inp = document.getElementById('imagesInput');
-  var photoUp = null;
-  if (inp) {
-    var focusesField = document.getElementById('imageFocuses');
-    var focusHint = document.getElementById('newFocusHint');
-    photoUp = UI.uploader({
-      zone: document.getElementById('mediaZone'),
-      input: inp,
-      preview: document.getElementById('newTiles'),
-      max: {{ slots if slots and slots > 0 else 0 }},
-      keptCount: function () { return 0; },
-      focusable: true,
-      noZoneBind: true,             // дроп-зону держит общий mediaUploader
-      onFocus: function () {
-        // зону выбрали на новой плитке — обновляем скрытое поле для сабмита
-        if (focusesField) focusesField.value = photoUp.focuses().join(',');
-      },
-      onChange: function (files) {
-        // зоны новых фото уходят параллельным массивом (по порядку плиток)
-        if (focusesField) focusesField.value = photoUp.focuses().join(',');
-        if (focusHint) focusHint.style.display = (files && files.length) ? 'block' : 'none';
-        // если своей обложки ещё нет — показываем первое новое фото как обложку
-        if (preview && !hasExistingCover) {
-          if (files && files.length) {
-            var u = URL.createObjectURL(files[0]);
-            preview.setCover(u);
-          } else {
-            preview.setCover(null);
-          }
-        }
-      }
-    });
-  }
-
-  var vinp = document.getElementById('videosInput');
-  var videoUp = null;
-  if (vinp) {
-    videoUp = UI.uploader({
-      zone: document.getElementById('mediaZone'),
-      input: vinp,
-      preview: document.getElementById('newVidTiles'),
-      kind: 'video',
-      max: {{ 2 - (videos | length) if videos else 2 }},
-      keptCount: function () { return 0; },
-      noZoneBind: true,             // дроп-зону держит общий mediaUploader
-      onChange: function (files) {
-        if (preview) preview.setVideo({{ 'true' if (date and videos) else 'false' }} || (files && files.length > 0));
-      }
-    });
-  }
-
-  // общий блок «Медиа»: одна зона принимает фото и видео, раскладывает по MIME
-  if (photoUp && videoUp && UI.mediaUploader) {
-    UI.mediaUploader({
-      zone: document.getElementById('mediaZone'),
-      input: document.getElementById('mediaInput'),
-      photo: photoUp,
-      video: videoUp,
-    });
-  }
-
-  var th = document.getElementById('thumbs');
-  if (th) {
-    UI.sortable(th, { selector: '.thumb', onChange: function () {
-      var order = Array.prototype.map.call(
-        th.querySelectorAll('.thumb'),
-        function (t) { return t.dataset.pid; }
-      ).join(',');
-      var fd = new FormData();
-      fd.append('csrf', document.body.dataset.csrf);
-      fd.append('order', order);
-      fetch('/admin/dates/' + th.dataset.did + '/images/reorder', { method: 'POST', body: fd })
-        .then(function (r) {
-          var s = document.getElementById('orderStatus');
-          if (r.ok) {
-            s.style.visibility = 'visible';
-            setTimeout(function () { s.style.visibility = 'hidden'; }, 1600);
-          } else {
-            alert('Не удалось сохранить порядок — обнови страницу');
-          }
-        })
-        .catch(function () { alert('Нет связи — порядок не сохранён'); });
-    }});
-
-    // выбор зоны фокуса: клик по фото → object-position в процентах, сохраняем.
-    // Берём картинку через .thumb, а не через e.target: sortable вызывает
-    // setPointerCapture на .thumb, из-за чего click может прийти на сам .thumb,
-    // а не на <img> — closest('img') тогда промахивался (это и был «не работает»).
-    th.addEventListener('click', function (e) {
-      if (e.target.closest('.thumb-btns')) return;   // клики по «открыть/удалить» не трогаем
-      var thumb = e.target.closest('.thumb');
-      if (!thumb) return;
-      var img = thumb.querySelector('img.focusable');
-      if (!img) return;
-      var rect = img.getBoundingClientRect();
-      if (!rect.width || !rect.height) return;
-      var x = Math.round(Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)) * 100);
-      var y = Math.round(Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height)) * 100);
-      var focus = x + '% ' + y + '%';
-      img.style.objectPosition = focus;
-      img.dataset.focus = focus;
-      // если это обложка (первая плитка) — отражаем фокус и в предпросмотре
-      if (preview && thumb === th.querySelector('.thumb') && pv_cover()) {
-        pv_cover().style.objectPosition = focus;
-      }
-      var fd = new FormData();
-      fd.append('csrf', document.body.dataset.csrf);
-      fd.append('focus', focus);
-      fetch('/admin/dates/' + th.dataset.did + '/images/' + thumb.dataset.pid + '/focus',
-            { method: 'POST', body: fd })
-        .then(function (r) {
-          var s = document.getElementById('orderStatus');
-          if (r.ok) { s.textContent = 'Зона фото сохранена ✓'; s.style.visibility = 'visible'; setTimeout(function () { s.style.visibility = 'hidden'; }, 1600); }
-          else { alert('Не удалось сохранить зону фокуса'); }
-        })
-        .catch(function () { alert('Нет связи — зона не сохранена'); });
-    });
-  }
-
-  function pv_cover() { return document.querySelector('[data-preview="cover"]'); }
-})();
-</script>
+<form id="archiveForm" method="post" action="/admin/dates/{{ date['id'] }}/archive" hidden>
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="next" value="/admin/dates/{{ date['id'] }}/edit">
+</form>
+<form id="deleteForm" method="post" action="/admin/dates/{{ date['id'] }}/delete" hidden
+      data-confirm="Удалить свидание безвозвратно? Фото, брони и вопросы к нему тоже удалятся.">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+</form>
+{% endif %}
 {% endblock %}

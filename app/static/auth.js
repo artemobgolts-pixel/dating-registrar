@@ -11,6 +11,22 @@
   if (consent) {
     var widgetWrap = document.getElementById("tg-widget-wrap");
     var widgetGate = document.getElementById("tg-widget-gate");
+    // Виджет Telegram вставляем динамически при первом согласии. Если оставить
+    // <script> статически внутри закрытого <dialog> (display:none), Telegram
+    // подменяет его на iframe нулевого размера и кнопка не появляется — поэтому
+    // грузим скрипт, когда контейнер уже видим (диалог открыт).
+    var widgetLoaded = false;
+    function loadWidget() {
+      if (widgetLoaded || !widgetWrap) return;
+      widgetLoaded = true;
+      var s = document.createElement("script");
+      s.async = true;
+      s.src = "https://telegram.org/js/telegram-widget.js?22";
+      s.setAttribute("data-telegram-login", widgetWrap.getAttribute("data-bot") || "");
+      s.setAttribute("data-size", "large");
+      s.setAttribute("data-auth-url", "/auth/widget");
+      widgetWrap.appendChild(s);
+    }
     var syncConsent = function () {
       var ok = consent.checked;
       if (widgetWrap) widgetWrap.hidden = !ok;
@@ -20,6 +36,7 @@
       // передаёт next (data-next) — куда вернуться после входа; на /login next уже
       // сохранён сервером при заходе на страницу.
       if (ok) {
+        loadWidget();
         var nxt = consent.getAttribute("data-next");
         var url = "/auth/consent" + (nxt ? "?next=" + encodeURIComponent(nxt) : "");
         fetch(url, { method: "POST", credentials: "same-origin" })
@@ -77,5 +94,14 @@
     });
   }
 
-  Array.prototype.forEach.call(document.querySelectorAll(".tg-connect"), wire);
+  function wireAll() {
+    Array.prototype.forEach.call(document.querySelectorAll(".tg-connect"), function (box) {
+      if (box.dataset.wired) return;     // не вешаем повторно (Turbo пере-рендер)
+      box.dataset.wired = "1";
+      wire(box);
+    });
+  }
+  wireAll();
+  // под Turbo баннер «подключить бота» — новый узел после перехода: переинициализируем
+  document.addEventListener("turbo:load", wireAll);
 })();

@@ -4,17 +4,29 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
+<!-- Turbo: префетч ссылок при наведении/касании — переход ощущается мгновенным -->
+<meta name="turbo-prefetch" content="true">
 <title>{% block title %}Кабинет{% endblock %} · date4you</title>
 <link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='80' font-size='80'&gt;%E2%9D%A4&lt;/text&gt;&lt;/svg&gt;">
 <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
 <link rel="manifest" href="/static/manifest.json">
 <meta name="theme-color" content="#b65f6f">
-<link rel="stylesheet" href="{{ asset('admin.css') }}">
+<link rel="stylesheet" href="{{ asset('admin.css') }}" data-turbo-track="reload">
+<!-- Turbo Drive: мгновенная навигация без полной перезагрузки (self-hosted).
+     Грузим в <head> с defer, чтобы перехват кликов работал с первого экрана. -->
+<script src="{{ asset('vendor/turbo.min.js') }}" data-turbo-track="reload" defer></script>
+<!-- UI-движок и инициализация страниц кабинета (вне inline из-за CSP+Turbo:
+     per-request nonce не переживает подмену <body>). Оба — once, re-init по turbo:load. -->
+<script src="{{ asset('ui.js') }}" data-turbo-track="reload" defer></script>
+<script src="{{ asset('admin.js') }}" data-turbo-track="reload" defer></script>
+<script src="{{ asset('ink.js') }}" data-turbo-track="reload" defer></script>
 </head>
 <body data-csrf="{{ csrf }}">
 <!-- Фон «растекающиеся чернила» — тот же WebGL-шейдер, что на гостевой и
-     заглушках (/static/ink.js). CSS-дым ниже — фолбэк без WebGL2. -->
-<div class="bg-smoke" aria-hidden="true">
+     заглушках (/static/ink.js). CSS-дым ниже — фолбэк без WebGL2.
+     data-turbo-permanent: Turbo сохраняет этот узел между переходами, поэтому
+     canvas не пересоздаётся (нет утечки RAF) и фон не «моргает» при навигации. -->
+<div class="bg-smoke" id="bg-smoke" data-turbo-permanent aria-hidden="true">
   <svg class="turb" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice">
     <defs>
       <radialGradient id="smokeFade" cx="50%" cy="42%" r="62%">
@@ -107,34 +119,6 @@
 {% endif %}
 {% block content %}{% endblock %}
 </main>
-<script src="{{ asset('ink.js') }}" defer></script>
-<script src="{{ asset('ui.js') }}"></script>
-<script nonce="{{ csp_nonce }}">
-function copyText(t, btn) {
-  navigator.clipboard.writeText(t).then(function () {
-    var o = btn.textContent;
-    btn.textContent = 'Скопировано ✓';
-    setTimeout(function () { btn.textContent = o; }, 1500);
-  });
-}
-/* CSP без 'unsafe-inline': бывшие inline-обработчики — через делегирование */
-document.addEventListener('submit', function (e) {
-  var msg = e.target.getAttribute('data-confirm');
-  if (msg && !confirm(msg)) e.preventDefault();
-});
-document.addEventListener('click', function (e) {
-  var b = e.target.closest('[data-copy]');
-  if (b) copyText(b.getAttribute('data-copy'), b);
-});
-/* закрываемые алёрты: кнопка [data-dismiss] прячет ближайший .og-warn */
-document.addEventListener('click', function (e) {
-  var x = e.target.closest('[data-dismiss]');
-  if (x) { var box = x.closest('.og-warn'); if (box) box.style.display = 'none'; }
-});
-document.addEventListener('change', function (e) {
-  if (e.target.matches('[data-autosubmit]')) e.target.form.submit();
-});
-</script>
 {% if user and not user['bot_linked'] %}
 <script nonce="{{ csp_nonce }}" src="{{ asset('auth.js') }}"></script>
 {% endif %}

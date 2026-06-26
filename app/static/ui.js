@@ -80,7 +80,7 @@ window.UI = (() => {
       }
     });
 
-    const end = () => {
+    const end = (e) => {
       if (!drag) return;
       const moved = started;
       const el = drag;
@@ -96,6 +96,11 @@ window.UI = (() => {
       } else {
         el.classList.remove("dragging");
         el.style.transition = "";
+        // тап без перетаскивания: pointer capture мог проглотить click, поэтому
+        // вызываем onTap отсюда (нужно для выбора зоны фокуса фото)
+        if (opts.onTap && e && !e.target.closest("button, a, input, textarea, select")) {
+          opts.onTap(el, e);
+        }
       }
     };
     container.addEventListener("pointerup", end);
@@ -687,6 +692,8 @@ window.UI = (() => {
      вкладке и только потом отпускаем переход — отсюда ощущение текучести. */
   function glassTabs(container) {
     if (!container) return;
+    if (container.dataset.glassReady) return;   // не навешиваем повторно (Turbo)
+    container.dataset.glassReady = "1";
     const tabs = [...container.querySelectorAll("a")];
     if (!tabs.length) return;
     let ind = container.querySelector(".tab-ind");
@@ -724,8 +731,12 @@ window.UI = (() => {
         e.preventDefault();
         tabs.forEach((t) => t.classList.toggle("on", t === a));
         place(a, true);
-        // даём индикатору дотечь, затем переходим
-        setTimeout(() => { location.href = href; }, 230);
+        // даём индикатору дотечь, затем переходим. С Turbo переход мгновенный и
+        // без полной перезагрузки — анимация видна; иначе обычная навигация.
+        setTimeout(() => {
+          if (window.Turbo && typeof Turbo.visit === "function") Turbo.visit(href);
+          else location.href = href;
+        }, 200);
       });
     });
   }

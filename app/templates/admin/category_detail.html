@@ -38,10 +38,10 @@
       </div>
     </div>
 
-    <div class="og-warn" role="alert">
+    <div class="og-warn" id="ogWarn" role="alert" hidden>
       <span class="og-warn-ic" aria-hidden="true">⚠</span>
-      <span class="og-warn-text">Если ты уже отправлял(а) ссылку, мессенджеры запомнили старое превью.
-        Чтобы получатели увидели новое — <b>перегенерируй ссылку</b> ниже.</span>
+      <span class="og-warn-text">Ты изменил(а) превью. Если ты уже отправлял(а) ссылку, мессенджеры
+        запомнили старое — чтобы получатели увидели новое, <b>перегенерируй ссылку</b> ниже.</span>
       <button type="button" class="og-warn-x" data-dismiss aria-label="Закрыть">✕</button>
     </div>
 
@@ -161,46 +161,3 @@
 </div>
 {% endblock %}
 
-{% block scripts %}
-<script nonce="{{ csp_nonce }}">
-(function () {
-  if (!window.UI) return;
-
-  // drag-drop выбор картинки превью (как в редакторе свидания, но одно фото).
-  // Живо обновляем мини-превью ссылки выбранным файлом.
-  var ogZone = document.getElementById('ogZone');
-  var ogInput = document.getElementById('ogInput');
-  var ogImg = document.getElementById('ogPreviewImg');
-  if (ogZone && ogInput && UI.uploader) {
-    UI.uploader({
-      zone: ogZone,
-      input: ogInput,
-      preview: document.getElementById('ogTiles'),
-      max: 1,
-      keptCount: function () { return 0; },
-      kind: 'image',
-      onChange: function (files) {
-        if (ogImg && files && files.length) ogImg.src = URL.createObjectURL(files[0]);
-      }
-    });
-  }
-
-  // порядок свиданий в категории (drag-and-drop)
-  var tb = document.getElementById('catRows');
-  if (tb) {
-    UI.sortable(tb, { selector: 'tr.drag-row', onChange: function () {
-      var order = Array.prototype.map.call(
-        tb.querySelectorAll('tr.drag-row'),
-        function (t) { return t.dataset.did; }).join(',');
-      var fd = new FormData();
-      fd.append('csrf', '{{ csrf }}');
-      fd.append('order', order);
-      fetch('/admin/categories/' + tb.dataset.cid + '/dates_reorder',
-            { method: 'POST', body: fd })
-        .then(function (r) { if (!r.ok) alert('Не удалось сохранить порядок'); })
-        .catch(function () { alert('Нет связи — порядок не сохранён'); });
-    }});
-  }
-})();
-</script>
-{% endblock %}
