@@ -1253,7 +1253,7 @@ input, textarea, select {
 .dcard.archived .ph img { filter: saturate(.5) brightness(.99); }
 /* карточка без обложки: без градиента-плейсхолдера, бейджи едут в тело (.inflow) */
 .dcard.nocover .b { padding-top: 13px; }
-.dcard .b .badges.inflow { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
+.dcard .b .badges.inflow { position: static; display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
 .dcard .b { padding: 11px 13px 13px; display: flex; flex-direction: column; flex: 1; }
 .dcard .ttl {
   font-family: var(--serif); font-size: 17.5px; color: var(--ink);
@@ -1377,16 +1377,20 @@ input, textarea, select {
   box-shadow: 0 14px 34px rgba(150, 80, 95, .14);
 }
 .cat-link {
-  position: absolute; inset: 0; z-index: 1;
+  position: absolute; inset: 0; z-index: 3;   /* поверх содержимого — клик по всей карточке */
   border-radius: var(--r);
 }
-/* Вся шапка карточки прозрачна для кликов — иначе .bar (тот же z-index, что у
-   .cat-link, но позже в DOM) перехватывает клик и проглатывает его, и карточка
-   не открывается. Кликабельным оставляем только токен-ссылку (copy-code). */
+/* Содержимое карточки прозрачно для кликов и лежит НИЖЕ ссылки-оверлея, чтобы
+   клик по любой точке открывал категорию (нативная ссылка → Turbo сам). Выше
+   ссылки поднимаем только то, что должно кликаться отдельно (токен copy-code). */
+.cat-card .cat-body,
+.cat-card .cat-thumb,
 .cat-card .bar,
 .cat-card .bar > div,
-.cat-card .linkbox { position: relative; z-index: 2; pointer-events: none; }
-.cat-card .linkbox .copy-code { pointer-events: auto; }   /* токен остаётся кликабельным */
+.cat-card .linkbox { position: relative; z-index: 1; pointer-events: none; }
+.cat-card .linkbox .copy-code {
+  position: relative; z-index: 4; pointer-events: auto;   /* токен — поверх ссылки */
+}
 /* кнопка «Открыть» — над оверлеем-ссылкой, иначе клик уводил бы в детали категории */
 .cat-card .linkbox .btn { pointer-events: auto; position: relative; z-index: 2; }
 .cat-card .cat-name { font-weight: 600; font-size: 16px; color: var(--ink); }
@@ -1593,12 +1597,11 @@ input, textarea, select {
   .drow-act .btn { flex: 1; }
 }
 
-/* выбор зоны фокуса: фото в форме кликабельно */
+/* загруженные фото в блоке «Медиа»: только перетаскивание для порядка
+   (выбор зоны кадра переехал в окно предпросмотра — см. .focus-pickable) */
 .thumb { position: relative; }
-.thumb img.focusable {
-  cursor: crosshair;
-  pointer-events: auto;          /* перебиваем .thumb img { pointer-events:none } */
-  object-fit: cover;             /* фокус имеет смысл только при cover-обрезке */
+.thumb img {
+  object-fit: cover;             /* показываем кадр как на карточке */
   background: #f5edef;
 }
 
@@ -1768,6 +1771,22 @@ input, textarea, select {
     color: #fff;
     box-shadow: 0 4px 12px rgba(150, 70, 85, .34);
   }
+  /* «жидкое стекло» и в нижнем баре: скользящий индикатор за вкладками.
+     Когда он активен (есть .tab-ind) — гасим индивидуальную заливку .on. */
+  .top nav.glass-nav { position: fixed; }   /* спецификация для перекрытия */
+  .top nav.glass-nav:has(.tab-ind) a.on { background: none; box-shadow: none; }
+  .top nav.glass-nav .tab-ind {
+    position: absolute; top: 7px; left: 0; z-index: 0;
+    height: calc(100% - 14px); width: 0;
+    border-radius: 16px;
+    background: linear-gradient(135deg, var(--rose), var(--rose-2));
+    box-shadow: 0 4px 12px rgba(150, 70, 85, .34);
+    transform: translateX(0);
+    transition: transform .4s cubic-bezier(.34,1.3,.5,1), width .4s cubic-bezier(.34,1.3,.5,1);
+    pointer-events: none;
+  }
+  .top nav.glass-nav.no-anim .tab-ind { transition: none; }
+  .top nav.glass-nav a { position: relative; z-index: 1; }
   /* запас снизу, чтобы контент не уезжал под бар */
   .wrap { padding-bottom: 96px; }
   /* пилюля счётчика непрочитанных — компактнее под иконкой */

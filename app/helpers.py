@@ -1,5 +1,6 @@
 """Время, форматирование и валидация форм. Всё время — МСК, naive-строки."""
 
+import secrets
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote, urlencode, urlparse
 
@@ -7,6 +8,17 @@ from fastapi import HTTPException
 from markupsafe import Markup, escape
 
 from config import MSK
+
+# Длина токена ссылки в байтах. 8 байт = 64 бита энтропии → ссылка ~11 символов
+# (base64url). Перебрать нереально, а ссылка втрое короче прежних 24 байт.
+LINK_TOKEN_BYTES = 8
+
+
+def new_link_token() -> str:
+    """Короткий непредсказуемый токен для ссылок категорий и шаринга свиданий.
+    Длина задаётся LINK_TOKEN_BYTES; старые длинные токены продолжают работать."""
+    return secrets.token_urlsafe(LINK_TOKEN_BYTES)
+
 
 RU_MONTHS = ["января", "февраля", "марта", "апреля", "мая", "июня",
              "июля", "августа", "сентября", "октября", "ноября", "декабря"]

@@ -6,7 +6,6 @@
 
 import json
 import re
-import secrets
 import sqlite3
 from datetime import datetime, timedelta, timezone
 
@@ -24,8 +23,8 @@ import places
 import users
 from config import (AUTHOR_PROJECTS, ABOUT_TEXT, BASE_URL, DOMAIN,
                     MSK, SUPPORT_CONTACT, support_link)
-from helpers import (_parse, clean_text, fmt_gcal, fmt_when, normalize_period,
-                     now_iso, parse_dt_local, parse_links)
+from helpers import (_parse, clean_text, fmt_gcal, fmt_when, new_link_token,
+                     normalize_period, now_iso, parse_dt_local, parse_links)
 from notify import esc
 from ratelimit import guest_throttle
 from tasks import autoarchive_once
@@ -173,7 +172,7 @@ def insert_date(conn, *, name, place, starts, ends, comment, origin, guest_token
     # сразу при создании — через неё им можно поделиться, чтобы другой
     # пользователь добавил копию себе. Генерим здесь, чтобы ВСЕ пути создания
     # (админ, клон, импорт, гостевое предложение) получили токен без правок.
-    share_token = secrets.token_urlsafe(16)
+    share_token = new_link_token()
     cur = conn.execute(
         "INSERT INTO dates(owner_id, name, place, place_url, starts_at, ends_at, comment, "
         "origin, guest_token, proposed_by, is_draft, pay_split, share_token, created_at) "

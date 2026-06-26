@@ -763,6 +763,14 @@ with TestClient(main.app, follow_redirects=False) as c:
     page = ga.get(f"/c/{tok}").text
     assert "Выбрано ♥" in page
     assert "<b>2</b><span>броней сейчас" in c.get("/admin/").text
+    # архив брони НЕ блокирует выбор другого активного свидания тем же гостем:
+    # создаём свежее активное свидание и проверяем, что Аня может его выбрать
+    r = apost(c, "/admin/dates/new", {"name": "Новый вечер", "categories": str(cid)})
+    assert r.status_code == 303
+    did_new = db_one("SELECT id FROM dates WHERE name='Новый вечер'")["id"]
+    rb = ga.post(f"/c/{tok}/book", data={"date_id": did_new})
+    assert rb.status_code == 200 and rb.json().get("booked") is True
+    apost(c, f"/admin/dates/{did_new}/delete", {})   # прибираем за тестом
     step("архив остаётся на странице (оверлей «Было», фото видны), выбор и .ics закрыты")
 
     # ---------- авто-архив срабатывает прямо при открытии страницы ----------
@@ -1309,9 +1317,10 @@ with TestClient(main.app, follow_redirects=False) as c:
     fdid = db_one("SELECT id FROM dates WHERE name='С фокусом'")["id"]
     fimg = db_one("SELECT id, focus FROM date_images WHERE date_id=?", (fdid,))
     assert fimg["focus"] is None                       # по умолчанию центр (NULL)
-    # форма правки отдаёт кликабельное фото с data-focus
+    # форма правки: миниатюра с data-focus (порядок), а зона кадра выбирается в
+    # окне предпросмотра (img[data-preview=cover]); focus-pickable вешает JS
     ef = c.get(f"/admin/dates/{fdid}/edit").text
-    assert 'class="focusable"' in ef and 'data-focus=' in ef
+    assert 'data-focus=' in ef and 'data-preview="cover"' in ef
     # сохраняем точку фокуса
     r = apost(c, f"/admin/dates/{fdid}/images/{fimg['id']}/focus", {"focus": "20% 80%"})
     assert r.status_code == 200 and r.json()["focus"] == "20% 80%"

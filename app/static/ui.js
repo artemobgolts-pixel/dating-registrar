@@ -714,7 +714,10 @@ window.UI = (() => {
       }
     };
     const active = container.querySelector("a.on") || tabs[0];
+    // позиционируем после кадра — к этому моменту раскладка и шрифты применились
+    // (иначе offsetLeft/Width могли быть нулевыми/смещёнными, и индикатор «ломался»)
     place(active, false);
+    requestAnimationFrame(() => place(container.querySelector("a.on") || tabs[0], false));
     // переставляем при ресайзе (ширины вкладок могли измениться)
     let rt;
     window.addEventListener("resize", () => {
@@ -726,17 +729,12 @@ window.UI = (() => {
         // только левый клик без модификаторов и не «открыть в новой вкладке»
         if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
         const href = a.getAttribute("href");
-        // вкладки вида data-layout (viewtog) сами управляют переходом — только анимируем
-        if (!href || href === "#") { place(a, true); return; }
-        e.preventDefault();
+        // подсветку перетекаем сразу; саму навигацию НЕ перехватываем — её ведёт
+        // нативная ссылка через Turbo (программный Turbo.visit на десктопе мог
+        // конфликтовать с префетчем и не доезжать). Для data-layout (viewtog,
+        // href="#") переход делает свой обработчик — здесь только анимируем.
         tabs.forEach((t) => t.classList.toggle("on", t === a));
         place(a, true);
-        // даём индикатору дотечь, затем переходим. С Turbo переход мгновенный и
-        // без полной перезагрузки — анимация видна; иначе обычная навигация.
-        setTimeout(() => {
-          if (window.Turbo && typeof Turbo.visit === "function") Turbo.visit(href);
-          else location.href = href;
-        }, 200);
       });
     });
   }

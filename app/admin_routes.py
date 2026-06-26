@@ -7,7 +7,6 @@ import csv
 import io
 import json
 import os
-import secrets
 import tempfile
 import zipfile
 
@@ -26,7 +25,7 @@ import places
 import settings as app_settings
 from config import BASE_URL, SUPPORT_CONTACT
 from guests import gname
-from helpers import (clean_text, normalize_period, now_iso, now_naive,
+from helpers import (clean_text, new_link_token, normalize_period, now_iso, now_naive,
                      parse_birth_date, parse_dt_local, parse_links, pay_label)
 from fastapi.responses import JSONResponse
 from ownership import get_owned_category, get_owned_date
@@ -212,14 +211,22 @@ def dashboard(request: Request, conn=Depends(get_db)):
     share = next((c for c in share_cats if str(c["id"]) == sel), None) \
         or (share_cats[0] if share_cats else None)
     share_url = qr_svg = None
+    share_has_og = False
     if share:
         share_url = f"{BASE_URL}/c/{share['link_token']}"
         qr_svg = _qr_svg(share_url)
+        # превью ссылки: своя картинка ИЛИ коллаж из фото активных свиданий
+        share_has_og = bool(share["og_image"]) or conn.execute(
+            "SELECT 1 FROM date_categories dc JOIN dates d ON d.id=dc.date_id "
+            "JOIN date_images di ON di.date_id=d.id "
+            "WHERE dc.category_id=? AND d.archived_at IS NULL AND d.is_draft=0 LIMIT 1",
+            (share["id"],)).fetchone() is not None
 
     return templates.TemplateResponse(
         request, "admin/dashboard.html",
         actx(request, conn, active="dash", stats=stats, feed=feed,
-             share_cats=share_cats, share=share, share_url=share_url, qr_svg=qr_svg))
+             share_cats=share_cats, share=share, share_url=share_url, qr_svg=qr_svg,
+             share_has_og=share_has_og))
 
 
 def _qr_svg(data: str) -> str:
@@ -415,7 +422,7 @@ async def import_json(request: Request, file: UploadFile = File(...),
         if not isinstance(c, dict):
             continue
         name = clean_text(str(c.get("name") or ""), 200, "Название") or "Без названия"
-        token = secrets.token_urlsafe(24)
+        token = new_link_token()
         cur = conn.execute(
             "INSERT INTO categories(owner_id, name, description, link_token, "
             "link_enabled, moderate_proposals, created_at) VALUES(?,?,?,?,?,?,?)",
@@ -491,7 +498,7 @@ def categories_list(request: Request, conn=Depends(get_db)):
 def category_create(request: Request, bg: BackgroundTasks, name: str = Form(...),
                     conn=Depends(get_db)):
     name = clean_text(name, 200, "Название", required=True)
-    token = secrets.token_urlsafe(24)
+    token = new_link_token()
     # мягкая очередь: при включённой модерации категорий новая помечается
     # is_reviewed=0 (ссылка работает сразу, админ просто видит её в очереди).
     reviewed = 0 if app_settings.is_on(conn, app_settings.MODERATE_CATEGORIES) else 1
@@ -660,7 +667,7 @@ def category_moderation(cid: int, request: Request, conn=Depends(get_db)):
 @router.post("/categories/{cid}/regenerate")
 def category_regenerate(cid: int, request: Request, conn=Depends(get_db)):
     _cat_or_404(conn, cid, request.state.user)
-    token = secrets.token_urlsafe(24)
+    token = new_link_token()
     conn.execute("UPDATE categories SET link_token=?, link_enabled=1 WHERE id=?", (token, cid))
     conn.commit()
     return redir(f"/admin/categories/{cid}",

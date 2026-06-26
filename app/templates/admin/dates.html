@@ -1,5 +1,9 @@
 {% extends "admin/base.html" %}
 {% block title %}Свидания{% endblock %}
+{# Список меняется после каждой правки (активные/неактивные/архив). Запрещаем
+   Turbo показывать устаревший кэш-снимок — иначе реактивированное свидание
+   «оставалось» в Неактивных до жёсткой перезагрузки. #}
+{% block head %}<meta name="turbo-cache-control" content="no-cache">{% endblock %}
 {% block content %}
 <div class="bar">
   <h1 class="serif" style="margin:0">Свидания</h1>

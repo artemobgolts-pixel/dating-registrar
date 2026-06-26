@@ -45,11 +45,7 @@
 
   // --- общие для всех страниц кабинета: стеклянный индикатор главной навигации -
   function initNav() {
-    // скользящий индикатор как у вкладок — только на ПК (на телефоне nav — это
-    // фиксированный нижний бар со скроллом, там индикатор неуместен)
-    if (!window.UI || !UI.glassTabs) return;
-    if (!window.matchMedia("(min-width: 721px)").matches) return;
-    UI.glassTabs(document.querySelector("nav.glass-nav"));
+    if (window.UI && UI.glassTabs) UI.glassTabs(document.querySelector("nav.glass-nav"));
   }
 
   // --- список свиданий: меню ⋯, стеклянные вкладки, переключатель вида -------
@@ -207,7 +203,7 @@
           fd.append("focus", focus);
           fetch("/admin/dates/" + th.dataset.did + "/images/" + t.dataset.pid + "/focus",
                 { method: "POST", body: fd })
-            .then(function (r) { r.ok ? flashStatus("Зона обложки сохранена ✓") : alert("Не удалось сохранить зону фокуса"); })
+            .then(function (r) { if (!r.ok) alert("Не удалось сохранить зону фокуса"); })
             .catch(function () { alert("Нет связи — зона не сохранена"); });
         });
       }

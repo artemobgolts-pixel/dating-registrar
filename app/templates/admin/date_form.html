@@ -115,7 +115,7 @@
             <div class="thumb" data-pid="{{ p['id'] }}">
               <img src="/admin/uploads/{{ p['filename'] }}" alt="" draggable="false"
                    loading="lazy" decoding="async"
-                   class="focusable" data-focus="{{ p['focus'] or '50% 50%' }}"
+                   data-focus="{{ p['focus'] or '50% 50%' }}"
                    style="object-position:{{ p['focus'] or '50% 50%' }}">
               <div class="thumb-btns">
                 <a class="btn small" href="/admin/uploads/{{ p['filename'] }}" target="_blank" rel="noopener" title="Открыть">⤢</a>
