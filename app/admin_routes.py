@@ -880,6 +880,18 @@ def dates_list(request: Request, conn=Depends(get_db)):
     flt = qp.get("f") if qp.get("f") in FLT_WHERE else ""
     cat = qp.get("cat", "")
 
+    # Само-исцеление инварианта «активно ⇔ есть категория». Историческая причина
+    # «старое неактивное свидание не достаётся из Неактивных»: у него уже была
+    # привязка в date_categories, но is_draft остался 1 (легаси-баг/недокат).
+    # Приводим к инварианту: НЕархивное свидание владельца с ≥1 категорией и
+    # is_draft=1 → активным. ВАЖНО: не трогаем гостевые предложения (origin='guest')
+    # — они законно ждут модерации на вкладке «Неактивные», их публикует «Одобрить».
+    conn.execute(
+        "UPDATE dates SET is_draft=0 WHERE owner_id=? AND is_draft=1 "
+        "AND origin<>'guest' AND archived_at IS NULL "
+        "AND id IN (SELECT date_id FROM date_categories)", (request.state.user["id"],))
+    conn.commit()
+
     where = VIEW_WHERE[view]
     params: list = [request.state.user["id"]]
     where = "d.owner_id=? AND " + where
@@ -916,6 +928,12 @@ def dates_list(request: Request, conn=Depends(get_db)):
     drafts_n = conn.execute(
         "SELECT COUNT(*) FROM dates WHERE owner_id=? AND archived_at IS NULL AND is_draft=1",
         (request.state.user["id"],)).fetchone()[0]
+    active_n = conn.execute(
+        "SELECT COUNT(*) FROM dates WHERE owner_id=? AND archived_at IS NULL AND is_draft=0",
+        (request.state.user["id"],)).fetchone()[0]
+    archived_n = conn.execute(
+        "SELECT COUNT(*) FROM dates WHERE owner_id=? AND archived_at IS NOT NULL",
+        (request.state.user["id"],)).fetchone()[0]
 
     keep = [("sort", sort)] if sort != "new" else []
     if flt:
@@ -931,7 +949,8 @@ def dates_list(request: Request, conn=Depends(get_db)):
     return templates.TemplateResponse(
         request, "admin/dates.html",
         actx(request, conn, active="dates", rows=rows, view=view, sort=sort,
-             flt=flt, cat=cat, cats=_all_cats(conn, request.state.user["id"]), drafts_n=drafts_n,
+             flt=flt, cat=cat, cats=_all_cats(conn, request.state.user["id"]),
+             drafts_n=drafts_n, active_n=active_n, archived_n=archived_n,
              qs_keep=qs_keep, page=page, pages=pages, layout=layout))
 
 

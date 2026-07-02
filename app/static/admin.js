@@ -242,6 +242,17 @@
   function initCategory() {
     if (!window.UI) return;
 
+    // WYSIWYG-редактор описания категории — тот же, что у комментария свидания
+    var catEditable = document.getElementById("catDescEditable");
+    if (catEditable && UI.richEditor && !catEditable.dataset.ready) {
+      catEditable.dataset.ready = "1";
+      UI.richEditor({
+        textarea: document.getElementById("catDescInput"),
+        editable: catEditable,
+        toolbar: document.getElementById("catDescToolbar"),
+      });
+    }
+
     var ogWarn = document.getElementById("ogWarn");
     var warnDismissed = false;
     function showWarn() { if (ogWarn && !warnDismissed) ogWarn.hidden = false; }

@@ -12,8 +12,17 @@
         enctype="multipart/form-data" style="display:grid;gap:10px">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <input name="name" value="{{ cat['name'] }}" required maxlength="200">
-    <textarea name="description" maxlength="1000" rows="2"
-      placeholder="Описание (необязательно). Можно **жирный**, *курсив*, __подчёркнутый__">{{ cat['description'] or '' }}</textarea>
+    <label class="field-label">Описание (необязательно)</label>
+    <div class="toolbar" id="catDescToolbar" data-target="catDescInput">
+      <button type="button" class="b" data-wrap="**|**" title="Жирный">Ж</button>
+      <button type="button" class="i" data-wrap="*|*" title="Курсив">К</button>
+      <button type="button" class="u" data-wrap="__|__" title="Подчёркнутый">П</button>
+      <button type="button" class="s" data-wrap="~~|~~" title="Зачёркнутый">З</button>
+      <button type="button" data-wrap="[|](https://)" title="Ссылка">🔗</button>
+    </div>
+    <div class="rich-ed" id="catDescEditable" contenteditable="true"
+         role="textbox" aria-multiline="true" data-placeholder="Пара слов под заголовком категории…"></div>
+    <textarea name="description" id="catDescInput" maxlength="1000" hidden>{{ cat['description'] or '' }}</textarea>
 
     <label style="margin-top:4px">Превью ссылки — как она выглядит при отправке</label>
     <input name="og_title" maxlength="120" placeholder="Тебя ждёт сюрприз ♥"

@@ -363,31 +363,27 @@ body::after {
   padding: 9px 12px; border-radius: 10px; margin-top: 8px; font-size: 13px;
 }
 
-/* OAuth-вход во вход-модалке: иконочные кнопки, гасятся до согласия */
+/* Вход во вход-модалке: иконочные кнопки (Telegram + OAuth), гасятся до согласия */
 .login-dlg .login-methods { position: relative; }
-.login-dlg .oauth-sep {
-  display: flex; align-items: center; gap: 12px;
-  color: var(--muted); font-size: 12.5px; margin: 14px 0;
-}
-.login-dlg .oauth-sep::before, .login-dlg .oauth-sep::after {
-  content: ""; flex: 1; height: 1px; background: var(--line);
-}
-.login-dlg .oauth-row { display: flex; gap: 10px; justify-content: center; }
+.login-dlg .oauth-row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 4px; }
 .oauth-btn {
-  display: flex; align-items: center; justify-content: center;
-  width: 64px; height: 48px; border-radius: 14px; text-decoration: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 60px; height: 52px; border-radius: 14px; text-decoration: none;
   background: rgba(255, 255, 255, .85); border: 1px solid var(--line);
+  cursor: pointer; padding: 0;
   transition: transform .15s, box-shadow .2s, border-color .2s; position: relative;
 }
 .oauth-btn:hover { transform: translateY(-1px); box-shadow: 0 8px 18px rgba(150, 80, 95, .14); }
+.oauth-tg:hover      { border-color: #2AABEE; }
 .oauth-discord:hover { border-color: #5865f2; }
 .oauth-google:hover  { border-color: #ea4335; }
 .oauth-yandex:hover  { border-color: #fc3f1d; }
-.oauth-ico { display: block; }
-span.oauth-ico { font-weight: 700; font-size: 18px; color: var(--rose); }
-.login-methods.gated { opacity: .5; filter: grayscale(.4); }
-.login-methods.gated .oauth-btn,
-.login-methods.gated #tg-widget-wrap { cursor: not-allowed; }
+.oauth-ico { display: block; width: 24px; height: 24px; }
+span.oauth-ico { display: grid; place-items: center; font-weight: 700; font-size: 18px; color: var(--rose); }
+.oauth-btn[aria-busy="true"] { opacity: .6; pointer-events: none; }
+.oauth-tg-link { font-size: 12px; color: var(--rose); width: auto; height: auto; padding: 6px 10px; }
+.login-methods.gated { opacity: .55; filter: grayscale(.35); }
+.login-methods.gated .oauth-btn { cursor: not-allowed; }
 .shake { animation: consent-shake .4s ease; }
 @keyframes consent-shake {
   0%,100% { transform: translateX(0); }

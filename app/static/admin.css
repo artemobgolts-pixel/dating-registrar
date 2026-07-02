@@ -736,23 +736,27 @@ label.chk {
 .oauth-sep::before, .oauth-sep::after {
   content: ""; flex: 1; height: 1px; background: var(--line);
 }
-.oauth-row { display: flex; gap: 10px; justify-content: center; }
+.oauth-row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
 .oauth-btn {
-  display: flex; align-items: center; justify-content: center;
-  width: 64px; height: 48px; border-radius: 14px; text-decoration: none;
-  background: rgba(255, 255, 255, .8); border: 1px solid var(--line);
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 60px; height: 52px; border-radius: 14px; text-decoration: none;
+  background: rgba(255, 255, 255, .78); border: 1px solid var(--line);
+  cursor: pointer; padding: 0;
   transition: transform .15s, box-shadow .2s, border-color .2s; position: relative;
 }
 .oauth-btn:hover { transform: translateY(-1px); box-shadow: 0 8px 18px rgba(150, 80, 95, .14); }
+.oauth-tg:hover      { border-color: #2AABEE; }
 .oauth-discord:hover { border-color: #5865f2; }
 .oauth-google:hover  { border-color: #ea4335; }
 .oauth-yandex:hover  { border-color: #fc3f1d; }
-.oauth-ico { display: block; }
-span.oauth-ico { font-weight: 700; font-size: 18px; color: var(--rose-2); }
+/* все лого одного визуального размера и строго по центру кнопки */
+.oauth-ico { display: block; width: 24px; height: 24px; }
+span.oauth-ico { display: grid; place-items: center; font-weight: 700; font-size: 18px; color: var(--rose-2); }
+.oauth-btn[aria-busy="true"] { opacity: .6; pointer-events: none; }
+.oauth-tg-link { font-size: 12px; color: var(--rose-2); width: auto; height: auto; padding: 6px 10px; }
 /* до согласия все способы входа притушены и не кликаются (клик перехватывает JS) */
-.login-methods.gated { opacity: .5; filter: grayscale(.4); }
-.login-methods.gated .oauth-btn,
-.login-methods.gated #tg-widget-wrap { cursor: not-allowed; }
+.login-methods.gated { opacity: .55; filter: grayscale(.35); }
+.login-methods.gated .oauth-btn { cursor: not-allowed; }
 /* «подпрыгивание» подсказки/чекбокса при попытке войти без согласия */
 .shake { animation: consent-shake .4s ease; }
 @keyframes consent-shake {
@@ -761,10 +765,6 @@ span.oauth-ico { font-weight: 700; font-size: 18px; color: var(--rose-2); }
   40%,80% { transform: translateX(5px); }
 }
 @media (prefers-reduced-motion: reduce) { .shake { animation: none; } }
-/* виджет Telegram: центрируем, держим высоту (без «чёрного прямоугольника»
-   при недогрузе — фон карточки, не тёмный iframe) */
-#tg-widget-wrap { display: flex; justify-content: center; min-height: 48px; align-items: center; }
-#tg-widget-wrap iframe { margin: 0 auto !important; color-scheme: light; }
 
 /* профиль: список привязок соцсетей */
 .social-links { display: flex; flex-direction: column; gap: 10px; }
@@ -1324,7 +1324,19 @@ input, textarea, select {
 }
 .dcard .ttl a { color: inherit; text-decoration: none; }
 .dcard .ttl a:hover { color: var(--rose); }
-.dcard .meta { font-size: 12px; color: var(--muted); margin-bottom: 11px; }
+.dcard .meta {
+  font-size: 12px; color: var(--muted); margin-bottom: 11px;
+  display: flex; flex-direction: column; gap: 3px;
+}
+.dcard .meta .mrow { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dcard .meta .mcats { white-space: normal; }
+/* мягкая подсказка «дозаполни» вместо пустоты — пунктиром, не кричит */
+.dcard .meta .mgap {
+  color: var(--rose-2); text-decoration: none;
+  border-bottom: 1px dashed rgba(182, 95, 111, .5);
+}
+.dcard .meta .mgap:hover { border-bottom-style: solid; }
+.dcard .meta .mnone { opacity: .6; }
 
 /* бейджи поверх миниатюры */
 .badges { position: absolute; top: 8px; left: 8px; display: flex; gap: 5px; flex-wrap: wrap; z-index: 2; max-width: calc(100% - 16px); }
@@ -1357,12 +1369,18 @@ input, textarea, select {
 /* ⋯ меню карточки свидания — в правом верхнем углу самой карточки (не в подвале,
    где ряд кнопок переполнялся и ⋯ «уезжала» за пределы карточки) */
 .dcard .card-menu { position: absolute; top: 8px; right: 8px; z-index: 5; }
+/* ⋯ очень ненавязчива поверх фото: почти прозрачная, проявляется на hover/фокус/
+   при открытом меню. На карточках без обложки фон светлый — контур виден всегда. */
 .dcard .card-menu .more {
-  width: 32px; height: 32px; font-size: 17px;
-  background: rgba(255, 255, 255, .82);
-  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
-  box-shadow: 0 2px 8px rgba(120, 70, 80, .18);
+  width: 30px; height: 30px; font-size: 16px;
+  background: rgba(30, 20, 24, .18);
+  -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+  border-color: transparent; color: #fff; box-shadow: none;
+  opacity: .5; transition: opacity .15s, background .15s;
 }
+.dcard .card-menu .more:hover,
+.dcard .card-menu .more[aria-expanded="true"] { opacity: 1; background: rgba(30, 20, 24, .42); }
+.dcard.nocover .card-menu .more { background: rgba(255,255,255,.55); color: var(--muted); }
 .dcard .card-menu .menu { top: 40px; bottom: auto; }
 .dcard .edit-hint {
   flex: 1; text-align: center; padding: 8px; border-radius: 10px;
@@ -1480,13 +1498,27 @@ input, textarea, select {
 
 /* правый край карточки категории: меню ⋯ + стрелка. Вся группа поднята НАД
    ссылкой-оверлеем (z-index оверлея = 3), поэтому ⋯ кликается, а не открывает
-   категорию. pointer-events возвращаем группе (родитель .bar>div гасит клики). */
-.cat-card .cat-tail {
+   категорию. ВАЖНО: селектор `.bar > .cat-tail` (0,3,0) обязан обыгрывать по
+   специфичности `.cat-card .bar > div` (0,2,1) — иначе хвост наследует от него
+   pointer-events:none и z-index:1, проваливается под оверлей, и клик по ⋯ уводит
+   в редактирование (баг #7). */
+.cat-card .bar > .cat-tail {
   display: flex; align-items: center; gap: 8px; flex: none;
   position: relative; z-index: 5; pointer-events: auto;
 }
-.cat-card .menu-wrap { position: relative; z-index: 6; pointer-events: auto; flex: none; }
-.cat-card .cat-tail .more { pointer-events: auto; }
+.cat-card .cat-tail .menu-wrap { position: relative; z-index: 6; pointer-events: auto; flex: none; }
+.cat-card .cat-tail .more,
+.cat-card .cat-tail .menu { pointer-events: auto; }
+/* ⋯ на карточке категории — ненавязчивая, проявляется на hover/открытии */
+.cat-card .cat-tail .more {
+  background: transparent; border-color: transparent; color: var(--muted);
+  opacity: .45; transition: opacity .15s, background .15s;
+}
+.cat-card:hover .cat-tail .more,
+.cat-card .cat-tail .more:hover,
+.cat-card .cat-tail .more[aria-expanded="true"] {
+  opacity: 1; background: rgba(255, 255, 255, .6);
+}
 /* на карточке кнопка ⋯ вверху — меню открываем ВНИЗ (не вверх, как на свиданиях) */
 .cat-card .menu { top: 44px; bottom: auto; }
 /* «шапка» карточки: имя слева тянется/обрезается, хвост (⋯ + стрелка) фиксирован
@@ -2056,4 +2088,39 @@ input, textarea, select {
 .admin-toast.show { opacity: 1; transform: translate(-50%, 0); }
 @media (max-width: 720px) {
   .admin-toast { bottom: 86px; }   /* над нижней навигацией */
+}
+
+/* ============================================================
+   ОБУЧАЮЩИЙ ТУР (spotlight) — первый заход в кабинет
+   ============================================================ */
+.tour-overlay {
+  position: fixed; inset: 0; z-index: 300;
+  background: rgba(40, 28, 32, .55);
+  -webkit-backdrop-filter: blur(1.5px); backdrop-filter: blur(1.5px);
+}
+/* «дырка»-подсветка вокруг целевого элемента: огромная тень гасит фон вокруг */
+.tour-spot {
+  position: fixed; border-radius: 14px;
+  box-shadow: 0 0 0 9999px rgba(40, 28, 32, .55), 0 0 0 2px var(--rose);
+  transition: top .25s ease, left .25s ease, width .25s ease, height .25s ease;
+  pointer-events: none;
+}
+.tour-pop {
+  position: fixed; z-index: 301; width: min(340px, calc(100vw - 24px));
+  background: #fffdfe; border-radius: 16px; padding: 18px 18px 16px;
+  box-shadow: 0 24px 60px rgba(120, 60, 72, .34);
+  transition: top .25s ease, left .25s ease;
+}
+.tour-pop .tour-step { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.tour-pop h3 { font-family: var(--serif); font-size: 21px; color: var(--rose-2); margin: 0 0 6px; }
+.tour-pop p { font-size: 14px; color: #5f5052; line-height: 1.5; margin: 0 0 14px; }
+.tour-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.tour-skip {
+  background: none; border: none; color: var(--muted); cursor: pointer;
+  font-size: 13.5px; font-family: inherit; padding: 8px 4px;
+}
+.tour-skip:hover { color: var(--ink); }
+.tour-next { padding: 9px 22px; font-size: 14.5px; font-weight: 600; }
+@media (prefers-reduced-motion: reduce) {
+  .tour-spot, .tour-pop { transition: none; }
 }

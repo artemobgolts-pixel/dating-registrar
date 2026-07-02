@@ -29,28 +29,10 @@
           и <a href="/privacy" target="_blank" rel="noopener">Политику конфиденциальности</a>.</span>
       </label>
 
-      <div class="login-methods" id="loginMethods">
-        {% if bot %}
-        <div id="tg-widget-wrap" data-bot="{{ bot }}"></div>
-        {% endif %}
+      {% include "auth/_login_methods.html" %}
 
-        {% if oauth %}
-        {% if bot %}<div class="oauth-sep"><span>или</span></div>{% endif %}
-        <div class="oauth-row">
-          {% for p in oauth %}
-          <a class="oauth-btn oauth-{{ p['slug'] }}" href="/auth/{{ p['slug'] }}"
-             data-oauth aria-label="Войти через {{ p['label'] }}" title="Войти через {{ p['label'] }}">
-            {% include "auth/_oauth_icon.html" %}
-          </a>
-          {% endfor %}
-        </div>
-        {% endif %}
-      </div>
-
-      <p class="login-hint" id="tg-widget-gate">Отметь согласие выше, чтобы войти.</p>
-      <div id="tg-error" class="err" hidden></div>
-      <p class="login-note">После входа можно подключить уведомления в Telegram —
-        в настройках профиля.</p>
+      <p class="login-note">Вход через Telegram, Google, Discord или Яндекс.
+        После входа можно подключить уведомления в Telegram — в настройках профиля.</p>
     {% endif %}
   </div>
   </div>

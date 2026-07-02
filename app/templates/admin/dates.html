@@ -12,9 +12,9 @@
 
 <div class="controls">
   <div class="tabs">
-    <a href="/admin/dates?view=active{{ qs_keep }}" class="{{ 'on' if view == 'active' else '' }}">Активные</a>
+    <a href="/admin/dates?view=active{{ qs_keep }}" class="{{ 'on' if view == 'active' else '' }}">Активные{% if active_n %} <span class="pill">{{ active_n }}</span>{% endif %}</a>
     <a href="/admin/dates?view=drafts{{ qs_keep }}" class="{{ 'on' if view == 'drafts' else '' }}">Неактивные{% if drafts_n %} <span class="pill">{{ drafts_n }}</span>{% endif %}</a>
-    <a href="/admin/dates?view=archived{{ qs_keep }}" class="{{ 'on' if view == 'archived' else '' }}">Архив</a>
+    <a href="/admin/dates?view=archived{{ qs_keep }}" class="{{ 'on' if view == 'archived' else '' }}">Архив{% if archived_n %} <span class="pill">{{ archived_n }}</span>{% endif %}</a>
   </div>
 
   <form method="get" action="/admin/dates" class="filters">
@@ -102,13 +102,15 @@
       {% endif %}
       <h3 class="ttl serif"><a href="/admin/dates/{{ r['id'] }}/edit">{{ r['name'] }}</a></h3>
       {% set when_str = r['starts_at'] | when(r['ends_at']) %}
-      {% if when_str or r['books'] or (not cat and r['cats']) %}
+      {# Единый по высоте блок мета: заполненные поля — фактом, пустые ключевые
+         (дата, место) — мягкой подсказкой-ссылкой «указать», чтобы карточка не
+         зияла пустотой и подсказывала, что дозаполнить. Архив не зовём дополнять. #}
       <div class="meta">
-        {%- if when_str %}{{ when_str }}{% endif -%}
-        {%- if r['books'] %}{% if when_str %} · {% endif %}{{ r['books'] }} {{ r['books'] | plural('бронь', 'брони', 'броней') }}{% endif -%}
-        {%- if not cat and r['cats'] %}<br>{{ r['cats'] }}{% endif -%}
+        <span class="mrow">📅 {% if when_str %}{{ when_str }}{% elif not r['archived_at'] %}<a href="/admin/dates/{{ r['id'] }}/edit" class="mgap">назначить дату</a>{% else %}<span class="mnone">без даты</span>{% endif %}</span>
+        <span class="mrow">📍 {% if r['place'] %}{{ r['place'] | placename }}{% elif not r['archived_at'] %}<a href="/admin/dates/{{ r['id'] }}/edit" class="mgap">указать место</a>{% else %}<span class="mnone">без места</span>{% endif %}</span>
+        {% if r['books'] %}<span class="mrow">💝 {{ r['books'] }} {{ r['books'] | plural('бронь', 'брони', 'броней') }}</span>{% endif %}
+        {% if not cat and r['cats'] %}<span class="mrow mcats">🔗 {{ r['cats'] }}</span>{% endif %}
       </div>
-      {% endif %}
       <div class="foot">
         <a class="edit-hint" href="/admin/dates/{{ r['id'] }}/edit">Редактировать</a>
         {% if r['share_token'] %}

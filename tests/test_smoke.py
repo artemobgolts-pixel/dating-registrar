@@ -190,10 +190,10 @@ with TestClient(main.app, follow_redirects=False) as c:
     # ---------- вход через Telegram-бота ----------
     r = c.get("/admin/")
     assert r.status_code == 303 and "/login" in r.headers["location"]
-    # страница входа отдаёт Telegram Login Widget (он подгружается динамически из
-    # auth.js по data-bot, когда отмечено согласие), а не форму логин/пароль
+    # страница входа отдаёт кнопки входа (Telegram по deep-link + OAuth-иконки),
+    # разблокируемые чекбоксом согласия, а не форму логин/пароль
     lp = c.get("/login")
-    assert lp.status_code == 200 and 'id="tg-widget-wrap"' in lp.text \
+    assert lp.status_code == 200 and 'id="tgLoginBtn"' in lp.text \
         and "tg-consent" in lp.text
 
     # вебхук без секрета — 403 (иначе любой подтвердит чужой код)
@@ -744,9 +744,12 @@ with TestClient(main.app, follow_redirects=False) as c:
     step("модерация: предложение и фото видны только автору до публикации")
 
     # ---------- архив виден гостям, брони считаются по активным ----------
-    # блок статистики убран с главной; счётчики свиданий теперь — пилюли-ссылки.
+    # блок статистики убран с главной; счётчики свиданий переехали в пилюли
+    # вкладок на странице «Свидания» (Активные/Неактивные/Архив).
     dash = c.get("/admin/").text
-    assert 'class="dcount-row"' in dash                # новые счётчики активные/неактивные/архив
+    assert "dcount-row" not in dash and "броней сейчас" not in dash
+    dpage = c.get("/admin/dates?view=active").text
+    assert "Активные" in dpage and "Архив" in dpage
     assert db_one("SELECT COUNT(*) FROM bookings b JOIN dates d ON d.id=b.date_id "
                   "WHERE d.archived_at IS NULL")[0] == 2   # Аня + Борис на «Ужине»
     r = apost(c, f"/admin/dates/{did}/archive", {"next": "/admin/dates"})
@@ -2139,11 +2142,10 @@ with TestClient(main.app, follow_redirects=False) as cl:
     # на странице входа — чекбокс согласия со ссылками на оба документа
     lp = cl.get("/login").text
     assert 'id="tg-consent"' in lp and 'href="/terms"' in lp and 'href="/privacy"' in lp
-    # виджет входа скрыт до согласия (показывается по чекбоксу через auth.js,
-    # который динамически подгружает telegram-widget.js по data-bot)
-    assert 'id="tg-widget-wrap"' in lp and "hidden" in lp and 'data-bot=' in lp
-    # вход только через виджет — кнопки deep-link «Войти через Telegram» на входе нет
-    assert "Войти через Telegram" not in lp
+    # кнопки входа видны всегда; клики до согласия гасит auth.js. Telegram —
+    # deep-link-кнопка (не iframe-виджет: тот не грузился на части сетей).
+    assert 'id="tgLoginBtn"' in lp and 'data-tg-login' in lp
+    assert 'aria-label="Войти через Telegram"' in lp
     # надпись про подключение уведомлений в профиле
     assert "уведомления" in lp.lower()
     # страница входа несёт footer-ссылки на юр-документы
@@ -2651,20 +2653,22 @@ finally:
 step("новое OAuth: настроенный провайдер — старт-редирект, callback заводит аккаунт без TG, дубль не плодится, поддельный state → 403")
 
 
-# ---------- НОВОЕ: мелкие UI-правки (счётчики главной, red/green toggle, ⋯ порядок) ----------
+# ---------- НОВОЕ: мелкие UI-правки (счётчики на вкладке, red/green, ⋯, авто-heal) ----------
 main._rates.clear()
 with TestClient(main.app, follow_redirects=False) as cui2:
     assert tg_login(cui2, 773200, username="uifix").json()["status"] == "ok"
     uc2 = re.search(r'name="csrf" value="([^"]+)"', cui2.get("/admin/categories").text).group(1)
-    # категория с включённой ссылкой → на главной появится блок «Поделиться»
     cui2.post("/admin/categories/create", data={"csrf": uc2, "name": "Ц"})
     cc = db_one("SELECT id FROM categories WHERE name='Ц'")
-    # #6: на главной вместо блока статистики — пилюли-счётчики (активные/неактивные/архив)
+    # #2: на главной больше НЕТ блока счётчиков/статистики
     dash = cui2.get("/admin/").text
-    assert 'class="dcount-row"' in dash and "Активные" in dash and "Архив" in dash
-    assert "броней сейчас" not in dash and "непрочит" not in dash
+    assert "dcount-row" not in dash and "броней сейчас" not in dash
     # #12: мобильная короткая подпись кнопки «Ссылка» на главной
     assert "lbl-short" in dash
+    # #2: счётчики переехали на вкладку «Свидания» — пилюли на всех трёх вкладках
+    cui2.post("/admin/dates/new", data={"csrf": uc2, "name": "Акт", "categories": str(cc["id"])})
+    dpage = cui2.get("/admin/dates?view=active").text
+    assert re.search(r'view=active[^>]*>Активные\s*<span class="pill">1</span>', dpage)
     # #4: под тумблером публичности больше нет пояснительного текста
     nf = cui2.get("/admin/dates/new").text
     assert "видят все пользователи в ленте на главной" not in nf
@@ -2678,7 +2682,38 @@ with TestClient(main.app, follow_redirects=False) as cui2:
     # #10: в списке категорий ⋯-меню идёт ПЕРЕД стрелкой (menu-wrap раньше cat-arrow)
     cats = cui2.get("/admin/categories").text
     assert cats.index("menu-wrap") < cats.index("cat-arrow")
-step("новое UI: счётчики главной, red/green toggle ссылки, ⋯ перед стрелкой, короткая подпись кнопки")
+
+    # #4 авто-heal: свидание с категорией, но застрявшее is_draft=1 (легаси-баг),
+    # при заходе на список «Свидания» приводится к активному.
+    stuck = db_one("SELECT id FROM dates WHERE name='Акт'")
+    conn = dbm.connect()
+    conn.execute("UPDATE dates SET is_draft=1 WHERE id=?", (stuck["id"],))  # искусственно «залипло»
+    conn.commit(); conn.close()
+    cui2.get("/admin/dates?view=drafts")   # заход на список чинит инвариант
+    assert db_one("SELECT is_draft FROM dates WHERE id=?", (stuck["id"],))[0] == 0
+    # но гостевое предложение с категорией heal НЕ трогает (законно ждёт модерации)
+    conn = dbm.connect()
+    conn.execute("INSERT INTO dates(owner_id,name,origin,is_draft,created_at) "
+                 "VALUES((SELECT id FROM users WHERE telegram_id=773200),'Гостевое','guest',1,'2026-01-01T00:00:00')")
+    gp = conn.execute("SELECT id FROM dates WHERE name='Гостевое'").fetchone()["id"]
+    conn.execute("INSERT INTO date_categories(date_id,category_id,position) VALUES(?,?,0)", (gp, cc["id"]))
+    conn.commit(); conn.close()
+    cui2.get("/admin/dates?view=drafts")
+    assert db_one("SELECT is_draft FROM dates WHERE id=?", (gp,))[0] == 1, "гостевое предложение не авто-публикуется"
+step("новое UI: счётчики на вкладке «Свидания», red/green toggle, ⋯ перед стрелкой, авто-heal залипших неактивных (кроме гостевых)")
+
+
+# ---------- НОВОЕ: обучающий тур (spotlight) при первом заходе ----------
+main._rates.clear()
+with TestClient(main.app, follow_redirects=False) as ctour:
+    assert tg_login(ctour, 773300, username="tourist").json()["status"] == "ok"
+    dash = ctour.get("/admin/").text
+    assert "tour.js" in dash, "скрипт тура подключён на главной"
+    # сам файл тура отдаётся статикой с версией
+    m = re.search(r'src="(/static/tour\.js[^"]*)"', dash)
+    assert m, "ссылка на tour.js есть"
+    assert ctour.get(m.group(1)).status_code == 200
+step("новое: обучающий тур подключён на главной, tour.js отдаётся статикой")
 
 
 print(f"\nВсе проверки пройдены: {OK} блоков ✔")

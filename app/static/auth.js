@@ -1,48 +1,33 @@
 // Вход/подключение Telegram. Две независимые поверхности:
-//   1) Страница входа (/login): чекбокс согласия открывает Telegram Login Widget.
-//   2) Кабинет: блоки «Подключить уведомления» (.tg-connect) — deep-link + поллинг.
-//      Их может быть несколько на странице (баннер вверху + карточка в профиле),
-//      поэтому работаем по классу-контейнеру, а не по одиночному id.
+//   1) Страница входа (/login) и вход-модалки: чекбокс согласия разблокирует
+//      кнопки входа. Telegram-вход — по deep-link (start → бот → поллинг), а не
+//      через iframe-виджет telegram.org (тот не грузится на части сетей/РФ-хостах
+//      и оставлял пустое место вместо кнопки). OAuth-кнопки — обычные ссылки.
+//   2) Кабинет: блоки «Подключить уведомления» (.tg-connect) — тот же deep-link.
 (function () {
   "use strict";
 
-  // --- 1. Гейт согласия на странице входа. Способы входа (Telegram-виджет +
-  //        OAuth-кнопки) ВИДНЫ всегда, но до согласия не работают: пока чекбокс
-  //        не отмечен, показываем подсказку и гасим клики. После согласия —
-  //        грузим виджет Telegram и снимаем блокировку с OAuth-ссылок.
+  // --- 1. Гейт согласия + Telegram-вход по deep-link на странице/в модалке входа
   var consent = document.getElementById("tg-consent");
   if (consent) {
-    var widgetWrap = document.getElementById("tg-widget-wrap");
     var widgetGate = document.getElementById("tg-widget-gate");
     var methods = document.getElementById("loginMethods");
     var oauthLinks = methods ? methods.querySelectorAll("[data-oauth]") : [];
-
-    // Виджет Telegram вставляем динамически при первом согласии. Если оставить
-    // <script> статически, Telegram подменяет его на iframe до согласия — кнопка
-    // видна, но входить нельзя; грузим скрипт ровно в момент согласия.
-    var widgetLoaded = false;
-    function loadWidget() {
-      if (widgetLoaded || !widgetWrap) return;
-      widgetLoaded = true;
-      var s = document.createElement("script");
-      s.async = true;
-      s.src = "https://telegram.org/js/telegram-widget.js?22";
-      s.setAttribute("data-telegram-login", widgetWrap.getAttribute("data-bot") || "");
-      s.setAttribute("data-size", "large");
-      s.setAttribute("data-auth-url", "/auth/widget");
-      widgetWrap.appendChild(s);
-    }
+    var tgBtn = document.getElementById("tgLoginBtn");
+    var tgLink = document.getElementById("tgLoginLink");
+    var tgHint = document.getElementById("tgLoginHint");
+    var tgErr = document.getElementById("tg-error");
+    var tgTimer = null;
 
     var syncConsent = function () {
       var ok = consent.checked;
       if (methods) methods.classList.toggle("gated", !ok);
       if (widgetGate) widgetGate.hidden = ok;
-      // OAuth-ссылки: до согласия — не переходим (гасим клик), tabindex убираем
       Array.prototype.forEach.call(oauthLinks, function (a) {
         a.setAttribute("aria-disabled", ok ? "false" : "true");
       });
+      if (tgBtn) tgBtn.setAttribute("aria-disabled", ok ? "false" : "true");
       if (ok) {
-        loadWidget();
         var nxt = consent.getAttribute("data-next");
         var url = "/auth/consent" + (nxt ? "?next=" + encodeURIComponent(nxt) : "");
         fetch(url, { method: "POST", credentials: "same-origin" })
@@ -51,23 +36,54 @@
     };
     consent.addEventListener("change", syncConsent);
 
-    // клик по любому способу входа без согласия: не пускаем и подсвечиваем чекбокс
-    function blockIfNoConsent(e) {
-      if (consent.checked) return;
-      e.preventDefault();
-      if (widgetGate) {
-        widgetGate.classList.remove("shake");
-        void widgetGate.offsetWidth;      // рестарт анимации
-        widgetGate.classList.add("shake");
-      }
+    // подсветка чекбокса при попытке войти без согласия
+    function nudgeConsent() {
+      if (widgetGate) { widgetGate.classList.remove("shake"); void widgetGate.offsetWidth; widgetGate.classList.add("shake"); }
       var box = consent.closest(".consent");
       if (box) { box.classList.remove("shake"); void box.offsetWidth; box.classList.add("shake"); }
+    }
+    function blockIfNoConsent(e) {
+      if (consent.checked) return false;
+      e.preventDefault();
+      nudgeConsent();
+      return true;
     }
     Array.prototype.forEach.call(oauthLinks, function (a) {
       a.addEventListener("click", blockIfNoConsent);
     });
-    // клик по контейнеру виджета (пока он «прибит» оверлеем) — тоже подсказываем
-    if (widgetWrap) widgetWrap.addEventListener("click", blockIfNoConsent, true);
+
+    // Telegram-вход: deep-link + поллинг кода (тот же поток, что «Подключить бота»)
+    if (tgBtn) {
+      tgBtn.addEventListener("click", function (e) {
+        if (blockIfNoConsent(e)) return;
+        if (tgErr) tgErr.hidden = true;
+        tgBtn.setAttribute("aria-busy", "true");
+        var nxt = consent.getAttribute("data-next");
+        var url = "/auth/start";
+        fetch(url, { method: "POST", credentials: "same-origin" })
+          .then(function (r) { if (!r.ok) throw new Error("start"); return r.json(); })
+          .then(function (d) {
+            window.open(d.url, "_blank", "noopener");
+            if (tgLink) { tgLink.href = d.url; tgLink.hidden = false; }
+            if (tgHint) tgHint.hidden = false;
+            clearInterval(tgTimer);
+            tgTimer = setInterval(function () {
+              fetch("/auth/poll?code=" + encodeURIComponent(d.code), { credentials: "same-origin" })
+                .then(function (r) { return r.json(); })
+                .then(function (p) {
+                  if (p.status === "ok") { clearInterval(tgTimer); window.location = p.redirect || "/admin/"; }
+                  else if (p.status === "expired") { clearInterval(tgTimer); if (tgErr) { tgErr.textContent = "Код истёк — нажми кнопку ещё раз."; tgErr.hidden = false; } }
+                  else if (p.status === "banned") { clearInterval(tgTimer); if (tgErr) { tgErr.textContent = "Доступ закрыт. Напиши в поддержку."; tgErr.hidden = false; } }
+                })
+                .catch(function () { /* временная ошибка сети — продолжаем поллинг */ });
+            }, 2000);
+          })
+          .catch(function () {
+            tgBtn.removeAttribute("aria-busy");
+            if (tgErr) { tgErr.textContent = "Не получилось начать вход. Попробуй ещё раз."; tgErr.hidden = false; }
+          });
+      });
+    }
 
     syncConsent();
   }
