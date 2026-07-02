@@ -262,13 +262,3 @@ def build_og_collage(filenames: list[str]) -> str | None:
     canvas.save(tmp, "WEBP", quality=82, method=4)
     tmp.replace(out)
     return str(out)
-
-
-def clear_og_cache() -> None:
-    """Чистит весь кэш коллажей (зовётся, когда фото категории могли измениться).
-    Дёшево: файлов мало, краулеры пересоберут при следующем запросе."""
-    for p in OG_CACHE_DIR.glob("og_*.webp"):
-        try:
-            p.unlink()
-        except OSError:
-            pass

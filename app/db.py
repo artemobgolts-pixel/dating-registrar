@@ -60,7 +60,7 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "app.db"
 
-LATEST_VERSION = 19
+LATEST_VERSION = 20
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -223,6 +223,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_book_date ON bookings(date_id);
 CREATE INDEX IF NOT EXISTS idx_book_guest ON bookings(category_id, guest_token);
 CREATE INDEX IF NOT EXISTS idx_dc_cat ON date_categories(category_id);
 CREATE INDEX IF NOT EXISTS idx_q_read ON questions(is_read);
+CREATE INDEX IF NOT EXISTS idx_q_date ON questions(date_id);
+CREATE INDEX IF NOT EXISTS idx_di_date ON date_images(date_id);
+CREATE INDEX IF NOT EXISTS idx_dl_date ON date_links(date_id);
 CREATE INDEX IF NOT EXISTS idx_cat_owner ON categories(owner_id);
 CREATE INDEX IF NOT EXISTS idx_dates_owner ON dates(owner_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_dates_share ON dates(share_token);
@@ -556,6 +559,15 @@ MIGRATIONS: dict[int, str] = {
             PRIMARY KEY (provider, provider_uid)
         );
         CREATE INDEX IF NOT EXISTS idx_oauth_user ON oauth_accounts(user_id);
+    """,
+    20: """
+        -- Индекс на date_id вопросов: подсчёт непрочитанных в actx() крутится на
+        -- КАЖДОЙ странице кабинета (questions есть с v1 — создаём тут явно).
+        -- Индексы idx_di_date/idx_dl_date (date_images/date_links) добавлены в
+        -- SCHEMA: эти таблицы живут только в SCHEMA и создаются её идемпотентным
+        -- пост-проходом в конце init_db, туда же попадут и их индексы — на старой
+        -- базе к моменту миграций таблицы date_links может ещё не быть.
+        CREATE INDEX IF NOT EXISTS idx_q_date ON questions(date_id);
     """,
 }
 
