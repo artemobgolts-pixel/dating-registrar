@@ -291,18 +291,22 @@
         <a href="/terms" target="_blank" rel="noopener">Пользовательское соглашение</a>
         и <a href="/privacy" target="_blank" rel="noopener">Политику конфиденциальности</a>.</span>
     </label>
-    <div id="tg-widget-wrap" data-bot="{{ bot }}" hidden></div>
+    <div class="login-methods" id="loginMethods">
+      <div id="tg-widget-wrap" data-bot="{{ bot }}"></div>
+      {% if oauth %}
+      <div class="oauth-sep"><span>или</span></div>
+      <div class="oauth-row">
+        {% for p in oauth %}
+        <a class="oauth-btn oauth-{{ p['slug'] }}" href="/auth/{{ p['slug'] }}?next=/c/{{ token }}"
+           data-oauth aria-label="Войти через {{ p['label'] }}" title="Войти через {{ p['label'] }}">
+          {% include "auth/_oauth_icon.html" %}
+        </a>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
     <p class="login-hint" id="tg-widget-gate">Отметь согласие выше, чтобы войти.</p>
     <div id="tg-error" class="err" hidden></div>
-    {% if oauth %}
-    <div class="oauth-sep"><span>или войди через</span></div>
-    <div class="oauth-row">
-      {% for p in oauth %}
-      <a class="oauth-btn oauth-{{ p['slug'] }}" href="/auth/{{ p['slug'] }}"
-         {% if not p['enabled'] %}data-soon="скоро"{% endif %}>{{ p['label'] }}</a>
-      {% endfor %}
-    </div>
-    {% endif %}
   {% endif %}
 </dialog>
 

@@ -37,8 +37,8 @@ def octx(request: Request, **extra) -> dict:
 def dashboard(request: Request, conn=Depends(get_db)):
     one = lambda sql, a=(): conn.execute(sql, a).fetchone()[0]
     stats = {
-        "users": one("SELECT COUNT(*) FROM users WHERE telegram_id<>0"),
-        "active": one("SELECT COUNT(*) FROM users WHERE telegram_id<>0 AND is_active=1"),
+        "users": one("SELECT COUNT(*) FROM users WHERE COALESCE(telegram_id,-1)<>0"),
+        "active": one("SELECT COUNT(*) FROM users WHERE COALESCE(telegram_id,-1)<>0 AND is_active=1"),
         "banned": one("SELECT COUNT(*) FROM users WHERE is_active=0"),
         "operators": one("SELECT COUNT(*) FROM users WHERE is_operator=1"),
         "cats": one("SELECT COUNT(*) FROM categories"),
@@ -47,12 +47,12 @@ def dashboard(request: Request, conn=Depends(get_db)):
         "reports": one("SELECT COUNT(*) FROM reports WHERE status='open'"),
         # очередь модерации: новые, ждущие проверки (мягкая очередь)
         "review_users": one(
-            "SELECT COUNT(*) FROM users WHERE telegram_id<>0 AND is_reviewed=0"),
+            "SELECT COUNT(*) FROM users WHERE COALESCE(telegram_id,-1)<>0 AND is_reviewed=0"),
         "review_cats": one("SELECT COUNT(*) FROM categories WHERE is_reviewed=0"),
     }
     recent = conn.execute(
         "SELECT id, display_name, tg_username, telegram_id, is_active, is_operator, "
-        "created_at, last_login_at FROM users WHERE telegram_id<>0 "
+        "created_at, last_login_at FROM users WHERE COALESCE(telegram_id,-1)<>0 "
         "ORDER BY created_at DESC LIMIT 10").fetchall()
     return templates.TemplateResponse(
         request, "operator/dashboard.html",
@@ -66,7 +66,7 @@ PAGE = 30
 def users_list(request: Request, q: str = "", page: int = 1, conn=Depends(get_db)):
     q = (q or "").strip()
     page = max(1, page)
-    where, args = "WHERE telegram_id<>0", []
+    where, args = "WHERE COALESCE(telegram_id,-1)<>0", []
     if q:
         where += (" AND (display_name LIKE ? OR tg_username LIKE ? "
                   "OR CAST(telegram_id AS TEXT) LIKE ?)")
@@ -474,7 +474,7 @@ def review_queue(request: Request, conn=Depends(get_db)):
         "SELECT id, display_name, tg_username, telegram_id, created_at, "
         "(SELECT COUNT(*) FROM categories c WHERE c.owner_id=users.id) AS n_cats, "
         "(SELECT COUNT(*) FROM dates d WHERE d.owner_id=users.id) AS n_dates "
-        "FROM users WHERE telegram_id<>0 AND is_reviewed=0 "
+        "FROM users WHERE COALESCE(telegram_id,-1)<>0 AND is_reviewed=0 "
         "ORDER BY created_at DESC").fetchall()
     cats_q = conn.execute(
         "SELECT c.id, c.name, c.link_token, c.created_at, u.display_name AS owner, "

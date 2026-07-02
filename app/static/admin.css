@@ -463,6 +463,22 @@ label.chk {
 
 .stat span { color: var(--muted); font-size: 13px; }
 
+/* счётчики свиданий на главной (активные/неактивные/архив) — как вкладки-пилюли */
+.dcount-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
+.dcount {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 9px 15px; border-radius: 999px; text-decoration: none;
+  font-size: 14px; font-weight: 600; color: var(--rose-2);
+  background: rgba(255, 255, 255, .6); border: 1px solid var(--line);
+  transition: background .15s, border-color .15s, transform .15s;
+}
+.dcount:hover { background: var(--rose-soft); border-color: var(--rose); transform: translateY(-1px); }
+.dcount .pill { font-size: 12.5px; }
+@media (max-width: 560px) {
+  .dcount-row { gap: 8px; }
+  .dcount { flex: 1; justify-content: center; padding: 10px 8px; font-size: 13px; }
+}
+
 .feed { list-style: none; margin: 0; padding: 0; }
 
 .feed li {
@@ -711,34 +727,62 @@ label.chk {
 .consent input { margin-top: 2px; flex: none; }
 .consent a { color: #b65f6f; }
 
-/* OAuth-кнопки на странице входа (заготовки) */
+/* OAuth-вход: иконочные кнопки, всегда видны, гасятся до согласия */
+.login-methods { position: relative; }
 .oauth-sep {
   display: flex; align-items: center; gap: 12px;
-  color: var(--muted); font-size: 12.5px; margin: 20px 0 14px;
+  color: var(--muted); font-size: 12.5px; margin: 14px 0;
 }
 .oauth-sep::before, .oauth-sep::after {
   content: ""; flex: 1; height: 1px; background: var(--line);
 }
-.oauth-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+.oauth-row { display: flex; gap: 10px; justify-content: center; }
 .oauth-btn {
   display: flex; align-items: center; justify-content: center;
-  padding: 11px 8px; border-radius: 12px; text-decoration: none;
-  font-size: 14px; font-weight: 600; color: var(--ink);
-  background: rgba(255, 255, 255, .7); border: 1px solid var(--line);
+  width: 64px; height: 48px; border-radius: 14px; text-decoration: none;
+  background: rgba(255, 255, 255, .8); border: 1px solid var(--line);
   transition: transform .15s, box-shadow .2s, border-color .2s; position: relative;
 }
-.oauth-btn:hover { transform: translateY(-1px); box-shadow: 0 8px 18px rgba(150, 80, 95, .12); }
-.oauth-discord:hover { border-color: #5865f2; color: #4752c4; }
-.oauth-google:hover  { border-color: #ea4335; color: #c5372b; }
-.oauth-yandex:hover  { border-color: #fc3f1d; color: #d63417; }
-/* не настроенный провайдер: приглушён + пометка «скоро» на hover */
-.oauth-btn[data-soon] { opacity: .72; }
-.oauth-btn[data-soon]::after {
-  content: attr(data-soon); position: absolute; top: -8px; right: -6px;
-  font-size: 9.5px; font-weight: 700; color: #fff; background: var(--rose);
-  padding: 1px 6px; border-radius: 10px; letter-spacing: .02em;
+.oauth-btn:hover { transform: translateY(-1px); box-shadow: 0 8px 18px rgba(150, 80, 95, .14); }
+.oauth-discord:hover { border-color: #5865f2; }
+.oauth-google:hover  { border-color: #ea4335; }
+.oauth-yandex:hover  { border-color: #fc3f1d; }
+.oauth-ico { display: block; }
+span.oauth-ico { font-weight: 700; font-size: 18px; color: var(--rose-2); }
+/* до согласия все способы входа притушены и не кликаются (клик перехватывает JS) */
+.login-methods.gated { opacity: .5; filter: grayscale(.4); }
+.login-methods.gated .oauth-btn,
+.login-methods.gated #tg-widget-wrap { cursor: not-allowed; }
+/* «подпрыгивание» подсказки/чекбокса при попытке войти без согласия */
+.shake { animation: consent-shake .4s ease; }
+@keyframes consent-shake {
+  0%,100% { transform: translateX(0); }
+  20%,60% { transform: translateX(-5px); }
+  40%,80% { transform: translateX(5px); }
 }
-@media (max-width: 380px) { .oauth-row { grid-template-columns: 1fr; } }
+@media (prefers-reduced-motion: reduce) { .shake { animation: none; } }
+/* виджет Telegram: центрируем, держим высоту (без «чёрного прямоугольника»
+   при недогрузе — фон карточки, не тёмный iframe) */
+#tg-widget-wrap { display: flex; justify-content: center; min-height: 48px; align-items: center; }
+#tg-widget-wrap iframe { margin: 0 auto !important; color-scheme: light; }
+
+/* профиль: список привязок соцсетей */
+.social-links { display: flex; flex-direction: column; gap: 10px; }
+.social-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px;
+  background: rgba(255, 255, 255, .5);
+}
+.social-row .social-ico { display: flex; }
+.social-row .social-ico .oauth-ico { width: 24px; height: 24px; }
+.social-row .social-name { font-weight: 600; color: var(--ink); }
+.social-row .inline { margin: 0 0 0 auto; }
+.social-row .btn.primary { margin-left: auto; }
+.social-badge {
+  font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px;
+}
+.social-badge.ok { background: #e7f6ee; color: #15734a; }
+.social-badge.soon { margin-left: auto; background: var(--rose-soft); color: var(--rose-2); }
 
 /* ===== v3: брони, чипы дат, drag-and-drop фото ============================ */
 
@@ -1310,6 +1354,16 @@ input, textarea, select {
 
 /* подвал карточки: подсказка «Редактировать» + меню ⋯ */
 .dcard .foot { display: flex; align-items: center; gap: 7px; position: relative; z-index: 3; margin-top: auto; }
+/* ⋯ меню карточки свидания — в правом верхнем углу самой карточки (не в подвале,
+   где ряд кнопок переполнялся и ⋯ «уезжала» за пределы карточки) */
+.dcard .card-menu { position: absolute; top: 8px; right: 8px; z-index: 5; }
+.dcard .card-menu .more {
+  width: 32px; height: 32px; font-size: 17px;
+  background: rgba(255, 255, 255, .82);
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  box-shadow: 0 2px 8px rgba(120, 70, 80, .18);
+}
+.dcard .card-menu .menu { top: 40px; bottom: auto; }
 .dcard .edit-hint {
   flex: 1; text-align: center; padding: 8px; border-radius: 10px;
   font-size: 13.5px; font-weight: 600; text-decoration: none; cursor: pointer;
@@ -1355,6 +1409,9 @@ input, textarea, select {
 /* ---------- дашборд: быстрые действия и «Поделиться» ---------- */
 .quick { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
 .quick .btn { font-size: 14.5px; padding: 10px 16px; }
+/* по умолчанию (ПК) показываем полную подпись, короткую прячем; на мобиле — наоборот */
+.quick .btn .lbl-short { display: none; }
+.quick .btn .lbl-full { display: inline; }
 
 .share-grid { display: grid; grid-template-columns: 1fr auto; gap: 20px; align-items: start; }
 @media (max-width: 640px) { .share-grid { grid-template-columns: 1fr; } }
@@ -1421,15 +1478,24 @@ input, textarea, select {
 }
 .cat-card:hover .cat-arrow { opacity: 1; transform: translateX(3px); }
 
-/* правый край карточки категории: стрелка + меню ⋯. Меню должно кликаться и
-   открываться ПОВЕРХ ссылки-оверлея, поэтому поднимаем его над z-index оверлея. */
+/* правый край карточки категории: меню ⋯ + стрелка. Вся группа поднята НАД
+   ссылкой-оверлеем (z-index оверлея = 3), поэтому ⋯ кликается, а не открывает
+   категорию. pointer-events возвращаем группе (родитель .bar>div гасит клики). */
 .cat-card .cat-tail {
-  display: flex; align-items: center; gap: 8px;
-  position: relative; z-index: 3;
+  display: flex; align-items: center; gap: 8px; flex: none;
+  position: relative; z-index: 5; pointer-events: auto;
 }
 .cat-card .menu-wrap { position: relative; z-index: 6; pointer-events: auto; flex: none; }
+.cat-card .cat-tail .more { pointer-events: auto; }
 /* на карточке кнопка ⋯ вверху — меню открываем ВНИЗ (не вверх, как на свиданиях) */
 .cat-card .menu { top: 44px; bottom: auto; }
+/* «шапка» карточки: имя слева тянется/обрезается, хвост (⋯ + стрелка) фиксирован
+   справа и НЕ переносится на новую строку при длинном названии */
+.cat-card .bar { display: flex; align-items: center; gap: 10px; flex-wrap: nowrap; }
+.cat-card .bar > div:first-child { flex: 1; min-width: 0; }
+.cat-card .cat-name {
+  font-weight: 600; font-size: 16px; color: var(--ink);
+}
 
 /* миниатюра превью ссылки в списке категорий: широкий кадр 1.91:1 слева,
    содержимое справа. На узких экранах — картинка сверху, контент под ней. */
@@ -1495,6 +1561,15 @@ input, textarea, select {
 .cat-actions .inline { margin: 0; }
 .cat-actions .btn { font-size: 14.5px; font-weight: 600; padding: 9px 18px; border-radius: 12px; }
 .cat-actions .btn.danger { margin-left: auto; }
+/* красная «Отключить ссылку» / зелёная «Включить ссылку» */
+.btn.link-off {
+  background: #fdecec; border: 1px solid #f2c4c4; color: #b3261e;
+}
+.btn.link-off:hover { background: #fbdede; }
+.btn.link-on {
+  background: #e7f6ee; border: 1px solid #b7e0c8; color: #15734a;
+}
+.btn.link-on:hover { background: #d8f0e3; }
 @media (max-width: 560px) {
   .cat-actions { flex-direction: column; align-items: stretch; }
   .cat-actions .inline, .cat-actions .btn { width: 100%; }
@@ -1733,6 +1808,15 @@ input, textarea, select {
 }
 /* «Не важно» — вся первая строка (перенос остальных обеспечен flex-basis:100%) */
 .pay-pick .pay-any { flex-basis: 100%; }
+/* на телефоне три оставшихся модификатора обязаны уместиться в одну строку под
+   «Не важно» — ужимаем padding/шрифт и разрешаем перенос текста внутри пилюли */
+@media (max-width: 560px) {
+  .pay-pick { gap: 6px; }
+  .pay-pick .pay-opt:not(.pay-any) {
+    padding: 9px 6px; font-size: 13px; white-space: normal; line-height: 1.15;
+    text-align: center; min-width: 0;
+  }
+}
 .pay-opt input { position: absolute; opacity: 0; width: 0; height: 0; }
 .pay-opt:has(input:checked) {
   background: linear-gradient(135deg, #34b36b, #15734a);
@@ -1837,10 +1921,17 @@ input, textarea, select {
   /* пустое описание на телефоне — одна аккуратная строка, не «башня» */
   .rich-ed { min-height: 44px; }
 
-  /* быстрые действия на главной: «Создать» во всю строку, «Ссылка»/«Открыть» по половине */
+  /* быстрые действия на главной: «Создать» во всю строку, «Ссылка»/«Открыть» по половине.
+     Обе нижние кнопки — одинаковая высота, текст по центру в одну строку. */
   .quick { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .quick .btn.primary { grid-column: 1 / -1; }
-  .quick .btn { margin: 0; text-align: center; }
+  .quick .btn {
+    margin: 0; display: inline-flex; align-items: center; justify-content: center;
+    gap: 5px; padding: 12px 10px; line-height: 1.2; white-space: nowrap;
+  }
+  /* на телефоне «Скопировать ссылку» не влезает — показываем короткое «Ссылка» */
+  .quick .btn .lbl-full { display: none; }
+  .quick .btn .lbl-short { display: inline; }
 
   /* в редакторе свидания «Сохранить» и «Отмена» — единая высота и вид,
      Сохранить занимает больше места, обе кнопки аккуратно выровнены */

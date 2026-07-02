@@ -197,7 +197,6 @@
           <span class="sw" aria-hidden="true"></span>
           <span class="tcol">
             <span class="t">Показывать в общей ленте свиданий</span>
-            <span class="d">Публичные свидания видят все пользователи в ленте на главной. По умолчанию — публичное.</span>
           </span>
         </label>
       </div>
@@ -206,7 +205,7 @@
 
   <!-- ПРАВО: живой предпросмотр -->
   <div class="preview-col">
-    <div class="preview-cap">Предпросмотр{% if date and photos %} <span class="muted" style="font-weight:400;font-size:12px">— кликни по фото, чтобы выбрать зону кадра</span>{% endif %}</div>
+    <div class="preview-cap">Предпросмотр <span class="muted focus-hint" style="font-weight:400;font-size:12px">— кликни по фото, чтобы выбрать зону кадра</span></div>
     <div class="pcard">
       <div class="photo" data-preview="photo" {% if not (date and photos) %}hidden{% endif %}>
         <img data-preview="cover" alt=""

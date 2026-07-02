@@ -744,8 +744,11 @@ with TestClient(main.app, follow_redirects=False) as c:
     step("модерация: предложение и фото видны только автору до публикации")
 
     # ---------- архив виден гостям, брони считаются по активным ----------
+    # блок статистики убран с главной; счётчики свиданий теперь — пилюли-ссылки.
     dash = c.get("/admin/").text
-    assert "<b>2</b><span>броней сейчас" in dash      # Аня + Борис на «Ужине»
+    assert 'class="dcount-row"' in dash                # новые счётчики активные/неактивные/архив
+    assert db_one("SELECT COUNT(*) FROM bookings b JOIN dates d ON d.id=b.date_id "
+                  "WHERE d.archived_at IS NULL")[0] == 2   # Аня + Борис на «Ужине»
     r = apost(c, f"/admin/dates/{did}/archive", {"next": "/admin/dates"})
     assert r.status_code == 303
     page = ga.get(f"/c/{tok}").text
@@ -759,11 +762,14 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert ga.get(f"/c/{tok}/image/{fn_did}").status_code == 200   # фото остаётся
     assert ga.get(f"/c/{tok}/ics/{did}").status_code == 404
     assert ga.post(f"/c/{tok}/book", data={"date_id": did}).status_code == 404
-    assert "<b>1</b><span>броней сейчас" in c.get("/admin/").text   # Борис на «Без даты»
+    # архивная бронь не в счёт: осталась только бронь Бориса на «Без даты»
+    assert db_one("SELECT COUNT(*) FROM bookings b JOIN dates d ON d.id=b.date_id "
+                  "WHERE d.archived_at IS NULL")[0] == 1
     r = apost(c, f"/admin/dates/{did}/archive", {"next": "/admin/dates?view=archived"})
     page = ga.get(f"/c/{tok}").text
     assert "Выбрано ♥" in page
-    assert "<b>2</b><span>броней сейчас" in c.get("/admin/").text
+    assert db_one("SELECT COUNT(*) FROM bookings b JOIN dates d ON d.id=b.date_id "
+                  "WHERE d.archived_at IS NULL")[0] == 2
     # архив брони НЕ блокирует выбор другого активного свидания тем же гостем:
     # создаём свежее активное свидание и проверяем, что Аня может его выбрать
     r = apost(c, "/admin/dates/new", {"name": "Новый вечер", "categories": str(cid)})
@@ -2452,7 +2458,7 @@ with TestClient(main.app, follow_redirects=False) as cnata, \
 
     # C2: тумблер публичности есть в редакторе; по умолчанию публичное (checked)
     newform = cnata.get("/admin/dates/new").text
-    assert 'name="is_public"' in newform and "в ленте" in newform
+    assert 'name="is_public"' in newform and "общей ленте свиданий" in newform
 
     # создаём ПУБЛИЧНОЕ свидание (чекбокс отправлен)
     cnata.post("/admin/dates/new", data={
@@ -2532,17 +2538,147 @@ with TestClient(main.app, follow_redirects=False) as cui:
     row = db_one("SELECT og_title, og_desc, og_image FROM categories WHERE id=?", (mcat["id"],))
     assert row["og_title"] is None and row["og_desc"] is None and row["og_image"] is None
 
-    # D: кнопки OAuth-провайдеров на странице входа (заготовки), помечены «скоро».
-    # Нужен анонимный клиент — залогиненного /login уводит редиректом.
+    # D: кнопки OAuth-провайдеров на странице входа — видны всегда, иконки,
+    # гейт согласия через .login-methods. Нужен анонимный клиент.
     with TestClient(main.app, follow_redirects=False) as canon:
         login = canon.get("/login").text
         assert "/auth/discord" in login and "/auth/google" in login and "/auth/yandex" in login
-        assert "data-soon" in login
-    # роуты-заготовки: не настроенный провайдер → 503, неизвестный → 404
+        assert 'id="loginMethods"' in login and "oauth-ico" in login
+    # не настроенный провайдер → 503; неизвестный → 404; настроенный → редирект на провайдера
     assert cui.get("/auth/google").status_code == 503
     assert cui.get("/auth/google/callback").status_code == 503
     assert cui.get("/auth/unknown").status_code == 404
-step("новое B2/B3/D: меню ⋯ категорий, чистка редактора+сброс превью, OAuth-заготовки")
+step("новое B2/B3/D: меню ⋯ категорий, чистка редактора+сброс превью, OAuth-кнопки-иконки")
+
+
+# ---------- НОВОЕ: полный OAuth-поток (настроенный провайдер, мок httpx) ----------
+import auth_routes as _ar
+
+# «Настраиваем» google: вписываем client_id/secret прямо в рантайм-конфиг роутов.
+_ar.OAUTH_PROVIDERS["google"] = ("cid-test", "secret-test")
+
+
+class _OAuthResp:
+    def __init__(self, status, payload):
+        self.status_code = status
+        self._payload = payload
+        self.text = json.dumps(payload)
+    def json(self):
+        return self._payload
+
+
+class _FakeOAuthClient:
+    """Подменяет httpx.Client в auth_routes: token→access_token, userinfo→профиль."""
+    provider_uid = "google-user-777"
+    def __init__(self, *a, **k): pass
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+    def post(self, url, data=None, headers=None):
+        return _OAuthResp(200, {"access_token": "at-123"})
+    def get(self, url, headers=None):
+        return _OAuthResp(200, {"sub": _FakeOAuthClient.provider_uid,
+                                "name": "Гоша OAuth", "email": "gosha@oauth.test"})
+
+
+main._rates.clear()
+_real_client = _ar.httpx.Client
+_ar.httpx.Client = _FakeOAuthClient
+try:
+    with TestClient(main.app, follow_redirects=False) as coa:
+        # старт: настроенный провайдер редиректит на страницу авторизации Google
+        start = coa.get("/auth/google")
+        assert start.status_code == 303, start.status_code
+        loc = start.headers["location"]
+        assert loc.startswith("https://accounts.google.com/o/oauth2/v2/auth")
+        assert "client_id=cid-test" in loc and "redirect_uri=" in loc
+        state = re.search(r"state=([^&]+)", loc).group(1)
+
+        # callback с верным state → создаётся аккаунт без telegram_id и логинит
+        cb = coa.get(f"/auth/google/callback?code=abc&state={state}")
+        assert cb.status_code == 303, cb.status_code
+        assert cb.headers["location"] in ("/admin/", "/admin")
+        u = db_one("SELECT id, telegram_id, display_name FROM users "
+                   "WHERE display_name='Гоша OAuth'")
+        assert u is not None and u["telegram_id"] is None, "OAuth-аккаунт без telegram_id"
+        link = db_one("SELECT provider, provider_uid, user_id FROM oauth_accounts "
+                      "WHERE provider='google'")
+        assert link and link["provider_uid"] == _FakeOAuthClient.provider_uid
+        assert link["user_id"] == u["id"]
+        # кабинет доступен под OAuth-аккаунтом (нет telegram — не падает)
+        assert coa.get("/admin/").status_code == 200
+
+        # повторный вход тем же провайдером НЕ плодит дубль-аккаунт
+        coa2 = TestClient(main.app, follow_redirects=False)
+        s2 = coa2.get("/auth/google")
+        st2 = re.search(r"state=([^&]+)", s2.headers["location"]).group(1)
+        coa2.get(f"/auth/google/callback?code=xyz&state={st2}")
+        assert db_one("SELECT COUNT(*) FROM users WHERE display_name='Гоша OAuth'")[0] == 1
+
+    # подделка state → 403 (CSRF-защита колбэка)
+    main._rates.clear()
+    with TestClient(main.app, follow_redirects=False) as cbad:
+        cbad.get("/auth/google")   # кладёт настоящий state в сессию
+        assert cbad.get("/auth/google/callback?code=abc&state=WRONG").status_code == 403
+
+    # привязка соцсети к TG-аккаунту из профиля (?link=1) + отвязка
+    main._rates.clear()
+    _FakeOAuthClient.provider_uid = "google-link-999"
+    with TestClient(main.app, follow_redirects=False) as clink:
+        assert tg_login(clink, 773100, username="linker").json()["status"] == "ok"
+        # профиль показывает блок соцсетей с кнопкой «Привязать»
+        prof = clink.get("/admin/profile").text
+        assert "Соцсети и сервисы" in prof and "/auth/google?link=1" in prof
+        # старт привязки помечает режим link и ведёт на провайдера
+        st = clink.get("/auth/google?link=1")
+        assert st.status_code == 303
+        state = re.search(r"state=([^&]+)", st.headers["location"]).group(1)
+        cb = clink.get(f"/auth/google/callback?code=c&state={state}")
+        assert cb.status_code == 303 and "/admin/profile" in cb.headers["location"]
+        me = db_one("SELECT id FROM users WHERE telegram_id=773100")
+        link = db_one("SELECT user_id FROM oauth_accounts WHERE provider_uid='google-link-999'")
+        assert link and link["user_id"] == me["id"], "соцсеть привязана к TG-аккаунту, дубль не создан"
+        # в профиле теперь «Привязан» + кнопка «Отвязать»
+        prof2 = clink.get("/admin/profile").text
+        assert "Привязан" in prof2
+        csrf = re.search(r'name="csrf" value="([^"]+)"', prof2).group(1)
+        # отвязка разрешена (есть Telegram как запасной способ входа)
+        assert clink.post("/admin/profile/oauth/google/unlink",
+                          data={"csrf": csrf}).status_code == 303
+        assert db_one("SELECT COUNT(*) FROM oauth_accounts WHERE user_id=?", (me["id"],))[0] == 0
+finally:
+    _ar.httpx.Client = _real_client
+    _ar.OAUTH_PROVIDERS["google"] = ("", "")
+step("новое OAuth: настроенный провайдер — старт-редирект, callback заводит аккаунт без TG, дубль не плодится, поддельный state → 403")
+
+
+# ---------- НОВОЕ: мелкие UI-правки (счётчики главной, red/green toggle, ⋯ порядок) ----------
+main._rates.clear()
+with TestClient(main.app, follow_redirects=False) as cui2:
+    assert tg_login(cui2, 773200, username="uifix").json()["status"] == "ok"
+    uc2 = re.search(r'name="csrf" value="([^"]+)"', cui2.get("/admin/categories").text).group(1)
+    # категория с включённой ссылкой → на главной появится блок «Поделиться»
+    cui2.post("/admin/categories/create", data={"csrf": uc2, "name": "Ц"})
+    cc = db_one("SELECT id FROM categories WHERE name='Ц'")
+    # #6: на главной вместо блока статистики — пилюли-счётчики (активные/неактивные/архив)
+    dash = cui2.get("/admin/").text
+    assert 'class="dcount-row"' in dash and "Активные" in dash and "Архив" in dash
+    assert "броней сейчас" not in dash and "непрочит" not in dash
+    # #12: мобильная короткая подпись кнопки «Ссылка» на главной
+    assert "lbl-short" in dash
+    # #4: под тумблером публичности больше нет пояснительного текста
+    nf = cui2.get("/admin/dates/new").text
+    assert "видят все пользователи в ленте на главной" not in nf
+    # #9: кнопка ссылки в редакторе категории — красная «Отключить» (link-off)
+    ed = cui2.get(f"/admin/categories/{cc['id']}").text
+    assert "link-off" in ed and "Отключить ссылку" in ed
+    assert "Описание (необязательно)" in ed
+    cui2.post(f"/admin/categories/{cc['id']}/toggle", data={"csrf": uc2})   # выключаем ссылку
+    ed2 = cui2.get(f"/admin/categories/{cc['id']}").text
+    assert "link-on" in ed2 and "Включить ссылку" in ed2                    # теперь зелёная «Включить»
+    # #10: в списке категорий ⋯-меню идёт ПЕРЕД стрелкой (menu-wrap раньше cat-arrow)
+    cats = cui2.get("/admin/categories").text
+    assert cats.index("menu-wrap") < cats.index("cat-arrow")
+step("новое UI: счётчики главной, red/green toggle ссылки, ⋯ перед стрелкой, короткая подпись кнопки")
 
 
 print(f"\nВсе проверки пройдены: {OK} блоков ✔")

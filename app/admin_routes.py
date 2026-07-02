@@ -6,6 +6,7 @@
 import csv
 import io
 import json
+import logging
 import os
 import tempfile
 import zipfile
@@ -19,12 +20,13 @@ from starlette.background import BackgroundTask
 from urllib.parse import urlencode
 
 import backup
+import db
 import images
 import notify
 import places
 import public_routes
 import settings as app_settings
-from config import BASE_URL, SUPPORT_CONTACT
+from config import BASE_URL, SUPPORT_CONTACT, OAUTH_PROVIDERS, OAUTH_LABELS
 from guests import gname
 from helpers import (clean_text, new_link_token, normalize_period, now_iso, now_naive,
                      parse_birth_date, parse_dt_local, parse_links, pay_label)
@@ -47,6 +49,7 @@ from web import get_db, redir, templates
 # CSRF на POST) и видит данные ТОЛЬКО своего владельца.
 
 router = APIRouter(prefix="/admin", dependencies=[Depends(current_user)])
+log = logging.getLogger("admin")
 
 
 def actx(request: Request, conn, **extra) -> dict:
@@ -72,8 +75,16 @@ def logout(request: Request):
 
 @router.get("/profile", response_class=HTMLResponse)
 def profile_form(request: Request, conn=Depends(get_db)):
+    # какие соцсети уже привязаны — чтобы показать статус в блоке привязки
+    linked = {r["provider"] for r in conn.execute(
+        "SELECT provider FROM oauth_accounts WHERE user_id=?",
+        (request.state.user["id"],))}
+    providers = [{"slug": s, "label": lbl, "linked": s in linked,
+                  "enabled": bool(OAUTH_PROVIDERS[s][0])}
+                 for s, lbl in OAUTH_LABELS.items()]
     return templates.TemplateResponse(
-        request, "admin/profile.html", actx(request, conn, active="profile"))
+        request, "admin/profile.html",
+        actx(request, conn, active="profile", oauth_providers=providers))
 
 
 @router.post("/profile")
@@ -110,6 +121,25 @@ def profile_save(request: Request,
     if new_avatar and old_avatar:        # старый аватар — только после коммита
         images.delete_file(old_avatar)
     return redir("/admin/profile", "Профиль сохранён ♥")
+
+
+@router.post("/profile/oauth/{provider}/unlink")
+def profile_oauth_unlink(provider: str, request: Request, conn=Depends(get_db)):
+    """Отвязать соцсеть от аккаунта. Не даём отвязать последний способ входа
+    у OAuth-аккаунта без Telegram — иначе человек потеряет доступ к аккаунту."""
+    uid = request.state.user["id"]
+    if provider not in OAUTH_LABELS:
+        raise HTTPException(404)
+    has_tg = request.state.user["telegram_id"] is not None
+    links = conn.execute(
+        "SELECT COUNT(*) FROM oauth_accounts WHERE user_id=?", (uid,)).fetchone()[0]
+    if not has_tg and links <= 1:
+        return redir("/admin/profile",
+                     "Нельзя отвязать единственный способ входа — сначала привяжи другой.")
+    conn.execute("DELETE FROM oauth_accounts WHERE user_id=? AND provider=?",
+                 (uid, provider))
+    conn.commit()
+    return redir("/admin/profile", f"{OAUTH_LABELS[provider]} отвязан")
 
 
 @router.post("/profile/avatar/delete")
@@ -600,6 +630,35 @@ def category_detail(cid: int, request: Request, conn=Depends(get_db)):
              auto_og=auto_og))
 
 
+def _category_collage_sources(conn, cid: int) -> list[str]:
+    """Имена фото для коллажа-превью категории (активные, не-черновики), до 8."""
+    return [r["filename"] for r in conn.execute(
+        "SELECT di.filename FROM date_categories dc "
+        "JOIN dates d ON d.id=dc.date_id "
+        "JOIN date_images di ON di.date_id=d.id "
+        "WHERE dc.category_id=? AND d.archived_at IS NULL AND d.is_draft=0 "
+        "ORDER BY dc.position ASC, di.position ASC, di.id ASC LIMIT 8", (cid,))]
+
+
+def prewarm_date_collages(did: int) -> None:
+    """Фоновая пере-сборка коллажей для всех категорий свидания. Зовём из
+    BackgroundTasks после правки фото/категорий — чтобы список «Категории» и
+    дашборд открывались по тёплому кэшу (иначе первый заход собирал N коллажей
+    синхронно на единственном воркере — отсюда «долгая первая загрузка»)."""
+    conn = db.connect()
+    try:
+        cids = [r["category_id"] for r in conn.execute(
+            "SELECT category_id FROM date_categories WHERE date_id=?", (did,))]
+        for cid in cids:
+            files = _category_collage_sources(conn, cid)
+            if files:
+                images.build_og_collage(files)     # идемпотентно: строит, если нет в кэше
+    except Exception:
+        log.exception("prewarm_date_collages did=%s", did)
+    finally:
+        conn.close()
+
+
 @router.get("/categories/{cid}/og-preview")
 def category_og_preview(cid: int, request: Request, conn=Depends(get_db)):
     """Коллаж-превью ссылки для редактора категории (когда своей картинки нет).
@@ -974,6 +1033,7 @@ def date_create(request: Request, bg: BackgroundTasks,
     conn.commit()
     if needs_resolve:
         bg.add_task(places.resolve_into_db, date_id, place_url)
+    bg.add_task(prewarm_date_collages, date_id)   # тёплый кэш коллажей для списка «Категории»
     actor = request.state.user["display_name"] or request.state.user["tg_username"] or "—"
     notify_admin(bg, conn, uid, notify.card(
         "🆕 Создано свидание",
@@ -1105,6 +1165,7 @@ def date_update(did: int, request: Request, bg: BackgroundTasks, name: str = For
     conn.commit()
     if needs_resolve:
         bg.add_task(places.resolve_into_db, did, place_url)
+    bg.add_task(prewarm_date_collages, did)   # тёплый кэш коллажей для списка «Категории»
     return redir(f"/admin/dates/{did}/edit", "Сохранено")
 
 

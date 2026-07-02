@@ -60,12 +60,12 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "app.db"
 
-LATEST_VERSION = 18
+LATEST_VERSION = 19
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    telegram_id INTEGER UNIQUE NOT NULL,  -- 0 = служебный легаси-владелец
+    telegram_id INTEGER UNIQUE,           -- NULL = аккаунт только через OAuth; 0 = служебный легаси-владелец
     tg_username TEXT,
     display_name TEXT,            -- отображаемое имя; из TG, редактируемо, можно русское
     avatar_path TEXT,             -- фото профиля, хранится локально (опционально)
@@ -79,6 +79,17 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TEXT NOT NULL,
     last_login_at TEXT
 );
+
+-- Привязки OAuth-провайдеров к аккаунту (Discord/Google/Yandex).
+CREATE TABLE IF NOT EXISTS oauth_accounts (
+    provider TEXT NOT NULL,               -- 'discord' | 'google' | 'yandex'
+    provider_uid TEXT NOT NULL,           -- стабильный id пользователя у провайдера
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    email TEXT,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (provider, provider_uid)
+);
+CREATE INDEX IF NOT EXISTS idx_oauth_user ON oauth_accounts(user_id);
 
 -- Глобальные флаги платформы (модерация и т.п.). Значения — строки '0'/'1'.
 CREATE TABLE IF NOT EXISTS settings (
@@ -505,6 +516,46 @@ MIGRATIONS: dict[int, str] = {
         -- сделать приватным в редакторе свидания (тумблер в блоке «Категории»).
         ALTER TABLE dates ADD COLUMN is_public INTEGER NOT NULL DEFAULT 1;
         CREATE INDEX IF NOT EXISTS idx_dates_public ON dates(is_public, is_draft, archived_at, id);
+    """,
+    19: """
+        -- OAuth-вход (Discord/Google/Yandex). Аккаунт больше НЕ обязан иметь
+        -- telegram_id: пользователь может завестись через соцсеть. Делаем
+        -- telegram_id NULLABLE (UNIQUE допускает несколько NULL в SQLite) —
+        -- пересобираем users (SQLite не умеет ослабить NOT NULL на месте).
+        -- FK=OFF на время миграций (см. init_db), id сохраняются 1:1.
+        CREATE TABLE users_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            telegram_id INTEGER UNIQUE,          -- NULL = аккаунт только через OAuth
+            tg_username TEXT,
+            display_name TEXT,
+            avatar_path TEXT,
+            birth_date TEXT,
+            gender TEXT,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            is_operator INTEGER NOT NULL DEFAULT 0,
+            is_reviewed INTEGER NOT NULL DEFAULT 1,
+            date_limit INTEGER NOT NULL DEFAULT 30,
+            bot_linked INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            last_login_at TEXT
+        );
+        INSERT INTO users_new SELECT id, telegram_id, tg_username, display_name,
+            avatar_path, birth_date, gender, is_active, is_operator, is_reviewed,
+            date_limit, bot_linked, created_at, last_login_at FROM users;
+        DROP TABLE users;
+        ALTER TABLE users_new RENAME TO users;
+
+        -- Привязки OAuth: один пользователь может иметь несколько (Google+Discord).
+        -- provider_uid — стабильный id пользователя у провайдера (sub/id).
+        CREATE TABLE IF NOT EXISTS oauth_accounts (
+            provider TEXT NOT NULL,              -- 'discord' | 'google' | 'yandex'
+            provider_uid TEXT NOT NULL,          -- id пользователя у провайдера
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            email TEXT,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (provider, provider_uid)
+        );
+        CREATE INDEX IF NOT EXISTS idx_oauth_user ON oauth_accounts(user_id);
     """,
 }
 

@@ -6,15 +6,20 @@
 (function () {
   "use strict";
 
-  // --- 1. Гейт согласия на странице входа: согласие → показываем виджет --------
+  // --- 1. Гейт согласия на странице входа. Способы входа (Telegram-виджет +
+  //        OAuth-кнопки) ВИДНЫ всегда, но до согласия не работают: пока чекбокс
+  //        не отмечен, показываем подсказку и гасим клики. После согласия —
+  //        грузим виджет Telegram и снимаем блокировку с OAuth-ссылок.
   var consent = document.getElementById("tg-consent");
   if (consent) {
     var widgetWrap = document.getElementById("tg-widget-wrap");
     var widgetGate = document.getElementById("tg-widget-gate");
+    var methods = document.getElementById("loginMethods");
+    var oauthLinks = methods ? methods.querySelectorAll("[data-oauth]") : [];
+
     // Виджет Telegram вставляем динамически при первом согласии. Если оставить
-    // <script> статически внутри закрытого <dialog> (display:none), Telegram
-    // подменяет его на iframe нулевого размера и кнопка не появляется — поэтому
-    // грузим скрипт, когда контейнер уже видим (диалог открыт).
+    // <script> статически, Telegram подменяет его на iframe до согласия — кнопка
+    // видна, но входить нельзя; грузим скрипт ровно в момент согласия.
     var widgetLoaded = false;
     function loadWidget() {
       if (widgetLoaded || !widgetWrap) return;
@@ -27,14 +32,15 @@
       s.setAttribute("data-auth-url", "/auth/widget");
       widgetWrap.appendChild(s);
     }
+
     var syncConsent = function () {
       var ok = consent.checked;
-      if (widgetWrap) widgetWrap.hidden = !ok;
+      if (methods) methods.classList.toggle("gated", !ok);
       if (widgetGate) widgetGate.hidden = ok;
-      // дублируем согласие в сессию: серверный /auth/widget без флага вернёт 403,
-      // даже если кто-то покажет виджет правкой DOM. На гостевой ссылке окно входа
-      // передаёт next (data-next) — куда вернуться после входа; на /login next уже
-      // сохранён сервером при заходе на страницу.
+      // OAuth-ссылки: до согласия — не переходим (гасим клик), tabindex убираем
+      Array.prototype.forEach.call(oauthLinks, function (a) {
+        a.setAttribute("aria-disabled", ok ? "false" : "true");
+      });
       if (ok) {
         loadWidget();
         var nxt = consent.getAttribute("data-next");
@@ -44,6 +50,25 @@
       }
     };
     consent.addEventListener("change", syncConsent);
+
+    // клик по любому способу входа без согласия: не пускаем и подсвечиваем чекбокс
+    function blockIfNoConsent(e) {
+      if (consent.checked) return;
+      e.preventDefault();
+      if (widgetGate) {
+        widgetGate.classList.remove("shake");
+        void widgetGate.offsetWidth;      // рестарт анимации
+        widgetGate.classList.add("shake");
+      }
+      var box = consent.closest(".consent");
+      if (box) { box.classList.remove("shake"); void box.offsetWidth; box.classList.add("shake"); }
+    }
+    Array.prototype.forEach.call(oauthLinks, function (a) {
+      a.addEventListener("click", blockIfNoConsent);
+    });
+    // клик по контейнеру виджета (пока он «прибит» оверлеем) — тоже подсказываем
+    if (widgetWrap) widgetWrap.addEventListener("click", blockIfNoConsent, true);
+
     syncConsent();
   }
 

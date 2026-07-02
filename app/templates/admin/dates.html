@@ -48,6 +48,37 @@
   {% for r in rows %}
   <div class="dcard{{ ' archived' if r['archived_at'] else '' }}{{ ' nocover' if not r['cover'] else '' }}">
     <a class="dcard-link" href="/admin/dates/{{ r['id'] }}/edit" aria-label="Редактировать «{{ r['name'] }}»"></a>
+    <div class="menu-wrap card-menu">
+      <button type="button" class="more" aria-label="Ещё действия" aria-haspopup="true" aria-expanded="false">⋯</button>
+      <div class="menu">
+        {% if r['is_draft'] and not r['archived_at'] and r['cats'] %}
+        <form method="post" action="/admin/dates/{{ r['id'] }}/publish">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <input type="hidden" name="next" value="/admin/dates?view={{ view }}{{ qs_keep }}">
+          <button type="submit">✓ Опубликовать</button>
+        </form>
+        {% endif %}
+        <form method="post" action="/admin/dates/{{ r['id'] }}/clone">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <input type="hidden" name="next" value="/admin/dates?view={{ view }}{{ qs_keep }}">
+          <button type="submit">📋 Дублировать</button>
+        </form>
+        {% if r['share_token'] %}
+        <button type="button" data-copy="{{ BASE_URL }}/d/{{ r['share_token'] }}">🔗 Поделиться</button>
+        {% endif %}
+        <form method="post" action="/admin/dates/{{ r['id'] }}/archive">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <input type="hidden" name="next" value="/admin/dates?view={{ view }}{{ qs_keep }}">
+          <button type="submit">{{ '↩ Вернуть из архива' if r['archived_at'] else '🗄 В архив' }}</button>
+        </form>
+        <div class="sepa"></div>
+        <form method="post" action="/admin/dates/{{ r['id'] }}/delete"
+              data-confirm="Удалить свидание безвозвратно? Фото, брони и вопросы к нему тоже удалятся.">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button type="submit" class="danger">🗑 Удалить</button>
+        </form>
+      </div>
+    </div>
     {% if r['cover'] %}
     <div class="ph g{{ r['id'] % 4 }}">
       <img src="/admin/uploads/{{ r['cover'] }}" alt="" loading="lazy"
@@ -83,37 +114,6 @@
         {% if r['share_token'] %}
         <a class="btn small open-date" href="/d/{{ r['share_token'] }}" target="_blank" rel="noopener" title="Открыть страницу свидания">Открыть</a>
         {% endif %}
-        <div class="menu-wrap">
-        <button type="button" class="more" aria-label="Ещё действия" aria-haspopup="true" aria-expanded="false">⋯</button>
-        <div class="menu">
-          {% if r['is_draft'] and not r['archived_at'] and r['cats'] %}
-          <form method="post" action="/admin/dates/{{ r['id'] }}/publish">
-            <input type="hidden" name="csrf" value="{{ csrf }}">
-            <input type="hidden" name="next" value="/admin/dates?view={{ view }}{{ qs_keep }}">
-            <button type="submit">✓ Опубликовать</button>
-          </form>
-          {% endif %}
-          <form method="post" action="/admin/dates/{{ r['id'] }}/clone">
-            <input type="hidden" name="csrf" value="{{ csrf }}">
-            <input type="hidden" name="next" value="/admin/dates?view={{ view }}{{ qs_keep }}">
-            <button type="submit">📋 Дублировать</button>
-          </form>
-          {% if r['share_token'] %}
-          <button type="button" data-copy="{{ BASE_URL }}/d/{{ r['share_token'] }}">🔗 Поделиться</button>
-          {% endif %}
-          <form method="post" action="/admin/dates/{{ r['id'] }}/archive">
-            <input type="hidden" name="csrf" value="{{ csrf }}">
-            <input type="hidden" name="next" value="/admin/dates?view={{ view }}{{ qs_keep }}">
-            <button type="submit">{{ '↩ Вернуть из архива' if r['archived_at'] else '🗄 В архив' }}</button>
-          </form>
-          <div class="sepa"></div>
-          <form method="post" action="/admin/dates/{{ r['id'] }}/delete"
-                data-confirm="Удалить свидание безвозвратно? Фото, брони и вопросы к нему тоже удалятся.">
-            <input type="hidden" name="csrf" value="{{ csrf }}">
-            <button type="submit" class="danger">🗑 Удалить</button>
-          </form>
-        </div>
-        </div>
       </div>
     </div>
   </div>

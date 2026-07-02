@@ -76,5 +76,31 @@
   </div>
   {% endif %}
 </div>
+
+<div class="card" style="max-width:540px">
+  <b>🔗 Соцсети и сервисы</b>
+  <p class="muted" style="margin:8px 0 14px;font-size:13.5px">
+    Привяжи аккаунты, чтобы входить через них. Отвязать можно в любой момент.</p>
+  <div class="social-links">
+    {% for p in oauth_providers %}
+    <div class="social-row">
+      <span class="social-ico">{% include "auth/_oauth_icon.html" with context %}</span>
+      <span class="social-name">{{ p['label'] }}</span>
+      {% if p['linked'] %}
+      <span class="social-badge ok">Привязан</span>
+      <form class="inline" method="post" action="/admin/profile/oauth/{{ p['slug'] }}/unlink"
+            data-confirm="Отвязать {{ p['label'] }} от аккаунта?">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button class="btn small ghost">Отвязать</button>
+      </form>
+      {% elif p['enabled'] %}
+      <a class="btn small primary" href="/auth/{{ p['slug'] }}?link=1">Привязать</a>
+      {% else %}
+      <span class="social-badge soon">скоро</span>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</div>
 {% endblock %}
 

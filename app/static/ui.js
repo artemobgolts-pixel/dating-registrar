@@ -297,6 +297,17 @@ window.UI = (() => {
       files: () => files.slice(),
       focuses: () => focuses.slice(),
       addFiles: (list) => add(list),
+      // задать зону кадра плитке idx извне (клик по большому предпросмотру).
+      // Обновляет и модель focuses, и превью-картинку самой плитки.
+      setFocus(idx, focus) {
+        if (idx < 0 || idx >= files.length) return;
+        focuses[idx] = focus;
+        const tile = preview.querySelector('.ptile.new[data-idx="' + idx + '"]');
+        const img = tile && tile.querySelector("img");
+        if (img) img.style.objectPosition = focus;
+        if (onFocus) onFocus(idx, focus, files);
+      },
+      hasFiles: () => files.length > 0,
       clear() { files = []; focuses = []; sync(); },
     };
   }

@@ -7,7 +7,7 @@
 <div class="quick">
   <a class="btn primary" href="/admin/dates/new">+ Создать свидание</a>
   {% if share %}
-  <button type="button" class="btn ghost" data-copy="{{ share_url }}">🔗 Скопировать ссылку</button>
+  <button type="button" class="btn ghost" data-copy="{{ share_url }}">🔗 <span class="lbl-full">Скопировать ссылку</span><span class="lbl-short">Ссылка</span></button>
   <a class="btn ghost" href="/c/{{ share['link_token'] }}" target="_blank" rel="noopener">👀 Открыть</a>
   {% endif %}
 </div>
@@ -58,11 +58,10 @@
 </div>
 {% endif %}
 
-<div class="stat-grid">
-  <div class="stat"><b>{{ stats['active'] }}</b><span>активных свиданий</span></div>
-  <div class="stat"><b>{{ stats['archived'] }}</b><span>в архиве</span></div>
-  <div class="stat"><b>{{ stats['bookings'] }}</b><span>броней сейчас</span></div>
-  <div class="stat"><b>{{ stats['unread_q'] }}</b><span>непрочит. вопросов</span></div>
+<div class="dcount-row">
+  <a class="dcount" href="/admin/dates?view=active">Активные <span class="pill">{{ stats['active'] }}</span></a>
+  <a class="dcount" href="/admin/dates?view=drafts">Неактивные <span class="pill">{{ stats['drafts'] }}</span></a>
+  <a class="dcount" href="/admin/dates?view=archived">Архив <span class="pill">{{ stats['archived'] }}</span></a>
 </div>
 
 <div class="card cfeed-card-wrap">

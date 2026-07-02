@@ -13,7 +13,7 @@
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <input name="name" value="{{ cat['name'] }}" required maxlength="200">
     <textarea name="description" maxlength="1000" rows="2"
-      placeholder="Описание под заголовком. Можно **жирный**, *курсив*, __подчёркнутый__">{{ cat['description'] or '' }}</textarea>
+      placeholder="Описание (необязательно). Можно **жирный**, *курсив*, __подчёркнутый__">{{ cat['description'] or '' }}</textarea>
 
     <label style="margin-top:4px">Превью ссылки — как она выглядит при отправке</label>
     <input name="og_title" maxlength="120" placeholder="Тебя ждёт сюрприз ♥"
@@ -123,7 +123,7 @@
     {% endif %}
     <form class="inline" method="post" action="/admin/categories/{{ cat['id'] }}/toggle">
       <input type="hidden" name="csrf" value="{{ csrf }}">
-      <button class="btn ghost">{{ 'Отключить ссылку' if cat['link_enabled'] else 'Включить ссылку' }}</button>
+      <button class="btn {{ 'link-off' if cat['link_enabled'] else 'link-on' }}">{{ 'Отключить ссылку' if cat['link_enabled'] else 'Включить ссылку' }}</button>
     </form>
     <form class="inline" method="post" action="/admin/categories/{{ cat['id'] }}/delete"
           data-confirm="Удалить категорию? Свидания останутся, но брони в этой категории удалятся, а ссылка перестанет работать.">

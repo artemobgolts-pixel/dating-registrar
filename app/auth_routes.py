@@ -24,9 +24,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 import users
-from config import BASE_URL, TG_BOT_USERNAME, TG_WEBHOOK_SECRET, OAUTH_PROVIDERS, OAUTH_LABELS
+from config import (BASE_URL, TG_BOT_USERNAME, TG_WEBHOOK_SECRET,
+                    OAUTH_PROVIDERS, OAUTH_LABELS, OAUTH_META)
 from helpers import now_iso, now_naive
 from datetime import timedelta
+from urllib.parse import urlencode, quote
 from ratelimit import client_ip, rate_ok
 from web import get_db, templates
 
@@ -307,37 +309,142 @@ async def tg_webhook(request: Request, conn=Depends(get_db)):
 
 
 # ---------------------------------------------------------------------------
-# OAuth-провайдеры (заготовки: Discord / Google / Yandex)
+# OAuth-провайдеры: Discord / Google / Yandex
 # ---------------------------------------------------------------------------
-# Пока только каркас точек входа. Реальный обмен authorization code на токен и
-# резолв пользователя владелец подключит позже, вписав client_id/secret в .env.
-# Структура намеренно повторяет Telegram-виджет: успешный callback должен
-# выставить session["user_id"]/["csrf"] и увести через _post_login_redirect.
+# Полный Authorization Code Flow. Регистрация — standalone: OAuth заводит
+# отдельный аккаунт без telegram_id (см. users.upsert_oauth_login). Если человек
+# уже вошёл (есть сессия) и жмёт «Привязать» в профиле — режим link: привязываем
+# соцсеть к текущему аккаунту, не создавая новый.
+#
+# Провайдер не настроен (нет client_id) → 503, но кнопка на входе видна. state
+# кладём в сессию (CSRF-защита колбэка). redirect_uri обязан совпадать с тем,
+# что вписан в настройках приложения провайдера: <BASE_URL>/auth/<provider>/callback.
+
+def _oauth_redirect_uri(provider: str) -> str:
+    return f"{BASE_URL}/auth/{provider}/callback"
+
 
 @router.get("/auth/{provider}")
 def oauth_start(provider: str, request: Request):
-    """Начало входа через OAuth-провайдера. Пока провайдер не настроен
-    (нет client_id) — честно отвечаем 503. Когда владелец добавит ключи, здесь
-    будет редирект на страницу авторизации провайдера с state/PKCE."""
+    """Старт OAuth: редирект на страницу авторизации провайдера. Параметр
+    ?link=1 запоминает, что это привязка к текущему аккаунту (из профиля)."""
     if provider not in OAUTH_PROVIDERS:
         raise HTTPException(404, "Неизвестный провайдер входа")
     client_id, _secret = OAUTH_PROVIDERS[provider]
     label = OAUTH_LABELS.get(provider, provider)
     if not client_id:
         raise HTTPException(503, f"Вход через {label} ещё не настроен")
-    # TODO: сгенерировать state (в сессию) и редиректить на authorize-URL провайдера.
-    raise HTTPException(503, f"Вход через {label} скоро появится")
+
+    ip = client_ip(request)
+    if not rate_ok(f"oauth:{ip}", 20, 600):
+        raise HTTPException(429, "Слишком много попыток входа. Подожди немного.")
+
+    meta = OAUTH_META[provider]
+    state = secrets.token_urlsafe(24)
+    request.session["oauth_state"] = state
+    request.session["oauth_provider"] = provider
+    # режим привязки — только если пользователь уже вошёл
+    request.session["oauth_link"] = bool(
+        request.query_params.get("link") and request.session.get("user_id"))
+    # куда вернуться после входа (для обычного логина)
+    nxt = _safe_next(request.query_params.get("next"))
+    if nxt:
+        request.session["login_next"] = nxt
+
+    params = {
+        "client_id": client_id,
+        "redirect_uri": _oauth_redirect_uri(provider),
+        "response_type": "code",
+        "scope": meta["scope"],
+        "state": state,
+    }
+    if provider == "google":
+        params["access_type"] = "online"
+        params["prompt"] = "select_account"
+    url = meta["authorize"] + "?" + urlencode(params)
+    return RedirectResponse(url, status_code=303)
+
+
+def _oauth_fetch_identity(provider: str, code: str) -> dict:
+    """Меняет authorization code на access token и тянет профиль пользователя.
+    Возвращает {'uid','name','email'} или бросает HTTPException при сбое."""
+    client_id, client_secret = OAUTH_PROVIDERS[provider]
+    meta = OAUTH_META[provider]
+    data = {
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": _oauth_redirect_uri(provider),
+        "client_id": client_id,
+        "client_secret": client_secret,
+    }
+    try:
+        with httpx.Client(timeout=10) as cli:
+            tok = cli.post(meta["token"], data=data,
+                           headers={"Accept": "application/json"})
+            if tok.status_code != 200:
+                log.warning("OAuth %s: обмен кода не удался: %s %s",
+                            provider, tok.status_code, tok.text[:200])
+                raise HTTPException(502, "Провайдер не выдал токен. Попробуй ещё раз.")
+            access = tok.json().get("access_token")
+            if not access:
+                raise HTTPException(502, "Провайдер не выдал токен. Попробуй ещё раз.")
+            ui = cli.get(meta["userinfo"],
+                         headers={"Authorization": f"Bearer {access}",
+                                  "Accept": "application/json"})
+            if ui.status_code != 200:
+                log.warning("OAuth %s: userinfo не удался: %s", provider, ui.status_code)
+                raise HTTPException(502, "Не удалось получить профиль. Попробуй ещё раз.")
+            info = ui.json()
+    except httpx.HTTPError:
+        log.exception("OAuth %s: сетевая ошибка обмена", provider)
+        raise HTTPException(502, "Провайдер недоступен. Попробуй позже.")
+
+    uid = info.get(meta["uid_field"])
+    if not uid:
+        raise HTTPException(502, "Провайдер не вернул идентификатор пользователя.")
+    name = next((info[f] for f in meta["name_fields"] if info.get(f)), None)
+    email = info.get(meta["email_field"])
+    return {"uid": str(uid), "name": name, "email": email}
 
 
 @router.get("/auth/{provider}/callback")
 def oauth_callback(provider: str, request: Request, conn=Depends(get_db)):
-    """Колбэк OAuth-провайдера. Заготовка: когда появится реальный обмен кода,
-    здесь резолвим/создаём пользователя и логиним так же, как Telegram-виджет:
-        request.session["user_id"] = uid
-        request.session["csrf"] = secrets.token_urlsafe(16)
-        return RedirectResponse(_post_login_redirect(request), status_code=303)
-    """
+    """Колбэк провайдера: сверяем state, меняем code на профиль, логиним/привязываем."""
     if provider not in OAUTH_PROVIDERS:
         raise HTTPException(404, "Неизвестный провайдер входа")
-    label = OAUTH_LABELS.get(provider, provider)
-    raise HTTPException(503, f"Вход через {label} ещё не настроен")
+    if not OAUTH_PROVIDERS[provider][0]:
+        raise HTTPException(503, "Провайдер не настроен")
+
+    if request.query_params.get("error"):
+        return RedirectResponse("/login?msg=" +
+                                quote("Вход отменён."), status_code=303)
+    state = request.query_params.get("state")
+    saved = request.session.pop("oauth_state", None)
+    is_link = request.session.pop("oauth_link", False)
+    request.session.pop("oauth_provider", None)
+    if not state or not saved or not secrets.compare_digest(state, saved):
+        raise HTTPException(403, "Проверка state не прошла. Начни вход заново.")
+    code = request.query_params.get("code")
+    if not code:
+        raise HTTPException(400, "Провайдер не вернул код авторизации.")
+
+    ident = _oauth_fetch_identity(provider, code)
+
+    # режим привязки: пользователь уже вошёл — привязываем соцсеть к его аккаунту
+    if is_link and request.session.get("user_id"):
+        uid = request.session["user_id"]
+        ok = users.link_oauth_account(conn, uid, provider, ident["uid"],
+                                      email=ident["email"])
+        msg = ("Аккаунт привязан ♥" if ok else
+               "Эта соцсеть уже привязана к другому профилю.")
+        return RedirectResponse("/admin/profile?msg=" + quote(msg), status_code=303)
+
+    # обычный вход/регистрация
+    uid = users.upsert_oauth_login(conn, provider, ident["uid"],
+                                   display_name=ident["name"], email=ident["email"])
+    user = users.get_user(conn, uid)
+    if not user or not user["is_active"]:
+        raise HTTPException(403, "Доступ закрыт. Напиши в поддержку.")
+    request.session["user_id"] = uid
+    request.session["csrf"] = secrets.token_urlsafe(16)
+    return RedirectResponse(_post_login_redirect(request), status_code=303)

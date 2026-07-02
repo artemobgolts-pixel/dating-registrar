@@ -41,6 +41,21 @@
     document.addEventListener("turbo:load", function () {
       document.documentElement.classList.remove("turbo-loading");
     });
+    // КЛЮЧЕВОЕ для «реактивации»: любая успешная POST-форма (сохранение свидания,
+    // привязка категории, архив/удаление, правка категории) меняет содержимое
+    // СПИСКОВ (Активные/Неактивные/Архив, дашборд). Turbo кэширует снимок каждой
+    // посещённой страницы и при возврате (клик по вкладке/назад) показывает
+    // устаревший снимок — из-за этого свидание «оставалось» в Неактивных, пока
+    // не сделаешь жёсткий refresh. Мета `turbo-cache-control: no-cache` спасала
+    // не всегда (снимок мог кэшироваться до перехода). Надёжнее: после КАЖДОГО
+    // успешного сабмита сбрасываем весь кэш Turbo — навигация станет чуть менее
+    // «мгновенной», но списки всегда свежие. Это единственный корректный вариант.
+    document.addEventListener("turbo:submit-end", function (e) {
+      var ok = e.detail && e.detail.success;
+      if (ok && window.Turbo && Turbo.cache && typeof Turbo.cache.clear === "function") {
+        Turbo.cache.clear();
+      }
+    });
   }
 
   // --- общие для всех страниц кабинета: стеклянный индикатор главной навигации -
@@ -179,22 +194,30 @@
       // Блок «Медиа» теперь ТОЛЬКО меняет порядок (перетаскивание). Зона фокуса
       // выбирается кликом по картинке в окне предпросмотра — см. ниже.
       UI.sortable(th, { selector: ".thumb", onChange: saveOrder });
+    }
 
-      // первая плитка = обложка (её зону фокуса и правим в предпросмотре)
-      function firstThumb() { return th.querySelector(".thumb"); }
-
-      // выбор зоны фокуса прямо в предпросмотре свидания: клик по обложке →
-      // object-position в %, сохраняем для ПЕРВОЙ (обложечной) фотографии.
-      var pvCover = document.querySelector('[data-preview="cover"]');
-      if (pvCover) {
-        pvCover.classList.add("focus-pickable");
-        pvCover.addEventListener("click", function (e) {
-          var t = firstThumb(); if (!t) return;          // нет сохранённых фото — нечего фокусировать
-          var rect = pvCover.getBoundingClientRect();
-          if (!rect.width || !rect.height) return;
-          var x = Math.round(Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)) * 100);
-          var y = Math.round(Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height)) * 100);
-          var focus = x + "% " + y + "%";
+    // Выбор зоны кадра прямо в БОЛЬШОМ окне предпросмотра — работает и на ПК, и на
+    // телефоне, и для СОХРАНЁННЫХ фото, и для НОВЫХ (ещё не сохранённого свидания).
+    //   • есть сохранённая обложка (.thumb) → шлём focus на сервер сразу;
+    //   • иначе, если загружены новые фото → пишем зону в photoUp (уедет с формой
+    //     в поле image_focuses при сохранении).
+    // Раньше обработчик жил внутри блока #thumbs и на новых свиданиях (там нет
+    // #thumbs) не навешивался — отсюда «на новых не редактируется», а на телефоне
+    // не срабатывал вовсе. Теперь он всегда на предпросмотре.
+    var pvCover = document.querySelector('[data-preview="cover"]');
+    if (pvCover && !pvCover.dataset.focusReady) {
+      pvCover.dataset.focusReady = "1";
+      pvCover.classList.add("focus-pickable");
+      function firstThumb() { return th ? th.querySelector(".thumb") : null; }
+      pvCover.addEventListener("click", function (e) {
+        var rect = pvCover.getBoundingClientRect();
+        if (!rect.width || !rect.height) return;
+        var x = Math.round(Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)) * 100);
+        var y = Math.round(Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height)) * 100);
+        var focus = x + "% " + y + "%";
+        var t = firstThumb();
+        if (t) {
+          // сохранённая обложка — пишем сразу на сервер
           pvCover.style.objectPosition = focus;
           var timg = t.querySelector("img");
           if (timg) { timg.style.objectPosition = focus; timg.dataset.focus = focus; }
@@ -205,8 +228,13 @@
                 { method: "POST", body: fd })
             .then(function (r) { if (!r.ok) alert("Не удалось сохранить зону фокуса"); })
             .catch(function () { alert("Нет связи — зона не сохранена"); });
-        });
-      }
+        } else if (photoUp && photoUp.hasFiles()) {
+          // новое фото — зона уедет в форме (image_focuses), сохранится при сабмите
+          pvCover.style.objectPosition = focus;
+          photoUp.setFocus(0, focus);
+        }
+        // подсказка: без единого фото фокусировать нечего — молча игнорируем
+      });
     }
   }
 

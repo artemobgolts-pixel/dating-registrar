@@ -35,14 +35,47 @@ GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
 YANDEX_CLIENT_ID = os.getenv("YANDEX_CLIENT_ID", "").strip()
 YANDEX_CLIENT_SECRET = os.getenv("YANDEX_CLIENT_SECRET", "").strip()
 
-# Провайдер → (client_id, client_secret). Используется роутами-заготовками
-# /auth/<provider>: если client_id пуст, вход этим способом ещё не включён.
+# Провайдер → (client_id, client_secret). Пустой client_id = провайдер не
+# настроен: кнопка входа показывается, но /auth/<provider> вернёт 503.
 OAUTH_PROVIDERS = {
     "discord": (DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET),
     "google": (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET),
     "yandex": (YANDEX_CLIENT_ID, YANDEX_CLIENT_SECRET),
 }
 OAUTH_LABELS = {"discord": "Discord", "google": "Google", "yandex": "Яндекс"}
+
+# Эндпоинты и параметры каждого провайдера. authorize/token/userinfo — стандартные
+# OAuth2-URL; scope — минимум для получения стабильного id и имени. uid_field и
+# name_fields говорят, как достать их из ответа userinfo (разные у провайдеров).
+OAUTH_META = {
+    "discord": {
+        "authorize": "https://discord.com/oauth2/authorize",
+        "token": "https://discord.com/api/oauth2/token",
+        "userinfo": "https://discord.com/api/users/@me",
+        "scope": "identify email",
+        "uid_field": "id",
+        "name_fields": ("global_name", "username"),
+        "email_field": "email",
+    },
+    "google": {
+        "authorize": "https://accounts.google.com/o/oauth2/v2/auth",
+        "token": "https://oauth2.googleapis.com/token",
+        "userinfo": "https://openidconnect.googleapis.com/v1/userinfo",
+        "scope": "openid email profile",
+        "uid_field": "sub",
+        "name_fields": ("name", "given_name", "email"),
+        "email_field": "email",
+    },
+    "yandex": {
+        "authorize": "https://oauth.yandex.ru/authorize",
+        "token": "https://oauth.yandex.ru/token",
+        "userinfo": "https://login.yandex.ru/info",
+        "scope": "login:info login:email",
+        "uid_field": "id",
+        "name_fields": ("display_name", "real_name", "login"),
+        "email_field": "default_email",
+    },
+}
 # Куда слать ежесуточный снимок базы документом в Telegram (gzip). Отдельная
 # переменная, а не TG_CHAT_ID: в базе ПДн посторонних — отправка наружу должна
 # быть осознанным opt-in. Пусто — снимки в TG не уходят (остаётся облако/диск).

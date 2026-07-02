@@ -60,6 +60,54 @@ def upsert_on_login(conn, telegram_id: int, *, username: str | None = None,
     return cur.lastrowid
 
 
+def upsert_oauth_login(conn, provider: str, provider_uid: str, *,
+                       display_name: str | None = None,
+                       email: str | None = None) -> int:
+    """Вход/регистрация через OAuth. Возвращает user_id.
+
+    Если привязка (provider, provider_uid) уже есть — логиним её пользователя.
+    Иначе заводим НОВЫЙ аккаунт без telegram_id (standalone-OAuth) и создаём
+    привязку. Имя берём из профиля провайдера. Роль оператора OAuth не выдаёт
+    (операторы — только через OPERATOR_TG_IDS)."""
+    link = conn.execute(
+        "SELECT user_id FROM oauth_accounts WHERE provider=? AND provider_uid=?",
+        (provider, provider_uid)).fetchone()
+    if link:
+        conn.execute("UPDATE users SET last_login_at=? WHERE id=?",
+                     (now_iso(), link["user_id"]))
+        conn.commit()
+        return link["user_id"]
+
+    reviewed = 0 if app_settings.is_on(conn, app_settings.MODERATE_USERS) else 1
+    cur = conn.execute(
+        "INSERT INTO users(telegram_id, display_name, is_reviewed, created_at, "
+        "last_login_at) VALUES(NULL,?,?,?,?)",
+        (display_name or f"{provider}-{provider_uid[:6]}", reviewed,
+         now_iso(), now_iso()))
+    uid = cur.lastrowid
+    conn.execute(
+        "INSERT INTO oauth_accounts(provider, provider_uid, user_id, email, created_at) "
+        "VALUES(?,?,?,?,?)", (provider, provider_uid, uid, email, now_iso()))
+    conn.commit()
+    return uid
+
+
+def link_oauth_account(conn, user_id: int, provider: str, provider_uid: str,
+                       email: str | None = None) -> bool:
+    """Привязать OAuth-аккаунт к существующему пользователю (из профиля).
+    False, если эта соцсеть уже привязана к ДРУГОМУ аккаунту."""
+    existing = conn.execute(
+        "SELECT user_id FROM oauth_accounts WHERE provider=? AND provider_uid=?",
+        (provider, provider_uid)).fetchone()
+    if existing:
+        return existing["user_id"] == user_id
+    conn.execute(
+        "INSERT INTO oauth_accounts(provider, provider_uid, user_id, email, created_at) "
+        "VALUES(?,?,?,?,?)", (provider, provider_uid, user_id, email, now_iso()))
+    conn.commit()
+    return True
+
+
 async def current_user(request: Request, conn=Depends(get_db)):
     """Зависимость кабинета: валидная сессия + активный юзер + CSRF на POST.
 
