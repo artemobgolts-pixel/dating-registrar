@@ -1,15 +1,21 @@
 {# Единый блок способов входа: Telegram (deep-link) + OAuth-иконки.
    Ожидает в контексте: bot, oauth, и опционально next_url (куда вернуться).
-   Кнопки видны всегда; клики гасит auth.js до отметки согласия. #}
+   Кнопки видны всегда; клики гасит auth.js до отметки согласия.
+
+   Telegram — отдельная широкая кнопка «прежнего вида» (не иконка в ряду с
+   остальными): вход по deep-link (start → бот → поллинг), а не проброс в бота
+   как во внешний сервис. OAuth (Discord/Google/Яндекс) — компактные иконки ниже. #}
 <div class="login-methods" id="loginMethods">
+  {% if bot %}
+  <button type="button" class="tg-login-btn" id="tgLoginBtn"
+          data-tg-login aria-label="Войти через Telegram">
+    <svg class="tg-login-ico" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M9.78 16.3 9.6 20.1c.36 0 .52-.16.71-.34l1.7-1.63 3.53 2.58c.65.36 1.11.17 1.28-.6l2.32-10.9c.21-.96-.35-1.34-.98-1.1L4.27 12.5c-.94.36-.93.88-.16 1.12l3.7 1.15 8.6-5.42c.4-.27.77-.12.47.15z"/></svg>
+    <span>Войти через Telegram</span>
+  </button>
+  {% endif %}
+  {% if oauth %}
+  <div class="oauth-sep"><span>или через соцсети</span></div>
   <div class="oauth-row">
-    {% if bot %}
-    <button type="button" class="oauth-btn oauth-tg" id="tgLoginBtn"
-            data-tg-login aria-label="Войти через Telegram" title="Войти через Telegram">
-      <svg class="oauth-ico" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="#2AABEE"/><path fill="#fff" d="M17.6 7.3 15.5 17c-.15.7-.57.87-1.16.54l-3.2-2.36-1.55 1.49c-.17.17-.31.31-.64.31l.23-3.27L14.9 8.6c.26-.23-.06-.36-.4-.13l-7.06 4.45-3.04-.95c-.66-.21-.67-.66.14-.98l11.9-4.59c.55-.2 1.03.13.86.94z"/></svg>
-    </button>
-    <a class="oauth-btn oauth-tg-link" id="tgLoginLink" href="#" target="_blank" rel="noopener" hidden></a>
-    {% endif %}
     {% for p in oauth %}
     <a class="oauth-btn oauth-{{ p['slug'] }}" href="/auth/{{ p['slug'] }}{% if next_url %}?next={{ next_url }}{% endif %}"
        data-oauth aria-label="Войти через {{ p['label'] }}" title="Войти через {{ p['label'] }}">
@@ -17,7 +23,9 @@
     </a>
     {% endfor %}
   </div>
+  {% endif %}
 </div>
 <p class="login-hint" id="tg-widget-gate">Отметь согласие выше, чтобы войти.</p>
-<p class="login-hint" id="tgLoginHint" hidden>Открыл Telegram? Нажми <b>Start</b> в боте и вернись сюда — вход подхватится сам.</p>
+<p class="login-hint" id="tgLoginHint" hidden>Открыл Telegram? Нажми <b>Start</b> в боте и вернись сюда — вход подхватится сам.
+  Не открылся? <a id="tgLoginLink" href="#" target="_blank" rel="noopener">Открыть бота</a>.</p>
 <div id="tg-error" class="err" hidden></div>

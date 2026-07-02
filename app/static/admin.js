@@ -32,6 +32,14 @@
       var x = e.target.closest("[data-dismiss]");
       if (x) { var box = x.closest(".og-warn"); if (box) box.style.display = "none"; }
     });
+    // «Пройти обучение заново» (профиль): снимаем флаг и запускаем тур. Сам тур
+    // живёт в tour.js и вешает window.d4yStartTour.
+    document.addEventListener("click", function (e) {
+      if (e.target.closest("[data-tour-start]") && window.d4yStartTour) {
+        e.preventDefault();
+        window.d4yStartTour();
+      }
+    });
     document.addEventListener("change", function (e) {
       if (e.target.matches("[data-autosubmit]")) e.target.form.submit();
     });
@@ -50,6 +58,14 @@
     // не всегда (снимок мог кэшироваться до перехода). Надёжнее: после КАЖДОГО
     // успешного сабмита сбрасываем весь кэш Turbo — навигация станет чуть менее
     // «мгновенной», но списки всегда свежие. Это единственный корректный вариант.
+    // ГЛАВНОЕ для «реактивации» (баг: реактивированное свидание оставалось в
+    // «Неактивных» до жёсткого refresh). Turbo.cache.clear() выше чистит СНИМКИ
+    // страниц; но у списков стоит `turbo-cache-control: no-cache`, а стойкий
+    // источник устаревшего вида — ОТДЕЛЬНЫЙ кэш префетча (turbo-prefetch): при
+    // наведении на вкладку Turbo заранее тянет её и запоминает, а clear() его не
+    // трогает. Клик после мутации отдавал этот префетч-снимок. Префетч отключён
+    // на уровне мета `turbo-prefetch=false` в base.html — навигация остаётся
+    // мгновенной (Turbo Drive), а «мимо-clear()» кэша больше нет.
     document.addEventListener("turbo:submit-end", function (e) {
       var ok = e.detail && e.detail.success;
       if (ok && window.Turbo && Turbo.cache && typeof Turbo.cache.clear === "function") {

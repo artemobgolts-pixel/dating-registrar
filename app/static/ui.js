@@ -569,14 +569,19 @@ window.UI = (() => {
       else {                                                   // ссылка
         var sel = window.getSelection();
         var text = sel && sel.toString();
-        var url = window.prompt("Ссылка (https://…):", "https://");
-        if (url) {
-          if (text) { try { document.execCommand("createLink", false, url); } catch (_) {} }
-          else { try { document.execCommand("insertHTML", false,
-            '<a href="' + url.replace(/"/g, "&quot;") + '">' + escapeHTML(url) + "</a>"); } catch (_) {} }
+        // caret/выделение внутри уже существующей ссылки → снимаем её (toggle)
+        if (currentLink()) { try { document.execCommand("unlink", false, null); } catch (_) {} }
+        else {
+          var url = window.prompt("Ссылка (https://…):", "https://");
+          if (url) {
+            if (text) { try { document.execCommand("createLink", false, url); } catch (_) {} }
+            else { try { document.execCommand("insertHTML", false,
+              '<a href="' + url.replace(/"/g, "&quot;") + '">' + escapeHTML(url) + "</a>"); } catch (_) {} }
+          }
         }
       }
       toTextarea();
+      syncActive();                                            // обновить подсветку кнопок
     }
 
     if (toolbar) toolbar.querySelectorAll("[data-wrap]").forEach(function (btn) {
@@ -606,6 +611,59 @@ window.UI = (() => {
       });
     });
 
+    // --- отражение АКТИВНОГО форматирования на кнопках --------------------
+    // Раньше execCommand оставлял режим (жирный/зачёркнутый/…) «залипшим» на
+    // вводе нового текста, а в интерфейсе это никак не показывалось — печатаешь,
+    // а буквы вдруг зачёркнуты/в ссылке. Теперь на каждое изменение выделения
+    // подсвечиваем кнопки активных стилей (класс .active): видно, что включено,
+    // и повторный клик по подсвеченной кнопке это выключает.
+    var STATE_CMD = { "**|**": "bold", "*|*": "italic", "__|__": "underline", "~~|~~": "strikeThrough" };
+
+    function currentLink() {
+      var sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0) return null;
+      var node = sel.getRangeAt(0).commonAncestorContainer;
+      if (node && node.nodeType === 3) node = node.parentNode;
+      while (node && node !== ed) {
+        if (node.nodeName === "A") return node;
+        node = node.parentNode;
+      }
+      return null;
+    }
+
+    function markActive(btn, on) {
+      if (!btn) return;
+      btn.classList.toggle("active", !!on);
+      btn.setAttribute("aria-pressed", on ? "true" : "false");
+    }
+
+    function syncActive() {
+      // считаем состояние только когда каретка в редакторе
+      var sel = window.getSelection();
+      var inEd = sel && sel.rangeCount && ed.contains(
+        sel.getRangeAt(0).commonAncestorContainer.nodeType === 3
+          ? sel.getRangeAt(0).commonAncestorContainer.parentNode
+          : sel.getRangeAt(0).commonAncestorContainer);
+      var link = inEd ? currentLink() : null;
+      var groups = toolbar ? [toolbar, pop] : [pop];
+      groups.forEach(function (box) {
+        box.querySelectorAll("[data-wrap]").forEach(function (btn) {
+          var w = btn.getAttribute("data-wrap");
+          var on = false;
+          if (inEd && STATE_CMD[w]) {
+            try { on = document.queryCommandState(STATE_CMD[w]); } catch (_) { on = false; }
+            // ссылка рисуется подчёркнутой по умолчанию → queryCommandState даёт
+            // ложный «underline» внутри <a>, хотя это не __подчёркнутый__ markdown.
+            // Гасим индикатор подчёркивания, когда каретка в ссылке.
+            if (STATE_CMD[w] === "underline" && link) on = false;
+          } else if (!STATE_CMD[w]) {                          // кнопка ссылки
+            on = !!link;
+          }
+          markActive(btn, on);
+        });
+      });
+    }
+
     function selectionInEditor() {
       var sel = window.getSelection();
       if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
@@ -630,9 +688,10 @@ window.UI = (() => {
       pop.style.top = top + "px";
     }
 
-    function maybeShow() { setTimeout(positionPop, 0); }       // даём финализировать выделение
+    function maybeShow() { setTimeout(function () { positionPop(); syncActive(); }, 0); }  // даём финализировать выделение
     ed.addEventListener("mouseup", maybeShow);
     ed.addEventListener("keyup", maybeShow);
+    ed.addEventListener("input", syncActive);                  // ввод текста меняет активный стиль
     document.addEventListener("selectionchange", function () {
       if (document.activeElement === ed) maybeShow();
     });

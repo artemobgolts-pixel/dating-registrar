@@ -363,8 +363,26 @@ body::after {
   padding: 9px 12px; border-radius: 10px; margin-top: 8px; font-size: 13px;
 }
 
-/* Вход во вход-модалке: иконочные кнопки (Telegram + OAuth), гасятся до согласия */
+/* Вход во вход-модалке: Telegram-кнопка + OAuth-иконки, гасятся до согласия */
 .login-dlg .login-methods { position: relative; }
+.tg-login-btn {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  width: 100%; padding: 13px 18px; border-radius: 14px; cursor: pointer;
+  border: none; font-family: inherit; font-size: 15.5px; font-weight: 600;
+  color: #fff; background: linear-gradient(135deg, #2AABEE, #229ED9);
+  box-shadow: 0 8px 20px rgba(34, 158, 217, .28);
+  transition: transform .15s, box-shadow .2s, filter .2s;
+}
+.tg-login-btn:hover { transform: translateY(-1px); box-shadow: 0 10px 26px rgba(34, 158, 217, .34); }
+.tg-login-btn .tg-login-ico { display: block; flex: none; }
+.tg-login-btn[aria-busy="true"] { opacity: .7; pointer-events: none; }
+.login-dlg .oauth-sep {
+  display: flex; align-items: center; gap: 12px;
+  color: var(--muted); font-size: 12.5px; margin: 14px 0;
+}
+.login-dlg .oauth-sep::before, .login-dlg .oauth-sep::after {
+  content: ""; flex: 1; height: 1px; background: var(--line);
+}
 .login-dlg .oauth-row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 4px; }
 .oauth-btn {
   display: inline-flex; align-items: center; justify-content: center;
@@ -381,9 +399,9 @@ body::after {
 .oauth-ico { display: block; width: 24px; height: 24px; }
 span.oauth-ico { display: grid; place-items: center; font-weight: 700; font-size: 18px; color: var(--rose); }
 .oauth-btn[aria-busy="true"] { opacity: .6; pointer-events: none; }
-.oauth-tg-link { font-size: 12px; color: var(--rose); width: auto; height: auto; padding: 6px 10px; }
 .login-methods.gated { opacity: .55; filter: grayscale(.35); }
-.login-methods.gated .oauth-btn { cursor: not-allowed; }
+.login-methods.gated .oauth-btn,
+.login-methods.gated .tg-login-btn { cursor: not-allowed; }
 .shake { animation: consent-shake .4s ease; }
 @keyframes consent-shake {
   0%,100% { transform: translateX(0); }
@@ -1194,6 +1212,7 @@ footer .hearts { color: var(--rose); opacity: .55; letter-spacing: 8px; margin-b
   cursor: pointer; font-size: 14px; color: var(--ink);
 }
 .toolbar button:hover { background: var(--rose-soft); border-color: var(--rose); }
+.toolbar button.active { background: var(--rose); border-color: var(--rose); color: #fff; }
 .toolbar .b { font-weight: 800; }
 .toolbar .i { font-style: italic; }
 .toolbar .u { text-decoration: underline; }
@@ -1227,6 +1246,7 @@ footer .hearts { color: var(--rose); opacity: .55; letter-spacing: 8px; margin-b
   cursor: pointer; font-size: 15px; line-height: 1;
 }
 .fmt-pop button:hover { background: rgba(255, 255, 255, .16); }
+.fmt-pop button.active { background: var(--rose); color: #fff; }
 .fmt-pop .b { font-weight: 800; }
 .fmt-pop .i { font-style: italic; }
 .fmt-pop .u { text-decoration: underline; }

@@ -4,8 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<!-- Turbo: префетч ссылок при наведении/касании — переход ощущается мгновенным -->
-<meta name="turbo-prefetch" content="true">
+<!-- Turbo: префетч отключён намеренно. Он держит ОТДЕЛЬНЫЙ кэш (наведение на
+     ссылку заранее тянет страницу и запоминает её), который Turbo.cache.clear()
+     после мутации НЕ чистит — из-за этого реактивированное свидание оставалось
+     в «Неактивных» до жёсткого refresh (клик отдавал устаревший префетч-снимок).
+     Навигация и без префетча мгновенная (Turbo Drive подменяет <body>). -->
+<meta name="turbo-prefetch" content="false">
 <title>{% block title %}Кабинет{% endblock %} · date4you</title>
 <link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='80' font-size='80'&gt;%E2%9D%A4&lt;/text&gt;&lt;/svg&gt;">
 <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">

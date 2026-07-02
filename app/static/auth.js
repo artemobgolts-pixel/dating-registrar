@@ -64,7 +64,11 @@
           .then(function (r) { if (!r.ok) throw new Error("start"); return r.json(); })
           .then(function (d) {
             window.open(d.url, "_blank", "noopener");
-            if (tgLink) { tgLink.href = d.url; tgLink.hidden = false; }
+            // Кнопка снова активна сразу после открытия Telegram — раньше
+            // aria-busy оставался навсегда и CSS гасил кнопку (pointer-events:none),
+            // из-за чего после первого клика по TG вход становился недоступен.
+            tgBtn.removeAttribute("aria-busy");
+            if (tgLink) tgLink.href = d.url;
             if (tgHint) tgHint.hidden = false;
             clearInterval(tgTimer);
             tgTimer = setInterval(function () {
