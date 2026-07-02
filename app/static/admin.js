@@ -271,12 +271,25 @@
 
     var ogWarn = document.getElementById("ogWarn");
     var warnDismissed = false;
-    function showWarn() { if (ogWarn && !warnDismissed) ogWarn.hidden = false; }
+    // Показываем предупреждение «превью изменено» ТОЛЬКО когда значение реально
+    // отличается от исходного (серверного). Раньше оно вылезало на любой input —
+    // даже когда пользователь ничего не менял (фокус/повторный ввод того же
+    // текста/Turbo-переинициализация листенеров). Теперь сравниваем с исходным.
+    var ogChanged = { img: false };
+    function recompute() {
+      if (!ogWarn || warnDismissed) return;
+      var changed = ogChanged.img;
+      ["og_title", "og_desc"].forEach(function (n) {
+        var el = document.querySelector('[name="' + n + '"]');
+        if (el && el.value !== (el.defaultValue || "")) changed = true;
+      });
+      ogWarn.hidden = !changed;
+    }
     var wx = ogWarn && ogWarn.querySelector("[data-dismiss]");
     if (wx) wx.addEventListener("click", function () { warnDismissed = true; });
     ["og_title", "og_desc"].forEach(function (n) {
       var el = document.querySelector('[name="' + n + '"]');
-      if (el) el.addEventListener("input", showWarn);
+      if (el && !el.dataset.warnReady) { el.dataset.warnReady = "1"; el.addEventListener("input", recompute); }
     });
 
     var ogZone = document.getElementById("ogZone");
@@ -293,7 +306,8 @@
         onChange: function (files) {
           if (ogImg && files && files.length) {
             ogImg.src = URL.createObjectURL(files[0]);
-            showWarn();
+            ogChanged.img = true;                 // выбрали свою картинку — это изменение
+            recompute();
           }
         },
       });

@@ -7,27 +7,48 @@
 (function () {
   "use strict";
 
-  // --- 1. Гейт согласия + Telegram-вход по deep-link на странице/в модалке входа
+  // --- 1. Гейт согласия на странице/в модалке входа: согласие → Telegram Login
+  //        Widget (telegram.org) + разблокировка OAuth-кнопок. Виджет — НЕ проброс
+  //        в бота: Telegram рисует свою кнопку, по колбэку /auth/widget логинит.
   var consent = document.getElementById("tg-consent");
   if (consent) {
     var widgetGate = document.getElementById("tg-widget-gate");
     var methods = document.getElementById("loginMethods");
     var oauthLinks = methods ? methods.querySelectorAll("[data-oauth]") : [];
-    var tgBtn = document.getElementById("tgLoginBtn");
-    var tgLink = document.getElementById("tgLoginLink");
-    var tgHint = document.getElementById("tgLoginHint");
-    var tgErr = document.getElementById("tg-error");
-    var tgTimer = null;
+    var widgetWrap = document.getElementById("tg-widget-wrap");
+
+    // Виджет Telegram вставляем динамически при первом согласии. Если оставить
+    // <script> статически внутри скрытого контейнера (display:none), Telegram
+    // подменяет его на iframe нулевого размера и кнопка не появляется — поэтому
+    // грузим скрипт, когда контейнер уже видим (согласие отмечено).
+    var widgetLoaded = false;
+    function loadWidget() {
+      if (widgetLoaded || !widgetWrap) return;
+      widgetLoaded = true;
+      var s = document.createElement("script");
+      s.async = true;
+      s.src = "https://telegram.org/js/telegram-widget.js?22";
+      s.setAttribute("data-telegram-login", widgetWrap.getAttribute("data-bot") || "");
+      s.setAttribute("data-size", "large");
+      s.setAttribute("data-radius", "12");
+      s.setAttribute("data-auth-url", "/auth/widget");
+      s.setAttribute("data-request-access", "write");
+      widgetWrap.appendChild(s);
+    }
 
     var syncConsent = function () {
       var ok = consent.checked;
       if (methods) methods.classList.toggle("gated", !ok);
+      if (widgetWrap) widgetWrap.hidden = !ok;
       if (widgetGate) widgetGate.hidden = ok;
       Array.prototype.forEach.call(oauthLinks, function (a) {
         a.setAttribute("aria-disabled", ok ? "false" : "true");
       });
-      if (tgBtn) tgBtn.setAttribute("aria-disabled", ok ? "false" : "true");
       if (ok) {
+        loadWidget();
+        // дублируем согласие в сессию: серверный /auth/widget без флага вернёт 403,
+        // даже если кто-то покажет виджет правкой DOM. next (data-next) — куда
+        // вернуться после входа (гостевая ссылка); на /login next уже сохранён.
         var nxt = consent.getAttribute("data-next");
         var url = "/auth/consent" + (nxt ? "?next=" + encodeURIComponent(nxt) : "");
         fetch(url, { method: "POST", credentials: "same-origin" })
@@ -36,7 +57,7 @@
     };
     consent.addEventListener("change", syncConsent);
 
-    // подсветка чекбокса при попытке войти без согласия
+    // подсветка чекбокса при попытке войти без согласия (OAuth-кнопки)
     function nudgeConsent() {
       if (widgetGate) { widgetGate.classList.remove("shake"); void widgetGate.offsetWidth; widgetGate.classList.add("shake"); }
       var box = consent.closest(".consent");
@@ -51,43 +72,6 @@
     Array.prototype.forEach.call(oauthLinks, function (a) {
       a.addEventListener("click", blockIfNoConsent);
     });
-
-    // Telegram-вход: deep-link + поллинг кода (тот же поток, что «Подключить бота»)
-    if (tgBtn) {
-      tgBtn.addEventListener("click", function (e) {
-        if (blockIfNoConsent(e)) return;
-        if (tgErr) tgErr.hidden = true;
-        tgBtn.setAttribute("aria-busy", "true");
-        var nxt = consent.getAttribute("data-next");
-        var url = "/auth/start";
-        fetch(url, { method: "POST", credentials: "same-origin" })
-          .then(function (r) { if (!r.ok) throw new Error("start"); return r.json(); })
-          .then(function (d) {
-            window.open(d.url, "_blank", "noopener");
-            // Кнопка снова активна сразу после открытия Telegram — раньше
-            // aria-busy оставался навсегда и CSS гасил кнопку (pointer-events:none),
-            // из-за чего после первого клика по TG вход становился недоступен.
-            tgBtn.removeAttribute("aria-busy");
-            if (tgLink) tgLink.href = d.url;
-            if (tgHint) tgHint.hidden = false;
-            clearInterval(tgTimer);
-            tgTimer = setInterval(function () {
-              fetch("/auth/poll?code=" + encodeURIComponent(d.code), { credentials: "same-origin" })
-                .then(function (r) { return r.json(); })
-                .then(function (p) {
-                  if (p.status === "ok") { clearInterval(tgTimer); window.location = p.redirect || "/admin/"; }
-                  else if (p.status === "expired") { clearInterval(tgTimer); if (tgErr) { tgErr.textContent = "Код истёк — нажми кнопку ещё раз."; tgErr.hidden = false; } }
-                  else if (p.status === "banned") { clearInterval(tgTimer); if (tgErr) { tgErr.textContent = "Доступ закрыт. Напиши в поддержку."; tgErr.hidden = false; } }
-                })
-                .catch(function () { /* временная ошибка сети — продолжаем поллинг */ });
-            }, 2000);
-          })
-          .catch(function () {
-            tgBtn.removeAttribute("aria-busy");
-            if (tgErr) { tgErr.textContent = "Не получилось начать вход. Попробуй ещё раз."; tgErr.hidden = false; }
-          });
-      });
-    }
 
     syncConsent();
   }

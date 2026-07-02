@@ -97,7 +97,9 @@
       var target = document.querySelector(step.sel);
       if (!target) { next(); return; }
       var r = target.getBoundingClientRect();
-      var pad = 8;
+      // На телефоне подсветка была слишком «толстой» и налезала на соседние
+      // элементы (например, на кнопку «Главная» в шапке) — уменьшаем отступ.
+      var pad = window.innerWidth <= 720 ? 4 : 8;
       spot.style.top = (r.top - pad) + "px";
       spot.style.left = (r.left - pad) + "px";
       spot.style.width = (r.width + pad * 2) + "px";
@@ -107,7 +109,7 @@
       elText.textContent = step.text;
       elNext.textContent = (i === steps.length - 1) ? "Готово" : "Далее";
       // поповер: под целью, либо над, если снизу нет места
-      var popH = pop.offsetHeight || 180;
+      var popH = pop.offsetHeight || 150;
       var below = r.bottom + 12;
       if (below + popH > window.innerHeight && r.top - popH - 12 > 0) {
         pop.style.top = Math.max(12, r.top - popH - 12) + "px";

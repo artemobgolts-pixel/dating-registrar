@@ -729,18 +729,11 @@ label.chk {
 
 /* OAuth-вход: иконочные кнопки, всегда видны, гасятся до согласия */
 .login-methods { position: relative; }
-/* Telegram — отдельная широкая кнопка «прежнего вида» над рядом OAuth-иконок */
-.tg-login-btn {
-  display: flex; align-items: center; justify-content: center; gap: 10px;
-  width: 100%; padding: 13px 18px; border-radius: 14px; cursor: pointer;
-  border: none; font-family: inherit; font-size: 15.5px; font-weight: 600;
-  color: #fff; background: linear-gradient(135deg, #2AABEE, #229ED9);
-  box-shadow: 0 8px 20px rgba(34, 158, 217, .28);
-  transition: transform .15s, box-shadow .2s, filter .2s;
-}
-.tg-login-btn:hover { transform: translateY(-1px); box-shadow: 0 10px 26px rgba(34, 158, 217, .34); }
-.tg-login-btn .tg-login-ico { display: block; flex: none; }
-.tg-login-btn[aria-busy="true"] { opacity: .7; pointer-events: none; }
+/* Telegram Login Widget (telegram.org рисует свой iframe с кнопкой) — по центру,
+   с местом под него; до согласия скрыт (hidden). */
+.tg-widget-wrap { display: none; }
+.tg-widget-wrap:not([hidden]) { display: flex; justify-content: center; min-height: 46px; margin: 2px 0 4px; }
+.tg-widget-wrap iframe { margin: 0 auto !important; }
 .oauth-sep {
   display: flex; align-items: center; gap: 12px;
   color: var(--muted); font-size: 12.5px; margin: 14px 0;
@@ -767,8 +760,7 @@ span.oauth-ico { display: grid; place-items: center; font-weight: 700; font-size
 .oauth-btn[aria-busy="true"] { opacity: .6; pointer-events: none; }
 /* до согласия все способы входа притушены и не кликаются (клик перехватывает JS) */
 .login-methods.gated { opacity: .55; filter: grayscale(.35); }
-.login-methods.gated .oauth-btn,
-.login-methods.gated .tg-login-btn { cursor: not-allowed; }
+.login-methods.gated .oauth-btn { cursor: not-allowed; }
 /* «подпрыгивание» подсказки/чекбокса при попытке войти без согласия */
 .shake { animation: consent-shake .4s ease; }
 @keyframes consent-shake {
@@ -881,6 +873,38 @@ input.flash { background: #f8ecea !important; transition: background .4s; }
   margin: 16px 0 4px;
 }
 
+/* карточка уведомления (страница «Уведомления») — в общем «стеклянном» стиле */
+.notif-card {
+  position: relative;
+  background: linear-gradient(150deg, rgba(255,253,252,.62), rgba(255,246,246,.46));
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  backdrop-filter: blur(16px) saturate(1.4);
+  border: 1px solid rgba(255, 255, 255, .65);
+  border-radius: 16px;
+  box-shadow: 0 12px 30px rgba(150, 80, 95, .08), inset 0 1px 0 rgba(255, 255, 255, .8);
+  padding: 16px 18px; margin-bottom: 14px;
+}
+/* непрочитанное — акцентная кромка слева */
+.notif-card.unread { border-left: 3px solid var(--rose); }
+.notif-card.read { opacity: .72; }
+.notif-head { display: flex; align-items: flex-start; gap: 12px; }
+.notif-ic {
+  flex: none; width: 38px; height: 38px; border-radius: 12px;
+  display: grid; place-items: center; font-size: 18px;
+  background: var(--rose-soft); border: 1px solid var(--line);
+}
+.notif-meta { min-width: 0; flex: 1; }
+.notif-who { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 15px; color: var(--ink); }
+.notif-sub { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+.notif-sub a { color: var(--rose-2); text-decoration: none; }
+.notif-sub a:hover { text-decoration: underline; }
+.notif-quote {
+  margin: 12px 0; padding: 11px 14px;
+  background: rgba(255, 255, 255, .55); border: 1px solid var(--line);
+  border-radius: 12px; white-space: pre-line; color: var(--ink); font-size: 14.5px;
+}
+.notif-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+
 /* предложение времени от гостя в карточке вопроса */
 .suggest-box {
   display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
@@ -961,6 +985,14 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 
 .tabs a.on .pill { background: rgba(255, 255, 255, .35); color: #fff; }
 .pill { background: #b65f6f; }
+/* Счётчик на вкладке — компактный кружок-суперскрипт, а не широкая пилюля:
+   так «Активные/Неактивные/Архив» сохраняют прежний сочный вид и влезают на
+   телефоне без горизонтальной прокрутки (раньше именно широкая пилюля не влезала). */
+.tabs a .pill {
+  font-size: 10.5px; font-weight: 700; padding: 0; margin-left: 4px;
+  min-width: 15px; height: 15px; line-height: 15px; text-align: center;
+  border-radius: 999px; vertical-align: 2px; display: inline-block;
+}
 
 .flash { border-radius: 12px; box-shadow: 0 6px 18px rgba(120, 70, 80, .1); }
 table th { color: #8f4a58; }
@@ -1361,9 +1393,10 @@ input, textarea, select {
 .bdg.guest { background: rgba(143, 74, 88, .9); }
 .bdg.book  { background: rgba(182, 95, 111, .92); }
 
-/* бейдж брони — в правый верхний угол обложки (прочие бейджи слева, не наезжают) */
+/* бейдж брони — в правый НИЖНИЙ угол обложки: вверху справа сидит кнопка ⋯ и
+   раньше наезжала на имя забронировавшего (#3). Снизу справа места свободно. */
 .badges.book-corner {
-  left: auto; right: 8px;
+  top: auto; bottom: 8px; left: auto; right: 8px;
   justify-content: flex-end;
   max-width: calc(100% - 16px);
 }
@@ -1408,6 +1441,12 @@ input, textarea, select {
   text-decoration: none; transition: background .15s, border-color .15s;
 }
 .dcard .foot .open-date:hover { background: var(--rose-soft); border-color: var(--rose); }
+/* КАРТОЧКА С ОТКРЫТЫМ МЕНЮ — поверх соседних. Каждая карточка образует свой
+   стекинг-контекст (hover-transform/z-index), поэтому её меню (z-index:20)
+   считается ВНУТРИ карточки и следующая карточка перекрывала его. Поднимаем всю
+   карточку, у которой открыто меню, над соседями (баг #6). */
+.dcard:has(.menu.open),
+.cat-card:has(.menu.open) { z-index: 30; position: relative; }
 .menu-wrap { position: relative; flex: none; }
 .more {
   width: 36px; height: 36px; border-radius: 10px;
@@ -1422,8 +1461,7 @@ input, textarea, select {
   box-shadow: 0 14px 36px rgba(120, 70, 80, .22);
   padding: 6px; min-width: 178px; z-index: 20; display: none;
 }
-.menu.open { display: block; }
-.menu button, .menu a {
+.menu.open { display: block; }.menu button, .menu a {
   display: block; width: 100%; text-align: left;
   padding: 9px 12px; border-radius: 9px; border: none; background: none;
   text-decoration: none; color: var(--ink); font-size: 14px;
@@ -1457,7 +1495,14 @@ input, textarea, select {
 .share-cat { font-weight: 600; margin-bottom: 8px; }
 .share-pick { margin-bottom: 12px; }
 .share-pick select { width: auto; min-width: 200px; }
-.qr-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.qr-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; align-items: stretch; }
+/* #10: обе кнопки QR — одной высоты и с центрированным текстом. «Скачать» —
+   это <a class="btn small"> (inline-block, текст съезжал влево и была ниже);
+   выравниваем через inline-flex + одинаковый паддинг с «Поделиться». */
+.qr-actions .btn { display: inline-flex; align-items: center; justify-content: center; text-align: center; }
+.qr-actions .qr-dl, .qr-actions .qr-share {
+  padding: 9px 16px; font-size: 13.5px; border-radius: 11px; line-height: 1.2;
+}
 /* на ПК QR показан всегда и крупно; кнопка-тоггл и системное «Поделиться»
    (Web Share API нужен телефону) не нужны — скрываем */
 .qr-toggle, .qr-share { display: none; }
@@ -1523,12 +1568,6 @@ input, textarea, select {
 .cat-card .cat-tail .menu-wrap { position: relative; z-index: 6; pointer-events: auto; flex: none; }
 .cat-card .cat-tail .more,
 .cat-card .cat-tail .menu { pointer-events: auto; }
-/* «Открыть» — гостевой вид категории (/c/<токен>) в новой вкладке. Над оверлеем
-   (в .cat-tail: pointer-events:auto, z-index:5), поэтому кликается сам. */
-.cat-card .cat-tail .cat-open {
-  pointer-events: auto; position: relative; z-index: 6; flex: none;
-  white-space: nowrap; text-decoration: none;
-}
 /* ⋯ на карточке категории — заметная, но не «кричащая»; ярче при hover/открытии */
 .cat-card .cat-tail .more {
   background: rgba(255, 255, 255, .7); border-color: var(--line); color: var(--muted);
@@ -1563,6 +1602,18 @@ input, textarea, select {
 @media (max-width: 560px) {
   .cat-card.has-thumb { flex-direction: column; gap: 10px; }
   .cat-card .cat-thumb { width: 100%; align-self: stretch; }
+  /* #11: на телефоне ⋯ уводим в правый верхний угол карточки — освобождаем место
+     под длинное название категории. Стрелку-«→» на телефоне прячем (вся карточка
+     и так кликабельна). */
+  .cat-card { position: relative; }
+  .cat-card .cat-tail {
+    position: absolute; top: 10px; right: 10px; z-index: 7; gap: 0;
+  }
+  .cat-card .cat-arrow { display: none; }
+  /* имя не залезает под кнопку в углу */
+  .cat-card .bar > div:first-child { padding-right: 40px; }
+  /* меню открываем от угла влево-вниз, чтобы не выходило за край экрана */
+  .cat-card .cat-tail .menu { right: 0; left: auto; top: 40px; }
 }
 
 @media (max-width: 640px) {
@@ -1623,8 +1674,14 @@ input, textarea, select {
 }
 .btn.link-on:hover { background: #d8f0e3; }
 @media (max-width: 560px) {
-  .cat-actions { flex-direction: column; align-items: stretch; }
-  .cat-actions .inline, .cat-actions .btn { width: 100%; }
+  /* #8: «Скопировать ссылку» — во всю строку; «Вкл/выкл ссылку» и «Удалить» —
+     по половинке во второй строке. Порядок в разметке: copy, toggle-форма,
+     delete-форма (см. category_detail.html). */
+  .cat-actions { flex-direction: row; flex-wrap: wrap; align-items: stretch; gap: 8px; }
+  .cat-actions > [data-copy] { flex: 1 1 100%; width: 100%; }
+  .cat-actions > .inline { flex: 1 1 0; min-width: 0; }
+  .cat-actions .inline .btn { width: 100%; }
+  .cat-actions .btn { width: 100%; margin-left: 0; }
   .cat-actions .btn.danger { margin-left: 0; }
 }
 
@@ -2002,11 +2059,12 @@ input, textarea, select {
   /* фильтры списка свиданий: на телефоне переносим и не даём «уезжать» вбок */
   .controls .filters { flex-wrap: wrap; width: 100%; }
   .controls .filters select { flex: 1 1 auto; min-width: 0; }
-  /* Вкладки Активные/Неактивные/Архив — во всю ширину, вкладки делят её поровну
-     и сами ужимаются, чтобы влезть без горизонтального скролла (не хватало ~9px). */
-  .controls .tabs { margin-left: 0; width: 100%; justify-content: space-between; }
-  .controls .tabs a { flex: 1 1 0; text-align: center; padding: 8px 8px; font-size: 13px; }
-  .controls .tabs a .pill { margin-left: 3px; }
+  /* Вкладки Активные/Неактивные/Архив — во всю ширину, вкладки делят её поровну.
+     Текст/шрифт/паддинг НЕ трогаем (тот же «сочный» вид) — влезаем за счёт того,
+     что счётчик стал маленьким кружком-суперскриптом (см. .tabs .pill), а не
+     широкой пилюлей, которая раньше и вызывала горизонтальный скролл. */
+  .controls .tabs { margin-left: 0; width: 100%; }
+  .controls .tabs a { flex: 1 1 0; text-align: center; justify-content: center; padding-left: 10px; padding-right: 10px; }
   /* на телефоне только карточки: переключатель вида прячем, список (если вдруг
      пришёл из cookie) показываем сеткой — admin.js дополнительно ставит cookie */
   .controls .viewtog { display: none; }
@@ -2130,30 +2188,34 @@ input, textarea, select {
    двойная светлая рамка выделяет саму цель. Внутри тени/рамки — прозрачно. */
 .tour-spot {
   position: fixed; border-radius: 14px;
-  box-shadow: 0 0 0 9999px rgba(40, 28, 32, .58),
-    0 0 0 2px var(--rose), 0 0 0 5px rgba(255, 255, 255, .55);
+  /* мягкое приглушение всего вокруг (.42 — слабее прежнего .55/.58, как просили),
+     цель остаётся в «дырке» яркой, с розовой рамкой и светлым кантом */
+  box-shadow: 0 0 0 9999px rgba(40, 28, 32, .42),
+    0 0 0 2px var(--rose), 0 0 0 5px rgba(255, 255, 255, .5);
   transition: top .2s ease, left .2s ease, width .2s ease, height .2s ease;
   pointer-events: none;
 }
 /* На время тура прокрутка страницы заблокирована, чтобы цель не «уезжала»
    из-под подсветки (жест листания больше не ломает шаги). */
 body.tour-lock { overflow: hidden; }
+/* Поповер тура компактнее по высоте (#5): меньше вертикальные паддинги/отступы,
+   чтобы окно не «захватывало» зону под целью и не налезало на соседний контент. */
 .tour-pop {
-  position: fixed; z-index: 301; width: min(340px, calc(100vw - 24px));
-  background: #fffdfe; border-radius: 16px; padding: 18px 18px 16px;
+  position: fixed; z-index: 301; width: min(320px, calc(100vw - 24px));
+  background: #fffdfe; border-radius: 16px; padding: 13px 16px 12px;
   box-shadow: 0 24px 60px rgba(120, 60, 72, .34);
   transition: top .25s ease, left .25s ease;
 }
-.tour-pop .tour-step { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
-.tour-pop h3 { font-family: var(--serif); font-size: 21px; color: var(--rose-2); margin: 0 0 6px; }
-.tour-pop p { font-size: 14px; color: #5f5052; line-height: 1.5; margin: 0 0 14px; }
+.tour-pop .tour-step { font-size: 11.5px; color: var(--muted); margin-bottom: 2px; }
+.tour-pop h3 { font-family: var(--serif); font-size: 19px; color: var(--rose-2); margin: 0 0 4px; }
+.tour-pop p { font-size: 13.5px; color: #5f5052; line-height: 1.4; margin: 0 0 10px; }
 .tour-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .tour-skip {
   background: none; border: none; color: var(--muted); cursor: pointer;
   font-size: 13.5px; font-family: inherit; padding: 8px 4px;
 }
 .tour-skip:hover { color: var(--ink); }
-.tour-next { padding: 9px 22px; font-size: 14.5px; font-weight: 600; }
+.tour-next { padding: 8px 20px; font-size: 14px; font-weight: 600; }
 @media (prefers-reduced-motion: reduce) {
   .tour-spot, .tour-pop { transition: none; }
 }

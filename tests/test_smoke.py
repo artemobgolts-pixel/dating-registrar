@@ -190,10 +190,10 @@ with TestClient(main.app, follow_redirects=False) as c:
     # ---------- вход через Telegram-бота ----------
     r = c.get("/admin/")
     assert r.status_code == 303 and "/login" in r.headers["location"]
-    # страница входа отдаёт кнопки входа (Telegram по deep-link + OAuth-иконки),
+    # страница входа отдаёт способы входа (Telegram Login Widget + OAuth-иконки),
     # разблокируемые чекбоксом согласия, а не форму логин/пароль
     lp = c.get("/login")
-    assert lp.status_code == 200 and 'id="tgLoginBtn"' in lp.text \
+    assert lp.status_code == 200 and 'id="tg-widget-wrap"' in lp.text \
         and "tg-consent" in lp.text
 
     # вебхук без секрета — 403 (иначе любой подтвердит чужой код)
@@ -2142,10 +2142,10 @@ with TestClient(main.app, follow_redirects=False) as cl:
     # на странице входа — чекбокс согласия со ссылками на оба документа
     lp = cl.get("/login").text
     assert 'id="tg-consent"' in lp and 'href="/terms"' in lp and 'href="/privacy"' in lp
-    # кнопки входа видны всегда; клики до согласия гасит auth.js. Telegram —
-    # deep-link-кнопка (не iframe-виджет: тот не грузился на части сетей).
-    assert 'id="tgLoginBtn"' in lp and 'data-tg-login' in lp
-    assert 'aria-label="Войти через Telegram"' in lp
+    # способы входа видны всегда; клики до согласия гасит auth.js. Telegram —
+    # официальный Login Widget (telegram.org), подставляется в #tg-widget-wrap
+    # после согласия; вход по колбэку /auth/widget (не проброс в бота).
+    assert 'id="tg-widget-wrap"' in lp and 'data-bot=' in lp
     # надпись про подключение уведомлений в профиле
     assert "уведомления" in lp.lower()
     # страница входа несёт footer-ссылки на юр-документы

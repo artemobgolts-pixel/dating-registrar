@@ -25,14 +25,11 @@
         {% if not c['link_enabled'] %}<span class="badge" style="background:#fdeeee;color:#a33">ссылка выкл.</span>{% endif %}
       </div>
       <div class="cat-tail">
-        {% if c['link_enabled'] %}
-        <a class="btn small cat-open" href="/c/{{ c['link_token'] }}" target="_blank" rel="noopener"
-           data-turbo="false" title="Открыть, как видит гость">👀 Открыть</a>
-        {% endif %}
         <div class="menu-wrap">
           <button type="button" class="more" aria-label="Ещё действия" aria-haspopup="true" aria-expanded="false">⋯</button>
           <div class="menu">
             {% if c['link_enabled'] %}
+            <a href="/c/{{ c['link_token'] }}" target="_blank" rel="noopener" data-turbo="false">👀 Открыть у гостя</a>
             <button type="button" data-copy="{{ BASE_URL }}/c/{{ c['link_token'] }}">🔗 Скопировать ссылку</button>
             {% endif %}
             <form method="post" action="/admin/categories/{{ c['id'] }}/regenerate"

@@ -1,20 +1,27 @@
 {% extends "admin/base.html" %}
 {% block title %}Уведомления{% endblock %}
 {% block content %}
-<h1>Уведомления</h1>
+<h1 class="serif">Уведомления</h1>
 
-<div class="tabs">
-  <a href="/admin/questions" class="{{ 'on' if f != 'all' else '' }}">Непрочитанные</a>
-  <a href="/admin/questions?f=all" class="{{ 'on' if f == 'all' else '' }}">Все</a>
+<div class="controls">
+  <div class="tabs">
+    <a href="/admin/questions" class="{{ 'on' if f != 'all' else '' }}">Непрочитанные</a>
+    <a href="/admin/questions?f=all" class="{{ 'on' if f == 'all' else '' }}">Все</a>
+  </div>
 </div>
 
 {% for q in rows %}
-<div class="card" {% if q['is_read'] and not q['answer'] %}style="opacity:.72"{% endif %}>
-  <div class="muted" style="font-size:13px">
-    <b>{{ q['gname'] }}</b> · к свиданию «<a href="/admin/dates/{{ q['did'] }}/edit">{{ q['date_name'] }}</a>»{% if q['cat_name'] %} · {{ q['cat_name'] }}{% endif %} · {{ q['created_at'] | ts }}
-    {% if q['answer'] %}<span class="badge rose">отвечено</span>{% endif %}
+<div class="notif-card{{ ' read' if q['is_read'] and not q['answer'] else '' }}{{ ' unread' if not q['is_read'] else '' }}">
+  <div class="notif-head">
+    {% set kind = '📅' if q['suggest_starts'] else '💬' %}
+    <span class="notif-ic" aria-hidden="true">{{ kind }}</span>
+    <div class="notif-meta">
+      <div class="notif-who"><b>{{ q['gname'] }}</b>{% if q['answer'] %}<span class="badge rose">отвечено</span>{% elif not q['is_read'] %}<span class="badge amber">новое</span>{% endif %}</div>
+      <div class="notif-sub">к свиданию «<a href="/admin/dates/{{ q['did'] }}/edit">{{ q['date_name'] }}</a>»{% if q['cat_name'] %} · {{ q['cat_name'] }}{% endif %} · {{ q['created_at'] | ts }}</div>
+    </div>
   </div>
-  <blockquote style="margin:10px 0 12px;padding:10px 14px;background:#faf6f7;border-radius:10px;white-space:pre-line">{{ q['text'] }}</blockquote>
+
+  <blockquote class="notif-quote">{{ q['text'] }}</blockquote>
 
   {% if q['suggest_starts'] %}
   <div class="suggest-box">
@@ -38,10 +45,10 @@
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <input type="hidden" name="next" value="/admin/questions{{ '?f=all' if f == 'all' else '' }}">
     <textarea name="text" maxlength="2000" placeholder="Ответ — автор вопроса увидит его на странице категории">{{ q['answer'] or '' }}</textarea>
-    <button class="btn small">{{ 'Обновить ответ' if q['answer'] else 'Ответить' }}</button>
+    <button class="btn small primary">{{ 'Обновить ответ' if q['answer'] else 'Ответить' }}</button>
   </form>
 
-  <div style="display:flex;gap:8px;margin-top:10px">
+  <div class="notif-actions">
     <form class="inline" method="post" action="/admin/questions/{{ q['id'] }}/toggle">
       <input type="hidden" name="csrf" value="{{ csrf }}">
       <input type="hidden" name="next" value="/admin/questions{{ '?f=all' if f == 'all' else '' }}">
