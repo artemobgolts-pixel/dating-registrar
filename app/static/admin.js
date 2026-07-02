@@ -114,144 +114,280 @@
     }
   }
 
-  // --- редактор свидания: чипы дат, WYSIWYG, превью, загрузка фото, фокус -----
+  // --- редактор свидания: РЕДАКТИРУЕМОЕ ПРЕВЬЮ (click-to-edit + галерея) ------
+  // Вся правка идёт прямо по карточке-превью. Видимые поля — contenteditable /
+  // кастомные виджеты, значения пишутся в скрытые input формы (name/place/
+  // starts_at/ends_at/comment/links/image_focuses) — бэкенд не меняется.
   function initDateForm() {
     var form = document.getElementById("dateForm");
-    if (!form || !window.UI) return;
+    if (!form || !window.UI || form.dataset.edReady) return;
+    if (!document.getElementById("edCard")) return;   // это точно новый редактор
+    form.dataset.edReady = "1";
+    var did = form.dataset.did || "";
 
-    var start = document.getElementById("fStart");
-    var end = document.getElementById("fEnd");
-    if (start) UI.dateChips(form, start, end);
+    // --- инлайн-текст: название, место, ссылки (однострочные/списком) ----------
+    if (UI.inlineEdit) {
+      UI.inlineEdit({ view: document.getElementById("edTitle"),
+                      field: form.querySelector('[name="name"]') });
+      UI.inlineEdit({ view: document.getElementById("edPlace"),
+                      field: form.querySelector('[name="place"]') });
+      UI.inlineEdit({ view: document.getElementById("edLinks"),
+                      field: document.getElementById("linksInput"), multiline: true });
+    }
 
+    // --- детали: тот же WYSIWYG, но встроенный в превью -------------------------
+    var edDesc = document.getElementById("edDesc");
+    var descTb = document.getElementById("descToolbar");
     if (UI.richEditor) {
       UI.richEditor({
         textarea: document.getElementById("descInput"),
-        editable: document.getElementById("descEditable"),
-        toolbar: document.getElementById("descToolbar"),
+        editable: edDesc,
+        toolbar: descTb,
       });
     }
-
-    var preview = UI.editorPreview ? UI.editorPreview(form) : null;
-    var hasExistingCover = form.dataset.hasCover === "1";
-
-    var inp = document.getElementById("imagesInput");
-    var photoUp = null;
-    if (inp) {
-      var focusesField = document.getElementById("imageFocuses");
-      var focusHint = document.getElementById("newFocusHint");
-      photoUp = UI.uploader({
-        zone: document.getElementById("mediaZone"),
-        input: inp,
-        preview: document.getElementById("newTiles"),
-        max: parseInt(form.dataset.slots || "0", 10),
-        keptCount: function () { return 0; },
-        focusable: true,
-        noZoneBind: true,
-        onFocus: function () {
-          if (focusesField) focusesField.value = photoUp.focuses().join(",");
-        },
-        onChange: function (files) {
-          if (focusesField) focusesField.value = photoUp.focuses().join(",");
-          if (focusHint) focusHint.style.display = (files && files.length) ? "block" : "none";
-          if (preview && !hasExistingCover) {
-            if (files && files.length) preview.setCover(URL.createObjectURL(files[0]));
-            else preview.setCover(null);
-          }
-        },
+    // тулбар разметки показываем, только когда правишь детали (иначе он лишний)
+    if (edDesc && descTb) {
+      edDesc.addEventListener("focus", function () { descTb.hidden = false; });
+      edDesc.addEventListener("blur", function () {
+        setTimeout(function () {
+          if (!descTb.contains(document.activeElement)) descTb.hidden = true;
+        }, 200);
       });
+      // клик по кнопке тулбара не должен прятать его (mousedown до blur)
+      descTb.addEventListener("mousedown", function (e) { e.preventDefault(); });
     }
 
-    var vinp = document.getElementById("videosInput");
-    var videoUp = null;
-    if (vinp) {
-      videoUp = UI.uploader({
-        zone: document.getElementById("mediaZone"),
-        input: vinp,
-        preview: document.getElementById("newVidTiles"),
-        kind: "video",
-        max: parseInt(form.dataset.vslots || "2", 10),
-        keptCount: function () { return 0; },
-        noZoneBind: true,
-        onChange: function (files) {
-          if (preview) preview.setVideo(form.dataset.hasVideo === "1" || (files && files.length > 0));
-        },
-      });
+    // --- время: день + ЧЧ:ММ–ЧЧ:ММ ---------------------------------------------
+    if (UI.timeRange) UI.timeRange(document.getElementById("edWhen"));
+
+    // --- оплата: отражаем модификатор пилюлей на карточке ----------------------
+    var payPill = document.querySelector('.pcard [data-preview="pay"]');
+    var PAY = { "1": "💸 50/50", "2": "👌 Я плачу", "3": "🫵 Ты платишь" };
+    function syncPay() {
+      var ch = form.querySelector('[data-bind="pay"]:checked');
+      var v = ch ? ch.value : "0";
+      if (!payPill) return;
+      if (PAY[v]) { payPill.textContent = PAY[v]; payPill.hidden = false; }
+      else payPill.hidden = true;
+    }
+    form.querySelectorAll('[data-bind="pay"]').forEach(function (r) {
+      r.addEventListener("change", syncPay);
+    });
+    syncPay();
+
+    // --- ГАЛЕРЕЯ: существующие фото/видео + новые (кнопка +), листание, кадр ----
+    initEdGallery(form, did);
+  }
+
+  // Галерея редактируемого превью. Слайды двух видов:
+  //   • сохранённые: <div.ed-slide data-pid> (удаление/фокус — на сервер сразу)
+  //   • новые:       <div.ed-slide.new data-idx> (уезжают с формой; фокус → image_focuses)
+  function initEdGallery(form, did) {
+    var gallery = document.getElementById("edGallery");
+    var slidesEl = document.getElementById("edSlides");
+    if (!gallery || !slidesEl) return;
+    var emptyEl = document.getElementById("edEmpty");
+    var prev = document.getElementById("edPrev"), next = document.getElementById("edNext");
+    var dots = document.getElementById("edDots"), focusHint = document.getElementById("edFocusHint");
+    var slots = parseInt(form.dataset.slots || "0", 10);
+    var vslots = parseInt(form.dataset.vslots || "2", 10);
+    var focusesField = document.getElementById("imageFocuses");
+    var cur = 0;
+
+    // загрузчики: только собирают файлы в скрытые input (превью рисуем сами)
+    // slots/vslots уже «оставшиеся» (сервер вычел сохранённые), поэтому keptCount=0
+    var photoUp = UI.uploader({
+      zone: gallery, input: document.getElementById("imagesInput"),
+      preview: document.createElement("div"),        // свой контейнер не показываем
+      max: slots || 5, keptCount: function () { return 0; },
+      focusable: true, noZoneBind: true,
+      onError: adminToast,
+      onChange: function () { syncFocuses(); renderNew(); },
+      onFocus: syncFocuses,
+    });
+    var videoUp = UI.uploader({
+      zone: gallery, input: document.getElementById("videosInput"),
+      preview: document.createElement("div"), kind: "video",
+      max: vslots || 2, keptCount: function () { return 0; },
+      noZoneBind: true, onError: adminToast, onChange: function () { renderNew(); },
+    });
+    UI.mediaUploader({ zone: gallery, input: document.getElementById("mediaInput"),
+                       photo: photoUp, video: videoUp, onError: adminToast });
+
+    function syncFocuses() { if (focusesField) focusesField.value = photoUp.focuses().join(","); }
+
+    function adminToast(msg) {
+      var t = document.getElementById("adminToast");
+      if (!t) { t = document.createElement("div"); t.id = "adminToast"; t.className = "admin-toast"; document.body.appendChild(t); }
+      t.textContent = msg; t.classList.add("show");
+      clearTimeout(t._h); t._h = setTimeout(function () { t.classList.remove("show"); }, 2600);
     }
 
-    if (photoUp && videoUp && UI.mediaUploader) {
-      UI.mediaUploader({
-        zone: document.getElementById("mediaZone"),
-        input: document.getElementById("mediaInput"),
-        photo: photoUp,
-        video: videoUp,
+    // перерисовать слайды новых фото/видео (сохранённые уже в DOM с сервера)
+    function renderNew() {
+      slidesEl.querySelectorAll(".ed-slide.new").forEach(function (s) { s.remove(); });
+      photoUp.files().forEach(function (f, idx) {
+        var url = URL.createObjectURL(f);
+        var s = document.createElement("div");
+        s.className = "ed-slide new"; s.dataset.kind = "image"; s.dataset.idx = idx;
+        s.dataset.focus = photoUp.focuses()[idx] || "50% 50%";
+        s.innerHTML = '<img alt="" draggable="false"><button type="button" class="ed-slide-rm" aria-label="Убрать">✕</button>';
+        var img = s.querySelector("img"); img.src = url; img.style.objectPosition = s.dataset.focus;
+        s.querySelector(".ed-slide-rm").addEventListener("click", function (e) {
+          e.stopPropagation();
+          var files = photoUp.files(); files.splice(idx, 1);
+          photoUp.clear(); photoUp.addFiles(files);   // пересобрать без idx
+        });
+        slidesEl.appendChild(s);
       });
+      videoUp.files().forEach(function (f, idx) {
+        var s = document.createElement("div");
+        s.className = "ed-slide new"; s.dataset.kind = "video"; s.dataset.vidx = idx;
+        s.innerHTML = '<video muted playsinline preload="metadata"></video><span class="ed-vtag">🎬</span><button type="button" class="ed-slide-rm" aria-label="Убрать">✕</button>';
+        s.querySelector("video").src = URL.createObjectURL(f);
+        s.querySelector(".ed-slide-rm").addEventListener("click", function (e) {
+          e.stopPropagation();
+          var files = videoUp.files(); files.splice(idx, 1);
+          videoUp.clear(); videoUp.addFiles(files);
+        });
+        slidesEl.appendChild(s);
+      });
+      var n = slidesEl.querySelectorAll(".ed-slide").length;
+      if (cur >= n) cur = Math.max(0, n - 1);
+      layout();
     }
 
-    var th = document.getElementById("thumbs");
-    if (th && !th.dataset.ready) {
-      th.dataset.ready = "1";
-      var status = document.getElementById("orderStatus");
-      function flashStatus(text) {
-        if (!status) return;
-        if (text) status.textContent = text;
-        status.style.visibility = "visible";
-        setTimeout(function () { status.style.visibility = "hidden"; }, 1600);
+    // добавить фото/видео: открываем общий media-input (фото И видео)
+    function openPicker() { document.getElementById("mediaInput").click(); }
+    var addFirst = document.getElementById("edAddFirst");
+    if (addFirst) addFirst.addEventListener("click", openPicker);
+
+    // удаление сохранённого фото/видео — сразу на сервер (как было в старом редакторе)
+    slidesEl.addEventListener("click", function (e) {
+      var rmP = e.target.closest("[data-rm-saved]");
+      var rmV = e.target.closest("[data-rm-video]");
+      if (rmP) {
+        e.stopPropagation();
+        if (!confirm("Удалить фото?")) return;
+        var pid = rmP.getAttribute("data-rm-saved");
+        postForm("/admin/dates/" + did + "/images/" + pid + "/delete").then(function (ok) {
+          if (ok) { var s = rmP.closest(".ed-slide"); if (s) s.remove(); renderNew(); }
+          else adminToast("Не удалось удалить фото");
+        });
+      } else if (rmV) {
+        e.stopPropagation();
+        if (!confirm("Удалить видео?")) return;
+        var vid = rmV.getAttribute("data-rm-video");
+        postForm("/admin/dates/" + did + "/videos/" + vid + "/delete").then(function (ok) {
+          if (ok) { var s = rmV.closest(".ed-slide"); if (s) s.remove(); renderNew(); }
+          else adminToast("Не удалось удалить видео");
+        });
       }
-      function saveOrder() {
-        var order = Array.prototype.map.call(th.querySelectorAll(".thumb"),
-          function (t) { return t.dataset.pid; }).join(",");
-        var fd = new FormData();
-        fd.append("csrf", document.body.dataset.csrf);
-        fd.append("order", order);
-        fetch("/admin/dates/" + th.dataset.did + "/images/reorder", { method: "POST", body: fd })
-          .then(function (r) { r.ok ? flashStatus() : alert("Не удалось сохранить порядок — обнови страницу"); })
-          .catch(function () { alert("Нет связи — порядок не сохранён"); });
-      }
-      // Блок «Медиа» теперь ТОЛЬКО меняет порядок (перетаскивание). Зона фокуса
-      // выбирается кликом по картинке в окне предпросмотра — см. ниже.
-      UI.sortable(th, { selector: ".thumb", onChange: saveOrder });
+    });
+
+    function postForm(url, extra) {
+      var fd = new FormData();
+      fd.append("csrf", document.body.dataset.csrf);
+      if (extra) Object.keys(extra).forEach(function (k) { fd.append(k, extra[k]); });
+      return fetch(url, { method: "POST", body: fd })
+        .then(function (r) { return r.ok; }).catch(function () { return false; });
     }
 
-    // Выбор зоны кадра прямо в БОЛЬШОМ окне предпросмотра — работает и на ПК, и на
-    // телефоне, и для СОХРАНЁННЫХ фото, и для НОВЫХ (ещё не сохранённого свидания).
-    //   • есть сохранённая обложка (.thumb) → шлём focus на сервер сразу;
-    //   • иначе, если загружены новые фото → пишем зону в photoUp (уедет с формой
-    //     в поле image_focuses при сохранении).
-    // Раньше обработчик жил внутри блока #thumbs и на новых свиданиях (там нет
-    // #thumbs) не навешивался — отсюда «на новых не редактируется», а на телефоне
-    // не срабатывал вовсе. Теперь он всегда на предпросмотре.
-    var pvCover = document.querySelector('[data-preview="cover"]');
-    if (pvCover && !pvCover.dataset.focusReady) {
-      pvCover.dataset.focusReady = "1";
-      pvCover.classList.add("focus-pickable");
-      function firstThumb() { return th ? th.querySelector(".thumb") : null; }
-      pvCover.addEventListener("click", function (e) {
-        var rect = pvCover.getBoundingClientRect();
-        if (!rect.width || !rect.height) return;
-        var x = Math.round(Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)) * 100);
-        var y = Math.round(Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height)) * 100);
-        var focus = x + "% " + y + "%";
-        var t = firstThumb();
-        if (t) {
-          // сохранённая обложка — пишем сразу на сервер
-          pvCover.style.objectPosition = focus;
-          var timg = t.querySelector("img");
-          if (timg) { timg.style.objectPosition = focus; timg.dataset.focus = focus; }
-          var fd = new FormData();
-          fd.append("csrf", document.body.dataset.csrf);
-          fd.append("focus", focus);
-          fetch("/admin/dates/" + th.dataset.did + "/images/" + t.dataset.pid + "/focus",
-                { method: "POST", body: fd })
-            .then(function (r) { if (!r.ok) alert("Не удалось сохранить зону фокуса"); })
-            .catch(function () { alert("Нет связи — зона не сохранена"); });
-        } else if (photoUp && photoUp.hasFiles()) {
-          // новое фото — зона уедет в форме (image_focuses), сохранится при сабмите
-          pvCover.style.objectPosition = focus;
-          photoUp.setFocus(0, focus);
+    // --- листание + кнопки + по краям + точки ----------------------------------
+    function slides() { return Array.prototype.slice.call(slidesEl.querySelectorAll(".ed-slide")); }
+    function canAddMore() {
+      // slots/vslots — «оставшиеся» места (сервер уже вычел сохранённые)
+      return photoUp.files().length < (slots || 5)
+          || videoUp.files().length < (vslots || 2);
+    }
+    function layout() {
+      var all = slides();
+      var n = all.length;
+      if (emptyEl) emptyEl.hidden = n > 0;
+      all.forEach(function (s, i) { s.style.display = (i === cur) ? "" : "none"; });
+      // точки
+      if (dots) {
+        dots.innerHTML = "";
+        if (n > 1) for (var k = 0; k < n; k++) {
+          var d = document.createElement("i"); if (k === cur) d.className = "on"; dots.appendChild(d);
         }
-        // подсказка: без единого фото фокусировать нечего — молча игнорируем
-      });
+      }
+      // Навигация краёв: если есть слайд слева — стрелка ‹, иначе (и если можно
+      // добавить) — кнопка + (вставить перед). Аналогично справа.
+      var addMore = canAddMore();
+      setEdge(prev, cur > 0, addMore, "prev");
+      setEdge(next, cur < n - 1, addMore, "next");
+      if (focusHint) focusHint.hidden = !(all[cur] && all[cur].dataset.kind === "image");
+      bindFocusDrag(all[cur]);
     }
+    function setEdge(btn, canNav, canAdd, dir) {
+      if (!btn) return;
+      if (canNav) { btn.hidden = false; btn.classList.remove("as-add"); btn.textContent = dir === "prev" ? "‹" : "›"; }
+      else if (canAdd) { btn.hidden = false; btn.classList.add("as-add"); btn.textContent = "+"; }
+      else { btn.hidden = true; }
+    }
+    if (prev) prev.addEventListener("click", function () {
+      if (prev.classList.contains("as-add")) openPicker();
+      else { cur = Math.max(0, cur - 1); layout(); }
+    });
+    if (next) next.addEventListener("click", function () {
+      if (next.classList.contains("as-add")) openPicker();
+      else { cur = Math.min(slides().length - 1, cur + 1); layout(); }
+    });
+
+    // свайп на телефоне (как на гостевой)
+    var tx = null;
+    gallery.addEventListener("touchstart", function (e) { tx = e.touches[0].clientX; }, { passive: true });
+    gallery.addEventListener("touchend", function (e) {
+      if (tx === null) return;
+      var dx = e.changedTouches[0].clientX - tx; tx = null;
+      if (Math.abs(dx) > 44) {
+        if (dx < 0) cur = Math.min(slides().length - 1, cur + 1);
+        else cur = Math.max(0, cur - 1);
+        layout();
+      }
+    }, { passive: true });
+
+    // --- зона кадра ПЕРЕТАСКИВАНИЕМ (клик убрали, #14) --------------------------
+    var dragBound = null;
+    function bindFocusDrag(slide) {
+      if (!slide || slide.dataset.kind !== "image" || slide === dragBound) return;
+      dragBound = slide;
+      var img = slide.querySelector("img");
+      if (!img || img.dataset.dragReady) return;
+      img.dataset.dragReady = "1";
+      var dragging = false;
+      function apply(e) {
+        var rect = img.getBoundingClientRect();
+        if (!rect.width || !rect.height) return;
+        var cx = (e.touches ? e.touches[0].clientX : e.clientX);
+        var cy = (e.touches ? e.touches[0].clientY : e.clientY);
+        var x = Math.round(Math.min(1, Math.max(0, (cx - rect.left) / rect.width)) * 100);
+        var y = Math.round(Math.min(1, Math.max(0, (cy - rect.top) / rect.height)) * 100);
+        var focus = x + "% " + y + "%";
+        img.style.objectPosition = focus; slide.dataset.focus = focus;
+        return focus;
+      }
+      function save(focus) {
+        if (!focus) return;
+        if (slide.dataset.pid) {
+          postForm("/admin/dates/" + did + "/images/" + slide.dataset.pid + "/focus",
+                   { focus: focus }).then(function (ok) { if (!ok) adminToast("Зона не сохранена"); });
+        } else if (slide.classList.contains("new")) {
+          photoUp.setFocus(parseInt(slide.dataset.idx, 10), focus); syncFocuses();
+        }
+      }
+      img.addEventListener("pointerdown", function (e) {
+        dragging = true; img.setPointerCapture && img.setPointerCapture(e.pointerId);
+        slide.classList.add("dragging"); apply(e); e.preventDefault();
+      });
+      img.addEventListener("pointermove", function (e) { if (dragging) apply(e); });
+      function end() { if (!dragging) return; dragging = false; slide.classList.remove("dragging"); save(slide.dataset.focus); }
+      img.addEventListener("pointerup", end);
+      img.addEventListener("pointercancel", end);
+    }
+
+    layout();
   }
 
   // --- редактор категории: превью-картинка, предупреждение, порядок свиданий --
@@ -273,44 +409,49 @@
     var warnDismissed = false;
     // Показываем предупреждение «превью изменено» ТОЛЬКО когда значение реально
     // отличается от исходного (серверного). Раньше оно вылезало на любой input —
-    // даже когда пользователь ничего не менял (фокус/повторный ввод того же
-    // текста/Turbo-переинициализация листенеров). Теперь сравниваем с исходным.
+    // даже когда пользователь ничего не менял. Сравниваем с defaultValue.
     var ogChanged = { img: false };
+    var titleField = document.getElementById("ogTitleField");
+    var descField = document.getElementById("ogDescField");
+    // исходные значения фиксируем СЕЙЧАС (defaultValue у hidden-инпутов ведёт себя
+    // неодинаково в движках — надёжнее свой снимок).
+    var ogBase = { title: titleField ? titleField.value : "",
+                   desc: descField ? descField.value : "" };
     function recompute() {
       if (!ogWarn || warnDismissed) return;
-      var changed = ogChanged.img;
-      ["og_title", "og_desc"].forEach(function (n) {
-        var el = document.querySelector('[name="' + n + '"]');
-        if (el && el.value !== (el.defaultValue || "")) changed = true;
-      });
+      var changed = ogChanged.img
+        || (titleField && titleField.value !== ogBase.title)
+        || (descField && descField.value !== ogBase.desc);
       ogWarn.hidden = !changed;
     }
     var wx = ogWarn && ogWarn.querySelector("[data-dismiss]");
     if (wx) wx.addEventListener("click", function () { warnDismissed = true; });
-    ["og_title", "og_desc"].forEach(function (n) {
-      var el = document.querySelector('[name="' + n + '"]');
-      if (el && !el.dataset.warnReady) { el.dataset.warnReady = "1"; el.addEventListener("input", recompute); }
-    });
 
-    var ogZone = document.getElementById("ogZone");
-    var ogInput = document.getElementById("ogInput");
-    var ogImg = document.getElementById("ogPreviewImg");
-    if (ogZone && ogInput && UI.uploader) {
-      UI.uploader({
-        zone: ogZone,
-        input: ogInput,
-        preview: document.getElementById("ogTiles"),
-        max: 1,
-        keptCount: function () { return 0; },
-        kind: "image",
-        onChange: function (files) {
-          if (ogImg && files && files.length) {
-            ogImg.src = URL.createObjectURL(files[0]);
-            ogChanged.img = true;                 // выбрали свою картинку — это изменение
+    // #12: превью ссылки редактируется прямо на месте — заголовок/описание
+    // click-to-edit пишут в скрытые og_title/og_desc; клик по картинке открывает
+    // выбор своей. Отдельных полей больше нет.
+    var ogPreview = document.getElementById("ogPreview");
+    if (ogPreview && !ogPreview.dataset.ready) {
+      ogPreview.dataset.ready = "1";
+      if (UI.inlineEdit) {
+        UI.inlineEdit({ view: document.getElementById("ogTitleEd"), field: titleField,
+                        onChange: recompute });
+        UI.inlineEdit({ view: document.getElementById("ogDescEd"), field: descField,
+                        onChange: recompute });
+      }
+      var ogInput = document.getElementById("ogInput");
+      var ogImg = document.getElementById("ogPreviewImg");
+      var ogPick = document.getElementById("ogImgPick");
+      if (ogPick && ogInput) {
+        ogPick.addEventListener("click", function () { ogInput.click(); });
+        ogInput.addEventListener("change", function () {
+          if (ogInput.files && ogInput.files.length && ogImg) {
+            ogImg.src = URL.createObjectURL(ogInput.files[0]);
+            ogChanged.img = true;
             recompute();
           }
-        },
-      });
+        });
+      }
     }
 
     var tb = document.getElementById("catRows");

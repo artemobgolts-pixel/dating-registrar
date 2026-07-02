@@ -37,194 +37,145 @@
 </div>
 {% endif %}
 
-<div class="split">
-  <div>
-    <form method="post" enctype="multipart/form-data" id="dateForm"
-          data-slots="{{ slots if slots and slots > 0 else 0 }}"
-          data-vslots="{{ 2 - (videos | length) if videos else 2 }}"
-          data-has-cover="{{ '1' if (date and photos) else '' }}"
-          data-has-video="{{ '1' if (date and videos) else '' }}">
-      <input type="hidden" name="csrf" value="{{ csrf }}">
+{# Редактор = само превью-карточка (кликаешь по нему и правишь). Отдельных полей
+   больше нет. Значения пишутся в скрытые input формы — бэкенд не меняется.
+   Порядок: 1) редактируемое превью 2) модификаторы 3) категории. #}
+<form method="post" enctype="multipart/form-data" id="dateForm"
+      data-slots="{{ slots if slots and slots > 0 else 0 }}"
+      data-vslots="{{ 2 - (videos | length) if videos else 2 }}"
+      data-did="{{ date['id'] if date else '' }}"
+      data-has-cover="{{ '1' if (date and photos) else '' }}"
+      data-has-video="{{ '1' if (date and videos) else '' }}">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  {# скрытые поля — источник для сервера; заполняются инлайн-редактированием #}
+  <input type="hidden" name="name" value="{{ date['name'] if date else '' }}">
+  <input type="hidden" name="place" value="{{ (date['place'] or '') if date else '' }}">
+  <input type="hidden" name="starts_at" id="fStart" data-tr-start value="{{ (date['starts_at'] or '') if date else '' }}">
+  <input type="hidden" name="ends_at" id="fEnd" data-tr-end value="{{ (date['ends_at'] or '') if date else '' }}">
+  <textarea name="comment" id="descInput" maxlength="2000" hidden>{{ (date['comment'] or '') if date else '' }}</textarea>
+  <textarea name="links" id="linksInput" hidden>{{ links_text }}</textarea>
+  <input type="hidden" name="image_focuses" id="imageFocuses">
+  {# скрытые file-input для новых фото/видео (кнопка + в превью их открывает) #}
+  <input type="file" name="images" id="imagesInput" accept="image/*" multiple hidden>
+  <input type="file" name="videos" id="videosInput" accept="video/mp4,video/webm" multiple hidden>
+  <input type="file" id="mediaInput" accept="image/*,video/mp4,video/webm" multiple hidden>
 
-      <div class="sec">
-        <h2 class="serif"><span class="n">1</span> Основное</h2>
-        <div class="field">
-          <label>Название *</label>
-          <input type="text" name="name" required maxlength="200"
-                 data-bind="title" value="{{ date['name'] if date else '' }}">
-        </div>
-        <div class="field">
-          <label>Место — адрес или ссылка на карты</label>
-          <input type="text" name="place" maxlength="500" data-bind="place"
-                 value="{{ (date['place'] or '') if date else '' }}">
-          <div class="hint" id="placeResolved">{% if date and date['place_url'] %}📍 ссылка на карты: {{ date['place'] }}{% endif %}</div>
-        </div>
-        <div class="field">
-          <label>Когда (мск)</label>
-          <div class="chips">
-            <button type="button" class="chip" data-day="today">Сегодня</button>
-            <button type="button" class="chip" data-day="tomorrow">Завтра</button>
-            <button type="button" class="chip" data-time="12:00">12:00</button>
-            <button type="button" class="chip" data-time="19:00">19:00</button>
+  <div class="ed-cols">
+  <!-- РЕДАКТИРУЕМОЕ ПРЕВЬЮ -->
+  <div class="ed-preview-col">
+    <div class="preview-cap">Твоя карточка <span class="muted" style="font-weight:400;font-size:12px">— кликай и меняй прямо здесь; фото двигай, чтобы выбрать кадр</span></div>
+    <div class="pcard editable" id="edCard"
+         data-token="{{ date['share_token'] if date else '' }}">
+      <!-- галерея фото/видео: листание + добавление кнопкой + -->
+      <div class="ed-gallery" id="edGallery">
+        <div class="ed-slides" id="edSlides">
+          {% if date and photos %}
+          {% for p in photos %}
+          <div class="ed-slide" data-kind="image" data-pid="{{ p['id'] }}"
+               data-focus="{{ p['focus'] or '50% 50%' }}">
+            <img src="/admin/uploads/{{ p['filename'] }}" alt="" draggable="false"
+                 style="object-position:{{ p['focus'] or '50% 50%' }}">
+            <button type="button" class="ed-slide-rm" data-rm-saved="{{ p['id'] }}" aria-label="Удалить фото">✕</button>
           </div>
-          <div class="grid2">
-            <div class="field" style="margin-bottom:0">
-              <label>Начало</label>
-              <input type="datetime-local" name="starts_at" id="fStart"
-                     value="{{ (date['starts_at'] or '') if date else '' }}">
-            </div>
-            <div class="field" style="margin-bottom:0">
-              <label>Конец — если диапазон</label>
-              <input type="datetime-local" name="ends_at" id="fEnd"
-                     value="{{ (date['ends_at'] or '') if date else '' }}">
-              <div class="chips" style="margin:8px 0 0">
-                <button type="button" class="chip" data-dur="1">+1 час</button>
-                <button type="button" class="chip" data-dur="2">+2 часа</button>
-                <button type="button" class="chip" data-dur="3">+3 часа</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="sec">
-        <h2 class="serif"><span class="n">2</span> Медиа</h2>
-        <div class="field" style="margin-bottom:0">
-          <label>Фото и видео <span class="muted" style="font-weight:400">— фото до {{ slots }} шт, видео до 2</span></label>
-          <div class="dropzone" id="mediaZone">
-            <div class="dz-ico">📷🎬</div>
-            <div class="dz-hint">нажми или перетащи сюда</div>
-            <input type="file" id="mediaInput" accept="image/*,video/mp4,video/webm" multiple>
-            <div class="ptiles" id="newTiles"></div>
-            <div class="ptiles" id="newVidTiles"></div>
-          </div>
-          <p class="muted" id="newFocusHint" style="margin:6px 0 0;font-size:12.5px;display:none">кликни по новому фото, чтобы выбрать зону для карточки</p>
-          <input type="hidden" name="image_focuses" id="imageFocuses">
-          <!-- скрытые инпуты для сабмита: mediaUploader раскладывает файлы по MIME -->
-          <input type="file" name="images" id="imagesInput" accept="image/*" multiple hidden>
-          <input type="file" name="videos" id="videosInput" accept="video/mp4,video/webm" multiple hidden>
-        </div>
-
-        {% if date and photos %}
-        <div class="field" style="margin:14px 0 0">
-          <label>Загруженные фото <span class="muted" style="font-weight:400">— первое обложка; перетащи, чтобы поменять порядок</span></label>
-          <div class="thumbs" id="thumbs" data-did="{{ date['id'] }}" style="margin-top:6px">
-            {% for p in photos %}
-            <div class="thumb" data-pid="{{ p['id'] }}">
-              <img src="/admin/uploads/{{ p['filename'] }}" alt="" draggable="false"
-                   loading="lazy" decoding="async"
-                   data-focus="{{ p['focus'] or '50% 50%' }}"
-                   style="object-position:{{ p['focus'] or '50% 50%' }}">
-              <div class="thumb-btns">
-                <a class="btn small" href="/admin/uploads/{{ p['filename'] }}" target="_blank" rel="noopener" title="Открыть">⤢</a>
-                <form class="inline" method="post" action="/admin/dates/{{ date['id'] }}/images/{{ p['id'] }}/delete"
-                      data-confirm="Удалить фото?">
-                  <input type="hidden" name="csrf" value="{{ csrf }}">
-                  <button class="btn small danger">✕</button>
-                </form>
-              </div>
-            </div>
-            {% endfor %}
-          </div>
-          <p class="muted" id="orderStatus" style="font-size:12.5px;margin:8px 0 0;visibility:hidden">Сохранено ✓</p>
-        </div>
-        {% endif %}
-
-        {% if date and videos %}
-        <div class="field" style="margin:14px 0 0">
-          <label>Загруженные видео</label>
-          <div style="display:grid;gap:10px">
-            {% for v in videos %}
-            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-              <video src="/admin/uploads/{{ v['filename'] }}" controls preload="metadata"
-                     style="width:min(100%,360px);border-radius:12px;background:#000"></video>
-              <form class="inline" method="post"
-                    action="/admin/dates/{{ date['id'] }}/videos/{{ v['id'] }}/delete"
-                    data-confirm="Удалить видео?">
-                <input type="hidden" name="csrf" value="{{ csrf }}">
-                <button class="btn small danger">✕ удалить</button>
-              </form>
-            </div>
-            {% endfor %}
-          </div>
-        </div>
-        {% endif %}
-      </div>
-
-      <div class="sec">
-        <h2 class="serif"><span class="n">3</span> Детали</h2>
-        <div class="field">
-          <label>Комментарий <span class="muted" style="font-weight:400">— выдели текст и нажми Ж / К / П / З</span></label>
-          <div class="toolbar" id="descToolbar" data-target="descInput">
-            <button type="button" class="b" data-wrap="**|**" title="Жирный">Ж</button>
-            <button type="button" class="i" data-wrap="*|*" title="Курсив">К</button>
-            <button type="button" class="u" data-wrap="__|__" title="Подчёркнутый">П</button>
-            <button type="button" class="s" data-wrap="~~|~~" title="Зачёркнутый">З</button>
-            <button type="button" data-wrap="[|](https://)" title="Ссылка">🔗</button>
-          </div>
-          <div class="rich-ed" id="descEditable" contenteditable="true"
-               role="textbox" aria-multiline="true" data-placeholder="Расскажи, чем хорошо это свидание…"></div>
-          <textarea name="comment" id="descInput" maxlength="2000" data-bind="desc" hidden>{{ (date['comment'] or '') if date else '' }}</textarea>
-          <div class="descprev" id="descPreview"></div>
-        </div>
-        <div class="field" style="margin:4px 0 0">
-          <label>Оплата</label>
-          <div class="pay-pick" id="payPick">
-            <label class="pay-opt pay-any"><input type="radio" name="pay" value="0" data-bind="pay" {% if not (date and date['pay_split']) %}checked{% endif %}> Не важно</label>
-            <label class="pay-opt"><input type="radio" name="pay" value="1" data-bind="pay" {% if date and date['pay_split'] == 1 %}checked{% endif %}>💸 50/50</label>
-            <label class="pay-opt"><input type="radio" name="pay" value="2" data-bind="pay" {% if date and date['pay_split'] == 2 %}checked{% endif %}>👌 Я плачу</label>
-            <label class="pay-opt"><input type="radio" name="pay" value="3" data-bind="pay" {% if date and date['pay_split'] == 3 %}checked{% endif %}>🫵 Ты платишь</label>
-          </div>
-        </div>
-        <div class="field" style="margin:8px 0 0">
-          <label>Ссылки — каждая с новой строки</label>
-          <textarea name="links" placeholder="https://…">{{ links_text }}</textarea>
-        </div>
-      </div>
-
-      <div class="sec">
-        <h2 class="serif"><span class="n">4</span> Категории</h2>
-        <p class="muted" style="margin:0 0 10px;font-size:13px">Пока свидание не добавлено ни в одну категорию, оно неактивно — гости его не видят.</p>
-        <div class="chips-cat">
-          {% for c in cats %}
-          <label class="chip-cat"><input type="checkbox" name="categories" value="{{ c['id'] }}" {% if c['id'] in checked %}checked{% endif %}> {{ c['name'] }}</label>
-          {% else %}
-          <span class="muted">категорий пока нет — <a href="/admin/categories">создать</a></span>
           {% endfor %}
+          {% endif %}
+          {% if date and videos %}
+          {% for v in videos %}
+          <div class="ed-slide" data-kind="video" data-vid="{{ v['id'] }}">
+            <video src="/admin/uploads/{{ v['filename'] }}" controls preload="metadata" playsinline></video>
+            <button type="button" class="ed-slide-rm" data-rm-video="{{ v['id'] }}" aria-label="Удалить видео">✕</button>
+          </div>
+          {% endfor %}
+          {% endif %}
         </div>
-        <label class="toggle" style="margin:14px 0 0">
-          <input type="checkbox" name="is_public" value="1" {% if not date or date['is_public'] %}checked{% endif %}>
-          <span class="sw" aria-hidden="true"></span>
-          <span class="tcol">
-            <span class="t">Показывать в общей ленте свиданий</span>
-          </span>
-        </label>
+        <div class="ed-empty" id="edEmpty" {% if (date and (photos or videos)) %}hidden{% endif %}>
+          <div class="ed-empty-ic">📷</div>
+          <button type="button" class="btn small" id="edAddFirst">Добавить фото или видео</button>
+        </div>
+        <button type="button" class="ed-nav prev" id="edPrev" aria-label="Предыдущее" hidden>‹</button>
+        <button type="button" class="ed-nav next" id="edNext" aria-label="Следующее" hidden>›</button>
+        <div class="ed-dots" id="edDots" aria-hidden="true"></div>
+        <span class="ed-focus-hint" id="edFocusHint" hidden>двигай, чтобы выбрать кадр</span>
       </div>
-    </form>
-  </div>
 
-  <!-- ПРАВО: живой предпросмотр -->
-  <div class="preview-col">
-    <div class="preview-cap">Предпросмотр <span class="muted focus-hint" style="font-weight:400;font-size:12px">— кликни по фото, чтобы выбрать зону кадра</span></div>
-    <div class="pcard">
-      <div class="photo" data-preview="photo" {% if not (date and photos) %}hidden{% endif %}>
-        <img data-preview="cover" alt=""
-             src="{% if date and photos %}/admin/uploads/{{ photos[0]['filename'] }}{% endif %}"
-             style="object-position:{{ (photos[0]['focus'] or '50% 50%') if (date and photos) else '50% 50%' }}"
-             {% if not (date and photos) %}hidden{% endif %}>
-        <span class="vbadge" data-preview="vbadge" {% if not (date and videos) %}hidden{% endif %}>🎬 видео</span>
-      </div>
       <div class="body">
-        <h3 class="ttl"><span data-preview="title">{{ date['name'] if date else 'Без названия' }}</span>
-          <span class="pay" data-preview="pay" {% if not (date and date['pay_split']) %}hidden{% endif %}>{{ pay_label(date['pay_split']) if date else '' }}</span></h3>
-        <div class="pmeta" data-preview="meta"></div>
-        <p class="desc" data-preview="desc"></p>
-        <div class="plinks" data-preview="links"></div>
+        <h3 class="ttl">
+          <span class="ed-field" id="edTitle" data-ph="Название свидания">{{ date['name'] if date else '' }}</span>
+          <span class="pay" data-preview="pay" {% if not (date and date['pay_split']) %}hidden{% endif %}>{{ pay_label(date['pay_split']) if date else '' }}</span>
+        </h3>
+
+        <div class="pmeta">
+          <div class="ed-when" id="edWhen">
+            <span class="ed-when-ic" aria-hidden="true">🕐</span>
+            <input type="date" class="ed-day" data-tr-day value="{{ (date['starts_at'].split('T')[0]) if (date and date['starts_at']) else '' }}">
+            <span class="ed-time">
+              <span class="ed-hh" data-tr-hh>{{ (date['starts_at'].split('T')[1][:2]) if (date and date['starts_at']) else '' }}</span><span class="ed-colon">:</span><span class="ed-mm" data-tr-mm>{{ (date['starts_at'].split('T')[1][3:5]) if (date and date['starts_at']) else '' }}</span>
+              <span class="ed-dash">–</span>
+              <span class="ed-hh" data-tr-ehh>{{ (date['ends_at'].split('T')[1][:2]) if (date and date['ends_at']) else '' }}</span><span class="ed-colon">:</span><span class="ed-mm" data-tr-emm>{{ (date['ends_at'].split('T')[1][3:5]) if (date and date['ends_at']) else '' }}</span>
+            </span>
+          </div>
+          <div class="ed-place-row">
+            <span aria-hidden="true">📍</span>
+            <span class="ed-field ed-place" id="edPlace" data-ph="Место — адрес или ссылка на карты">{{ (date['place'] or '') if date else '' }}</span>
+          </div>
+        </div>
+
+        <div class="ed-field ed-desc" id="edDesc" contenteditable="true" role="textbox" aria-multiline="true"
+             data-ph="Детали — расскажи, чем хорошо это свидание (можно выделить текст и отформатировать)">{{ (date['comment'] | rich | safe) if (date and date['comment']) else '' }}</div>
+        <div class="toolbar ed-desc-toolbar" id="descToolbar" data-target="descInput" hidden>
+          <button type="button" class="b" data-wrap="**|**" title="Жирный">Ж</button>
+          <button type="button" class="i" data-wrap="*|*" title="Курсив">К</button>
+          <button type="button" class="u" data-wrap="__|__" title="Подчёркнутый">П</button>
+          <button type="button" class="s" data-wrap="~~|~~" title="Зачёркнутый">З</button>
+          <button type="button" data-wrap="[|](https://)" title="Ссылка">🔗</button>
+        </div>
+
+        <div class="ed-links-row">
+          <span aria-hidden="true">🔗</span>
+          <span class="ed-field ed-links" id="edLinks" data-ph="Ссылки — каждая с новой строки">{{ links_text }}</span>
+        </div>
+
         <div class="acts"><button type="button" class="bk">Выбрать ♥</button><button type="button" class="ak">Спросить 💬</button></div>
       </div>
     </div>
   </div>
-</div>
+
+  <!-- МОДИФИКАТОРЫ + КАТЕГОРИИ -->
+  <div class="ed-side-col">
+    <div class="sec">
+      <h2 class="serif"><span class="n">1</span> Модификаторы</h2>
+      <div class="field" style="margin:0">
+        <label>Оплата</label>
+        <div class="pay-pick" id="payPick">
+          <label class="pay-opt pay-any"><input type="radio" name="pay" value="0" data-bind="pay" {% if not (date and date['pay_split']) %}checked{% endif %}> Не важно</label>
+          <label class="pay-opt"><input type="radio" name="pay" value="1" data-bind="pay" {% if date and date['pay_split'] == 1 %}checked{% endif %}>💸 50/50</label>
+          <label class="pay-opt"><input type="radio" name="pay" value="2" data-bind="pay" {% if date and date['pay_split'] == 2 %}checked{% endif %}>👌 Я плачу</label>
+          <label class="pay-opt"><input type="radio" name="pay" value="3" data-bind="pay" {% if date and date['pay_split'] == 3 %}checked{% endif %}>🫵 Ты платишь</label>
+        </div>
+      </div>
+    </div>
+
+    <div class="sec">
+      <h2 class="serif"><span class="n">2</span> Категории</h2>
+      <p class="muted" style="margin:0 0 10px;font-size:13px">Пока свидание не добавлено ни в одну категорию, оно неактивно — гости его не видят.</p>
+      <div class="chips-cat">
+        {% for c in cats %}
+        <label class="chip-cat"><input type="checkbox" name="categories" value="{{ c['id'] }}" {% if c['id'] in checked %}checked{% endif %}> {{ c['name'] }}</label>
+        {% else %}
+        <span class="muted">категорий пока нет — <a href="/admin/categories">создать</a></span>
+        {% endfor %}
+      </div>
+      <label class="toggle" style="margin:14px 0 0">
+        <input type="checkbox" name="is_public" value="1" {% if not date or date['is_public'] %}checked{% endif %}>
+        <span class="sw" aria-hidden="true"></span>
+        <span class="tcol">
+          <span class="t">Показывать в общей ленте свиданий</span>
+        </span>
+      </label>
+    </div>
+  </div>
+  </div>
+</form>
 
 <div class="savebar">
   <button class="btn primary" form="dateForm">Сохранить</button>

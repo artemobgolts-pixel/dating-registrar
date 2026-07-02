@@ -1316,6 +1316,96 @@ input, textarea, select {
   background: rgba(255, 255, 255, .6); color: var(--rose-2); font-size: 14px;
 }
 
+/* ============================================================
+   РЕДАКТИРУЕМОЕ ПРЕВЬЮ свидания (click-to-edit прямо в карточке)
+   ============================================================ */
+.ed-cols {
+  display: grid; grid-template-columns: 460px 1fr; gap: 26px; align-items: start;
+}
+.ed-preview-col { position: sticky; top: 90px; }
+@media (max-width: 920px) {
+  .ed-cols { grid-template-columns: 1fr; }
+  .ed-preview-col { position: static; }
+}
+.pcard.editable { max-width: 460px; }
+
+/* редактируемые текстовые поля прямо в карточке */
+.ed-field {
+  outline: none; cursor: text; border-radius: 8px;
+  transition: background .15s, box-shadow .15s;
+  min-width: 20px; display: inline-block;
+}
+.ed-field:hover { background: rgba(182, 95, 111, .07); }
+.ed-field:focus { background: rgba(182, 95, 111, .1); box-shadow: 0 0 0 2px rgba(182, 95, 111, .25); }
+.ed-field:empty::before { content: attr(data-ph); color: var(--muted); opacity: .8; }
+.pcard.editable .ttl .ed-field { display: inline; }
+.ed-desc { display: block; min-height: 22px; font-size: 14px; color: #6b5b5e; margin: 0 0 10px; padding: 2px 4px; }
+.ed-desc:empty::before { display: block; }
+.ed-desc b { color: var(--ink); } .ed-desc a { color: var(--rose-2); }
+.ed-place, .ed-links { padding: 1px 5px; }
+.ed-place-row, .ed-links-row { display: flex; align-items: flex-start; gap: 6px; margin-top: 4px; font-size: 12.5px; color: var(--muted); }
+.ed-links { white-space: pre-line; }
+.ed-desc-toolbar { margin: 4px 0 8px; }
+
+/* строка времени: день + ЧЧ:ММ–ЧЧ:ММ */
+.ed-when { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); margin-bottom: 4px; }
+.ed-day {
+  width: auto; min-width: 0; padding: 3px 7px; font-size: 12.5px;
+  border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,.7); color: var(--ink);
+}
+/* важно: .pcard .pmeta span { display:block } (ниже) иначе кладёт части времени
+   в столбик — поэтому здесь явно inline с той же/большей специфичностью */
+.pcard .pmeta .ed-time { display: inline-flex; align-items: center; gap: 1px; font-variant-numeric: tabular-nums; font-size: 14px; color: var(--ink); }
+.pcard .pmeta .ed-time span { display: inline-block; }
+.ed-time .ed-hh, .ed-time .ed-mm {
+  min-width: 20px; text-align: center; padding: 2px 3px; border-radius: 6px;
+  outline: none; cursor: text; background: rgba(182, 95, 111, .08);
+}
+.ed-time .ed-hh:empty::before, .ed-time .ed-mm:empty::before { content: "00"; color: var(--muted); opacity: .6; }
+.ed-time .ed-hh:focus, .ed-time .ed-mm:focus { background: rgba(182, 95, 111, .18); box-shadow: 0 0 0 2px rgba(182, 95, 111, .25); }
+.ed-time .ed-colon, .ed-time .ed-dash { color: var(--muted); padding: 0 2px; }
+/* строки «когда»/место/ссылки — тоже flex, а не block-столбик из .pmeta span */
+.pcard .pmeta .ed-when, .pcard .pmeta .ed-place-row, .pcard .pmeta .ed-links-row { display: flex; }
+
+/* галерея превью */
+.ed-gallery { position: relative; height: 220px; background: linear-gradient(135deg, #caa094, #9c6f6a); overflow: hidden; }
+.ed-slides { height: 100%; }
+.ed-slide { position: absolute; inset: 0; }
+.ed-slide img, .ed-slide video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ed-slide img { cursor: grab; touch-action: none; }
+.ed-slide.dragging img { cursor: grabbing; }
+.ed-slide-rm {
+  position: absolute; top: 8px; right: 8px; z-index: 4;
+  width: 28px; height: 28px; border-radius: 50%; border: none; cursor: pointer;
+  background: rgba(30, 20, 24, .5); color: #fff; font-size: 14px; line-height: 1;
+  -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+}
+.ed-slide-rm:hover { background: rgba(30, 20, 24, .72); }
+.ed-vtag { position: absolute; left: 8px; top: 8px; font-size: 16px; z-index: 3; }
+.ed-empty { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 10px; align-items: center; justify-content: center; color: #fff; }
+.ed-empty[hidden] { display: none; }   /* explicit display:flex иначе перебивает [hidden] */
+.ed-empty-ic { font-size: 34px; opacity: .9; }
+.ed-empty .btn { background: rgba(255,255,255,.9); }
+.ed-nav {
+  position: absolute; top: 50%; transform: translateY(-50%); z-index: 5;
+  width: 34px; height: 34px; border-radius: 50%; border: none; cursor: pointer;
+  background: rgba(30, 20, 24, .42); color: #fff; font-size: 20px; line-height: 1;
+  -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+  display: grid; place-items: center;
+}
+.ed-nav:hover { background: rgba(30, 20, 24, .6); }
+.ed-nav.prev { left: 8px; } .ed-nav.next { right: 8px; }
+.ed-nav.as-add { background: rgba(182, 95, 111, .82); font-size: 22px; font-weight: 300; }
+.ed-dots { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%); display: flex; gap: 5px; z-index: 3; }
+.ed-dots i { width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,.5); }
+.ed-dots i.on { background: #fff; }
+.ed-focus-hint {
+  position: absolute; bottom: 8px; right: 8px; z-index: 3;
+  font-size: 10.5px; color: #fff; background: rgba(30, 20, 24, .45);
+  padding: 2px 8px; border-radius: 20px; pointer-events: none;
+}
+.ed-side-col { display: flex; flex-direction: column; gap: 16px; }
+
 /* ---------- список свиданий: сетка карточек ---------- */
 .controls {
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 18px;
@@ -1650,6 +1740,19 @@ input, textarea, select {
 .og-preview .og-host {
   font-size: 11.5px; color: var(--muted); margin-top: 4px; text-transform: lowercase;
 }
+/* #12: редактируемое превью ссылки — картинку меняем кликом, текст правим на месте */
+.og-preview.editable .og-img-wrap { position: relative; cursor: pointer; display: block; }
+.og-preview.editable .og-img-hint {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  background: rgba(30, 20, 24, .38); color: #fff; font-size: 13px; font-weight: 600;
+  opacity: 0; transition: opacity .15s;
+}
+.og-preview.editable .og-img-wrap:hover .og-img-hint { opacity: 1; }
+/* редактируемые заголовок/описание: разворачиваем из nowrap, показываем плейсхолдер */
+.og-preview.editable .og-title, .og-preview.editable .og-desc {
+  white-space: normal; overflow: visible; text-overflow: clip;
+}
+.og-preview.editable .ed-field:empty::before { content: attr(data-ph); color: var(--muted); opacity: .75; }
 /* подпись поля и зона выбора картинки превью (drag-drop как у свиданий) */
 .field-label { display: block; font-weight: 600; color: var(--ink); font-size: 14px; margin-top: 4px; }
 .field-label .muted { font-weight: 400; }

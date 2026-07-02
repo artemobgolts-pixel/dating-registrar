@@ -835,6 +835,124 @@ window.UI = (() => {
     });
   }
 
+  /* --- Инлайн-редактирование текста прямо в превью (click-to-edit) --------
+     Оборачивает видимый элемент: клик делает его contenteditable, по blur/Enter
+     пишет значение в скрытый <input>/<textarea> и зовёт onChange. Плейсхолдер
+     показывается, когда пусто (через :empty + data-ph в CSS). Многострочность —
+     для «деталей»; для однострочных Enter завершает ввод. */
+  function inlineEdit(opts) {
+    var view = opts.view, field = opts.field;
+    if (!view || !field) return null;
+    var multiline = !!opts.multiline;
+    view.setAttribute("contenteditable", "true");
+    view.setAttribute("role", "textbox");
+    if (opts.placeholder) view.setAttribute("data-ph", opts.placeholder);
+
+    function toField() {
+      var val = (view.innerText || "").replace(/ /g, " ");
+      if (!multiline) val = val.replace(/\s*\n\s*/g, " ").trim();
+      else val = val.replace(/\n{3,}/g, "\n\n").replace(/[ \t]+$/gm, "");
+      field.value = val;
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+      if (opts.onChange) opts.onChange(val);
+    }
+    view.addEventListener("input", toField);
+    view.addEventListener("blur", toField);
+    if (!multiline) {
+      view.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") { e.preventDefault(); view.blur(); }
+      });
+    }
+    return { toField: toField,
+             set: function (v) { view.innerText = v || ""; toField(); } };
+  }
+
+  /* --- Виджет времени: день (native date) + «ЧЧ:ММ–ЧЧ:ММ» кликом ----------
+     Пишет в скрытые starts_at/ends_at в формате YYYY-MM-DDTHH:MM (как datetime-
+     local). День — обязателен для времени; без дня время не уходит на сервер.
+     Части ЧЧ/ММ — редактируемые кликом (вводишь число). Быстрых чипов нет (#13). */
+  function timeRange(root) {
+    var dayInput = root.querySelector("[data-tr-day]");
+    var sh = root.querySelector("[data-tr-hh]"), sm = root.querySelector("[data-tr-mm]");
+    var eh = root.querySelector("[data-tr-ehh]"), em = root.querySelector("[data-tr-emm]");
+    // скрытые поля формы (могут лежать вне root — ищем и глобально)
+    var startHidden = root.querySelector("[data-tr-start]") || document.querySelector("[data-tr-start]");
+    var endHidden = root.querySelector("[data-tr-end]") || document.querySelector("[data-tr-end]");
+    if (!dayInput || !startHidden) return null;
+    var onChange = null;
+
+    function pad(n) { return String(n).padStart(2, "0"); }
+    function clampNum(el, max, fallback) {
+      var d = (el.innerText || "").replace(/\D/g, "").slice(-2);
+      var n = d === "" ? null : Math.min(parseInt(d, 10), max);
+      return { has: n !== null, val: n === null ? fallback : n };
+    }
+    function part(el, max) {
+      // делает span редактируемым числом 00..max
+      el.setAttribute("contenteditable", "true");
+      el.addEventListener("focus", function () { el._had = el.innerText; });
+      el.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") { e.preventDefault(); el.blur(); }
+        // разрешаем только цифры/навигацию
+        if (e.key.length === 1 && !/[0-9]/.test(e.key)) e.preventDefault();
+      });
+      el.addEventListener("input", function () {
+        var d = (el.innerText || "").replace(/\D/g, "");
+        if (d.length >= 2) { el.innerText = d.slice(-2); placeCaretEnd(el); sync(); }
+      });
+      el.addEventListener("blur", function () {
+        var r = clampNum(el, max, 0);
+        el.innerText = r.has ? pad(r.val) : "00";
+        sync();
+      });
+    }
+    function placeCaretEnd(el) {
+      try {
+        var r = document.createRange(); r.selectNodeContents(el); r.collapse(false);
+        var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+      } catch (_) {}
+    }
+
+    function sync() {
+      var day = dayInput.value;                       // YYYY-MM-DD или ""
+      var shv = clampNum(sh, 23, 0), smv = clampNum(sm, 59, 0);
+      var ehv = clampNum(eh, 23, 0), emv = clampNum(em, 59, 0);
+      // «начало задано» = есть день И заданы часы начала (иначе пусто)
+      if (day && (shv.has || smv.has)) {
+        startHidden.value = day + "T" + pad(shv.val) + ":" + pad(smv.val);
+      } else {
+        startHidden.value = "";
+      }
+      // конец — только если задан день и хотя бы одна часть конца, и есть начало
+      if (day && startHidden.value && (ehv.has || emv.has)) {
+        endHidden.value = day + "T" + pad(ehv.val) + ":" + pad(emv.val);
+      } else {
+        endHidden.value = "";
+      }
+      startHidden.dispatchEvent(new Event("input", { bubbles: true }));
+      if (onChange) onChange();
+    }
+
+    part(sh, 23); part(sm, 59); part(eh, 23); part(em, 59);
+    dayInput.addEventListener("input", sync);
+    dayInput.addEventListener("change", sync);
+    // начальное состояние из уже подставленных hidden-значений
+    (function initFrom() {
+      function fill(hidden, hh, mm) {
+        var v = hidden && hidden.value;               // YYYY-MM-DDTHH:MM
+        if (!v) return null;
+        var t = v.split("T");
+        return { day: t[0], hh: (t[1] || "").slice(0, 2), mm: (t[1] || "").slice(3, 5) };
+      }
+      var s = fill(startHidden), e = fill(endHidden);
+      if (s) { dayInput.value = s.day; sh.innerText = s.hh || "00"; sm.innerText = s.mm || "00"; }
+      if (e) { eh.innerText = e.hh || "00"; em.innerText = e.mm || "00"; }
+    })();
+
+    return { sync: sync, onChange: function (fn) { onChange = fn; } };
+  }
+
   return { sortable, burst, uploader, mediaUploader, dateChips, postWithProgress,
-           editorPreview, richEditor, cardMenu, renderMarkup, glassTabs };
+           editorPreview, richEditor, cardMenu, renderMarkup, glassTabs,
+           inlineEdit: inlineEdit, timeRange: timeRange };
 })();

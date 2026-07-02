@@ -1284,14 +1284,16 @@ with TestClient(main.app, follow_redirects=False) as c:
     # ---------- редизайн кабинета (date4you): форма, список, дашборд ----------
     main._rates.clear()
     apost(c, "/admin/categories/create", {"name": "Поделись-кат"})
-    # форма создания: сплит-превью, тулбар разметки, узлы предпросмотра
+    # форма создания: редактируемое превью (click-to-edit), тулбар разметки,
+    # виджет времени, модификаторы
     nf = c.get("/admin/dates/new").text
-    assert 'class="split"' in nf and 'class="preview-col"' in nf
+    assert 'class="ed-cols"' in nf and 'id="edCard"' in nf
     assert 'id="descToolbar"' in nf and 'data-wrap="**|**"' in nf
-    assert 'data-preview="title"' in nf and 'data-preview="desc"' in nf
-    assert 'data-bind="title"' in nf and 'data-bind="pay"' in nf
+    assert 'id="edTitle"' in nf and 'id="edDesc"' in nf and 'id="edGallery"' in nf
+    assert 'data-tr-day' in nf and 'data-bind="pay"' in nf
     # форма по-прежнему шлёт те же поля + CSRF (роут не сломан)
     assert 'name="name"' in nf and 'name="csrf"' in nf and 'name="categories"' in nf
+    assert 'name="starts_at"' in nf and 'name="comment"' in nf and 'name="images"' in nf
 
     # список карточками по умолчанию: сетка, бейджи, меню ⋯, переключатель вида
     lp = c.get("/admin/dates").text
@@ -1327,10 +1329,10 @@ with TestClient(main.app, follow_redirects=False) as c:
     fdid = db_one("SELECT id FROM dates WHERE name='С фокусом'")["id"]
     fimg = db_one("SELECT id, focus FROM date_images WHERE date_id=?", (fdid,))
     assert fimg["focus"] is None                       # по умолчанию центр (NULL)
-    # форма правки: миниатюра с data-focus (порядок), а зона кадра выбирается в
-    # окне предпросмотра (img[data-preview=cover]); focus-pickable вешает JS
+    # форма правки: сохранённое фото — слайд превью с data-pid и data-focus
+    # (зону кадра двигают перетаскиванием прямо в превью, focus шлётся на сервер)
     ef = c.get(f"/admin/dates/{fdid}/edit").text
-    assert 'data-focus=' in ef and 'data-preview="cover"' in ef
+    assert 'data-focus=' in ef and 'data-pid=' in ef and 'id="edGallery"' in ef
     # сохраняем точку фокуса
     r = apost(c, f"/admin/dates/{fdid}/images/{fimg['id']}/focus", {"focus": "20% 80%"})
     assert r.status_code == 200 and r.json()["focus"] == "20% 80%"
