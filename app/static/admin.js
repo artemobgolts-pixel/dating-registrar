@@ -337,6 +337,143 @@
     }
   }
 
+  // --- главная: лента свиданий комьюнити (бесконечный скролл + виджет) --------
+  function initCommunity() {
+    var feed = document.getElementById("communityFeed");
+    if (!feed || feed.dataset.ready) return;
+    feed.dataset.ready = "1";
+    var baseUrl = feed.getAttribute("data-feed-url") || "/admin/community";
+    var emptyEl = document.getElementById("cfeedEmpty");
+    var endEl = document.getElementById("cfeedEnd");
+    var dlg = document.getElementById("communityDlg");
+    var cwidBody = document.getElementById("cwidBody");
+    var cwidClose = document.getElementById("cwidClose");
+
+    var loading = false, done = false, loadedAny = false;
+    var io = null;
+
+    function currentCursor() {
+      var s = feed.querySelector(".cfeed-sentinel");
+      return s ? s.getAttribute("data-next-cursor") : null;
+    }
+
+    function load() {
+      if (loading || done) return;
+      loading = true;
+      var cursor = currentCursor();       // null на первой странице
+      var sentinel = feed.querySelector(".cfeed-sentinel");
+      if (sentinel) sentinel.remove();     // старый маркер заменяем свежей страницей
+      var url = baseUrl + (cursor ? "?cursor=" + encodeURIComponent(cursor) : "");
+      fetch(url, { credentials: "same-origin", headers: { "X-Requested-With": "fetch" } })
+        .then(function (r) { return r.ok ? r.text() : Promise.reject(); })
+        .then(function (html) {
+          feed.insertAdjacentHTML("beforeend", html.trim());
+          var hasCards = feed.querySelector(".cfeed-card");
+          if (hasCards) loadedAny = true;
+          if (!loadedAny && emptyEl) emptyEl.hidden = false;
+          // нет нового маркера курсора → страниц больше нет
+          if (!feed.querySelector(".cfeed-sentinel")) {
+            done = true;
+            if (loadedAny && endEl) endEl.hidden = false;
+          } else {
+            observeSentinel();
+          }
+          loading = false;
+        })
+        .catch(function () { loading = false; });
+    }
+
+    function observeSentinel() {
+      var sentinel = feed.querySelector(".cfeed-sentinel");
+      if (!sentinel || !("IntersectionObserver" in window)) return;
+      if (io) io.disconnect();
+      io = new IntersectionObserver(function (entries) {
+        if (entries.some(function (e) { return e.isIntersecting; })) load();
+      }, { rootMargin: "300px" });
+      io.observe(sentinel);
+    }
+
+    // открыть/закрыть виджет свидания
+    function openWidget(id) {
+      if (!dlg || !cwidBody) return;
+      cwidBody.innerHTML = '<p class="muted" style="text-align:center;padding:30px">Загружаю…</p>';
+      if (typeof dlg.showModal === "function") dlg.showModal(); else dlg.setAttribute("open", "");
+      fetch("/admin/community/date/" + encodeURIComponent(id),
+            { credentials: "same-origin", headers: { "X-Requested-With": "fetch" } })
+        .then(function (r) { return r.ok ? r.text() : Promise.reject(); })
+        .then(function (html) { cwidBody.innerHTML = html; })
+        .catch(function () {
+          cwidBody.innerHTML = '<p class="muted" style="text-align:center;padding:30px">Не удалось открыть свидание</p>';
+        });
+    }
+    function closeWidget() {
+      if (!dlg) return;
+      if (typeof dlg.close === "function" && dlg.open) dlg.close();
+      else dlg.removeAttribute("open");
+      if (cwidBody) cwidBody.innerHTML = "";
+    }
+
+    // клик по карточке ленты → открыть виджет (пилюля владельца — обычная ссылка)
+    feed.addEventListener("click", function (e) {
+      if (e.target.closest("[data-stop]")) return;      // клик по профилю владельца
+      var card = e.target.closest(".cfeed-card");
+      if (card) openWidget(card.getAttribute("data-widget"));
+    });
+    feed.addEventListener("keydown", function (e) {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      var card = e.target.closest(".cfeed-card");
+      if (card) { e.preventDefault(); openWidget(card.getAttribute("data-widget")); }
+    });
+
+    if (cwidClose) cwidClose.addEventListener("click", closeWidget);
+    if (dlg) dlg.addEventListener("click", function (e) {
+      if (e.target === dlg) closeWidget();               // клик по подложке
+    });
+
+    // «Добавить себе» внутри виджета (делегированно — контент подгружается)
+    if (cwidBody) cwidBody.addEventListener("click", function (e) {
+      var btn = e.target.closest("[data-add]");
+      if (!btn) return;
+      btn.disabled = true;
+      var old = btn.textContent;
+      btn.textContent = "Добавляю…";
+      fetch(btn.getAttribute("data-add"),
+            { method: "POST", credentials: "same-origin", headers: { "X-Requested-With": "fetch" } })
+        .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+        .then(function (res) {
+          if (res.ok && res.j && res.j.ok) {
+            btn.textContent = "Добавлено ♥";
+            toast("Свидание добавлено в твою коллекцию ♥");
+            setTimeout(closeWidget, 900);
+          } else {
+            btn.disabled = false; btn.textContent = old;
+            toast((res.j && res.j.detail) || "Не удалось добавить");
+          }
+        })
+        .catch(function () { btn.disabled = false; btn.textContent = old; toast("Нет связи"); });
+    });
+
+    // простой тост (на главной нет гостевого toast'а — рисуем свой)
+    function toast(msg) {
+      var t = document.getElementById("adminToast");
+      if (!t) {
+        t = document.createElement("div");
+        t.id = "adminToast"; t.className = "admin-toast";
+        document.body.appendChild(t);
+      }
+      t.textContent = msg;
+      t.classList.add("show");
+      clearTimeout(t._h);
+      t._h = setTimeout(function () { t.classList.remove("show"); }, 2600);
+    }
+
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") closeWidget();
+    });
+
+    load();     // первая страница
+  }
+
   // Запускаем инициализаторы на каждой загрузке (в т.ч. после Turbo-перехода).
   // Каждый сам проверяет наличие своих элементов, поэтому безопасно звать все.
   function initPage() {
@@ -346,6 +483,7 @@
     initCategory();
     initProfile();
     initDashboard();
+    initCommunity();
   }
 
   // Turbo вызывает turbo:load и при первой загрузке, и после каждого перехода.

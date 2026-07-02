@@ -86,7 +86,7 @@
         <div class="menu-wrap">
         <button type="button" class="more" aria-label="Ещё действия" aria-haspopup="true" aria-expanded="false">⋯</button>
         <div class="menu">
-          {% if r['is_draft'] and not r['archived_at'] %}
+          {% if r['is_draft'] and not r['archived_at'] and r['cats'] %}
           <form method="post" action="/admin/dates/{{ r['id'] }}/publish">
             <input type="hidden" name="csrf" value="{{ csrf }}">
             <input type="hidden" name="next" value="/admin/dates?view={{ view }}{{ qs_keep }}">
@@ -155,7 +155,7 @@
       <div class="menu-wrap">
       <button type="button" class="more" aria-label="Ещё действия" aria-haspopup="true" aria-expanded="false">⋯</button>
       <div class="menu">
-        {% if r['is_draft'] and not r['archived_at'] %}
+        {% if r['is_draft'] and not r['archived_at'] and r['cats'] %}
         <form method="post" action="/admin/dates/{{ r['id'] }}/publish">
           <input type="hidden" name="csrf" value="{{ csrf }}">
           <input type="hidden" name="next" value="/admin/dates?view={{ view }}{{ qs_keep }}">

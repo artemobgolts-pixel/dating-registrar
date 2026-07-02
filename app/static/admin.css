@@ -19,7 +19,12 @@
 }
 
 * { box-sizing: border-box; }
-html { scrollbar-gutter: stable; }
+/* overflow-x: clip — глобальный предохранитель от горизонтального «шатания» на
+   телефоне (декоративные слои, флекс-строки, широкие элементы). clip, а не
+   hidden: не создаёт scroll-контейнер, не ломает position:sticky у шапки и
+   сохраняет scrollbar-gutter. */
+html { scrollbar-gutter: stable; overflow-x: clip; }
+body { overflow-x: clip; }
 
 body {
   margin: 0;
@@ -706,6 +711,35 @@ label.chk {
 .consent input { margin-top: 2px; flex: none; }
 .consent a { color: #b65f6f; }
 
+/* OAuth-кнопки на странице входа (заготовки) */
+.oauth-sep {
+  display: flex; align-items: center; gap: 12px;
+  color: var(--muted); font-size: 12.5px; margin: 20px 0 14px;
+}
+.oauth-sep::before, .oauth-sep::after {
+  content: ""; flex: 1; height: 1px; background: var(--line);
+}
+.oauth-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+.oauth-btn {
+  display: flex; align-items: center; justify-content: center;
+  padding: 11px 8px; border-radius: 12px; text-decoration: none;
+  font-size: 14px; font-weight: 600; color: var(--ink);
+  background: rgba(255, 255, 255, .7); border: 1px solid var(--line);
+  transition: transform .15s, box-shadow .2s, border-color .2s; position: relative;
+}
+.oauth-btn:hover { transform: translateY(-1px); box-shadow: 0 8px 18px rgba(150, 80, 95, .12); }
+.oauth-discord:hover { border-color: #5865f2; color: #4752c4; }
+.oauth-google:hover  { border-color: #ea4335; color: #c5372b; }
+.oauth-yandex:hover  { border-color: #fc3f1d; color: #d63417; }
+/* не настроенный провайдер: приглушён + пометка «скоро» на hover */
+.oauth-btn[data-soon] { opacity: .72; }
+.oauth-btn[data-soon]::after {
+  content: attr(data-soon); position: absolute; top: -8px; right: -6px;
+  font-size: 9.5px; font-weight: 700; color: #fff; background: var(--rose);
+  padding: 1px 6px; border-radius: 10px; letter-spacing: .02em;
+}
+@media (max-width: 380px) { .oauth-row { grid-template-columns: 1fr; } }
+
 /* ===== v3: брони, чипы дат, drag-and-drop фото ============================ */
 
 .tiny { font-size: 12px; }
@@ -1117,7 +1151,7 @@ input, textarea, select {
 /* строка сохранения — заметная «липкая» панель внизу формы, чтобы кнопка
    «Сохранить» не терялась в интерфейсе */
 .savebar {
-  display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+  display: flex; gap: 12px; align-items: center;
   position: sticky; bottom: 14px; z-index: 5;
   margin: 18px 0 4px; padding: 12px 14px;
   background: linear-gradient(150deg, rgba(255,253,252,.82), rgba(255,244,246,.7));
@@ -1125,34 +1159,18 @@ input, textarea, select {
   border: 1px solid rgba(255, 255, 255, .7); border-radius: 16px;
   box-shadow: 0 14px 34px rgba(150, 80, 95, .2), inset 0 1px 0 rgba(255, 255, 255, .8);
 }
-.savebar .autosave { font-size: 12px; color: var(--muted); margin-left: auto; }
-.savebar .btn.primary {
+/* только «Сохранить» + «Отмена», ровно: Сохранить тянется, Отмена рядом.
+   (Архив/Удалить/Одобрить живут в меню ⋯ на списке свиданий.) */
+.savebar .btn {
   font-size: 15px; font-weight: 600; letter-spacing: .01em;
-  padding: 9px 26px; border-radius: 12px;
+  padding: 11px 22px; border-radius: 12px; text-align: center;
+}
+.savebar .btn.primary {
+  flex: 1;
   box-shadow: 0 8px 20px rgba(150, 70, 85, .4);
 }
 .savebar .btn.primary::before { content: "💾 "; }
-/* «Отмена» — той же высоты, что «Сохранить» */
-.savebar .btn.ghost {
-  font-size: 15px; font-weight: 600; letter-spacing: .01em;
-  padding: 9px 20px; border-radius: 12px; text-align: center;
-}
-/* действия над свиданием в той же панели: «Одобрить»/«В архив»/«Удалить».
-   «В архив» и «Удалить» прижаты вправо, отделены от «Сохранить»/«Отмена». */
-.savebar .btn.approve {
-  background: linear-gradient(135deg, #34b36b, #15734a); border-color: transparent; color: #fff;
-  font-weight: 600; padding: 9px 18px; border-radius: 12px;
-}
-.savebar .btn.archive-btn { margin-left: auto; }
-.savebar .btn.archive-btn, .savebar .btn.danger { padding: 9px 16px; border-radius: 12px; }
-@media (max-width: 560px) {
-  .savebar .btn.archive-btn { margin-left: 0; }
-}
-/* на телефоне кнопки растягиваем во всю ширину для удобного тапа */
-@media (max-width: 560px) {
-  .savebar .btn.primary { flex: 1; }
-  .savebar .btn.ghost { flex: none; }
-}
+.savebar .btn.ghost { flex: none; }
 .btn.ghost {
   background: rgba(255, 255, 255, .6);
   color: var(--rose-2);
@@ -1235,13 +1253,14 @@ input, textarea, select {
   -webkit-backdrop-filter: blur(16px) saturate(1.4);
   backdrop-filter: blur(16px) saturate(1.4);
   border: 1px solid rgba(255, 255, 255, .65);
-  border-radius: 18px; overflow: hidden;
+  border-radius: 18px;
   box-shadow: 0 12px 30px rgba(150, 80, 95, .08), inset 0 1px 0 rgba(255, 255, 255, .8);
   transition: transform .18s ease, box-shadow .2s ease;
 }
 .dcard:hover { transform: translateY(-2px); box-shadow: 0 16px 38px rgba(150, 80, 95, .14); }
 .dcard .ph {
   height: 112px; position: relative;
+  border-radius: 18px 18px 0 0; overflow: hidden;
   background: linear-gradient(135deg, #caa094, #9c6f6a);
 }
 .dcard .ph img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -1402,6 +1421,16 @@ input, textarea, select {
 }
 .cat-card:hover .cat-arrow { opacity: 1; transform: translateX(3px); }
 
+/* правый край карточки категории: стрелка + меню ⋯. Меню должно кликаться и
+   открываться ПОВЕРХ ссылки-оверлея, поэтому поднимаем его над z-index оверлея. */
+.cat-card .cat-tail {
+  display: flex; align-items: center; gap: 8px;
+  position: relative; z-index: 3;
+}
+.cat-card .menu-wrap { position: relative; z-index: 6; pointer-events: auto; flex: none; }
+/* на карточке кнопка ⋯ вверху — меню открываем ВНИЗ (не вверх, как на свиданиях) */
+.cat-card .menu { top: 44px; bottom: auto; }
+
 /* миниатюра превью ссылки в списке категорий: широкий кадр 1.91:1 слева,
    содержимое справа. На узких экранах — картинка сверху, контент под ней. */
 .cat-card.has-thumb { display: flex; gap: 14px; align-items: stretch; }
@@ -1458,8 +1487,19 @@ input, textarea, select {
 .og-zone { margin-top: 2px; }
 .og-zone .dz-ico { font-size: 20px; }
 /* кнопка «Сохранить» в редакторе категории — заметная, не во всю ширину */
-.cat-save { margin-top: 4px; }
-.cat-save .btn.primary { font-size: 15px; font-weight: 600; padding: 9px 26px; }
+.cat-save { margin-top: 4px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.cat-save .btn { font-size: 15px; font-weight: 600; padding: 9px 22px; border-radius: 12px; }
+/* нижний ряд действий категории: «Скопировать ссылку» / вкл-выкл / «Удалить» —
+   единый вид и размер, деструктив прижат вправо */
+.cat-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.cat-actions .inline { margin: 0; }
+.cat-actions .btn { font-size: 14.5px; font-weight: 600; padding: 9px 18px; border-radius: 12px; }
+.cat-actions .btn.danger { margin-left: auto; }
+@media (max-width: 560px) {
+  .cat-actions { flex-direction: column; align-items: stretch; }
+  .cat-actions .inline, .cat-actions .btn { width: 100%; }
+  .cat-actions .btn.danger { margin-left: 0; }
+}
 
 /* закрываемое предупреждение про перегенерацию ссылки */
 .og-warn {
@@ -1681,16 +1721,18 @@ input, textarea, select {
 }
 .gender-opt:focus-within { box-shadow: 0 0 0 3px rgba(182, 95, 111, .16); }
 
-/* оплата — четыре кнопки-пилюли (radio), переносятся при нехватке места */
+/* оплата — «Не важно» отдельной первой строкой, остальные три ровно под ней */
 .pay-pick { display: flex; gap: 8px; flex-wrap: wrap; }
 .pay-opt {
   display: inline-flex; align-items: center; justify-content: center;
-  flex: 1 1 auto;
+  flex: 1 1 0;
   padding: 9px 14px; border-radius: 999px; cursor: pointer;
   border: 1px solid var(--line); background: rgba(255, 255, 255, .6);
   font-size: 14px; color: var(--ink); margin: 0; white-space: nowrap;
   transition: background .15s, color .15s, border-color .15s;
 }
+/* «Не важно» — вся первая строка (перенос остальных обеспечен flex-basis:100%) */
+.pay-pick .pay-any { flex-basis: 100%; }
 .pay-opt input { position: absolute; opacity: 0; width: 0; height: 0; }
 .pay-opt:has(input:checked) {
   background: linear-gradient(135deg, #34b36b, #15734a);
@@ -1800,10 +1842,12 @@ input, textarea, select {
   .quick .btn.primary { grid-column: 1 / -1; }
   .quick .btn { margin: 0; text-align: center; }
 
-  /* в редакторе свидания «Отмена» — той же ширины и высоты, что «Сохранить» */
+  /* в редакторе свидания «Сохранить» и «Отмена» — единая высота и вид,
+     Сохранить занимает больше места, обе кнопки аккуратно выровнены */
   .savebar { flex-wrap: nowrap; }
-  .savebar .btn.primary { min-width: 0; }
-  .savebar .btn.ghost { flex: 1; padding: 13px 22px; font-size: 19px; text-align: center; }
+  .savebar .btn { padding: 13px 18px; font-size: 16px; }
+  .savebar .btn.primary { flex: 2; min-width: 0; }
+  .savebar .btn.ghost { flex: 1; text-align: center; }
 
   /* форму создания свидания не должно «таскать» по горизонтали:
      контент клиппим по ширине, элементы не шире контейнера */
@@ -1839,4 +1883,86 @@ input, textarea, select {
 @keyframes turbo-fade {
   from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: none; }
+}
+
+/* ============================================================
+   ЛЕНТА СВИДАНИЙ КОМЬЮНИТИ (главная) + мини-виджет свидания
+   ============================================================ */
+.cfeed {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 16px;
+}
+.cfeed-card {
+  position: relative; display: flex; flex-direction: column;
+  background: linear-gradient(150deg, rgba(255,253,252,.62), rgba(255,246,246,.46));
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  backdrop-filter: blur(16px) saturate(1.4);
+  border: 1px solid rgba(255, 255, 255, .65); border-radius: 18px;
+  box-shadow: 0 12px 30px rgba(150, 80, 95, .08), inset 0 1px 0 rgba(255, 255, 255, .8);
+  cursor: pointer; overflow: hidden;
+  transition: transform .18s ease, box-shadow .2s ease;
+}
+.cfeed-card:hover { transform: translateY(-2px); box-shadow: 0 16px 38px rgba(150, 80, 95, .14); }
+.cfeed-card:focus-visible { outline: 2px solid var(--rose); outline-offset: 2px; }
+.cfeed-ph { height: 132px; background: linear-gradient(135deg, #caa094, #9c6f6a); }
+.cfeed-ph img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cfeed-ph-vid { display: grid; place-items: center; font-size: 34px; }
+.cfeed-body { padding: 12px 13px 13px; display: flex; flex-direction: column; gap: 7px; flex: 1; }
+.cfeed-ttl { font-size: 17px; color: var(--ink); margin: 0; line-height: 1.2; }
+.cfeed-meta { font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 2px; }
+.cfeed-desc {
+  font-size: 13px; color: #6b5b5e; margin: 0;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.cfeed-owner {
+  display: inline-flex; align-items: center; gap: 7px; margin-top: auto;
+  text-decoration: none; color: var(--rose-2); font-size: 13px; font-weight: 600;
+  padding: 5px 8px 5px 5px; border-radius: 999px; align-self: flex-start;
+  background: rgba(255, 255, 255, .55); border: 1px solid var(--line);
+  position: relative; z-index: 2;
+}
+.cfeed-owner:hover { background: var(--rose-soft); }
+.cfeed-ava { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; }
+.cfeed-ava-ph { display: grid; place-items: center; background: #f3e6e9; font-size: 15px; }
+.cfeed-owner-name { max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cfeed-sentinel { grid-column: 1 / -1; height: 1px; }
+
+/* модалка мини-виджета */
+.community-dlg {
+  border: none; border-radius: 20px; padding: 0; max-width: 560px; width: 92vw;
+  background: #fffdfe; box-shadow: 0 30px 80px rgba(120, 60, 72, .34);
+}
+.community-dlg::backdrop { background: rgba(67, 55, 58, .5); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
+.community-dlg .dlg-x {
+  position: absolute; top: 10px; right: 10px; z-index: 3;
+  width: 34px; height: 34px; border-radius: 50%; border: none; cursor: pointer;
+  background: rgba(255, 255, 255, .85); color: var(--ink); font-size: 17px;
+}
+.cwid-gallery { display: flex; overflow-x: auto; gap: 4px; border-radius: 20px 20px 0 0; }
+.cwid-gallery img, .cwid-gallery video {
+  width: 100%; max-height: 340px; object-fit: cover; flex: none; scroll-snap-align: center;
+}
+.cwid-gallery:has(img + *) img, .cwid-gallery:has(video ~ *) video { width: 88%; }
+.cwid-body { padding: 18px 20px 22px; }
+.cwid-ttl { font-size: 24px; color: var(--ink); margin: 0 0 10px; }
+.cwid-meta { font-size: 13.5px; color: var(--muted); display: grid; gap: 4px; margin: 8px 0; }
+.cwid-meta a { color: var(--rose-2); }
+.cwid-desc { font-size: 14.5px; color: #5f5052; white-space: pre-line; margin: 12px 0; }
+.cwid-links { display: flex; flex-wrap: wrap; gap: 6px 12px; margin: 10px 0; }
+.cwid-links a { font-size: 13px; color: var(--rose-2); }
+.cwid-actions { margin-top: 16px; }
+.cwid-actions .btn { width: 100%; text-align: center; padding: 12px; font-size: 15px; font-weight: 600; }
+
+/* собственный тост админки (на гостевой есть свой) */
+.admin-toast {
+  position: fixed; left: 50%; bottom: 26px; transform: translate(-50%, 20px);
+  background: #43373a; color: #fff; padding: 12px 20px; border-radius: 14px;
+  font-size: 14.5px; box-shadow: 0 12px 34px rgba(0, 0, 0, .28);
+  opacity: 0; pointer-events: none; transition: opacity .25s, transform .25s; z-index: 200;
+}
+.admin-toast.show { opacity: 1; transform: translate(-50%, 0); }
+@media (max-width: 720px) {
+  .admin-toast { bottom: 86px; }   /* над нижней навигацией */
 }

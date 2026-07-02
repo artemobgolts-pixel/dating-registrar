@@ -23,6 +23,26 @@ TG_BOT_USERNAME = os.getenv("TG_BOT_USERNAME", "").strip().lstrip("@")
 # Секрет вебхука: Telegram шлёт его в заголовке X-Telegram-Bot-Api-Secret-Token.
 # Без него вебхук принимать нельзя — иначе кто угодно «подтвердит» чужой код.
 TG_WEBHOOK_SECRET = os.getenv("TG_WEBHOOK_SECRET", "").strip()
+
+# --- OAuth-провайдеры (заготовки) ---
+# Пока только каркас: владелец добавит реальные client_id/secret и redirect-URI
+# в настройках каждого сервиса позже. Пусто = провайдер не настроен → кнопка
+# входа отвечает 503 «ещё не настроен». Реальный обмен кода — отдельным этапом.
+DISCORD_CLIENT_ID = os.getenv("DISCORD_CLIENT_ID", "").strip()
+DISCORD_CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET", "").strip()
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
+YANDEX_CLIENT_ID = os.getenv("YANDEX_CLIENT_ID", "").strip()
+YANDEX_CLIENT_SECRET = os.getenv("YANDEX_CLIENT_SECRET", "").strip()
+
+# Провайдер → (client_id, client_secret). Используется роутами-заготовками
+# /auth/<provider>: если client_id пуст, вход этим способом ещё не включён.
+OAUTH_PROVIDERS = {
+    "discord": (DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET),
+    "google": (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET),
+    "yandex": (YANDEX_CLIENT_ID, YANDEX_CLIENT_SECRET),
+}
+OAUTH_LABELS = {"discord": "Discord", "google": "Google", "yandex": "Яндекс"}
 # Куда слать ежесуточный снимок базы документом в Telegram (gzip). Отдельная
 # переменная, а не TG_CHAT_ID: в базе ПДн посторонних — отправка наружу должна
 # быть осознанным opt-in. Пусто — снимки в TG не уходят (остаётся облако/диск).

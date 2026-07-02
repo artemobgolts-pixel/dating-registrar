@@ -152,6 +152,24 @@ def own_proposal_or_403(conn, cat, date_id: int, guest: str | None):
     return d
 
 
+def _batch_media(conn, date_ids: list[int]) -> dict:
+    """Разом грузит ссылки/фото/видео для набора свиданий (устраняет N+1 на
+    странице категории/ленте). Возвращает {'links': {did:[...]}, 'images':..,
+    'videos':..} — упорядоченные списки sqlite3.Row на каждый date_id."""
+    out = {"links": {}, "images": {}, "videos": {}}
+    if not date_ids:
+        return out
+    ph = ",".join("?" * len(date_ids))
+    args = tuple(date_ids)
+    for key, table in (("links", "date_links"), ("images", "date_images"),
+                       ("videos", "date_videos")):
+        for r in conn.execute(
+                f"SELECT * FROM {table} WHERE date_id IN ({ph}) ORDER BY position, id",
+                args).fetchall():
+            out[key].setdefault(r["date_id"], []).append(r)
+    return out
+
+
 def date_payload(conn, row) -> dict:
     d = dict(row)
     d["links"] = conn.execute(
@@ -166,8 +184,19 @@ def date_payload(conn, row) -> dict:
     return d
 
 
+def date_payload_from(row, media: dict) -> dict:
+    """Как date_payload, но берёт ссылки/фото/видео из заранее собранного батча
+    (_batch_media) — без запросов на каждое свидание."""
+    d = dict(row)
+    d["links"] = media["links"].get(row["id"], [])
+    d["images"] = media["images"].get(row["id"], [])
+    d["videos"] = media["videos"].get(row["id"], [])
+    return d
+
+
 def insert_date(conn, *, name, place, starts, ends, comment, origin, guest_token,
-                owner_id, draft=0, pay_split=0, place_url=None, proposed_by=None) -> int:
+                owner_id, draft=0, pay_split=0, place_url=None, proposed_by=None,
+                is_public=1) -> int:
     # Каждое свидание получает стабильную секретную ссылку /d/<share_token>
     # сразу при создании — через неё им можно поделиться, чтобы другой
     # пользователь добавил копию себе. Генерим здесь, чтобы ВСЕ пути создания
@@ -175,10 +204,10 @@ def insert_date(conn, *, name, place, starts, ends, comment, origin, guest_token
     share_token = new_link_token()
     cur = conn.execute(
         "INSERT INTO dates(owner_id, name, place, place_url, starts_at, ends_at, comment, "
-        "origin, guest_token, proposed_by, is_draft, pay_split, share_token, created_at) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "origin, guest_token, proposed_by, is_draft, pay_split, share_token, is_public, "
+        "created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (owner_id, name, place, place_url, starts, ends, comment, origin, guest_token,
-         proposed_by, draft, pay_split, share_token, now_iso()),
+         proposed_by, draft, pay_split, share_token, 1 if is_public else 0, now_iso()),
     )
     return cur.lastrowid
 
@@ -368,7 +397,7 @@ def public_category(token: str, request: Request, conn=Depends(get_db)):
     if not cat or not cat["link_enabled"]:
         return templates.TemplateResponse(request, "public/gone.html", status_code=404)
 
-    autoarchive_once(conn)  # статус «прошло» проставляется мгновенно, без ожидания цикла
+    autoarchive_once(conn, category_id=cat["id"])  # мгновенный статус «прошло», скан — только по этой категории
 
     # Залогиненный посетитель опознаётся стабильным токеном "u<id>"; аноним —
     # только смотрит (действия в JS ведут на /login). Имя берём из профиля.
@@ -386,8 +415,36 @@ def public_category(token: str, request: Request, conn=Depends(get_db)):
     for b in _booking_rows(conn, cat["id"]):
         bookings.setdefault(b["date_id"], []).append(b)
 
+    # Разом грузим все свидания категории (активные + мои-черновики и архив),
+    # затем их медиа и мои вопросы одним батчем — иначе был N+1 (3+ запроса на
+    # каждое свидание), из-за чего «первый заход» в большую категорию тормозил.
+    rows = conn.execute(
+        "SELECT d.* FROM dates d JOIN date_categories dc ON dc.date_id=d.id "
+        "WHERE dc.category_id=? AND d.archived_at IS NULL "
+        "AND (d.is_draft=0 OR (d.origin='guest' AND d.guest_token=?)) "
+        "ORDER BY dc.position ASC, (d.starts_at IS NULL) ASC, d.starts_at ASC, d.created_at ASC",
+        (cat["id"], guest),
+    ).fetchall()
+    past_rows = conn.execute(
+        "SELECT d.* FROM dates d JOIN date_categories dc ON dc.date_id=d.id "
+        "WHERE dc.category_id=? AND d.archived_at IS NOT NULL AND d.is_draft=0 "
+        "ORDER BY COALESCE(d.ends_at, d.starts_at, d.created_at) DESC LIMIT 30",
+        (cat["id"],),
+    ).fetchall()
+    all_ids = [r["id"] for r in rows] + [r["id"] for r in past_rows]
+    media = _batch_media(conn, all_ids)
+    # мои вопросы по всем свиданиям сразу (guest фиксирован в рамках запроса)
+    my_q: dict[int, list] = {}
+    if guest and all_ids:
+        ph = ",".join("?" * len(all_ids))
+        for q in conn.execute(
+                f"SELECT date_id, text, answer FROM questions "
+                f"WHERE date_id IN ({ph}) AND guest_token=? ORDER BY created_at",
+                (*all_ids, guest)).fetchall():
+            my_q.setdefault(q["date_id"], []).append(q)
+
     def enrich(row, past: bool = False) -> dict:
-        d = date_payload(conn, row)
+        d = date_payload_from(row, media)
         d["pending"] = bool(d["is_draft"])
         d["past"] = past
         entries = bookings.get(d["id"], [])
@@ -397,9 +454,7 @@ def public_category(token: str, request: Request, conn=Depends(get_db)):
         d["booked_others"] = ", ".join(others)   # для обновления DOM без reload
         parts = (["ты ♥"] if d["booked_by_me"] else []) + others
         d["booked_label"] = ", ".join(parts)
-        d["my_questions"] = conn.execute(
-            "SELECT text, answer FROM questions WHERE date_id=? AND guest_token=? "
-            "ORDER BY created_at", (d["id"], guest)).fetchall()
+        d["my_questions"] = my_q.get(d["id"], [])
         d["editable"] = (not past and d["origin"] == "guest"
                          and d["guest_token"] == guest)
         if d["editable"]:
@@ -418,21 +473,7 @@ def public_category(token: str, request: Request, conn=Depends(get_db)):
                                  [l["url"] for l in d["links"]])
         return d
 
-    rows = conn.execute(
-        "SELECT d.* FROM dates d JOIN date_categories dc ON dc.date_id=d.id "
-        "WHERE dc.category_id=? AND d.archived_at IS NULL "
-        "AND (d.is_draft=0 OR (d.origin='guest' AND d.guest_token=?)) "
-        "ORDER BY dc.position ASC, (d.starts_at IS NULL) ASC, d.starts_at ASC, d.created_at ASC",
-        (cat["id"], guest),
-    ).fetchall()
     dates = [enrich(r) for r in rows]
-
-    past_rows = conn.execute(
-        "SELECT d.* FROM dates d JOIN date_categories dc ON dc.date_id=d.id "
-        "WHERE dc.category_id=? AND d.archived_at IS NOT NULL AND d.is_draft=0 "
-        "ORDER BY COALESCE(d.ends_at, d.starts_at, d.created_at) DESC LIMIT 30",
-        (cat["id"],),
-    ).fetchall()
     past = [enrich(r, past=True) for r in past_rows]
 
     # автор смотрит свою же страницу: не дублируем имя (пилюля автора +
@@ -462,6 +503,7 @@ def public_category(token: str, request: Request, conn=Depends(get_db)):
         # бот для вход-модалки (Telegram Login Widget). Анониму — кнопка «Войти»
         # открывает окно с этим виджетом прямо на гостевой.
         "bot": auth_routes.BOT_USERNAME,
+        "oauth": auth_routes._oauth_buttons(),
         "token": token,
     })
     resp.headers["X-Robots-Tag"] = "noindex"
@@ -690,6 +732,7 @@ def shared_date(token: str, request: Request, conn=Depends(get_db)):
         "is_mine": is_mine,
         "can_act": bool(act_cat),     # доступны ли выбор/вопрос (есть категория)
         "bot": auth_routes.BOT_USERNAME,
+        "oauth": auth_routes._oauth_buttons(),
     })
     resp.headers["X-Robots-Tag"] = "noindex"
     return resp
@@ -871,7 +914,12 @@ def shared_date_add(token: str, request: Request, conn=Depends(get_db)):
         conn.rollback()
         raise
     conn.commit()
-    return redir(f"/admin/dates/{new_id}/edit",
+    edit_url = f"/admin/dates/{new_id}/edit"
+    # fetch-запрос (виджет ленты комьюнити) хочет остаться на месте — отвечаем
+    # JSON и показываем тост; обычный переход по ссылке /d/<token> — редиректом.
+    if request.headers.get("x-requested-with") == "fetch":
+        return JSONResponse({"ok": True, "edit_url": edit_url})
+    return redir(edit_url,
                  "Свидание добавлено в твою коллекцию ♥ Привяжи его к своим категориям")
 
 

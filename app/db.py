@@ -44,6 +44,9 @@
        (/d/<токен>). По ней другой залогиненный пользователь добавляет копию
        свидания себе в коллекцию. Уникальный индекс (несколько NULL допустимо);
        существующие свидания получают токен бэкофиллом.
+  v18 — dates.is_public: свидание попадает в общую ленту комьюнити на главной
+       (по умолчанию 1 = публичное). Приватные (0) видны только владельцу и по
+       секретным ссылкам, но не в ленте. Бэкофилл существующих = 1 (дефолт).
 
 Свежая база создаётся сразу по последней схеме. Существующая —
 докатывается миграциями при старте приложения.
@@ -57,7 +60,7 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "app.db"
 
-LATEST_VERSION = 17
+LATEST_VERSION = 18
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -121,6 +124,7 @@ CREATE TABLE IF NOT EXISTS dates (
     pay_split INTEGER NOT NULL DEFAULT 0,   -- бейдж «оплата 50/50»
     place_url TEXT,            -- если «место» вставили ссылкой на карты
     share_token TEXT,          -- секретная ссылка на это свидание (/d/<токен>) для «добавить себе»
+    is_public INTEGER NOT NULL DEFAULT 1,   -- 1 = видно в общей ленте комьюнити
     archived_at TEXT,          -- NULL = активно
     created_at TEXT NOT NULL
 );
@@ -211,6 +215,8 @@ CREATE INDEX IF NOT EXISTS idx_q_read ON questions(is_read);
 CREATE INDEX IF NOT EXISTS idx_cat_owner ON categories(owner_id);
 CREATE INDEX IF NOT EXISTS idx_dates_owner ON dates(owner_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_dates_share ON dates(share_token);
+-- лента комьюнити на главной: свежие публичные активные свидания
+CREATE INDEX IF NOT EXISTS idx_dates_public ON dates(is_public, is_draft, archived_at, id);
 CREATE INDEX IF NOT EXISTS idx_reports_status ON reports(status, created_at);
 """
 
@@ -492,6 +498,13 @@ MIGRATIONS: dict[int, str] = {
         -- «модерация». Возвращаем к дефолту 0 (выключено) — оператор включает
         -- модерацию осознанно на нужной категории.
         UPDATE categories SET moderate_proposals=0;
+    """,
+    18: """
+        -- Публичность свидания для общей ленты комьюнити на главной. По умолчанию
+        -- 1 (публичное) — существующие свидания попадают в ленту. Владелец может
+        -- сделать приватным в редакторе свидания (тумблер в блоке «Категории»).
+        ALTER TABLE dates ADD COLUMN is_public INTEGER NOT NULL DEFAULT 1;
+        CREATE INDEX IF NOT EXISTS idx_dates_public ON dates(is_public, is_draft, archived_at, id);
     """,
 }
 

@@ -719,7 +719,8 @@ with TestClient(main.app, follow_redirects=False) as c:
     # ---------- модерация предложений ----------
     r = apost(c, f"/admin/categories/{cid}/moderation", {})
     assert r.status_code == 303
-    assert "Неактивные" in c.get(f"/admin/categories/{cid}").text
+    # блок «Предложения» из редактора убран (правка UI) — проверяем состояние в БД
+    assert db_one("SELECT moderate_proposals FROM categories WHERE id=?", (cid,))[0] == 1
 
     main._rates.clear()
     r = ga.post(f"/c/{tok}/propose", data={"name": "Тайное место"},
@@ -2431,5 +2432,117 @@ with TestClient(main.app, follow_redirects=False) as cown:
     # #10: блок «Текущее видео» с понятной подписью и подсказкой про удаление
     assert "Текущее видео" in gp and "удалить это видео при сохранении" in gp
 step("#2/#6/#10: карточка без фото без заглушки; профиль без хинта и «Не выбрано»; видео-блок понятен")
+
+
+# ---------- НОВОЕ: лента комьюнити, публичность, профиль, меню категорий, OAuth ----------
+def _csrf(client, url="/admin/categories"):
+    return re.search(r'name="csrf" value="([^"]+)"', client.get(url).text).group(1)
+
+
+# Готовим двух владельцев: Ната (автор публичного свидания) и Гоша (зритель).
+main._rates.clear()
+with TestClient(main.app, follow_redirects=False) as cnata, \
+        TestClient(main.app, follow_redirects=False) as cgosha:
+    assert tg_login(cnata, 771001, username="nata").json()["status"] == "ok"
+    assert tg_login(cgosha, 771002, username="gosha").json()["status"] == "ok"
+    nc = _csrf(cnata)
+    cnata.post("/admin/categories/create", data={"csrf": nc, "name": "Ната-кат"})
+    ncat = db_one("SELECT id, link_token FROM categories WHERE name='Ната-кат'")
+    set_moderation(ncat["id"], False)
+
+    # C2: тумблер публичности есть в редакторе; по умолчанию публичное (checked)
+    newform = cnata.get("/admin/dates/new").text
+    assert 'name="is_public"' in newform and "в ленте" in newform
+
+    # создаём ПУБЛИЧНОЕ свидание (чекбокс отправлен)
+    cnata.post("/admin/dates/new", data={
+        "csrf": nc, "name": "Пикник на закате", "categories": str(ncat["id"]),
+        "comment": "Плед и вино", "place": "Парк", "is_public": "1"})
+    pub = db_one("SELECT id, is_public, share_token, owner_id FROM dates WHERE name='Пикник на закате'")
+    assert pub["is_public"] == 1, "по умолчанию свидание публичное"
+
+    # создаём ПРИВАТНОЕ свидание (чекбокс НЕ отправлен) — в ленту не попадёт
+    cnata.post("/admin/dates/new", data={
+        "csrf": nc, "name": "Секретный ужин", "categories": str(ncat["id"])})
+    priv = db_one("SELECT id, is_public FROM dates WHERE name='Секретный ужин'")
+    assert priv["is_public"] == 0, "без чекбокса свидание приватное"
+
+    # C3: у Гоши на главной — лента комьюнити вместо «Последних действий»
+    dash = cgosha.get("/admin/").text
+    assert "Свидания комьюнити" in dash and "Последние действия" not in dash
+    assert 'id="communityFeed"' in dash
+
+    # фрагмент ленты: видно чужое публичное, НЕ видно приватное и своё
+    feed = cgosha.get("/admin/community").text
+    assert "Пикник на закате" in feed, "публичное чужое свидание в ленте"
+    assert "Секретный ужин" not in feed, "приватное в ленту не попадает"
+    assert "Ната-кат" not in feed, "категория в ленте не показывается"
+    assert f'/u/{pub["owner_id"]}' in feed, "на карточке есть ссылка на профиль владельца"
+    # автор не видит своё свидание в собственной ленте
+    assert "Пикник на закате" not in cnata.get("/admin/community").text
+
+    # C4: мини-виджет отдаётся, есть кнопка «Добавить себе»
+    wid = cgosha.get(f"/admin/community/date/{pub['id']}").text
+    assert "Пикник на закате" in wid and "Добавить себе" in wid
+    assert f"/d/{pub['share_token']}/add" in wid
+    # приватное чужое свидание виджетом не открыть
+    assert cgosha.get(f"/admin/community/date/{priv['id']}").status_code == 404
+
+    # C4: «Добавить себе» через fetch → JSON, копия появляется у Гоши
+    add = cgosha.post(f"/d/{pub['share_token']}/add", headers={"X-Requested-With": "fetch"})
+    assert add.status_code == 200 and add.json()["ok"] is True
+    assert db_one("SELECT COUNT(*) FROM dates WHERE owner_id=(SELECT id FROM users "
+                  "WHERE telegram_id=771002) AND name='Пикник на закате'")[0] == 1
+
+    # C5: публичный профиль Наты перечисляет её публичные свидания (без приватных)
+    prof = cgosha.get(f"/u/{pub['owner_id']}").text
+    assert "Пикник на закате" in prof and "Секретный ужин" not in prof
+    assert "Публичные свидания" in prof
+step("новое C2–C5: тумблер публичности, лента комьюнити, виджет+добавить, публичный профиль")
+
+
+# ---------- НОВОЕ: меню ⋯ на категориях, чистка редактора, OAuth-заготовки ----------
+main._rates.clear()
+with TestClient(main.app, follow_redirects=False) as cui:
+    assert tg_login(cui, 771003, username="uimenu").json()["status"] == "ok"
+    uc = _csrf(cui)
+    cui.post("/admin/categories/create", data={"csrf": uc, "name": "Меню-кат"})
+    mcat = db_one("SELECT id, link_token FROM categories WHERE name='Меню-кат'")
+
+    # B2: в списке категорий — меню ⋯ (три пункта), больше нет строки-linkbox
+    cats = cui.get("/admin/categories").text
+    assert 'class="more"' in cats and "Скопировать ссылку" in cats
+    assert "Перегенерировать ссылку" in cats and "Удалить категорию" in cats
+    assert "copy-code" not in cats, "строка-ссылка на списке категорий убрана"
+
+    # B3: в редакторе категории убраны блоки «Ссылка»/«Предложения»,
+    # «Сбросить превью» рядом с «Сохранить», внизу — «Скопировать ссылку» и «Удалить»
+    ed = cui.get(f"/admin/categories/{mcat['id']}").text
+    assert "Сбросить превью" in ed and 'id="resetPreviewForm"' in ed
+    assert "cat-actions" in ed and "Скопировать ссылку" in ed
+    assert "Удалить категорию" in ed
+
+    # B3: «Сбросить превью» чистит и картинку, и текст превью
+    cui.post(f"/admin/categories/{mcat['id']}/rename",
+             data={"csrf": uc, "name": "Меню-кат", "og_title": "Заголовок",
+                   "og_desc": "Описание"})
+    assert db_one("SELECT og_title FROM categories WHERE id=?", (mcat["id"],))[0] == "Заголовок"
+    assert cui.post(f"/admin/categories/{mcat['id']}/preview/reset",
+                    data={"csrf": uc}).status_code == 303
+    row = db_one("SELECT og_title, og_desc, og_image FROM categories WHERE id=?", (mcat["id"],))
+    assert row["og_title"] is None and row["og_desc"] is None and row["og_image"] is None
+
+    # D: кнопки OAuth-провайдеров на странице входа (заготовки), помечены «скоро».
+    # Нужен анонимный клиент — залогиненного /login уводит редиректом.
+    with TestClient(main.app, follow_redirects=False) as canon:
+        login = canon.get("/login").text
+        assert "/auth/discord" in login and "/auth/google" in login and "/auth/yandex" in login
+        assert "data-soon" in login
+    # роуты-заготовки: не настроенный провайдер → 503, неизвестный → 404
+    assert cui.get("/auth/google").status_code == 503
+    assert cui.get("/auth/google/callback").status_code == 503
+    assert cui.get("/auth/unknown").status_code == 404
+step("новое B2/B3/D: меню ⋯ категорий, чистка редактора+сброс превью, OAuth-заготовки")
+
 
 print(f"\nВсе проверки пройдены: {OK} блоков ✔")

@@ -7,7 +7,7 @@
 <div class="quick">
   <a class="btn primary" href="/admin/dates/new">+ Создать свидание</a>
   {% if share %}
-  <button type="button" class="btn ghost" data-copy="{{ share_url }}">🔗 Ссылка</button>
+  <button type="button" class="btn ghost" data-copy="{{ share_url }}">🔗 Скопировать ссылку</button>
   <a class="btn ghost" href="/c/{{ share['link_token'] }}" target="_blank" rel="noopener">👀 Открыть</a>
   {% endif %}
 </div>
@@ -28,9 +28,6 @@
       {% else %}
       <div class="share-cat">{{ share['name'] }}</div>
       {% endif %}
-      <div class="linkbox">
-        <code class="copy-code" data-copy="{{ share_url }}" title="Нажми, чтобы скопировать">{{ share_url }} <span class="copy-ico" aria-hidden="true">📋</span></code>
-      </div>
       <div class="og-preview" aria-label="так ссылка выглядит при отправке">
         <img class="og-img" src="{% if share_has_og %}/admin/categories/{{ share['id'] }}/og-preview{% else %}/static/og.png{% endif %}" alt="">
         <div class="og-text">
@@ -68,29 +65,19 @@
   <div class="stat"><b>{{ stats['unread_q'] }}</b><span>непрочит. вопросов</span></div>
 </div>
 
-<div class="card">
-  <b>Последние действия</b>
-  <ul class="feed">
-  {% for it in feed %}
-    <li>
-      <span class="ico">{% if it['kind'] == 'book' %}💝{% elif it['kind'] == 'question' %}❓{% else %}💡{% endif %}</span>
-      <div>
-        {% if it['kind'] == 'book' %}
-          <b>{{ it['gname'] }}</b> забронировал(а) «{{ it['date_name'] }}» в «{{ it['cat_name'] }}»
-        {% elif it['kind'] == 'question' %}
-          <b>{{ it['gname'] }}</b> — вопрос к «<a href="/admin/dates/{{ it['date_id'] }}/edit">{{ it['date_name'] }}</a>» ({{ it['cat_name'] }})
-          <blockquote>{{ it['text'] }}</blockquote>
-        {% else %}
-          <b>{{ it['gname'] }}</b> предложил(а) «<a href="/admin/dates/{{ it['date_id'] }}/edit">{{ it['date_name'] }}</a>» в «{{ it['cat_name'] }}»
-        {% endif %}
-        <div class="time">{{ it['created_at'] | ts }}</div>
-      </div>
-    </li>
-  {% else %}
-    <li style="border:none" class="muted">Пока тихо… 🌙</li>
-  {% endfor %}
-  </ul>
+<div class="card cfeed-card-wrap">
+  <b>Свидания комьюнити</b>
+  <p class="muted" style="margin:6px 0 14px;font-size:13.5px">Публичные свидания других людей — листай и добавляй понравившиеся себе в коллекцию.</p>
+  <div class="cfeed" id="communityFeed" data-feed-url="/admin/community"></div>
+  <p class="muted cfeed-empty" id="cfeedEmpty" hidden style="text-align:center;padding:20px 0">Пока пусто — как появятся публичные свидания, они возникнут здесь 🌙</p>
+  <p class="muted cfeed-end" id="cfeedEnd" hidden style="text-align:center;padding:14px 0;font-size:13px">Это всё на сейчас ♥</p>
 </div>
+
+<!-- Мини-виджет свидания из ленты -->
+<dialog id="communityDlg" class="community-dlg">
+  <button type="button" class="dlg-x" id="cwidClose" aria-label="Закрыть">✕</button>
+  <div id="cwidBody"></div>
+</dialog>
 
 {% if user['is_operator'] %}
 <div class="card">

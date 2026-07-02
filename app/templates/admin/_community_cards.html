@@ -1,0 +1,40 @@
+{# Карточки ленты комьюнити (фрагмент для бесконечного скролла). Категорию и
+   модификатор оплаты НЕ показываем. Клик по карточке (не по пилюле владельца)
+   открывает мини-виджет свидания. #}
+{% for d in cards %}
+<article class="cfeed-card" data-widget="{{ d['id'] }}" role="button" tabindex="0"
+         aria-label="Открыть «{{ d['name'] }}»">
+  {% if d['images'] %}
+  <div class="cfeed-ph">
+    <img src="/d/{{ d['share_token'] }}/image/{{ d['images'][0]['filename'] }}" alt=""
+         loading="lazy" decoding="async"
+         {% if d['images'][0]['focus'] %}style="object-position:{{ d['images'][0]['focus'] }}"{% endif %}>
+  </div>
+  {% elif d['videos'] %}
+  <div class="cfeed-ph cfeed-ph-vid"><span aria-hidden="true">🎬</span></div>
+  {% endif %}
+  <div class="cfeed-body">
+    <h3 class="cfeed-ttl serif">{{ d['name'] }}</h3>
+    {% set when_str = d['starts_at'] | when(d['ends_at']) %}
+    {% if when_str or d['place'] %}
+    <div class="cfeed-meta">
+      {% if when_str %}<span>🕐 {{ when_str }}</span>{% endif %}
+      {% if d['place'] %}<span>📍 {{ d['place'] | placename }}</span>{% endif %}
+    </div>
+    {% endif %}
+    {% if d['comment'] %}<p class="cfeed-desc">{{ d['comment'] | rich }}</p>{% endif %}
+    <a class="cfeed-owner" href="/u/{{ d['owner_id'] }}" data-stop
+       aria-label="Профиль: {{ d['owner_display'] }}">
+      {% if d['owner_avatar'] %}
+      <img class="cfeed-ava" src="/u/{{ d['owner_id'] }}/avatar" alt="" width="26" height="26" decoding="async">
+      {% else %}
+      <span class="cfeed-ava cfeed-ava-ph" aria-hidden="true">🙂</span>
+      {% endif %}
+      <span class="cfeed-owner-name">{{ d['owner_display'] }}</span>
+    </a>
+  </div>
+</article>
+{% endfor %}
+{% if next_cursor %}
+<div class="cfeed-sentinel" data-next-cursor="{{ next_cursor }}" aria-hidden="true"></div>
+{% endif %}

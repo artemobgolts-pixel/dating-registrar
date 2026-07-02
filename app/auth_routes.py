@@ -24,7 +24,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 import users
-from config import BASE_URL, TG_BOT_USERNAME, TG_WEBHOOK_SECRET
+from config import BASE_URL, TG_BOT_USERNAME, TG_WEBHOOK_SECRET, OAUTH_PROVIDERS, OAUTH_LABELS
 from helpers import now_iso, now_naive
 from datetime import timedelta
 from ratelimit import client_ip, rate_ok
@@ -136,7 +136,16 @@ def login_page(request: Request, conn=Depends(get_db)):
     # серверный рубеж: /auth/widget без согласия в сессии вернёт 403.
     request.session["consent"] = False
     return templates.TemplateResponse(
-        request, "auth/login.html", {"bot": BOT_USERNAME})
+        request, "auth/login.html",
+        {"bot": BOT_USERNAME, "oauth": _oauth_buttons()})
+
+
+def _oauth_buttons() -> list[dict]:
+    """Список провайдеров OAuth для шаблонов входа: {slug, label, enabled}.
+    enabled=False (нет client_id) — кнопка показывается, но помечена «скоро»."""
+    return [{"slug": slug, "label": OAUTH_LABELS.get(slug, slug),
+             "enabled": bool(cid)}
+            for slug, (cid, _s) in OAUTH_PROVIDERS.items()]
 
 
 @router.post("/auth/consent")
@@ -295,3 +304,40 @@ async def tg_webhook(request: Request, conn=Depends(get_db)):
         "чтобы войти под вашим именем. Просто проигнорируйте — без вашей страницы "
         "входа сессия не откроется.")
     return JSONResponse({"ok": True})
+
+
+# ---------------------------------------------------------------------------
+# OAuth-провайдеры (заготовки: Discord / Google / Yandex)
+# ---------------------------------------------------------------------------
+# Пока только каркас точек входа. Реальный обмен authorization code на токен и
+# резолв пользователя владелец подключит позже, вписав client_id/secret в .env.
+# Структура намеренно повторяет Telegram-виджет: успешный callback должен
+# выставить session["user_id"]/["csrf"] и увести через _post_login_redirect.
+
+@router.get("/auth/{provider}")
+def oauth_start(provider: str, request: Request):
+    """Начало входа через OAuth-провайдера. Пока провайдер не настроен
+    (нет client_id) — честно отвечаем 503. Когда владелец добавит ключи, здесь
+    будет редирект на страницу авторизации провайдера с state/PKCE."""
+    if provider not in OAUTH_PROVIDERS:
+        raise HTTPException(404, "Неизвестный провайдер входа")
+    client_id, _secret = OAUTH_PROVIDERS[provider]
+    label = OAUTH_LABELS.get(provider, provider)
+    if not client_id:
+        raise HTTPException(503, f"Вход через {label} ещё не настроен")
+    # TODO: сгенерировать state (в сессию) и редиректить на authorize-URL провайдера.
+    raise HTTPException(503, f"Вход через {label} скоро появится")
+
+
+@router.get("/auth/{provider}/callback")
+def oauth_callback(provider: str, request: Request, conn=Depends(get_db)):
+    """Колбэк OAuth-провайдера. Заготовка: когда появится реальный обмен кода,
+    здесь резолвим/создаём пользователя и логиним так же, как Telegram-виджет:
+        request.session["user_id"] = uid
+        request.session["csrf"] = secrets.token_urlsafe(16)
+        return RedirectResponse(_post_login_redirect(request), status_code=303)
+    """
+    if provider not in OAUTH_PROVIDERS:
+        raise HTTPException(404, "Неизвестный провайдер входа")
+    label = OAUTH_LABELS.get(provider, provider)
+    raise HTTPException(503, f"Вход через {label} ещё не настроен")

@@ -65,9 +65,7 @@
             <button type="button" class="chip" data-day="today">Сегодня</button>
             <button type="button" class="chip" data-day="tomorrow">Завтра</button>
             <button type="button" class="chip" data-time="12:00">12:00</button>
-            <button type="button" class="chip" data-time="15:00">15:00</button>
             <button type="button" class="chip" data-time="19:00">19:00</button>
-            <button type="button" class="chip" data-time="21:00">21:00</button>
           </div>
           <div class="grid2">
             <div class="field" style="margin-bottom:0">
@@ -172,7 +170,7 @@
         <div class="field" style="margin:4px 0 0">
           <label>Оплата</label>
           <div class="pay-pick" id="payPick">
-            <label class="pay-opt"><input type="radio" name="pay" value="0" data-bind="pay" {% if not (date and date['pay_split']) %}checked{% endif %}> Не важно</label>
+            <label class="pay-opt pay-any"><input type="radio" name="pay" value="0" data-bind="pay" {% if not (date and date['pay_split']) %}checked{% endif %}> Не важно</label>
             <label class="pay-opt"><input type="radio" name="pay" value="1" data-bind="pay" {% if date and date['pay_split'] == 1 %}checked{% endif %}>💸 50/50</label>
             <label class="pay-opt"><input type="radio" name="pay" value="2" data-bind="pay" {% if date and date['pay_split'] == 2 %}checked{% endif %}>👌 Я плачу</label>
             <label class="pay-opt"><input type="radio" name="pay" value="3" data-bind="pay" {% if date and date['pay_split'] == 3 %}checked{% endif %}>🫵 Ты платишь</label>
@@ -194,6 +192,14 @@
           <span class="muted">категорий пока нет — <a href="/admin/categories">создать</a></span>
           {% endfor %}
         </div>
+        <label class="toggle" style="margin:14px 0 0">
+          <input type="checkbox" name="is_public" value="1" {% if not date or date['is_public'] %}checked{% endif %}>
+          <span class="sw" aria-hidden="true"></span>
+          <span class="tcol">
+            <span class="t">Показывать в общей ленте свиданий</span>
+            <span class="d">Публичные свидания видят все пользователи в ленте на главной. По умолчанию — публичное.</span>
+          </span>
+        </label>
       </div>
     </form>
   </div>
@@ -224,31 +230,5 @@
 <div class="savebar">
   <button class="btn primary" form="dateForm">Сохранить</button>
   <a class="btn ghost" href="/admin/dates">Отмена</a>
-  {% if date %}
-  {% if date['is_draft'] and date['origin'] == 'guest' %}
-  <button class="btn approve" form="approveForm">Одобрить</button>
-  {% endif %}
-  <button class="btn archive-btn" form="archiveForm">{{ 'Вернуть из архива' if date['archived_at'] else 'В архив' }}</button>
-  <button class="btn danger" form="deleteForm">Удалить</button>
-  {% endif %}
 </div>
-
-{% if date %}
-{# Действия над свиданием — отдельные формы (нельзя вкладывать в #dateForm),
-   их сабмит-кнопки вынесены в .savebar через атрибут form="…" #}
-{% if date['is_draft'] and date['origin'] == 'guest' %}
-<form id="approveForm" method="post" action="/admin/dates/{{ date['id'] }}/publish" hidden>
-  <input type="hidden" name="csrf" value="{{ csrf }}">
-  <input type="hidden" name="next" value="/admin/dates/{{ date['id'] }}/edit">
-</form>
-{% endif %}
-<form id="archiveForm" method="post" action="/admin/dates/{{ date['id'] }}/archive" hidden>
-  <input type="hidden" name="csrf" value="{{ csrf }}">
-  <input type="hidden" name="next" value="/admin/dates/{{ date['id'] }}/edit">
-</form>
-<form id="deleteForm" method="post" action="/admin/dates/{{ date['id'] }}/delete" hidden
-      data-confirm="Удалить свидание безвозвратно? Фото, брони и вопросы к нему тоже удалятся.">
-  <input type="hidden" name="csrf" value="{{ csrf }}">
-</form>
-{% endif %}
 {% endblock %}

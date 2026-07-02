@@ -1,0 +1,48 @@
+{# Мини-виджет свидания из ленты комьюнити (внутри модалки на главной).
+   Категорию и модификатор оплаты не показываем. Кнопка «Добавить себе» шлёт
+   fetch на /d/<share_token>/add и отвечает JSON — лента не прерывается. #}
+<div class="cwid">
+  {% if d['images'] or d['videos'] %}
+  <div class="cwid-gallery">
+    {% for im in d['images'] %}
+    <img src="/d/{{ d['share_token'] }}/image/{{ im['filename'] }}" alt=""
+         loading="{{ 'eager' if loop.first else 'lazy' }}" decoding="async"
+         {% if im['focus'] %}style="object-position:{{ im['focus'] }}"{% endif %}>
+    {% endfor %}
+    {% for v in d['videos'] %}
+    <video src="/d/{{ d['share_token'] }}/video/{{ v['filename'] }}" controls playsinline preload="metadata"></video>
+    {% endfor %}
+  </div>
+  {% endif %}
+  <div class="cwid-body">
+    <h3 class="cwid-ttl serif">{{ d['name'] }}</h3>
+    <a class="cfeed-owner" href="/u/{{ d['owner_id'] }}">
+      {% if d['owner_avatar'] %}
+      <img class="cfeed-ava" src="/u/{{ d['owner_id'] }}/avatar" alt="" width="26" height="26" decoding="async">
+      {% else %}
+      <span class="cfeed-ava cfeed-ava-ph" aria-hidden="true">🙂</span>
+      {% endif %}
+      <span class="cfeed-owner-name">{{ d['owner_display'] }}</span>
+    </a>
+    {% set when_str = d['starts_at'] | when(d['ends_at']) %}
+    {% if when_str or d['place'] %}
+    <div class="cwid-meta">
+      {% if when_str %}<div>🕐 {{ when_str }}</div>{% endif %}
+      {% if d['place'] %}<div>📍 <a href="{{ d['place_url'] or (d['place'] | ymaps) }}" target="_blank" rel="noopener">{{ d['place'] | placename }}</a></div>{% endif %}
+    </div>
+    {% endif %}
+    {% if d['comment'] %}<p class="cwid-desc">{{ d['comment'] | rich }}</p>{% endif %}
+    {% if d['links'] %}
+    <div class="cwid-links">
+      {% for l in d['links'] %}<a href="{{ l['url'] }}" target="_blank" rel="noopener">🔗 {{ l['url'] | host }}</a>{% endfor %}
+    </div>
+    {% endif %}
+    <div class="cwid-actions">
+      {% if is_mine %}
+      <a class="btn primary" href="/admin/dates/{{ d['id'] }}/edit">Это твоё свидание — открыть</a>
+      {% else %}
+      <button type="button" class="btn primary cwid-add" data-add="/d/{{ d['share_token'] }}/add">Добавить себе ♥</button>
+      {% endif %}
+    </div>
+  </div>
+</div>

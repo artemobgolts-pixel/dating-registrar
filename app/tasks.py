@@ -20,21 +20,37 @@ log = logging.getLogger("tasks")
 TG_DOC_LIMIT = 49 * 1024 * 1024
 
 
-def autoarchive_once(conn: sqlite3.Connection | None = None) -> int:
+def autoarchive_once(conn: sqlite3.Connection | None = None, *,
+                     category_id: int | None = None,
+                     owner_id: int | None = None) -> int:
     """Переносит в архив свидания, чья дата прошла.
 
     Правило: если задан конец диапазона — истекает в этот момент;
     если задано только одно время — истекает в конце того же дня (23:59 МСК).
     Без даты/времени — только ручной перенос.
+
+    category_id/owner_id СУЖАЮТ проход по базе до релевантных свиданий: заход
+    гостя архивирует только свидания открытой категории, дашборд — только
+    свидания владельца. Это устраняет полный скан всей таблицы на каждый запрос
+    («долгий первый заход»), сохраняя мгновенный статус «прошло» на странице.
+    Фоновый цикл (без фильтра) остаётся сеткой безопасности для всего остального.
     """
     own = conn is None
     if own:
         conn = db.connect()
     n = now_naive()
     archived = 0
+    where = "d.archived_at IS NULL AND (d.starts_at IS NOT NULL OR d.ends_at IS NOT NULL)"
+    params: list = []
+    if category_id is not None:
+        where += (" AND d.id IN (SELECT date_id FROM date_categories "
+                  "WHERE category_id=?)")
+        params.append(category_id)
+    if owner_id is not None:
+        where += " AND d.owner_id=?"
+        params.append(owner_id)
     rows = conn.execute(
-        "SELECT id, starts_at, ends_at FROM dates "
-        "WHERE archived_at IS NULL AND (starts_at IS NOT NULL OR ends_at IS NOT NULL)"
+        f"SELECT d.id, d.starts_at, d.ends_at FROM dates d WHERE {where}", params
     ).fetchall()
     for r in rows:
         end = _parse(r["ends_at"])

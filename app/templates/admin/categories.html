@@ -24,13 +24,29 @@
         {% if c['moderate_proposals'] %}<span class="badge amber">модерация</span>{% endif %}
         {% if not c['link_enabled'] %}<span class="badge" style="background:#fdeeee;color:#a33">ссылка выкл.</span>{% endif %}
       </div>
-      <span class="cat-arrow" aria-hidden="true">→</span>
+      <div class="cat-tail">
+        <span class="cat-arrow" aria-hidden="true">→</span>
+        <div class="menu-wrap">
+          <button type="button" class="more" aria-label="Ещё действия" aria-haspopup="true" aria-expanded="false">⋯</button>
+          <div class="menu">
+            {% if c['link_enabled'] %}
+            <button type="button" data-copy="{{ BASE_URL }}/c/{{ c['link_token'] }}">🔗 Скопировать ссылку</button>
+            {% endif %}
+            <form method="post" action="/admin/categories/{{ c['id'] }}/regenerate"
+                  data-confirm="Сгенерировать новую ссылку? Старая перестанет работать, но все брони и вопросы сохранятся.">
+              <input type="hidden" name="csrf" value="{{ csrf }}">
+              <button type="submit">↻ Перегенерировать ссылку</button>
+            </form>
+            <div class="sepa"></div>
+            <form method="post" action="/admin/categories/{{ c['id'] }}/delete"
+                  data-confirm="Удалить категорию? Свидания останутся, но брони в этой категории удалятся, а ссылка перестанет работать.">
+              <input type="hidden" name="csrf" value="{{ csrf }}">
+              <button type="submit" class="danger">🗑 Удалить категорию</button>
+            </form>
+          </div>
+        </div>
+      </div>
     </div>
-    {% if c['link_enabled'] %}
-    <div class="linkbox" style="margin-top:10px">
-      <code class="copy-code" data-copy='{{ BASE_URL }}/c/{{ c['link_token'] }}' title="Нажми, чтобы скопировать">{{ BASE_URL }}/c/{{ c['link_token'] }} <span class="copy-ico" aria-hidden="true">📋</span></code>
-    </div>
-    {% endif %}
   </div>
 </div>
 {% else %}

@@ -31,7 +31,10 @@
 }
 
 * { box-sizing: border-box; }
-html { scroll-behavior: smooth; scrollbar-gutter: stable; }
+/* overflow-x: clip — предохранитель от горизонтального «шатания» на телефоне
+   (декоративные фиксированные слои с отрицательными inset, широкие пятна фона).
+   clip не создаёт scroll-контейнер и не ломает scrollbar-gutter. */
+html { scroll-behavior: smooth; scrollbar-gutter: stable; overflow-x: clip; }
 /* атрибут hidden должен побеждать любые авторские display-правила (.greet,
    .author, .seal и т.п. задают display и иначе перекрывают hidden) */
 [hidden] { display: none !important; }
@@ -44,6 +47,7 @@ body {
   background: linear-gradient(180deg, #fdf2f0 0%, #f9e6ea 45%, #f1e4f1 100%);
   background-attachment: fixed;
   min-height: 100dvh;
+  overflow-x: clip;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -357,6 +361,33 @@ body::after {
 .login-dlg .err {
   background: #fdeeee; border: 1px solid #f3cfcf; color: #a33;
   padding: 9px 12px; border-radius: 10px; margin-top: 8px; font-size: 13px;
+}
+
+/* OAuth-кнопки во вход-модалке (заготовки) */
+.login-dlg .oauth-sep {
+  display: flex; align-items: center; gap: 12px;
+  color: var(--muted); font-size: 12.5px; margin: 18px 0 12px;
+}
+.login-dlg .oauth-sep::before, .login-dlg .oauth-sep::after {
+  content: ""; flex: 1; height: 1px; background: var(--line);
+}
+.login-dlg .oauth-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+.oauth-btn {
+  display: flex; align-items: center; justify-content: center;
+  padding: 11px 8px; border-radius: 12px; text-decoration: none;
+  font-size: 14px; font-weight: 600; color: var(--ink);
+  background: rgba(255, 255, 255, .8); border: 1px solid var(--line);
+  transition: transform .15s, box-shadow .2s, border-color .2s; position: relative;
+}
+.oauth-btn:hover { transform: translateY(-1px); box-shadow: 0 8px 18px rgba(150, 80, 95, .12); }
+.oauth-discord:hover { border-color: #5865f2; color: #4752c4; }
+.oauth-google:hover  { border-color: #ea4335; color: #c5372b; }
+.oauth-yandex:hover  { border-color: #fc3f1d; color: #d63417; }
+.oauth-btn[data-soon] { opacity: .72; }
+.oauth-btn[data-soon]::after {
+  content: attr(data-soon); position: absolute; top: -8px; right: -6px;
+  font-size: 9.5px; font-weight: 700; color: #fff; background: var(--rose);
+  padding: 1px 6px; border-radius: 10px;
 }
 
 @keyframes fade-down { from { opacity: 0; transform: translateY(-14px); } to { opacity: 1; transform: none; } }

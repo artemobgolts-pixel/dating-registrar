@@ -3,6 +3,11 @@
 window.UI = (() => {
   "use strict";
 
+  // Геометрия скользящего индикатора вкладок, сохраняемая МЕЖДУ Turbo-переходами
+  // (узлы .tab-ind пересоздаются при подмене <body>, а объект в замыкании живёт).
+  // Ключи: "nav" (главная навигация) и "tabs" (под-вкладки списка свиданий).
+  const _tabInd = {};
+
   /* --- Перестановка перетаскиванием (FLIP, как в Telegram) -------------- */
   /* Плитка следует за пальцем (transform с поправкой на смену слота),
      соседи плавно «доезжают» на свои места через FLIP-анимацию. */
@@ -640,6 +645,11 @@ window.UI = (() => {
   /* --- Меню «⋯» на карточках списка (делегированно, клик-вне закрывает) -- */
   function cardMenu(root) {
     root = root || document;
+    // Идемпотентность: initDates() зовёт cardMenu(document) на КАЖДЫЙ turbo:load.
+    // Без защиты на document копились дубли слушателей — второй сразу закрывал
+    // только что открытое меню (wasOpen=true), и «⋯» переставало работать.
+    if (root.__cardMenuInit) return;
+    root.__cardMenuInit = true;
     function closeAll() {
       root.querySelectorAll(".menu.open").forEach(function (m) {
         m.classList.remove("open");
@@ -687,54 +697,70 @@ window.UI = (() => {
   }
 
   /* --- «жидкое стекло» для вкладок: скользящий индикатор активной вкладки ----
-     Вкладки — обычные ссылки (полная перезагрузка). Индикатор ставим под
-     активную вкладку на загрузке; при клике плавно «перетекаем» к выбранной
-     вкладке и только потом отпускаем переход — отсюда ощущение текучести. */
+     Вкладки — обычные ссылки (навигацию ведёт Turbo, подменяя <body>). Индикатор
+     на новой странице — НОВЫЙ DOM-узел, поэтому анимацию клика нельзя доиграть на
+     уходящей странице (её узел уничтожается — отсюда прежний «обрыв»/дёрганье).
+     Решение: запоминаем геометрию индикатора между переходами (UI._tabInd по роли
+     контейнера) и на странице-НАЗНАЧЕНИИ плавно перетекаем от прошлой позиции к
+     новой активной — одна управляемая анимация, которую видно целиком. */
   function glassTabs(container) {
     if (!container) return;
     if (container.dataset.glassReady) return;   // не навешиваем повторно (Turbo)
     container.dataset.glassReady = "1";
     const tabs = [...container.querySelectorAll("a")];
     if (!tabs.length) return;
+    // ключ переноса позиции между переходами: по роли навигации
+    const key = container.classList.contains("glass-nav") ? "nav" : "tabs";
+
     let ind = container.querySelector(".tab-ind");
     if (!ind) {
       ind = document.createElement("span");
       ind.className = "tab-ind";
       container.appendChild(ind);
     }
-    const place = (el, animate) => {
-      if (!el) return;
+    const geom = (el) => ({ w: el.offsetWidth, x: el.offsetLeft - container.scrollLeft });
+    const put = (g, animate) => {
       if (!animate) container.classList.add("no-anim");
-      ind.style.width = el.offsetWidth + "px";
-      ind.style.transform = "translateX(" + (el.offsetLeft - container.scrollLeft) + "px)";
+      ind.style.width = g.w + "px";
+      ind.style.transform = "translateX(" + g.x + "px)";
       if (!animate) {
-        // форсируем reflow и снимаем no-anim, чтобы дальше переходы работали
+        // форсируем reflow и снимаем no-anim, чтобы дальнейшие переходы анимировались
         void ind.offsetWidth;
         container.classList.remove("no-anim");
       }
+      _tabInd[key] = g;
     };
-    const active = container.querySelector("a.on") || tabs[0];
-    // позиционируем после кадра — к этому моменту раскладка и шрифты применились
-    // (иначе offsetLeft/Width могли быть нулевыми/смещёнными, и индикатор «ломался»)
-    place(active, false);
-    requestAnimationFrame(() => place(container.querySelector("a.on") || tabs[0], false));
-    // переставляем при ресайзе (ширины вкладок могли измениться)
+    const active = () => container.querySelector("a.on") || tabs[0];
+
+    function settle() {
+      const g = geom(active());
+      const prev = _tabInd[key];
+      // знаем прошлую позицию и она отличается → мгновенно ставим индикатор туда,
+      // затем анимируем к новой активной (плавный «перетёк» на видимой странице).
+      if (prev && (Math.abs(prev.x - g.x) > 1 || Math.abs(prev.w - g.w) > 1)) {
+        put(prev, false);
+        requestAnimationFrame(() => put(g, true));
+      } else {
+        put(g, false);            // первый заход/та же позиция — без анимации
+      }
+    }
+    // после кадра — раскладка и шрифты применились (иначе offsetLeft/Width кривые)
+    requestAnimationFrame(settle);
+
     let rt;
     window.addEventListener("resize", () => {
       clearTimeout(rt);
-      rt = setTimeout(() => place(container.querySelector("a.on") || tabs[0], false), 120);
+      rt = setTimeout(() => put(geom(active()), false), 120);
     });
     tabs.forEach((a) => {
       a.addEventListener("click", (e) => {
         // только левый клик без модификаторов и не «открыть в новой вкладке»
         if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
-        const href = a.getAttribute("href");
-        // подсветку перетекаем сразу; саму навигацию НЕ перехватываем — её ведёт
-        // нативная ссылка через Turbo (программный Turbo.visit на десктопе мог
-        // конфликтовать с префетчем и не доезжать). Для data-layout (viewtog,
-        // href="#") переход делает свой обработчик — здесь только анимируем.
+        // Индикатор на КЛИКЕ не двигаем: его узел вот-вот уничтожит Turbo, и
+        // недоигранная анимация выглядела бы рывком. Позиция уже сохранена в
+        // UI._tabInd (settle прошлой страницы) — страница-назначение продолжит
+        // от неё. Меняем только подсветку текста активной вкладки.
         tabs.forEach((t) => t.classList.toggle("on", t === a));
-        place(a, true);
       });
     });
   }

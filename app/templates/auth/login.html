@@ -35,6 +35,16 @@
       <p class="login-note">После входа можно подключить уведомления в Telegram —
         в настройках профиля.</p>
     {% endif %}
+
+    {% if oauth %}
+    <div class="oauth-sep"><span>или войди через</span></div>
+    <div class="oauth-row">
+      {% for p in oauth %}
+      <a class="oauth-btn oauth-{{ p['slug'] }}" href="/auth/{{ p['slug'] }}"
+         {% if not p['enabled'] %}data-soon="скоро"{% endif %}>{{ p['label'] }}</a>
+      {% endfor %}
+    </div>
+    {% endif %}
   </div>
   </div>
   <footer class="login-foot">

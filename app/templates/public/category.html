@@ -294,6 +294,15 @@
     <div id="tg-widget-wrap" data-bot="{{ bot }}" hidden></div>
     <p class="login-hint" id="tg-widget-gate">Отметь согласие выше, чтобы войти.</p>
     <div id="tg-error" class="err" hidden></div>
+    {% if oauth %}
+    <div class="oauth-sep"><span>или войди через</span></div>
+    <div class="oauth-row">
+      {% for p in oauth %}
+      <a class="oauth-btn oauth-{{ p['slug'] }}" href="/auth/{{ p['slug'] }}"
+         {% if not p['enabled'] %}data-soon="скоро"{% endif %}>{{ p['label'] }}</a>
+      {% endfor %}
+    </div>
+    {% endif %}
   {% endif %}
 </dialog>
 

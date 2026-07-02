@@ -22,6 +22,7 @@ import backup
 import images
 import notify
 import places
+import public_routes
 import settings as app_settings
 from config import BASE_URL, SUPPORT_CONTACT
 from guests import gname
@@ -138,45 +139,14 @@ def profile_avatar(filename: str, request: Request):
 
 GNAME_SQL = "COALESCE(g.name, 'Человек #' || substr(COALESCE({t}, '??????'), 1, 6))"
 
-FEED_SQL = f"""
-SELECT * FROM (
-    SELECT 'book' AS kind, b.created_at AS created_at,
-           {GNAME_SQL.format(t='b.guest_token')} AS gname,
-           d.id AS date_id, d.name AS date_name, c.name AS cat_name, NULL AS text
-    FROM bookings b
-    JOIN dates d ON d.id = b.date_id
-    JOIN categories c ON c.id = b.category_id
-    LEFT JOIN guests g ON g.token = b.guest_token
-    WHERE d.owner_id = :uid
-  UNION ALL
-    SELECT 'question', q.created_at,
-           {GNAME_SQL.format(t='q.guest_token')},
-           d.id, d.name, IFNULL(c.name, '—'), q.text
-    FROM questions q
-    JOIN dates d ON d.id = q.date_id
-    LEFT JOIN categories c ON c.id = q.category_id
-    LEFT JOIN guests g ON g.token = q.guest_token
-    WHERE d.owner_id = :uid
-  UNION ALL
-    SELECT 'proposal', d.created_at,
-           {GNAME_SQL.format(t='d.guest_token')},
-           d.id, d.name,
-           IFNULL((SELECT c2.name FROM date_categories dc2
-                   JOIN categories c2 ON c2.id = dc2.category_id
-                   WHERE dc2.date_id = d.id LIMIT 1), '—'),
-           NULL
-    FROM dates d
-    LEFT JOIN guests g ON g.token = d.guest_token
-    WHERE d.origin = 'guest' AND d.owner_id = :uid
-)
-ORDER BY created_at DESC
-LIMIT 50
-"""
+
+# Сколько карточек комьюнити-ленты отдаём за одну «страницу» бесконечного скролла.
+COMMUNITY_PAGE = 12
 
 
 @router.get("/", response_class=HTMLResponse)
 def dashboard(request: Request, conn=Depends(get_db)):
-    autoarchive_once(conn)
+    autoarchive_once(conn, owner_id=request.state.user["id"])
     uid = request.state.user["id"]
     stats = {
         "cats": conn.execute(
@@ -198,7 +168,6 @@ def dashboard(request: Request, conn=Depends(get_db)):
             "SELECT COUNT(*) FROM questions q JOIN dates d ON d.id=q.date_id "
             "WHERE d.owner_id=? AND q.is_read=0", (uid,)).fetchone()[0],
     }
-    feed = conn.execute(FEED_SQL, {"uid": uid}).fetchall()
 
     # Блок «Поделиться»: категории владельца с включённой секретной ссылкой.
     # Для выбранной (или первой) рисуем QR прямо на сервере — инлайновый SVG,
@@ -224,7 +193,7 @@ def dashboard(request: Request, conn=Depends(get_db)):
 
     return templates.TemplateResponse(
         request, "admin/dashboard.html",
-        actx(request, conn, active="dash", stats=stats, feed=feed,
+        actx(request, conn, active="dash", stats=stats,
              share_cats=share_cats, share=share, share_url=share_url, qr_svg=qr_svg,
              share_has_og=share_has_og))
 
@@ -240,6 +209,75 @@ def _qr_svg(data: str) -> str:
         buf, kind="svg", scale=4, border=2,
         dark="#8f4a58", svgclass=None, omitsize=True, xmldecl=False)
     return buf.getvalue().decode("utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Лента свиданий-комьюнити (на главной вместо «Последних действий»)
+# ---------------------------------------------------------------------------
+# Показываем чужие публичные активные свидания: карточка = фото + название +
+# когда/место/комментарий + пилюля владельца (→ его профиль). Категорию и
+# модификатор оплаты НЕ показываем (решение владельца). Бесконечный скролл —
+# keyset-пагинацией по d.id DESC (курсор = id последней карточки).
+
+def _community_cards(conn, viewer_id: int, cursor: int | None):
+    """Возвращает (dates, next_cursor) для ленты. dates — свидания с медиа и
+    именем/аватаром владельца. Курсор — id, строго меньше которого берём дальше."""
+    where = ("d.is_public=1 AND d.is_draft=0 AND d.archived_at IS NULL "
+             "AND d.owner_id<>?")
+    params: list = [viewer_id]
+    if cursor:
+        where += " AND d.id<?"
+        params.append(cursor)
+    rows = conn.execute(
+        f"SELECT d.*, u.display_name AS owner_name, u.tg_username AS owner_username, "
+        f"u.avatar_path AS owner_avatar "
+        f"FROM dates d JOIN users u ON u.id=d.owner_id "
+        f"WHERE {where} ORDER BY d.id DESC LIMIT ?",
+        (*params, COMMUNITY_PAGE + 1)).fetchall()
+    has_more = len(rows) > COMMUNITY_PAGE
+    rows = rows[:COMMUNITY_PAGE]
+    media = public_routes._batch_media(conn, [r["id"] for r in rows])
+    cards = []
+    for r in rows:
+        d = public_routes.date_payload_from(r, media)
+        d["owner_display"] = (r["owner_name"] or r["owner_username"]
+                              or f"Человек #{r['owner_id']}")
+        cards.append(d)
+    next_cursor = rows[-1]["id"] if (rows and has_more) else None
+    return cards, next_cursor
+
+
+@router.get("/community", response_class=HTMLResponse)
+def community_feed(request: Request, conn=Depends(get_db)):
+    """HTML-фрагмент со следующей страницей ленты (для бесконечного скролла).
+    Возвращает только карточки + маркер курсора — фронт дописывает их в ленту."""
+    cur = request.query_params.get("cursor")
+    cursor = int(cur) if cur and cur.isdigit() else None
+    cards, next_cursor = _community_cards(conn, request.state.user["id"], cursor)
+    return templates.TemplateResponse(
+        request, "admin/_community_cards.html",
+        {"request": request, "cards": cards, "next_cursor": next_cursor})
+
+
+@router.get("/community/date/{did}", response_class=HTMLResponse)
+def community_widget(did: int, request: Request, conn=Depends(get_db)):
+    """Мини-виджет одного свидания из ленты (открывается в модалке). Только
+    публичное активное чужое свидание; иначе 404."""
+    r = conn.execute(
+        "SELECT d.*, u.display_name AS owner_name, u.tg_username AS owner_username, "
+        "u.avatar_path AS owner_avatar "
+        "FROM dates d JOIN users u ON u.id=d.owner_id "
+        "WHERE d.id=? AND d.is_public=1 AND d.is_draft=0 AND d.archived_at IS NULL",
+        (did,)).fetchone()
+    if not r:
+        raise HTTPException(404, "Свидание не найдено")
+    media = public_routes._batch_media(conn, [did])
+    d = public_routes.date_payload_from(r, media)
+    d["owner_display"] = (r["owner_name"] or r["owner_username"]
+                          or f"Человек #{r['owner_id']}")
+    return templates.TemplateResponse(
+        request, "admin/_community_widget.html",
+        {"request": request, "d": d, "is_mine": r["owner_id"] == request.state.user["id"]})
 
 
 @router.get("/uploads/{filename}")
@@ -638,6 +676,21 @@ def category_og_image_delete(cid: int, request: Request, conn=Depends(get_db)):
     return redir(f"/admin/categories/{cid}", "Картинка превью убрана")
 
 
+@router.post("/categories/{cid}/preview/reset")
+def category_preview_reset(cid: int, request: Request, conn=Depends(get_db)):
+    """Сбросить превью ссылки к стандартному виду: убрать свою картинку И текст
+    (og_title/og_desc). Дальше превью — дефолтный текст + авто-коллаж из фото."""
+    cat = _cat_or_404(conn, cid, request.state.user)
+    old = cat["og_image"]
+    conn.execute(
+        "UPDATE categories SET og_image=NULL, og_title=NULL, og_desc=NULL WHERE id=?",
+        (cid,))
+    conn.commit()
+    if old:
+        images.delete_file(old)
+    return redir(f"/admin/categories/{cid}", "Превью сброшено к стандартному")
+
+
 @router.post("/categories/{cid}/toggle")
 def category_toggle(cid: int, request: Request, conn=Depends(get_db)):
     cat = _cat_or_404(conn, cid, request.state.user)
@@ -852,6 +905,12 @@ def parse_pay(value) -> int:
     return v if v in (1, 2, 3) else 0
 
 
+def parse_public(value) -> int:
+    """Тумблер «Публичное/Приватное» из формы → 1/0. Чекбокс: присутствует в
+    форме (любое значение) = публичное (1); отсутствует = приватное (0)."""
+    return 0 if value is None else 1
+
+
 
 @router.get("/dates/new", response_class=HTMLResponse)
 def date_new_form(request: Request, conn=Depends(get_db)):
@@ -871,6 +930,7 @@ def date_create(request: Request, bg: BackgroundTasks,
                 starts_at: str = Form(""), ends_at: str = Form(""),
                 links: str = Form(""), comment: str = Form(""),
                 pay: str | None = Form(None),
+                is_public: str | None = Form(None),
                 categories: list[int] = Form(default=[]),
                 photos: list[UploadFile] = File(default=[], alias="images"),
                 videos: list[UploadFile] = File(default=[], alias="videos"),
@@ -894,7 +954,8 @@ def date_create(request: Request, bg: BackgroundTasks,
                           comment=comment, origin="admin", guest_token=None,
                           owner_id=uid,
                           draft=0 if attach else 1,
-                          pay_split=parse_pay(pay), place_url=place_url)
+                          pay_split=parse_pay(pay), place_url=place_url,
+                          is_public=parse_public(is_public))
     for cid in attach:
         conn.execute(
             "INSERT OR IGNORE INTO date_categories(date_id, category_id, position) "
@@ -984,6 +1045,7 @@ def date_update(did: int, request: Request, bg: BackgroundTasks, name: str = For
                 starts_at: str = Form(""), ends_at: str = Form(""),
                 links: str = Form(""), comment: str = Form(""),
                 pay: str | None = Form(None),
+                is_public: str | None = Form(None),
                 categories: list[int] = Form(default=[]),
                 photos: list[UploadFile] = File(default=[], alias="images"),
                 videos: list[UploadFile] = File(default=[], alias="videos"),
@@ -1008,9 +1070,9 @@ def date_update(did: int, request: Request, bg: BackgroundTasks, name: str = For
 
     conn.execute(
         "UPDATE dates SET name=?, place=?, place_url=?, starts_at=?, ends_at=?, "
-        "comment=?, is_draft=?, pay_split=? WHERE id=?",
+        "comment=?, is_draft=?, pay_split=?, is_public=? WHERE id=?",
         (name, place, place_url, starts, ends, comment,
-         is_draft, parse_pay(pay), did))
+         is_draft, parse_pay(pay), parse_public(is_public), did))
 
     # Синхронизируем категории; выборы по отвязанным категориям удаляем
     conn.execute("DELETE FROM date_categories WHERE date_id=?", (did,))
@@ -1050,6 +1112,15 @@ def date_update(did: int, request: Request, bg: BackgroundTasks, name: str = For
 def date_publish(did: int, request: Request, bg: BackgroundTasks,
                  next: str = Form("/admin/dates"), conn=Depends(get_db)):
     d = _date_or_404(conn, did, request.state.user)
+    # Инвариант: активно ⇔ есть хотя бы одна категория (иначе гости не видят).
+    # Публиковать имеет смысл только свидание с категорией — иначе оно снова
+    # «активно» в списке, но невидимо гостям (частая путаница «не публикуется»).
+    # Без категории уводим в редактор — там владелец её привяжет и сохранит.
+    has_cat = conn.execute(
+        "SELECT 1 FROM date_categories WHERE date_id=? LIMIT 1", (did,)).fetchone()
+    if not has_cat:
+        return redir(f"/admin/dates/{did}/edit",
+                     "⚠ Добавь свидание хотя бы в одну категорию — иначе гости его не увидят")
     conn.execute("UPDATE dates SET is_draft=0 WHERE id=?", (did,))
     conn.commit()
     # если это было предложение гостя — уведомим автора о публикации
@@ -1338,9 +1409,18 @@ def public_profile(user_id: int, request: Request, conn=Depends(get_db)):
         "FROM users WHERE id=? AND is_active=1", (user_id,)).fetchone()
     if not u:
         raise HTTPException(404, "Профиль не найден")
+    # Публичные активные свидания пользователя — то же, что видно в общей ленте.
+    # Каждое ведёт на свою страницу-шаринг /d/<share_token>.
+    date_rows = conn.execute(
+        "SELECT id, name, share_token, starts_at, ends_at, place FROM dates "
+        "WHERE owner_id=? AND is_public=1 AND is_draft=0 AND archived_at IS NULL "
+        "ORDER BY id DESC", (user_id,)).fetchall()
+    media = public_routes._batch_media(conn, [r["id"] for r in date_rows])
+    dates = [public_routes.date_payload_from(r, media) for r in date_rows]
     return templates.TemplateResponse(
         request, "public/profile.html",
-        {"request": request, "u": u, "is_me": u["id"] == request.state.user["id"]})
+        {"request": request, "u": u, "dates": dates,
+         "is_me": u["id"] == request.state.user["id"]})
 
 
 @user_router.get("/{user_id}/avatar")
