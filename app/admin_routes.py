@@ -665,13 +665,13 @@ def category_og_preview(cid: int, request: Request, conn=Depends(get_db)):
     Та же сборка, что и публичный og:image, но за owner-гейтом."""
     cat = _cat_or_404(conn, cid, request.state.user)
     if cat["og_image"]:
-        # своя картинка — отдаём её (та же проверка владения, что в /uploads)
+        # своя картинка — кропаем в 1200×630 по точке фокуса (как уйдёт в og:image)
         if not images.SAFE_FILENAME.match(cat["og_image"]):
             raise HTTPException(404)
-        path = images.UPLOAD_DIR / cat["og_image"]
-        if not path.exists():
+        cropped = images.build_og_crop(cat["og_image"], cat["og_focus"])
+        if not cropped:
             raise HTTPException(404)
-        return FileResponse(path, media_type="image/webp",
+        return FileResponse(cropped, media_type="image/webp",
                             headers={"Cache-Control": "private, max-age=300"})
     rows = conn.execute(
         "SELECT di.filename FROM date_categories dc "
@@ -710,8 +710,9 @@ def category_rename(cid: int, request: Request, name: str = Form(...),
 
     old_image = cat["og_image"]
     if new_image:
+        # новая картинка — фокус к центру (старая точка к ней не относится)
         conn.execute(
-            "UPDATE categories SET name=?, description=?, og_title=?, og_desc=?, og_image=? WHERE id=?",
+            "UPDATE categories SET name=?, description=?, og_title=?, og_desc=?, og_image=?, og_focus=NULL WHERE id=?",
             (name, description, og_title, og_desc, new_image, cid))
     else:
         conn.execute(
@@ -742,12 +743,30 @@ def category_preview_reset(cid: int, request: Request, conn=Depends(get_db)):
     cat = _cat_or_404(conn, cid, request.state.user)
     old = cat["og_image"]
     conn.execute(
-        "UPDATE categories SET og_image=NULL, og_title=NULL, og_desc=NULL WHERE id=?",
+        "UPDATE categories SET og_image=NULL, og_title=NULL, og_desc=NULL, og_focus=NULL WHERE id=?",
         (cid,))
     conn.commit()
     if old:
         images.delete_file(old)
     return redir(f"/admin/categories/{cid}", "Превью сброшено к стандартному")
+
+
+@router.post("/categories/{cid}/og_focus")
+def category_og_focus(cid: int, request: Request, focus: str = Form(...),
+                      conn=Depends(get_db)):
+    """Точка фокуса своей картинки превью: «X% Y%» (0..100). Владелец двигает
+    картинку в редакторе — og:image кропается по ней (WYSIWYG)."""
+    import re as _re
+    cat = _cat_or_404(conn, cid, request.state.user)
+    m = _re.fullmatch(r"\s*(\d{1,3})%\s+(\d{1,3})%\s*", focus or "")
+    if not m or int(m.group(1)) > 100 or int(m.group(2)) > 100:
+        raise HTTPException(400, "Некорректная точка фокуса")
+    if not cat["og_image"]:
+        raise HTTPException(400, "У превью нет своей картинки")
+    value = f"{int(m.group(1))}% {int(m.group(2))}%"
+    conn.execute("UPDATE categories SET og_focus=? WHERE id=?", (value, cid))
+    conn.commit()
+    return JSONResponse({"ok": True, "focus": value})
 
 
 @router.post("/categories/{cid}/toggle")

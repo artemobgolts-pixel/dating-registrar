@@ -544,10 +544,10 @@ def public_og_image(token: str, conn=Depends(get_db)):
     if fn:
         if not images.SAFE_FILENAME.match(fn):
             raise HTTPException(404)
-        path = images.UPLOAD_DIR / fn
-        if not path.exists():
+        cropped = images.build_og_crop(fn, cat["og_focus"])
+        if not cropped:
             raise HTTPException(404)
-        return FileResponse(path, media_type="image/webp",
+        return FileResponse(cropped, media_type="image/webp",
                             headers={"Cache-Control": "public, max-age=3600"})
     # своей картинки нет — собираем коллаж из фото активных свиданий категории
     rows = conn.execute(

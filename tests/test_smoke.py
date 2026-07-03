@@ -91,6 +91,11 @@ def png(color=(180, 90, 110), size=(640, 480)) -> bytes:
     return b.getvalue()
 
 
+# алиас: в одном из поздних блоков локальная переменная `png` затеняет эту
+# функцию (png = cs.get(...)), а она нужна ниже — держим стабильную ссылку.
+make_png = png
+
+
 CSRF = {"v": ""}
 
 
@@ -1455,7 +1460,7 @@ assert "proposed_by" in dcols             # v13: автор предложени
 ccols = {r[1] for r in conn.execute("PRAGMA table_info(categories)")}
 assert "description" in ccols
 assert "owner_id" in ccols                # v9: владелец категории
-assert {"og_title", "og_desc", "og_image"} <= ccols   # v14/v15: превью ссылки
+assert {"og_title", "og_desc", "og_image", "og_focus"} <= ccols   # v14/v15/v21: превью ссылки
 assert "owner_id" in dcols                # v9: владелец свидания
 # v13: мягкая очередь модерации + per-user поля + таблица настроек
 assert "is_reviewed" in ccols and "is_reviewed" in {r[1] for r in conn.execute("PRAGMA table_info(users)")}
@@ -2541,6 +2546,27 @@ with TestClient(main.app, follow_redirects=False) as cui:
                     data={"csrf": uc}).status_code == 303
     row = db_one("SELECT og_title, og_desc, og_image FROM categories WHERE id=?", (mcat["id"],))
     assert row["og_title"] is None and row["og_desc"] is None and row["og_image"] is None
+
+    # D-новое: своя картинка превью + WYSIWYG-кроп по точке фокуса (og_focus).
+    # HTTPException на POST /admin друж. обработчик превращает в 303-редирект с
+    # флешем (см. friendly_http_exc). Без своей картинки фокус нечего кропать →
+    # не сохраняется (редирект, og_focus остаётся NULL).
+    cui.post(f"/admin/categories/{mcat['id']}/og_focus",
+             data={"csrf": uc, "focus": "50% 50%"})
+    assert db_one("SELECT og_focus FROM categories WHERE id=?", (mcat["id"],))[0] is None
+    cui.post(f"/admin/categories/{mcat['id']}/rename",
+             data={"csrf": uc, "name": "Меню-кат"},
+             files={"og_image": ("og.png", make_png(), "image/png")})
+    assert db_one("SELECT og_image FROM categories WHERE id=?", (mcat["id"],))[0]
+    # кривой фокус не сохраняется; корректный — сохраняется и нормализуется (JSON 200)
+    cui.post(f"/admin/categories/{mcat['id']}/og_focus",
+             data={"csrf": uc, "focus": "999% x"})
+    assert db_one("SELECT og_focus FROM categories WHERE id=?", (mcat["id"],))[0] is None
+    assert cui.post(f"/admin/categories/{mcat['id']}/og_focus",
+                    data={"csrf": uc, "focus": "20% 80%"}).status_code == 200
+    assert db_one("SELECT og_focus FROM categories WHERE id=?", (mcat["id"],))[0] == "20% 80%"
+    # og-preview отдаёт кроп 1200×630 (WebP), не падает
+    assert cui.get(f"/admin/categories/{mcat['id']}/og-preview").status_code == 200
 
     # D: кнопки OAuth-провайдеров на странице входа — видны всегда, иконки,
     # гейт согласия через .login-methods. Нужен анонимный клиент.

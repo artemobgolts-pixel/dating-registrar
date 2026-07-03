@@ -161,14 +161,25 @@
     if (UI.timeRange) UI.timeRange(document.getElementById("edWhen"));
 
     // --- оплата: отражаем модификатор пилюлей на карточке ----------------------
-    var payPill = document.querySelector('.pcard [data-preview="pay"]');
+    // D4: если есть фото — бейдж ПОВЕРХ фото (.ed-gallery-pay); если фото нет —
+    // в заголовке (.pay). Видимость нужного места ставит галерея (galleryHasMedia).
+    var payPill = document.querySelector('.pcard [data-preview="pay"]');          // в заголовке
+    var payPhoto = document.querySelector('.pcard [data-preview="pay-photo"]');   // на фото
     var PAY = { "1": "💸 50/50", "2": "👌 Я плачу", "3": "🫵 Ты платишь" };
+    var galleryHasMedia = !!(document.querySelector("#edSlides .ed-slide"));
     function syncPay() {
       var ch = form.querySelector('[data-bind="pay"]:checked');
       var v = ch ? ch.value : "0";
-      if (!payPill) return;
-      if (PAY[v]) { payPill.textContent = PAY[v]; payPill.hidden = false; }
-      else payPill.hidden = true;
+      var label = PAY[v] || "";
+      var onPhoto = galleryHasMedia && !!label;
+      if (payPhoto) {
+        if (onPhoto) { payPhoto.textContent = label; payPhoto.hidden = false; }
+        else payPhoto.hidden = true;
+      }
+      if (payPill) {
+        if (label && !onPhoto) { payPill.textContent = label; payPill.hidden = false; }
+        else payPill.hidden = true;
+      }
     }
     form.querySelectorAll('[data-bind="pay"]').forEach(function (r) {
       r.addEventListener("change", syncPay);
@@ -176,13 +187,17 @@
     syncPay();
 
     // --- ГАЛЕРЕЯ: существующие фото/видео + новые (кнопка +), листание, кадр ----
-    initEdGallery(form, did);
+    // Галерея зовёт onMediaChange(hasMedia), когда меняется наличие слайдов —
+    // чтобы модификатор перескакивал фото↔заголовок.
+    initEdGallery(form, did, function (hasMedia) {
+      galleryHasMedia = hasMedia; syncPay();
+    });
   }
 
   // Галерея редактируемого превью. Слайды двух видов:
   //   • сохранённые: <div.ed-slide data-pid> (удаление/фокус — на сервер сразу)
   //   • новые:       <div.ed-slide.new data-idx> (уезжают с формой; фокус → image_focuses)
-  function initEdGallery(form, did) {
+  function initEdGallery(form, did, onMediaChange) {
     var gallery = document.getElementById("edGallery");
     var slidesEl = document.getElementById("edSlides");
     if (!gallery || !slidesEl) return;
@@ -300,10 +315,13 @@
       return photoUp.files().length < (slots || 5)
           || videoUp.files().length < (vslots || 2);
     }
+    var lastHasMedia = null;
     function layout() {
       var all = slides();
       var n = all.length;
       if (emptyEl) emptyEl.hidden = n > 0;
+      // D4: сообщаем наверх о наличии медиа — модификатор прыгает фото↔заголовок
+      if (onMediaChange && (n > 0) !== lastHasMedia) { lastHasMedia = n > 0; onMediaChange(n > 0); }
       all.forEach(function (s, i) { s.style.display = (i === cur) ? "" : "none"; });
       // точки
       if (dots) {
@@ -442,15 +460,71 @@
       var ogInput = document.getElementById("ogInput");
       var ogImg = document.getElementById("ogPreviewImg");
       var ogPick = document.getElementById("ogImgPick");
+      var focusHint = document.getElementById("ogFocusHint");
+      var cid = ogPreview.dataset.cid;
+      // есть ли своя картинка (её можно двигать/кропать). Меняется, когда
+      // пользователь выбирает новую (новая ещё не сохранена — двигать нельзя до сабмита).
+      var hasSavedImage = ogPreview.dataset.hasImage === "1";
+
+      // --- смена картинки: клик открывает выбор файла --------------------------
+      // Клик именно по бейджу/подсказке (или короткий тап), а не по завершению
+      // перетаскивания кадра — иначе каждый drag открывал бы диалог выбора файла.
+      var dragMoved = false;
       if (ogPick && ogInput) {
-        ogPick.addEventListener("click", function () { ogInput.click(); });
+        ogPick.addEventListener("click", function () {
+          if (dragMoved) { dragMoved = false; return; }
+          ogInput.click();
+        });
         ogInput.addEventListener("change", function () {
           if (ogInput.files && ogInput.files.length && ogImg) {
             ogImg.src = URL.createObjectURL(ogInput.files[0]);
+            ogImg.style.objectPosition = "50% 50%";
             ogChanged.img = true;
+            // новая картинка ещё не на сервере — двигать кадр можно после сохранения
+            hasSavedImage = false;
+            ogPreview.classList.remove("has-image");
+            if (focusHint) focusHint.hidden = true;
             recompute();
           }
         });
+      }
+
+      // --- перетаскивание кадра своей картинки (WYSIWYG-кроп og:image) ----------
+      // Только для УЖЕ сохранённой картинки: точка фокуса летит на сервер, og:image
+      // пересобирается по ней. Для только что выбранной (несохранённой) — сперва
+      // «Сохранить», у формы нет поля фокуса до записи файла.
+      if (ogImg && hasSavedImage && cid) {
+        var dragging = false, curFocus = ogImg.style.objectPosition || "50% 50%";
+        function applyFocus(e) {
+          var rect = ogImg.getBoundingClientRect();
+          if (!rect.width || !rect.height) return;
+          var px = (e.touches ? e.touches[0].clientX : e.clientX);
+          var py = (e.touches ? e.touches[0].clientY : e.clientY);
+          var x = Math.round(Math.min(1, Math.max(0, (px - rect.left) / rect.width)) * 100);
+          var y = Math.round(Math.min(1, Math.max(0, (py - rect.top) / rect.height)) * 100);
+          curFocus = x + "% " + y + "%";
+          ogImg.style.objectPosition = curFocus;
+        }
+        ogImg.addEventListener("pointerdown", function (e) {
+          dragging = true; dragMoved = false;
+          ogImg.setPointerCapture && ogImg.setPointerCapture(e.pointerId);
+          ogPreview.classList.add("dragging"); applyFocus(e); e.preventDefault();
+        });
+        ogImg.addEventListener("pointermove", function (e) {
+          if (dragging) { dragMoved = true; applyFocus(e); }
+        });
+        function endDrag() {
+          if (!dragging) return;
+          dragging = false; ogPreview.classList.remove("dragging");
+          var fd = new FormData();
+          fd.append("csrf", document.body.dataset.csrf);
+          fd.append("focus", curFocus);
+          fetch("/admin/categories/" + cid + "/og_focus", { method: "POST", body: fd })
+            .then(function (r) { if (!r.ok) throw 0; })
+            .catch(function () { /* не сохранилось — тихо, кадр вернётся при перезагрузке */ });
+        }
+        ogImg.addEventListener("pointerup", endDrag);
+        ogImg.addEventListener("pointercancel", endDrag);
       }
     }
 

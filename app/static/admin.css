@@ -428,20 +428,21 @@ label.chk {
 
 /* форма ответа на вопрос */
 
+/* Форма ответа: поле во всю ширину, кнопка ПОД ним и прижата вправо. Раньше
+   textarea и кнопка стояли в один ряд с align-items:flex-start — кнопка «висела»
+   у верхнего правого угла высокого поля (эффект «кривой» кнопки, #7). */
 .answer-form {
   display: flex;
+  flex-direction: column;
   gap: 8px;
-  align-items: flex-start;
-  flex-wrap: wrap;
+  align-items: stretch;
 }
-
 .answer-form textarea {
-  flex: 1;
-  min-width: 220px;
-  min-height: 46px;
+  width: 100%;
+  min-height: 64px;
+  resize: vertical;
 }
-
-.answer-form button { flex: 0 0 auto; margin-top: 2px; }
+.answer-form button { align-self: flex-end; }
 
 /* ---------- дашборд ---------- */
 
@@ -582,6 +583,12 @@ label.chk {
   transition: color .25s var(--ease);
 }
 .tabs a.on { color: #fff; }
+/* ФОЛБЭК активной вкладки: розовая заливка прямо под текстом. Основной вид даёт
+   скользящий .tab-ind (JS), но до его появления/без JS белый текст на светлом
+   фоне был невидим — здесь гарантируем читаемость. .tab-ind ложится поверх
+   (z-index выше 0), поэтому «стеклянный» эффект не теряется. */
+.tabs a.on { background: linear-gradient(135deg, var(--rose), var(--rose-2)); }
+.tabs .tab-ind ~ a.on, .tabs a.on:has(~ .tab-ind) { background: transparent; }
 
 /* скользящий стеклянный индикатор активной вкладки */
 .tabs .tab-ind {
@@ -689,9 +696,14 @@ label.chk {
    ВАЖНО: до отметки согласия блок несёт атрибут hidden — display:none его прячет;
    правило display:flex применяем ТОЛЬКО когда hidden снят (иначе виджет виден всегда
    и вход срабатывал без галочки). */
-#tg-widget-wrap { display: none; }
-#tg-widget-wrap:not([hidden]) { display: flex; justify-content: center; margin: 6px 0 4px; min-height: 46px; }
-#tg-widget-wrap iframe { margin: 0 auto !important; }
+#tg-widget-wrap { display: none; color-scheme: light; }
+#tg-widget-wrap:not([hidden]) {
+  display: flex; justify-content: center; margin: 6px 0 4px; min-height: 46px;
+  /* светлая подложка под кросс-доменным iframe виджета: на тёмной ОС браузер
+     красит фон iframe чёрным до его отрисовки — отсюда «чёрный прямоугольник». */
+  background: #fff; border-radius: 12px;
+}
+#tg-widget-wrap iframe { margin: 0 auto !important; color-scheme: light; border-radius: 12px; }
 
 .login-note { color: var(--muted); font-size: 13.5px; margin: 14px 0 0; line-height: 1.5; }
 
@@ -731,9 +743,12 @@ label.chk {
 .login-methods { position: relative; }
 /* Telegram Login Widget (telegram.org рисует свой iframe с кнопкой) — по центру,
    с местом под него; до согласия скрыт (hidden). */
-.tg-widget-wrap { display: none; }
-.tg-widget-wrap:not([hidden]) { display: flex; justify-content: center; min-height: 46px; margin: 2px 0 4px; }
-.tg-widget-wrap iframe { margin: 0 auto !important; }
+.tg-widget-wrap { display: none; color-scheme: light; }
+.tg-widget-wrap:not([hidden]) {
+  display: flex; justify-content: center; min-height: 46px; margin: 2px 0 4px;
+  background: #fff; border-radius: 12px;
+}
+.tg-widget-wrap iframe { margin: 0 auto !important; color-scheme: light; border-radius: 12px; }
 .oauth-sep {
   display: flex; align-items: center; gap: 12px;
   color: var(--muted); font-size: 12.5px; margin: 14px 0;
@@ -903,18 +918,27 @@ input.flash { background: #f8ecea !important; transition: background .4s; }
   background: rgba(255, 255, 255, .55); border: 1px solid var(--line);
   border-radius: 12px; white-space: pre-line; color: var(--ink); font-size: 14.5px;
 }
-.notif-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+/* ряд действий уведомления: кнопки одной высоты и по базовой линии. form.inline
+   раскрываем в contents, чтобы её кнопка была ПРЯМЫМ flex-ребёнком ряда —
+   иначе inline-форма сбивала выравнивание (кнопки «прыгали», #7). */
+.notif-actions { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; align-items: center; }
+.notif-actions .inline { display: contents; }
+.notif-actions .btn { margin: 0; }
 
 /* предложение времени от гостя в карточке вопроса */
 .suggest-box {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px;
   margin: 0 0 12px;
-  padding: 10px 14px;
+  padding: 11px 14px;
   background: #fdf4f6;
   border: 1px solid #f0d9de;
   border-radius: 12px;
   font-size: 14px;
 }
+/* текст-предложение занимает всю первую строку, кнопки — ровным рядом под ним */
+.suggest-box > span { flex: 1 1 100%; }
+.suggest-box .inline { display: contents; }
+.suggest-box .btn { margin: 0; }
 
 
 /* ===== итерация 6: ровная шапка и общий бьюти-пас ========================= */
@@ -985,13 +1009,15 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 
 .tabs a.on .pill { background: rgba(255, 255, 255, .35); color: #fff; }
 .pill { background: #b65f6f; }
-/* Счётчик на вкладке — компактный кружок-суперскрипт, а не широкая пилюля:
-   так «Активные/Неактивные/Архив» сохраняют прежний сочный вид и влезают на
-   телефоне без горизонтальной прокрутки (раньше именно широкая пилюля не влезала). */
+/* Счётчик на вкладке — компактная пилюля, которая РАСТЁТ под число (1..999):
+   у однозначных — аккуратный кружок (min-width=height), у многозначных
+   раздаётся по ширине за счёт горизонтального паддинга. Раньше был жёсткий
+   кружок 15px с padding:0 — трёхзначные счётчики («128») в нём обрезались. */
 .tabs a .pill {
-  font-size: 10.5px; font-weight: 700; padding: 0; margin-left: 4px;
-  min-width: 15px; height: 15px; line-height: 15px; text-align: center;
-  border-radius: 999px; vertical-align: 2px; display: inline-block;
+  font-size: 10.5px; font-weight: 700; margin-left: 5px;
+  padding: 0 5px; min-width: 16px; height: 16px; line-height: 16px;
+  box-sizing: border-box; text-align: center; white-space: nowrap;
+  border-radius: 999px; vertical-align: 1px; display: inline-block;
 }
 
 .flash { border-radius: 12px; box-shadow: 0 6px 18px rgba(120, 70, 80, .1); }
@@ -1319,13 +1345,18 @@ input, textarea, select {
 /* ============================================================
    РЕДАКТИРУЕМОЕ ПРЕВЬЮ свидания (click-to-edit прямо в карточке)
    ============================================================ */
+/* D2: колонка превью — гибкая minmax(0,460px), не жёсткие 460px, чтобы на
+   средних экранах не переполнять и не оставлять «дыр». */
 .ed-cols {
-  display: grid; grid-template-columns: 460px 1fr; gap: 26px; align-items: start;
+  display: grid; grid-template-columns: minmax(0, 460px) 1fr; gap: 26px; align-items: start;
 }
-.ed-preview-col { position: sticky; top: 90px; }
+.ed-preview-col { position: sticky; top: 90px; min-width: 0; }
+.ed-side-col { min-width: 0; }
 @media (max-width: 920px) {
-  .ed-cols { grid-template-columns: 1fr; }
+  /* один столбец: превью сверху по центру, модификаторы/категории под ним */
+  .ed-cols { grid-template-columns: 1fr; gap: 18px; }
   .ed-preview-col { position: static; }
+  .pcard.editable { margin-left: auto; margin-right: auto; }
 }
 .pcard.editable { max-width: 460px; }
 
@@ -1347,23 +1378,34 @@ input, textarea, select {
 .ed-links { white-space: pre-line; }
 .ed-desc-toolbar { margin: 4px 0 8px; }
 
-/* строка времени: день + ЧЧ:ММ–ЧЧ:ММ */
-.ed-when { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); margin-bottom: 4px; }
-.ed-day {
-  width: auto; min-width: 0; padding: 3px 7px; font-size: 12.5px;
-  border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,.7); color: var(--ink);
+/* строка «когда»: ДД.ММ.ГГГГ в ЧЧ:ММ–ЧЧ:ММ — все части в одном стиле (#D1) */
+.ed-when { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 14px; color: var(--ink); margin-bottom: 4px; }
+.ed-when .ed-at { color: var(--muted); font-size: 12.5px; }
+/* важно: .pcard .pmeta span { display:block } (ниже) иначе кладёт части в столбик —
+   поэтому дата и время явно inline-flex */
+.pcard .pmeta .ed-date, .pcard .pmeta .ed-time {
+  display: inline-flex; align-items: center; gap: 1px;
+  font-variant-numeric: tabular-nums; font-size: 14px; color: var(--ink);
 }
-/* важно: .pcard .pmeta span { display:block } (ниже) иначе кладёт части времени
-   в столбик — поэтому здесь явно inline с той же/большей специфичностью */
-.pcard .pmeta .ed-time { display: inline-flex; align-items: center; gap: 1px; font-variant-numeric: tabular-nums; font-size: 14px; color: var(--ink); }
-.pcard .pmeta .ed-time span { display: inline-block; }
-.ed-time .ed-hh, .ed-time .ed-mm {
-  min-width: 20px; text-align: center; padding: 2px 3px; border-radius: 6px;
+.pcard .pmeta .ed-date span, .pcard .pmeta .ed-time span { display: inline-block; }
+/* редактируемые числовые части — одинаковый «пилюльный» вид для даты и времени */
+.ed-time .ed-hh, .ed-time .ed-mm, .ed-date .ed-dd, .ed-date .ed-mo, .ed-date .ed-yy {
+  text-align: center; padding: 2px 3px; border-radius: 6px;
   outline: none; cursor: text; background: rgba(182, 95, 111, .08);
 }
+.ed-time .ed-hh, .ed-time .ed-mm, .ed-date .ed-dd, .ed-date .ed-mo { min-width: 20px; }
+.ed-date .ed-yy { min-width: 38px; }
 .ed-time .ed-hh:empty::before, .ed-time .ed-mm:empty::before { content: "00"; color: var(--muted); opacity: .6; }
-.ed-time .ed-hh:focus, .ed-time .ed-mm:focus { background: rgba(182, 95, 111, .18); box-shadow: 0 0 0 2px rgba(182, 95, 111, .25); }
-.ed-time .ed-colon, .ed-time .ed-dash { color: var(--muted); padding: 0 2px; }
+.ed-date .ed-dd:empty::before, .ed-date .ed-mo:empty::before { content: "ДД"; color: var(--muted); opacity: .6; }
+.ed-date .ed-dd:empty::before { content: "ДД"; }
+.ed-date .ed-mo:empty::before { content: "ММ"; }
+.ed-date .ed-yy:empty::before { content: "ГГГГ"; color: var(--muted); opacity: .6; }
+.ed-time .ed-hh:focus, .ed-time .ed-mm:focus,
+.ed-date .ed-dd:focus, .ed-date .ed-mo:focus, .ed-date .ed-yy:focus {
+  background: rgba(182, 95, 111, .18); box-shadow: 0 0 0 2px rgba(182, 95, 111, .25);
+}
+.ed-time .ed-colon, .ed-time .ed-dash, .ed-date .ed-dot { color: var(--muted); padding: 0 1px; }
+.ed-time .ed-dash { padding: 0 4px; }
 /* строки «когда»/место/ссылки — тоже flex, а не block-столбик из .pmeta span */
 .pcard .pmeta .ed-when, .pcard .pmeta .ed-place-row, .pcard .pmeta .ed-links-row { display: flex; }
 
@@ -1382,10 +1424,22 @@ input, textarea, select {
 }
 .ed-slide-rm:hover { background: rgba(30, 20, 24, .72); }
 .ed-vtag { position: absolute; left: 8px; top: 8px; font-size: 16px; z-index: 3; }
-.ed-empty { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 10px; align-items: center; justify-content: center; color: #fff; }
+/* D4: модификатор оплаты бейджем поверх фото (левый верх, как на карточках списка) */
+.ed-gallery-pay {
+  position: absolute; top: 10px; left: 10px; z-index: 4;
+  font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 20px;
+}
+.ed-gallery-pay[hidden] { display: none; }
+/* D5: пустая галерея — наше лого фоном + кнопка добавления поверх затемнения */
+.ed-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff; }
 .ed-empty[hidden] { display: none; }   /* explicit display:flex иначе перебивает [hidden] */
-.ed-empty-ic { font-size: 34px; opacity: .9; }
-.ed-empty .btn { background: rgba(255,255,255,.9); }
+.ed-empty-logo { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.ed-empty-inner {
+  position: relative; z-index: 1; display: flex; align-items: center; justify-content: center;
+  padding: 10px 14px; border-radius: 12px; background: rgba(30, 20, 24, .32);
+  -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
+}
+.ed-empty .btn { background: rgba(255,255,255,.95); }
 .ed-nav {
   position: absolute; top: 50%; transform: translateY(-50%); z-index: 5;
   width: 34px; height: 34px; border-radius: 50%; border: none; cursor: pointer;
@@ -1588,14 +1642,24 @@ input, textarea, select {
 .qr-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; align-items: stretch; }
 /* #10: обе кнопки QR — одной высоты и с центрированным текстом. «Скачать» —
    это <a class="btn small"> (inline-block, текст съезжал влево и была ниже);
-   выравниваем через inline-flex + одинаковый паддинг с «Поделиться». */
-.qr-actions .btn { display: inline-flex; align-items: center; justify-content: center; text-align: center; }
+   выравниваем через inline-flex + одинаковый паддинг с «Поделиться».
+   ВАЖНО: правило действует только на ВИДИМЫЕ кнопки — иначе оно (специфичность
+   0,2,0) перебивало `.qr-share { display:none }` (0,1,0) и системное «Поделиться»
+   вылезало на ПК, ломая раскладку QR-колонки (#8). */
+.qr-actions .btn { align-items: center; justify-content: center; text-align: center; }
 .qr-actions .qr-dl, .qr-actions .qr-share {
   padding: 9px 16px; font-size: 13.5px; border-radius: 11px; line-height: 1.2;
 }
+/* видимые кнопки-действия — inline-flex; правило БЕЗ display на `.qr-actions .btn`
+   выше, а сам display задаём здесь для конкретных кнопок, чтобы не перебивать
+   `display:none` у скрытых. */
+.qr-actions .qr-dl { display: inline-flex; }
 /* на ПК QR показан всегда и крупно; кнопка-тоггл и системное «Поделиться»
-   (Web Share API нужен телефону) не нужны — скрываем */
-.qr-toggle, .qr-share { display: none; }
+   (Web Share API нужен телефону) не нужны — скрываем. Специфичность 0,2,0 у
+   `.qr-actions .qr-share` = у `.qr-actions .btn`, но правило идёт ПОЗЖЕ, поэтому
+   display:none выигрывает и «Поделиться» больше не вылезает на ПК (#8). */
+.qr-toggle { display: none; }
+.qr-actions .qr-share { display: none; }
 /* кликабельная ссылка-«копировать» вместо отдельной кнопки */
 .copy-code {
   background: #f6f2f4; padding: 8px 12px; border-radius: 8px;
@@ -1651,10 +1715,16 @@ input, textarea, select {
    специфичности `.cat-card .bar > div` (0,2,1) — иначе хвост наследует от него
    pointer-events:none и z-index:1, проваливается под оверлей, и клик по ⋯ уводит
    в редактирование (баг #7). */
+/* ⋯ на карточке категории — всегда в правом ВЕРХНЕМ углу (не по центру строки).
+   Абсолютом внутри .cat-card (position:relative), поверх ссылки-оверлея. */
 .cat-card .bar > .cat-tail {
-  display: flex; align-items: center; gap: 8px; flex: none;
-  position: relative; z-index: 5; pointer-events: auto;
+  display: flex; align-items: center; gap: 0; flex: none;
+  position: absolute; top: 12px; right: 12px; z-index: 7; pointer-events: auto;
 }
+/* стрелку-«→» убираем: угол занимает ⋯, а вся карточка и так кликабельна */
+.cat-card .cat-arrow { display: none; }
+/* имя не залезает под кнопку в углу */
+.cat-card .bar > div:first-child { padding-right: 44px; }
 .cat-card .cat-tail .menu-wrap { position: relative; z-index: 6; pointer-events: auto; flex: none; }
 .cat-card .cat-tail .more,
 .cat-card .cat-tail .menu { pointer-events: auto; }
@@ -1668,8 +1738,9 @@ input, textarea, select {
 .cat-card .cat-tail .more[aria-expanded="true"] {
   opacity: 1; background: #fff;
 }
-/* на карточке кнопка ⋯ вверху — меню открываем ВНИЗ (не вверх, как на свиданиях) */
-.cat-card .menu { top: 44px; bottom: auto; }
+/* на карточке кнопка ⋯ в правом верхнем углу — меню открываем ВНИЗ и ВЛЕВО от
+   угла (иначе выходит за правый край карточки/экрана) */
+.cat-card .menu { top: 42px; bottom: auto; right: 0; left: auto; }
 /* «шапка» карточки: имя слева тянется/обрезается, хвост (⋯ + стрелка) фиксирован
    справа и НЕ переносится на новую строку при длинном названии */
 .cat-card .bar { display: flex; align-items: center; gap: 10px; flex-wrap: nowrap; }
@@ -1692,18 +1763,7 @@ input, textarea, select {
 @media (max-width: 560px) {
   .cat-card.has-thumb { flex-direction: column; gap: 10px; }
   .cat-card .cat-thumb { width: 100%; align-self: stretch; }
-  /* #11: на телефоне ⋯ уводим в правый верхний угол карточки — освобождаем место
-     под длинное название категории. Стрелку-«→» на телефоне прячем (вся карточка
-     и так кликабельна). */
-  .cat-card { position: relative; }
-  .cat-card .cat-tail {
-    position: absolute; top: 10px; right: 10px; z-index: 7; gap: 0;
-  }
-  .cat-card .cat-arrow { display: none; }
-  /* имя не залезает под кнопку в углу */
-  .cat-card .bar > div:first-child { padding-right: 40px; }
-  /* меню открываем от угла влево-вниз, чтобы не выходило за край экрана */
-  .cat-card .cat-tail .menu { right: 0; left: auto; top: 40px; }
+  /* ⋯ уже в правом верхнем углу (см. базовое правило .cat-card .bar > .cat-tail) */
 }
 
 @media (max-width: 640px) {
@@ -1713,7 +1773,9 @@ input, textarea, select {
   .share-qr, .qr-actions { display: none; }
   .share-qr-col.qr-open .share-qr { display: grid; }
   .share-qr-col.qr-open .qr-actions { display: flex; }
-  .qr-share { display: inline-block; }
+  /* специфичность 0,2,0 — ровно как у `.qr-actions .qr-share { display:none }`
+     на ПК, иначе (0,1,0) не перебила бы её и «Поделиться» осталась бы скрыта */
+  .qr-actions .qr-share { display: inline-flex; }
 }
 
 /* мини-превью ссылки «как увидит она при отправке» — карточка мессенджера:
@@ -1742,17 +1804,50 @@ input, textarea, select {
 }
 /* #12: редактируемое превью ссылки — картинку меняем кликом, текст правим на месте */
 .og-preview.editable .og-img-wrap { position: relative; cursor: pointer; display: block; }
+.og-preview.editable .og-img { object-fit: cover; }
+/* постоянный бейдж «Сменить» в углу — сразу видно, что картинку можно менять */
+.og-preview.editable .og-img-badge {
+  position: absolute; top: 8px; right: 8px; z-index: 3;
+  display: inline-flex; align-items: center; gap: 4px;
+  background: rgba(30, 20, 24, .55); color: #fff; font-size: 11.5px; font-weight: 600;
+  padding: 3px 9px; border-radius: 20px; pointer-events: none;
+  -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+  transition: opacity .15s;
+}
+/* оверлей-подсказка на наведение (перекрывает бейдж) */
 .og-preview.editable .og-img-hint {
-  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-  background: rgba(30, 20, 24, .38); color: #fff; font-size: 13px; font-weight: 600;
-  opacity: 0; transition: opacity .15s;
+  position: absolute; inset: 0; z-index: 4; display: flex; align-items: center; justify-content: center;
+  background: rgba(30, 20, 24, .42); color: #fff; font-size: 13px; font-weight: 600; text-align: center;
+  padding: 0 14px; opacity: 0; transition: opacity .15s;
 }
 .og-preview.editable .og-img-wrap:hover .og-img-hint { opacity: 1; }
-/* редактируемые заголовок/описание: разворачиваем из nowrap, показываем плейсхолдер */
+.og-preview.editable .og-img-wrap:hover .og-img-badge { opacity: 0; }
+/* когда картинка своя — её можно двигать (кроп): курсор-«хват» + подсказка снизу */
+.og-preview.editable.has-image .og-img { cursor: grab; touch-action: none; }
+.og-preview.editable.has-image.dragging .og-img { cursor: grabbing; }
+.og-preview.editable .og-focus-hint {
+  position: absolute; left: 8px; bottom: 8px; z-index: 3;
+  font-size: 10.5px; color: #fff; background: rgba(30, 20, 24, .5);
+  padding: 2px 8px; border-radius: 20px; pointer-events: none;
+  -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+}
+.og-preview.editable.has-image.dragging .og-img-badge,
+.og-preview.editable.has-image.dragging .og-img-hint { opacity: 0; }
+/* редактируемые заголовок/описание: разворачиваем из nowrap, показываем плейсхолдер;
+   тонкая пунктирная подложка + курсор-текст намекают, что текст можно править */
 .og-preview.editable .og-title, .og-preview.editable .og-desc {
   white-space: normal; overflow: visible; text-overflow: clip;
+  cursor: text; border-radius: 6px; padding: 1px 5px; margin-left: -5px;
+  transition: background .15s, box-shadow .15s;
 }
-.og-preview.editable .ed-field:empty::before { content: attr(data-ph); color: var(--muted); opacity: .75; }
+.og-preview.editable .og-title:hover, .og-preview.editable .og-desc:hover {
+  background: rgba(182, 95, 111, .08);
+}
+.og-preview.editable .og-title:focus, .og-preview.editable .og-desc:focus {
+  outline: none; background: rgba(182, 95, 111, .12);
+  box-shadow: 0 0 0 2px rgba(182, 95, 111, .25);
+}
+.og-preview.editable .ed-field:empty::before { content: attr(data-ph); color: var(--muted); opacity: .7; }
 /* подпись поля и зона выбора картинки превью (drag-drop как у свиданий) */
 .field-label { display: block; font-weight: 600; color: var(--ink); font-size: 14px; margin-top: 4px; }
 .field-label .muted { font-weight: 400; }
@@ -1766,7 +1861,13 @@ input, textarea, select {
 .cat-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 .cat-actions .inline { margin: 0; }
 .cat-actions .btn { font-size: 14.5px; font-weight: 600; padding: 9px 18px; border-radius: 12px; }
-.cat-actions .btn.danger { margin-left: auto; }
+/* #10: «Удалить категорию» — красный фон и тёмный текст (заметный деструктив),
+   прижата вправо. */
+.cat-actions .btn.danger {
+  margin-left: auto;
+  background: #f2b8b5; border: 1px solid #e59895; color: #3a1210;
+}
+.cat-actions .btn.danger:hover { background: #eda6a2; border-color: #db8783; }
 /* красная «Отключить ссылку» / зелёная «Включить ссылку» */
 .btn.link-off {
   background: #fdecec; border: 1px solid #f2c4c4; color: #b3261e;
@@ -2287,16 +2388,29 @@ input, textarea, select {
   position: fixed; inset: 0; z-index: 300;
   background: transparent;
 }
-/* «дырка»-подсветка вокруг целевого элемента: огромная тень гасит фон вокруг,
-   двойная светлая рамка выделяет саму цель. Внутри тени/рамки — прозрачно. */
+/* Слой реального РАЗМЫТИЯ фона: размывает всю страницу, а вырез clip-path
+   (задаёт tour.js по геометрии цели) оставляет саму цель чёткой и без блюра —
+   так размытие не задевает подсвечиваемый элемент. Лёгкое затемнение здесь же. */
+.tour-blur {
+  position: fixed; inset: 0; z-index: 300;
+  background: rgba(40, 28, 32, .28);
+  -webkit-backdrop-filter: blur(5px);
+  backdrop-filter: blur(5px);
+  pointer-events: none;
+}
+/* Рамка вокруг цели: только светлый кант + розовая обводка (без огромной тени —
+   затемнение и блюр теперь даёт .tour-blur с вырезом). */
 .tour-spot {
-  position: fixed; border-radius: 14px;
-  /* мягкое приглушение всего вокруг (.42 — слабее прежнего .55/.58, как просили),
-     цель остаётся в «дырке» яркой, с розовой рамкой и светлым кантом */
-  box-shadow: 0 0 0 9999px rgba(40, 28, 32, .42),
-    0 0 0 2px var(--rose), 0 0 0 5px rgba(255, 255, 255, .5);
+  position: fixed; border-radius: 14px; z-index: 301;
+  box-shadow: 0 0 0 2px var(--rose), 0 0 0 5px rgba(255, 255, 255, .5);
   transition: top .2s ease, left .2s ease, width .2s ease, height .2s ease;
   pointer-events: none;
+}
+/* без поддержки backdrop-filter — фолбэк на прежнее приглушение тенью */
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .tour-blur { background: transparent; }
+  .tour-spot { box-shadow: 0 0 0 9999px rgba(40, 28, 32, .42),
+    0 0 0 2px var(--rose), 0 0 0 5px rgba(255, 255, 255, .5); }
 }
 /* На время тура прокрутка страницы заблокирована, чтобы цель не «уезжала»
    из-под подсветки (жест листания больше не ломает шаги). */
@@ -2304,7 +2418,7 @@ body.tour-lock { overflow: hidden; }
 /* Поповер тура компактнее по высоте (#5): меньше вертикальные паддинги/отступы,
    чтобы окно не «захватывало» зону под целью и не налезало на соседний контент. */
 .tour-pop {
-  position: fixed; z-index: 301; width: min(320px, calc(100vw - 24px));
+  position: fixed; z-index: 302; width: min(320px, calc(100vw - 24px));
   background: #fffdfe; border-radius: 16px; padding: 13px 16px 12px;
   box-shadow: 0 24px 60px rgba(120, 60, 72, .34);
   transition: top .25s ease, left .25s ease;

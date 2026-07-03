@@ -8,6 +8,22 @@ window.UI = (() => {
   // Ключи: "nav" (главная навигация) и "tabs" (под-вкладки списка свиданий).
   const _tabInd = {};
 
+  // ЕДИНЫЙ обработчик resize для всех таб-строк. Раньше каждый glassTabs() вешал
+  // свой window.addEventListener("resize") — а под Turbo glassTabs зовётся на
+  // КАЖДОМ переходе (контейнер пересоздаётся), и слушатели копились: через
+  // десяток навигаций один resize дёргал N устаревших замыканий с отсоединённым
+  // DOM. Это и была «вкладки со временем грузятся медленно» (#9). Теперь —
+  // один слушатель, а активные контейнеры держим в Weak-множестве через список
+  // репозиционеров, отсеивая отсоединённые от документа. (перф-фикс #9)
+  let _tabRepos = [];
+  let _tabRt;
+  window.addEventListener("resize", function () {
+    clearTimeout(_tabRt);
+    _tabRt = setTimeout(function () {
+      _tabRepos = _tabRepos.filter(function (fn) { return fn(); });
+    }, 120);
+  });
+
   /* --- Перестановка перетаскиванием (FLIP, как в Telegram) -------------- */
   /* Плитка следует за пальцем (transform с поправкой на смену слота),
      соседи плавно «доезжают» на свои места через FLIP-анимацию. */
@@ -817,11 +833,17 @@ window.UI = (() => {
     // после кадра — раскладка и шрифты применились (иначе offsetLeft/Width кривые)
     requestAnimationFrame(settle);
 
-    let rt;
-    window.addEventListener("resize", () => {
-      clearTimeout(rt);
-      rt = setTimeout(() => put(geom(active()), false), 120);
-    });
+    // репозиционер для общего resize-слушателя: возвращает false, когда контейнер
+    // отсоединён от документа (Turbo подменил <body>) — тогда его выкинут из списка.
+    // Заодно на регистрации подчищаем уже отсоединённые — список не растёт.
+    _tabRepos = _tabRepos.filter(function (fn) { return fn.alive(); });
+    var repos = function () {
+      if (!container.isConnected) return false;
+      put(geom(active()), false);
+      return true;
+    };
+    repos.alive = function () { return container.isConnected; };
+    _tabRepos.push(repos);
     tabs.forEach((a) => {
       a.addEventListener("click", (e) => {
         // только левый клик без модификаторов и не «открыть в новой вкладке»
@@ -850,7 +872,13 @@ window.UI = (() => {
 
     function toField() {
       var val = (view.innerText || "").replace(/ /g, " ");
-      if (!multiline) val = val.replace(/\s*\n\s*/g, " ").trim();
+      // Пустое поле показывает подсказку через CSS `::before { content: attr(data-ph) }`.
+      // В Chrome `innerText` ВКЛЮЧАЕТ содержимое ::before — из-за этого в скрытое
+      // поле попадал текст плейсхолдера вместо "" (ложное «превью изменено» и мусор
+      // при сохранении). `textContent` генерируемый контент не включает — им и
+      // определяем реальную пустоту.
+      if (!(view.textContent || "").trim()) { val = ""; }
+      else if (!multiline) val = val.replace(/\s*\n\s*/g, " ").trim();
       else val = val.replace(/\n{3,}/g, "\n\n").replace(/[ \t]+$/gm, "");
       field.value = val;
       field.dispatchEvent(new Event("input", { bubbles: true }));
@@ -872,9 +900,12 @@ window.UI = (() => {
      local). День — обязателен для времени; без дня время не уходит на сервер.
      Части ЧЧ/ММ — редактируемые кликом (вводишь число). Быстрых чипов нет (#13). */
   function timeRange(root) {
-    var dayInput = root.querySelector("[data-tr-day]");
+    var dayInput = root.querySelector("[data-tr-day]");    // скрытый YYYY-MM-DD
     var sh = root.querySelector("[data-tr-hh]"), sm = root.querySelector("[data-tr-mm]");
     var eh = root.querySelector("[data-tr-ehh]"), em = root.querySelector("[data-tr-emm]");
+    // D1: дата — такими же кликабельными частями, как время (ДД / ММ / ГГГГ)
+    var dd = root.querySelector("[data-tr-dd]"), mo = root.querySelector("[data-tr-mo]"),
+        yy = root.querySelector("[data-tr-yy]");
     // скрытые поля формы (могут лежать вне root — ищем и глобально)
     var startHidden = root.querySelector("[data-tr-start]") || document.querySelector("[data-tr-start]");
     var endHidden = root.querySelector("[data-tr-end]") || document.querySelector("[data-tr-end]");
@@ -887,13 +918,19 @@ window.UI = (() => {
       var n = d === "" ? null : Math.min(parseInt(d, 10), max);
       return { has: n !== null, val: n === null ? fallback : n };
     }
+    // как clampNum, но с диапазоном [min..max] и произвольной длиной (для года)
+    function clampRange(el, len, min, max) {
+      var d = (el.innerText || "").replace(/\D/g, "").slice(-len);
+      if (d === "") return { has: false, val: min };
+      var n = Math.min(Math.max(parseInt(d, 10), min), max);
+      return { has: true, val: n };
+    }
     function part(el, max) {
-      // делает span редактируемым числом 00..max
+      // делает span редактируемым числом 00..max (2 цифры)
       el.setAttribute("contenteditable", "true");
       el.addEventListener("focus", function () { el._had = el.innerText; });
       el.addEventListener("keydown", function (e) {
         if (e.key === "Enter") { e.preventDefault(); el.blur(); }
-        // разрешаем только цифры/навигацию
         if (e.key.length === 1 && !/[0-9]/.test(e.key)) e.preventDefault();
       });
       el.addEventListener("input", function () {
@@ -906,6 +943,24 @@ window.UI = (() => {
         sync();
       });
     }
+    // редактируемая часть даты: день (1..31), месяц (1..12), год (4 цифры)
+    function datePart(el, len, min, max, padTo) {
+      if (!el) return;
+      el.setAttribute("contenteditable", "true");
+      el.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") { e.preventDefault(); el.blur(); }
+        if (e.key.length === 1 && !/[0-9]/.test(e.key)) e.preventDefault();
+      });
+      el.addEventListener("input", function () {
+        var d = (el.innerText || "").replace(/\D/g, "");
+        if (d.length >= len) { el.innerText = d.slice(-len); placeCaretEnd(el); sync(); }
+      });
+      el.addEventListener("blur", function () {
+        var r = clampRange(el, len, min, max);
+        el.innerText = r.has ? String(r.val).padStart(padTo, "0") : "";
+        sync();
+      });
+    }
     function placeCaretEnd(el) {
       try {
         var r = document.createRange(); r.selectNodeContents(el); r.collapse(false);
@@ -913,8 +968,20 @@ window.UI = (() => {
       } catch (_) {}
     }
 
+    // собрать YYYY-MM-DD из трёх частей даты (или "" если задана не полностью)
+    function composeDay() {
+      if (!dd) return dayInput.value;      // нет виджета даты — берём как есть
+      var d = clampRange(dd, 2, 1, 31), m = clampRange(mo, 2, 1, 12),
+          y = clampRange(yy, 4, 1970, 2100);
+      if (d.has && m.has && y.has) {
+        return y.val + "-" + pad(m.val) + "-" + pad(d.val);
+      }
+      return "";
+    }
+
     function sync() {
-      var day = dayInput.value;                       // YYYY-MM-DD или ""
+      var day = composeDay();                         // YYYY-MM-DD или ""
+      dayInput.value = day;
       var shv = clampNum(sh, 23, 0), smv = clampNum(sm, 59, 0);
       var ehv = clampNum(eh, 23, 0), emv = clampNum(em, 59, 0);
       // «начало задано» = есть день И заданы часы начала (иначе пусто)
@@ -934,18 +1001,26 @@ window.UI = (() => {
     }
 
     part(sh, 23); part(sm, 59); part(eh, 23); part(em, 59);
+    datePart(dd, 2, 1, 31, 2); datePart(mo, 2, 1, 12, 2); datePart(yy, 4, 1970, 2100, 4);
     dayInput.addEventListener("input", sync);
     dayInput.addEventListener("change", sync);
     // начальное состояние из уже подставленных hidden-значений
     (function initFrom() {
-      function fill(hidden, hh, mm) {
+      function fill(hidden) {
         var v = hidden && hidden.value;               // YYYY-MM-DDTHH:MM
         if (!v) return null;
         var t = v.split("T");
         return { day: t[0], hh: (t[1] || "").slice(0, 2), mm: (t[1] || "").slice(3, 5) };
       }
       var s = fill(startHidden), e = fill(endHidden);
-      if (s) { dayInput.value = s.day; sh.innerText = s.hh || "00"; sm.innerText = s.mm || "00"; }
+      if (s) {
+        dayInput.value = s.day;
+        if (dd && s.day) {
+          var p = s.day.split("-");                    // [YYYY, MM, DD]
+          yy.innerText = p[0] || ""; mo.innerText = p[1] || ""; dd.innerText = p[2] || "";
+        }
+        sh.innerText = s.hh || "00"; sm.innerText = s.mm || "00";
+      }
       if (e) { eh.innerText = e.hh || "00"; em.innerText = e.mm || "00"; }
     })();
 

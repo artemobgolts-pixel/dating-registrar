@@ -262,3 +262,43 @@ def build_og_collage(filenames: list[str]) -> str | None:
     canvas.save(tmp, "WEBP", quality=82, method=4)
     tmp.replace(out)
     return str(out)
+
+
+def _parse_focus(focus: str | None) -> tuple[float, float]:
+    """«X% Y%» → (0..1, 0..1). Некорректное/пустое → центр (.5, .5)."""
+    m = re.fullmatch(r"\s*(\d{1,3})%\s+(\d{1,3})%\s*", focus or "")
+    if not m:
+        return 0.5, 0.5
+    x = min(100, int(m.group(1))) / 100.0
+    y = min(100, int(m.group(2))) / 100.0
+    return x, y
+
+
+def build_og_crop(filename: str, focus: str | None) -> str | None:
+    """Кроп своей картинки превью категории в 1200×630 по точке фокуса (WYSIWYG
+    с редактором: как её двигает владелец, так og:image и выглядит). Кэш на диске
+    по (файл, фокус) — краулеры мессенджеров не пересобирают. None, если исходника
+    нет/битый."""
+    if not filename:
+        return None
+    src = UPLOAD_DIR / Path(filename).name
+    if not src.exists():
+        return None
+    fx, fy = _parse_focus(focus)
+    key = f"{Path(filename).name}|{fx:.2f}|{fy:.2f}"
+    h = hashlib.sha256(key.encode()).hexdigest()[:24]
+    out = OG_CACHE_DIR / f"ogc_{h}.webp"
+    if out.exists():
+        return str(out)
+    try:
+        im = Image.open(src)
+        im.load()
+        im = im.convert("RGB")
+    except Exception:
+        return None
+    # ImageOps.fit кропает под 1200×630, centering = точка фокуса
+    tile = ImageOps.fit(im, (OG_W, OG_H), Image.LANCZOS, centering=(fx, fy))
+    tmp = out.with_suffix(".tmp.webp")
+    tile.save(tmp, "WEBP", quality=85, method=4)
+    tmp.replace(out)
+    return str(out)

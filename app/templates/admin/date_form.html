@@ -68,6 +68,10 @@
          data-token="{{ date['share_token'] if date else '' }}">
       <!-- галерея фото/видео: листание + добавление кнопкой + -->
       <div class="ed-gallery" id="edGallery">
+        <!-- D4: модификатор (оплата) бейджем ПОВЕРХ фото; JS прячет его, когда
+             фото нет (edEmpty виден) — тогда бейдж показываем в теле у названия. -->
+        <span class="ed-gallery-pay bdg pay" data-preview="pay-photo"
+              {% if not (date and date['pay_split'] and photos) %}hidden{% endif %}>{{ pay_label(date['pay_split']) if date else '' }}</span>
         <div class="ed-slides" id="edSlides">
           {% if date and photos %}
           {% for p in photos %}
@@ -89,8 +93,11 @@
           {% endif %}
         </div>
         <div class="ed-empty" id="edEmpty" {% if (date and (photos or videos)) %}hidden{% endif %}>
-          <div class="ed-empty-ic">📷</div>
-          <button type="button" class="btn small" id="edAddFirst">Добавить фото или видео</button>
+          {# D5: по умолчанию — наше лого фоном (пока своё фото не добавлено) #}
+          <img class="ed-empty-logo" src="/static/date-default.jpg" alt="" draggable="false">
+          <div class="ed-empty-inner">
+            <button type="button" class="btn small" id="edAddFirst">Добавить фото или видео</button>
+          </div>
         </div>
         <button type="button" class="ed-nav prev" id="edPrev" aria-label="Предыдущее" hidden>‹</button>
         <button type="button" class="ed-nav next" id="edNext" aria-label="Следующее" hidden>›</button>
@@ -101,13 +108,21 @@
       <div class="body">
         <h3 class="ttl">
           <span class="ed-field" id="edTitle" data-ph="Название свидания">{{ date['name'] if date else '' }}</span>
-          <span class="pay" data-preview="pay" {% if not (date and date['pay_split']) %}hidden{% endif %}>{{ pay_label(date['pay_split']) if date else '' }}</span>
+          {# запасное место модификатора — в заголовке, когда фото НЕТ (иначе он
+             живёт бейджем на фото, см. .ed-gallery-pay). JS переключает видимость. #}
+          <span class="pay" data-preview="pay" {% if not (date and date['pay_split']) or (date and photos) %}hidden{% endif %}>{{ pay_label(date['pay_split']) if date else '' }}</span>
         </h3>
 
         <div class="pmeta">
+          {# D3: смайлик часов убран (занимал строку). D1: дата — такими же
+             кликабельными частями (ДД.ММ.ГГГГ), как время; скрытый input
+             хранит YYYY-MM-DD для UI.timeRange. #}
           <div class="ed-when" id="edWhen">
-            <span class="ed-when-ic" aria-hidden="true">🕐</span>
-            <input type="date" class="ed-day" data-tr-day value="{{ (date['starts_at'].split('T')[0]) if (date and date['starts_at']) else '' }}">
+            <input type="hidden" class="ed-day" data-tr-day value="{{ (date['starts_at'].split('T')[0]) if (date and date['starts_at']) else '' }}">
+            <span class="ed-date" data-tr-datewidget>
+              <span class="ed-dd" data-tr-dd>{{ (date['starts_at'].split('T')[0].split('-')[2]) if (date and date['starts_at']) else '' }}</span><span class="ed-dot">.</span><span class="ed-mo" data-tr-mo>{{ (date['starts_at'].split('T')[0].split('-')[1]) if (date and date['starts_at']) else '' }}</span><span class="ed-dot">.</span><span class="ed-yy" data-tr-yy>{{ (date['starts_at'].split('T')[0].split('-')[0]) if (date and date['starts_at']) else '' }}</span>
+            </span>
+            <span class="ed-at" aria-hidden="true">в</span>
             <span class="ed-time">
               <span class="ed-hh" data-tr-hh>{{ (date['starts_at'].split('T')[1][:2]) if (date and date['starts_at']) else '' }}</span><span class="ed-colon">:</span><span class="ed-mm" data-tr-mm>{{ (date['starts_at'].split('T')[1][3:5]) if (date and date['starts_at']) else '' }}</span>
               <span class="ed-dash">–</span>

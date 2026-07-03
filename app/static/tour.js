@@ -68,6 +68,7 @@
     var overlay = document.createElement("div");
     overlay.className = "tour-overlay";
     overlay.innerHTML =
+      '<div class="tour-blur" aria-hidden="true"></div>' +
       '<div class="tour-spot" aria-hidden="true"></div>' +
       '<div class="tour-pop" role="dialog" aria-modal="true" aria-labelledby="tourTitle">' +
       '  <div class="tour-step" id="tourStepNo"></div>' +
@@ -82,6 +83,7 @@
     document.body.classList.add("tour-lock");    // блокируем прокрутку страницы
 
     var spot = overlay.querySelector(".tour-spot");
+    var blur = overlay.querySelector(".tour-blur");
     var pop = overlay.querySelector(".tour-pop");
     var elTitle = overlay.querySelector("#tourTitle");
     var elText = overlay.querySelector("#tourText");
@@ -100,10 +102,37 @@
       // На телефоне подсветка была слишком «толстой» и налезала на соседние
       // элементы (например, на кнопку «Главная» в шапке) — уменьшаем отступ.
       var pad = window.innerWidth <= 720 ? 4 : 8;
-      spot.style.top = (r.top - pad) + "px";
-      spot.style.left = (r.left - pad) + "px";
-      spot.style.width = (r.width + pad * 2) + "px";
-      spot.style.height = (r.height + pad * 2) + "px";
+      var st = r.top - pad, sl = r.left - pad,
+          sw = r.width + pad * 2, sh = r.height + pad * 2;
+      spot.style.top = st + "px";
+      spot.style.left = sl + "px";
+      spot.style.width = sw + "px";
+      spot.style.height = sh + "px";
+      // Реальный блюр всего ВОКРУГ цели: слой .tour-blur размывает страницу, а
+      // вырез evenodd-clip-path (внешний прямоугольник экрана минус скруглённый
+      // прямоугольник цели) оставляет саму цель чёткой и НЕ размытой. Так blur
+      // не задевает подсвечиваемый элемент (его нельзя исключить из backdrop
+      // родителя — поэтому вырезаем область в самом блюр-слое).
+      if (blur) {
+        var rad = 14;
+        var W = window.innerWidth, H = window.innerHeight;
+        // внешний контур — весь экран (по часовой), внутренний — цель (против),
+        // evenodd оставляет «дырку». Углы цели скругляем восемью точками.
+        var x0 = sl, y0 = st, x1 = sl + sw, y1 = st + sh;
+        var rr = Math.min(rad, sw / 2, sh / 2);
+        var hole =
+          (x0 + rr) + "px " + y0 + "px, " +
+          (x1 - rr) + "px " + y0 + "px, " +
+          x1 + "px " + (y0 + rr) + "px, " +
+          x1 + "px " + (y1 - rr) + "px, " +
+          (x1 - rr) + "px " + y1 + "px, " +
+          (x0 + rr) + "px " + y1 + "px, " +
+          x0 + "px " + (y1 - rr) + "px, " +
+          x0 + "px " + (y0 + rr) + "px";
+        blur.style.clipPath =
+          "polygon(evenodd, 0 0, 100% 0, 100% 100%, 0 100%, 0 0, " + hole + ")";
+        blur.style.webkitClipPath = blur.style.clipPath;
+      }
       elNo.textContent = "Шаг " + (i + 1) + " из " + steps.length;
       elTitle.textContent = step.title;
       elText.textContent = step.text;

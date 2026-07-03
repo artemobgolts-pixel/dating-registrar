@@ -47,6 +47,9 @@
   v18 — dates.is_public: свидание попадает в общую ленту комьюнити на главной
        (по умолчанию 1 = публичное). Приватные (0) видны только владельцу и по
        секретным ссылкам, но не в ленте. Бэкофилл существующих = 1 (дефолт).
+  v21 — categories.og_focus: точка фокуса своей картинки превью ссылки «X% Y%»
+       (как date_images.focus). og:image кропается по ней в 1200×630 (WYSIWYG
+       с редактором). NULL = центр.
 
 Свежая база создаётся сразу по последней схеме. Существующая —
 докатывается миграциями при старте приложения.
@@ -60,7 +63,7 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "app.db"
 
-LATEST_VERSION = 20
+LATEST_VERSION = 21
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -117,6 +120,7 @@ CREATE TABLE IF NOT EXISTS categories (
     og_title TEXT,             -- заголовок превью ссылки (NULL = дефолт)
     og_desc TEXT,              -- описание превью ссылки (NULL = дефолт)
     og_image TEXT,             -- картинка превью ссылки, WebP-файл (NULL = /static/og.png)
+    og_focus TEXT,             -- точка фокуса своей картинки превью: «X% Y%» (NULL = центр)
     created_at TEXT NOT NULL
 );
 
@@ -568,6 +572,12 @@ MIGRATIONS: dict[int, str] = {
         -- пост-проходом в конце init_db, туда же попадут и их индексы — на старой
         -- базе к моменту миграций таблицы date_links может ещё не быть.
         CREATE INDEX IF NOT EXISTS idx_q_date ON questions(date_id);
+    """,
+    21: """
+        -- Точка фокуса своей картинки превью ссылки: «X% Y%» (как date_images.focus).
+        -- Владелец двигает картинку в редакторе категории, чтобы выбрать кадр 1200×630;
+        -- og:image кропается по этой точке (WYSIWYG). NULL = центр (50% 50%).
+        ALTER TABLE categories ADD COLUMN og_focus TEXT;
     """,
 }
 
