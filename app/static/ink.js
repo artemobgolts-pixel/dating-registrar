@@ -23,6 +23,16 @@
 
   var reduce = window.matchMedia &&
     window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var darkTheme = document.documentElement.getAttribute("data-theme") === "dark";
+
+  // Интерактивная часть — настройка аккаунта. Сам живой фон рисуется всегда,
+  // но движение мыши и клики читаются только при явном серверном разрешении.
+  // Проверяем атрибут на каждом событии: Turbo может заменить <body>, сохранив
+  // постоянный canvas и этот единственный экземпляр скрипта.
+  function interactiveEnabled() {
+    return document.documentElement.getAttribute("data-ink-interactive") === "1" ||
+      (!!document.body && document.body.getAttribute("data-ink-interactive") === "1");
+  }
 
   var canvas = document.createElement("canvas");
   canvas.className = "ink-canvas";
@@ -180,20 +190,30 @@ void main(){
 precision highp float;
 in vec2 vUv; out vec4 o;
 uniform sampler2D uDisp; uniform sampler2D uDye; uniform vec2 res; uniform float t;
+uniform float uDark; uniform float uInteractive;
 // Кольцевой буфер кликов: каждый клик — центр (xy в uv), возраст(с) и сид формы.
 // Неактивные слоты держат uClickAge < 0 и пропускаются в цикле (тяжёлый fbm не считается).
 #define MAX_CLICKS ${MAX_CLICKS}
 uniform vec2  uClickPos[MAX_CLICKS];
 uniform float uClickAge[MAX_CLICKS];
 uniform float uClickSeed[MAX_CLICKS];
-const vec3 BG    = vec3(0.984, 0.949, 0.945);
-const vec3 ROSE  = vec3(0.713, 0.372, 0.435);
-const vec3 BERRY = vec3(0.560, 0.290, 0.345);
-const vec3 PEACH = vec3(0.886, 0.690, 0.541);
-const vec3 LILAC = vec3(0.808, 0.588, 0.784);
-const vec3 EMBER = vec3(1.0, 0.38, 0.0);   // выжигающий оранжевый — обводка следа
-const vec3 EMBHI = vec3(1.0, 0.78, 0.22);  // светящееся ядро капли (делаем прозрачнее)
-const vec3 INKBLK = vec3(0.05, 0.04, 0.06); // чёрные чернила по клику
+const vec3 BG_L    = vec3(0.984, 0.949, 0.945);
+const vec3 ROSE_L  = vec3(0.713, 0.372, 0.435);
+const vec3 BERRY_L = vec3(0.560, 0.290, 0.345);
+const vec3 PEACH_L = vec3(0.886, 0.690, 0.541);
+const vec3 LILAC_L = vec3(0.808, 0.588, 0.784);
+const vec3 EMBER_L = vec3(1.0, 0.38, 0.0);
+const vec3 EMBHI_L = vec3(1.0, 0.78, 0.22);
+const vec3 INK_L   = vec3(0.05, 0.04, 0.06);
+// Та же палитра в ночной экспозиции: без чистого чёрного и кислотных бликов.
+const vec3 BG_D    = vec3(0.090, 0.071, 0.090);
+const vec3 ROSE_D  = vec3(0.380, 0.205, 0.265);
+const vec3 BERRY_D = vec3(0.245, 0.128, 0.185);
+const vec3 PEACH_D = vec3(0.405, 0.285, 0.235);
+const vec3 LILAC_D = vec3(0.300, 0.220, 0.335);
+const vec3 EMBER_D = vec3(0.730, 0.390, 0.245);
+const vec3 EMBHI_D = vec3(0.845, 0.615, 0.390);
+const vec3 INK_D   = vec3(0.835, 0.665, 0.720);
 float hash(vec2 p){ p = fract(p*vec2(123.34,456.21)); p += dot(p,p+45.32); return fract(p.x*p.y); }
 float noise(vec2 p){
   vec2 i = floor(p), f = fract(p);
@@ -293,7 +313,8 @@ vec3 inkAt(vec3 col, vec2 uv, vec2 dsp, vec2 cc, float age, float sd){
   if (dens <= 0.004) return col;
   float dd = smoothstep(0.10, 0.72, dens);          // густота → к центру плотнее
   float a  = smoothstep(0.02, 0.18, dens);          // мягкая, но не размытая кромка
-  vec3 inkc = mix(INKBLK + vec3(0.14,0.115,0.15), INKBLK, dd);
+  vec3 inkBase = mix(INK_L, INK_D, uDark);
+  vec3 inkc = mix(inkBase + vec3(0.14,0.115,0.15), inkBase, dd);
   inkc += (veins - 0.5) * 0.05;                     // лёгкая мраморность в жилах
   return mix(col, inkc, clamp(a * (0.34 + 0.50 * dd), 0.0, 0.86));
 }
@@ -301,7 +322,7 @@ void main(){
   vec2 uv = vUv;
   uv.x *= res.x/res.y;
   float tt = t * 0.016;
-  vec3 dsp = texture(uDisp, vUv).xyz;
+  vec3 dsp = texture(uDisp, vUv).xyz * uInteractive;
   vec2 inkUv = uv;                       // НЕсмещённая координата для туши:
                                          // тушь стоит на месте, как в статич. эталоне
   uv += dsp.xy;                          // накопленное смещение — только для ФОНА
@@ -310,22 +331,29 @@ void main(){
   vec2 r = vec2(fbm(uv*1.6 + 4.0*q + vec2(1.7, 9.2) + tt*0.9),
                 fbm(uv*1.6 + 4.0*q + vec2(8.3, 2.8) - tt*0.9));
   float f = fbm(uv*1.6 + 4.3*r + 0.35*sin(tt));
-  vec3 col = BG;
-  col = mix(col, LILAC, smoothstep(0.42, 1.02, length(r)) * 0.42);
-  col = mix(col, ROSE,  smoothstep(0.52, 1.10, f) * 0.62);
-  col = mix(col, PEACH, smoothstep(0.45, 0.95, q.x*q.x) * 0.38);
-  col = mix(col, BERRY, smoothstep(0.74, 1.12, f*1.1) * 0.5);
-  col = mix(col, BG, smoothstep(0.55, 1.0, 1.0 - vUv.y*res.y/res.x) * 0.25);
+  vec3 bg = mix(BG_L, BG_D, uDark);
+  vec3 rose = mix(ROSE_L, ROSE_D, uDark);
+  vec3 berry = mix(BERRY_L, BERRY_D, uDark);
+  vec3 peach = mix(PEACH_L, PEACH_D, uDark);
+  vec3 lilac = mix(LILAC_L, LILAC_D, uDark);
+  vec3 col = bg;
+  col = mix(col, lilac, smoothstep(0.42, 1.02, length(r)) * 0.42);
+  col = mix(col, rose,  smoothstep(0.52, 1.10, f) * 0.62);
+  col = mix(col, peach, smoothstep(0.45, 0.95, q.x*q.x) * 0.38);
+  col = mix(col, berry, smoothstep(0.74, 1.12, f*1.1) * 0.5);
+  col = mix(col, bg, smoothstep(0.55, 1.0, 1.0 - vUv.y*res.y/res.x) * 0.25);
   // тёплый след курсора (R-канал dye): оранжевая обводка + едва заметное ядро
-  float warm = clamp(texture(uDye, vUv).x, 0.0, 1.4);
-  col = mix(col, EMBER, smoothstep(0.015, 0.35, warm) * 0.45);
-  col = mix(col, EMBHI, smoothstep(0.45, 1.15, warm) * 0.10);
+  float warm = clamp(texture(uDye, vUv).x, 0.0, 1.4) * uInteractive;
+  col = mix(col, mix(EMBER_L, EMBER_D, uDark), smoothstep(0.015, 0.35, warm) * 0.45);
+  col = mix(col, mix(EMBHI_L, EMBHI_D, uDark), smoothstep(0.45, 1.15, warm) * 0.10);
   // ЧЁРНЫЕ КЛИКИ → тушь в воде. Кольцо клик-слотов: каждый рисуется тонкими
   // ветвящимися нитями (inkAt). Новый клик НЕ стирает прежние — складываем все
   // активные. Неактивные (age<0) inkAt отбрасывает сразу, fbm для них не считает.
-  for (int i = 0; i < MAX_CLICKS; i++) {
-    vec2 cc = uClickPos[i]; cc.x *= res.x/res.y;
-    col = inkAt(col, inkUv, dsp.xy, cc, uClickAge[i], uClickSeed[i]);
+  if (uInteractive > 0.5) {
+    for (int i = 0; i < MAX_CLICKS; i++) {
+      vec2 cc = uClickPos[i]; cc.x *= res.x/res.y;
+      col = inkAt(col, inkUv, dsp.xy, cc, uClickAge[i], uClickSeed[i]);
+    }
   }
   o = vec4(col, 1.0);
 }`;
@@ -555,6 +583,7 @@ void main(){
   for (var ci = 0; ci < MAX_CLICKS; ci++) clickAge[ci] = -1.0;  // все слоты пусты
 
   function onMove(cx, cy) {
+    if (!interactiveEnabled()) return;
     pointer.px = pointer.x; pointer.py = pointer.y;
     pointer.x = cx / window.innerWidth;
     pointer.y = 1.0 - cy / window.innerHeight;
@@ -562,6 +591,7 @@ void main(){
     play();
   }
   function onClick(cx, cy) {
+    if (!interactiveEnabled()) return;
     clickX = cx / window.innerWidth;
     clickY = 1.0 - cy / window.innerHeight;
     clickPending = true;
@@ -605,7 +635,12 @@ void main(){
     // ввод курсора → толчок течения; держим симуляцию активной ещё IDLE_HOLD сек.
     // prevX/Y — начало отрезка пути для непрерывного следа в accum.
     var inject = 0.0, prevX = pointer.x, prevY = pointer.y;
-    if (pointer.moved) {
+    var interactive = interactiveEnabled();
+    if (!interactive) {
+      pointer.moved = false;
+      clickPending = false;
+    }
+    if (interactive && pointer.moved) {
       var dx = (pointer.x - pointer.px) * FORCE;
       var dy = (pointer.y - pointer.py) * FORCE;
       splat(pointer.x, pointer.y, dx * dt, dy * dt);
@@ -620,7 +655,7 @@ void main(){
     // КЛИК = капля упала в воду. Чернила рисуем ПРОЦЕДУРНО в шейдере (см. DISP_FS):
     // занимаем следующий слот кольца (центр, время рождения, сид) — прежние кляксы
     // остаются жить. Лёгкий толчок скорости оставляем, чтобы марморность колыхнулась.
-    if (clickPending) {
+    if (interactive && clickPending) {
       CURL = CLICK_CURL;
       clickPos[clickSlot * 2] = clickX; clickPos[clickSlot * 2 + 1] = clickY;
       clickStart[clickSlot] = nowS;
@@ -672,6 +707,8 @@ void main(){
     gl.useProgram(dp.prog);
     gl.uniform2f(dp.u.res, canvas.width, canvas.height);
     gl.uniform1f(dp.u.t, nowS);
+    gl.uniform1f(dp.u.uDark, darkTheme ? 1.0 : 0.0);
+    gl.uniform1f(dp.u.uInteractive, interactive ? 1.0 : 0.0);
     gl.uniform1i(dp.u.uDisp, disp.read.attach(0));
     gl.uniform1i(dp.u.uDye, dye.read.attach(1));
     // возраст каждой кляксы = now − рождение; пустые слоты держим <0 (шейдер их пропустит)
@@ -717,6 +754,8 @@ void main(){
       gl.useProgram(d.prog);
       gl.uniform2f(d.u.res, canvas.width, canvas.height);
       gl.uniform1f(d.u.t, bgTime == null ? 8.0 : bgTime);
+      gl.uniform1f(d.u.uDark, darkTheme ? 1.0 : 0.0);
+      gl.uniform1f(d.u.uInteractive, 1.0);
       gl.uniform1i(d.u.uDisp, disp.read.attach(0));   // disp пустой → фон не смещён
       gl.uniform1i(d.u.uDye, dye.read.attach(1));     // dye пустой → без тёплого следа
       gl.uniform2fv(d.u["uClickPos[0]"], clickPos);
@@ -729,18 +768,29 @@ void main(){
     return;   // в тест-режиме фоновый цикл не запускаем — кадры рисует хук
   }
 
-  if (reduce) {
+  function drawStatic() {
     // статичный «красивый» кадр без анимации и без жидкости (uDisp = 0)
     var dpr2 = progs.disp;
     gl.useProgram(dpr2.prog);
     gl.uniform2f(dpr2.u.res, canvas.width, canvas.height);
     gl.uniform1f(dpr2.u.t, 8.0);
+    gl.uniform1f(dpr2.u.uDark, darkTheme ? 1.0 : 0.0);
+    gl.uniform1f(dpr2.u.uInteractive, 0.0);
     gl.uniform1i(dpr2.u.uDisp, disp.read.attach(0));
     gl.uniform1i(dpr2.u.uDye, dye.read.attach(1));   // пустые чернила на статичном кадре
     gl.uniform2fv(dpr2.u["uClickPos[0]"], clickPos);
     gl.uniform1fv(dpr2.u["uClickAge[0]"], clickAge); // все <0 → без клик-клякс на статике
     gl.uniform1fv(dpr2.u["uClickSeed[0]"], clickSeed);
     blit(null);
+  }
+
+  document.addEventListener("d4y:themechange", function (event) {
+    darkTheme = event.detail && event.detail.theme === "dark";
+    if (reduce) drawStatic(); else play();
+  });
+
+  if (reduce) {
+    drawStatic();
   } else {
     document.addEventListener("visibilitychange", function () {
       if (document.hidden) pause(); else play();

@@ -824,7 +824,7 @@ dialog::backdrop { background: rgba(70, 40, 46, .38); backdrop-filter: blur(5px)
 
 .field { margin-bottom: 14px; }
 .field label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
-.field input[type="text"], .field input[type="datetime-local"], .field textarea {
+.field input[type="text"], .field input[type="number"], .field input[type="datetime-local"], .field textarea {
   width: 100%;
   border: 1px solid var(--line);
   background: #fffefd;
@@ -1005,32 +1005,23 @@ details.endtime[open] summary { margin-bottom: 10px; }
 }
 @media (max-width: 560px) { .lb-prev, .lb-next { display: none; } } /* свайп */
 
-/* --- круглый FAB ------------------------------------------------------------*/
+/* --- FAB создания свидания --------------------------------------------------*/
 .fab {
   position: fixed; right: 18px; bottom: 20px; z-index: 40;
-  width: 58px; height: 58px; border-radius: 50%; border: 0;
+  min-width: 58px; height: 58px; border-radius: 999px; border: 0;
+  padding: 0 21px;
   background: linear-gradient(135deg, var(--rose), var(--rose-2));
   color: #fff; cursor: pointer;
-  display: grid; place-items: center;
+  display: inline-flex; align-items: center; justify-content: center; gap: 9px;
   box-shadow: 0 12px 28px rgba(150, 70, 85, .42);
   transition: transform .2s var(--ease), box-shadow .25s;
   animation: fade-up .7s var(--ease) .5s both;
 }
 .fab .plus { font-size: 27px; line-height: 1; margin-top: -2px; }
+.fab-label { font: 600 14px/1 var(--sans); white-space: nowrap; }
 .fab:hover { transform: translateY(-2px) scale(1.05); box-shadow: 0 16px 34px rgba(150, 70, 85, .5); }
 .fab:active { transform: scale(.94); }
-@media (hover: hover) {
-  .fab::after {
-    content: "предложить свидание";
-    position: absolute; right: calc(100% + 12px); top: 50%;
-    transform: translateY(-50%);
-    white-space: nowrap;
-    background: rgba(67, 45, 51, .92); color: #fff;
-    font-size: 13px; padding: 7px 14px; border-radius: 999px;
-    opacity: 0; pointer-events: none; transition: opacity .25s;
-  }
-  .fab:hover::after { opacity: 1; }
-}
+@media (max-width: 420px) { .fab { right: 12px; bottom: 14px; height: 52px; padding: 0 17px; } }
 
 .alt-time { display: block; font-size: 12.5px; color: var(--muted); margin: 2px 0 6px; }
 
@@ -1421,3 +1412,313 @@ footer .hearts { color: var(--rose); opacity: .55; letter-spacing: 8px; margin-b
 }
 .bg-smoke.has-ink .turb,
 .bg-smoke.has-ink span { display: none; }   /* шейдер вместо CSS-дыма */
+
+/* ============================================================================
+   ТЁМНАЯ ТЕМА — спокойная ночная версия той же розово-дымчатой палитры.
+   Геометрия, blur и движение не меняются: переопределяются только цвета,
+   прозрачность стекла и тени. Выбор ставит /static/theme.js на <html>.
+   ============================================================================ */
+html[data-theme="dark"] {
+  --bg: #171318;
+  --card: #251e24;
+  --ink: #f0e7eb;
+  --muted: #b5a5ad;
+  --rose: #d48799;
+  --rose-2: #e7a2b1;
+  --rose-soft: #3a2931;
+  --peach: #c99170;
+  --line: #493942;
+  --shadow: 0 14px 38px rgba(0, 0, 0, .42);
+  --shadow-soft: 0 6px 22px rgba(0, 0, 0, .3);
+}
+
+html[data-theme="dark"] body {
+  background: linear-gradient(180deg, #171318 0%, #21171d 48%, #19161f 100%);
+}
+html[data-theme="dark"] body::before {
+  background:
+    radial-gradient(42% 36% at 18% 16%, rgba(126, 65, 81, .28), transparent 70%),
+    radial-gradient(46% 40% at 86% 24%, rgba(130, 85, 65, .2), transparent 70%),
+    radial-gradient(50% 44% at 64% 88%, rgba(91, 65, 103, .24), transparent 72%);
+}
+html[data-theme="dark"] body::after {
+  background:
+    radial-gradient(38% 34% at 78% 70%, rgba(126, 65, 81, .18), transparent 70%),
+    radial-gradient(34% 30% at 8% 78%, rgba(89, 66, 105, .18), transparent 70%);
+}
+html[data-theme="dark"] .bg-smoke .turb {
+  opacity: .3;
+  mix-blend-mode: screen;
+}
+html[data-theme="dark"] .bg-smoke span:nth-child(2) {
+  background:
+    radial-gradient(46% 48% at 40% 40%, rgba(126, 65, 81, .44), transparent 66%),
+    radial-gradient(36% 34% at 66% 56%, rgba(82, 44, 58, .42), transparent 68%);
+}
+html[data-theme="dark"] .bg-smoke span:nth-child(3) {
+  background:
+    radial-gradient(46% 44% at 56% 40%, rgba(130, 85, 65, .3), transparent 66%),
+    radial-gradient(34% 38% at 38% 60%, rgba(91, 65, 103, .34), transparent 68%);
+}
+html[data-theme="dark"] .bg-smoke span:nth-child(4) {
+  background:
+    radial-gradient(46% 46% at 44% 50%, rgba(91, 65, 103, .38), transparent 66%),
+    radial-gradient(34% 34% at 64% 42%, rgba(126, 65, 81, .28), transparent 68%);
+}
+
+html[data-theme="dark"] .greet,
+html[data-theme="dark"] .author,
+html[data-theme="dark"] .promo-btn,
+html[data-theme="dark"] .archive-fold > summary {
+  background: rgba(39, 31, 37, .7);
+  border-color: rgba(255, 255, 255, .12);
+  box-shadow: var(--shadow-soft);
+}
+html[data-theme="dark"] .author:hover,
+html[data-theme="dark"] .promo-btn:hover,
+html[data-theme="dark"] .archive-fold > summary:hover {
+  background: rgba(53, 42, 50, .86);
+}
+html[data-theme="dark"] .greet button { color: var(--muted); }
+
+html[data-theme="dark"] .oauth-btn,
+html[data-theme="dark"] .toolbar button,
+html[data-theme="dark"] .btn.ghost {
+  background: rgba(42, 33, 40, .82);
+  border-color: var(--line);
+  color: var(--ink);
+}
+html[data-theme="dark"] .btn.ghost { color: var(--rose-2); }
+html[data-theme="dark"] .btn.ghost:hover { background: var(--rose-soft); }
+html[data-theme="dark"] .btn.book,
+html[data-theme="dark"] .login-corner,
+html[data-theme="dark"] .fab,
+html[data-theme="dark"] .status-chip.mine {
+  background: linear-gradient(135deg, #a75e70, #75404f);
+  color: #fff;
+}
+
+html[data-theme="dark"] .card {
+  background: linear-gradient(150deg,
+              rgba(44, 34, 41, .72), rgba(31, 25, 31, .58));
+  border-color: rgba(255, 255, 255, .13);
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, .36),
+    0 4px 14px rgba(0, 0, 0, .2),
+    inset 0 2px 1px rgba(255, 255, 255, .13),
+    inset 2px 0 1px rgba(255, 255, 255, .06),
+    inset 0 0 0 1px rgba(255, 255, 255, .04),
+    inset -2px -2px 2px rgba(0, 0, 0, .18);
+}
+html[data-theme="dark"] .card::after {
+  background: linear-gradient(125deg,
+    rgba(212, 135, 153, .08),
+    rgba(201, 145, 112, .035) 45%,
+    rgba(135, 102, 150, .09));
+  mix-blend-mode: screen;
+}
+html[data-theme="dark"] .body {
+  background: linear-gradient(180deg,
+              rgba(43, 33, 40, .28), rgba(29, 24, 29, .58));
+}
+html[data-theme="dark"] .card.booked-me {
+  background: linear-gradient(150deg,
+              rgba(71, 44, 53, .86), rgba(43, 31, 38, .76));
+  box-shadow:
+    0 22px 54px rgba(0, 0, 0, .4),
+    0 0 0 5px rgba(212, 135, 153, .09),
+    inset 0 1px 0 rgba(255, 255, 255, .12);
+}
+html[data-theme="dark"] .card.booked-other {
+  border-color: rgba(212, 135, 153, .42);
+  background: linear-gradient(150deg,
+              rgba(55, 39, 47, .78), rgba(38, 30, 36, .7));
+}
+html[data-theme="dark"] .card.past {
+  background: linear-gradient(150deg,
+              rgba(39, 34, 38, .7), rgba(29, 27, 30, .62));
+  border-color: rgba(174, 159, 167, .3);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .25), inset 0 1px 0 rgba(255, 255, 255, .07);
+}
+html[data-theme="dark"] .card.past .body {
+  color: #b2a7ac;
+  background: linear-gradient(180deg, rgba(37, 32, 36, .4), rgba(27, 25, 28, .58));
+}
+html[data-theme="dark"] .card.past .title { color: #c4b8bd; }
+html[data-theme="dark"] .card.past .when,
+html[data-theme="dark"] .card.past .place { color: #9f9499; }
+html[data-theme="dark"] .card.past .gallery { background: #282328; }
+
+html[data-theme="dark"] dialog,
+html[data-theme="dark"] .field input[type="text"],
+html[data-theme="dark"] .field input[type="number"],
+html[data-theme="dark"] .field input[type="datetime-local"],
+html[data-theme="dark"] .field textarea,
+html[data-theme="dark"] .rich-ed,
+html[data-theme="dark"] .dropzone,
+html[data-theme="dark"] .cal-btns a,
+html[data-theme="dark"] .qa-item {
+  background: #251f24;
+  color: var(--ink);
+  border-color: var(--line);
+}
+html[data-theme="dark"] dialog::backdrop { background: rgba(10, 7, 9, .7); }
+html[data-theme="dark"] input,
+html[data-theme="dark"] textarea,
+html[data-theme="dark"] select { color-scheme: dark; }
+html[data-theme="dark"] .chip,
+html[data-theme="dark"] .links a,
+html[data-theme="dark"] .chip-suggest,
+html[data-theme="dark"] .suggest-chip,
+html[data-theme="dark"] .alt-link {
+  background: #32262d;
+  color: var(--rose-2);
+  border-color: var(--line);
+}
+html[data-theme="dark"] .links a:hover { background: var(--rose-soft); }
+html[data-theme="dark"] .badge.guest {
+  background: linear-gradient(135deg, #3d302a, #493526); color: #e6b891;
+}
+html[data-theme="dark"] .badge.wait {
+  background: linear-gradient(135deg, #3b3527, #4a4026); color: #e0c279;
+}
+html[data-theme="dark"] .note-pending { color: #d5ba78; }
+html[data-theme="dark"] .vid-cur { border-color: var(--line); }
+html[data-theme="dark"] .login-dlg .consent,
+html[data-theme="dark"] .cat-desc { color: #c5b8be; }
+html[data-theme="dark"] .login-dlg .err {
+  background: #42272b; border-color: #6d3b42; color: #ffaaa8;
+}
+
+html[data-theme="dark"] .home-card {
+  background:
+    linear-gradient(150deg, rgba(45,35,42,.34), rgba(29,24,29,.22)) padding-box,
+    linear-gradient(135deg, rgba(255,255,255,.15), rgba(128,88,113,.3) 55%, rgba(96,52,65,.34)) border-box;
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, .38),
+    inset 0 1.5px 0 rgba(255, 255, 255, .12),
+    inset 0 0 0 1px rgba(255, 255, 255, .04);
+}
+
+/* Страницы с локальными inline-стилями (профиль, документы, публичный share). */
+html[data-theme="dark"] .share-cta,
+html[data-theme="dark"] .pub-card,
+html[data-theme="dark"] .proj-list a,
+html[data-theme="dark"] .support-card {
+  background: rgba(39, 31, 37, .76);
+  border-color: var(--line);
+  color: var(--ink);
+  box-shadow: var(--shadow-soft);
+}
+html[data-theme="dark"] .legal p,
+html[data-theme="dark"] .legal li,
+html[data-theme="dark"] .prof .meta,
+html[data-theme="dark"] .pub-card .t { color: var(--ink); }
+html[data-theme="dark"] .prof .ava-ph { background: var(--rose-soft); }
+html[data-theme="dark"] .prof .ava { border-color: var(--line); }
+
+/* Нейтральная VPN-подсказка на экранах входа. */
+.login-vpn {
+  display: flex; align-items: center; gap: 11px;
+  margin: 14px 0 0; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: 13px;
+  background: rgba(255, 255, 255, .5);
+  color: var(--muted); text-align: left; font-size: 13px; line-height: 1.35;
+}
+.login-vpn-logo { width: 30px; height: 30px; border-radius: 50%; flex: none; object-fit: cover; }
+.login-vpn-copy { min-width: 0; }
+.login-vpn-link { color: var(--rose-2); font-weight: 600; }
+html[data-theme="dark"] .login-vpn { background: rgba(42, 33, 40, .76); }
+
+@media (hover: hover) {
+  html[data-theme="dark"] .card:hover {
+    box-shadow:
+      0 30px 70px rgba(0, 0, 0, .45),
+      0 5px 16px rgba(0, 0, 0, .24),
+      inset 0 2px 1px rgba(255, 255, 255, .15),
+      inset 2px 0 1px rgba(255, 255, 255, .07),
+      inset 0 0 0 1px rgba(255, 255, 255, .04),
+      inset -2px -2px 2px rgba(0, 0, 0, .2);
+  }
+}
+
+/* Голосование: открытая сводка, прогресс и публичный список участников. */
+.notify-cta,
+.vote-summary {
+  position: relative; z-index: 2;
+  max-width: 680px; margin: 0 auto 16px; padding: 15px 17px;
+  display: flex; align-items: center; gap: 13px;
+  border: 1px solid rgba(255,255,255,.72); border-radius: 18px;
+  background: linear-gradient(145deg, rgba(255,255,255,.62), rgba(255,244,246,.46));
+  -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  backdrop-filter: blur(14px) saturate(1.4);
+  box-shadow: var(--shadow-soft);
+}
+.notify-cta-copy { min-width: 0; display: grid; gap: 3px; flex: 1; }
+.notify-cta-copy span, .vote-summary span { color: var(--muted); font-size: 13.5px; line-height: 1.42; }
+.notify-cta-icon { font-size: 23px; flex: none; }
+.notify-cta .btn { flex: none; min-width: auto; padding: 10px 15px; }
+.vote-summary { display: grid; gap: 4px; border-left: 4px solid var(--rose); }
+.vote-summary.vote-resolved { border-left-color: #6e9a72; }
+.vote-summary.vote-tie { border-left-color: #b78b45; }
+.vote-summary.vote-no_winner, .vote-summary.vote-unconfigured { border-left-color: #9a8e93; }
+
+.vote-progress {
+  margin-top: 14px; padding: 12px 13px;
+  border: 1px solid var(--line); border-radius: 15px;
+  background: rgba(255,255,255,.36);
+}
+.vote-progress-head { display: flex; align-items: baseline; gap: 6px; }
+.vote-progress-head b { color: var(--rose-2); font-size: 16px; }
+.vote-progress-head span, .vote-empty { color: var(--muted); font-size: 12.5px; }
+.vote-progress-track {
+  height: 7px; margin-top: 8px; overflow: hidden; border-radius: 99px;
+  background: rgba(153,117,126,.15);
+}
+.vote-progress-track i {
+  display: block; width: var(--vote-width, 0); height: 100%; border-radius: inherit;
+  background: linear-gradient(90deg, var(--rose), var(--peach));
+  transition: width .35s var(--ease);
+}
+.vote-progress.full .vote-progress-track i { background: linear-gradient(90deg, #9a5867, #6f8d73); }
+.participants { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
+.participant {
+  display: inline-flex; align-items: center; gap: 6px; min-width: 0;
+  padding: 4px 9px 4px 4px; border: 1px solid var(--line); border-radius: 999px;
+  background: rgba(255,255,255,.55); font-size: 12.5px;
+}
+.participant img, .participant-ph {
+  width: 26px; height: 26px; border-radius: 50%; flex: none; object-fit: cover;
+}
+.participant-ph { display: grid; place-items: center; color: #fff; background: linear-gradient(135deg,var(--rose),var(--rose-2)); font-weight: 700; }
+.participant small { color: var(--muted); }
+.participant.withdrawn { opacity: .58; text-decoration: line-through; }
+.vote-empty { margin: 8px 0 0; }
+.winner-ribbon {
+  position: absolute; z-index: 5; top: 12px; right: 12px;
+  padding: 7px 12px; border-radius: 999px; color: #fff; font-size: 12px; font-weight: 700;
+  background: linear-gradient(135deg,#5d8b65,#7aa47d); box-shadow: 0 5px 16px rgba(48,91,58,.28);
+}
+.winner-ribbon.tie { background: linear-gradient(135deg,#9d7338,#bd9659); }
+.winner-ribbon.inflow { position: static; width: fit-content; margin-bottom: 9px; }
+.card.vote-winner { border-color: rgba(92,148,103,.7); box-shadow: 0 20px 52px rgba(62,119,72,.18), inset 0 1px 0 rgba(255,255,255,.7); }
+.card.vote-loser { opacity: .68; filter: saturate(.7); }
+.card.vote-tie-leader { border-color: rgba(183,139,69,.72); }
+.withdrawn-note { align-self: center; color: var(--muted); font-size: 12.5px; }
+.btn:disabled { cursor: not-allowed; opacity: .55; transform: none; box-shadow: none; }
+
+html[data-theme="dark"] .notify-cta,
+html[data-theme="dark"] .vote-summary,
+html[data-theme="dark"] .vote-progress,
+html[data-theme="dark"] .participant {
+  background: rgba(41,32,39,.72); border-color: var(--line); color: var(--ink);
+}
+html[data-theme="dark"] .vote-progress-track { background: rgba(255,255,255,.09); }
+html[data-theme="dark"] .card.vote-winner { border-color: rgba(118,174,129,.64); }
+
+@media (max-width: 600px) {
+  .notify-cta { align-items: flex-start; flex-wrap: wrap; }
+  .notify-cta .btn { width: 100%; }
+  .vote-summary { margin-left: 2px; margin-right: 2px; }
+  .participant { max-width: 100%; }
+}

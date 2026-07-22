@@ -6,6 +6,8 @@
 <meta name="robots" content="noindex, nofollow">
 <title>{{ u['display_name'] or 'Профиль' }} · date4you</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>♥</text></svg>">
+<meta name="theme-color" content="#b65f6f">
+<script src="{{ asset('theme.js') }}"></script>
 <link rel="stylesheet" href="{{ asset('public.css') }}">
 <style>
   .prof { max-width: 460px; margin: 0 auto; padding: 48px 22px 80px; text-align: center; }
@@ -36,7 +38,10 @@
   .pub-empty { color: #9a8a8c; text-align: center; }
 </style>
 </head>
-<body>
+<body data-ink-interactive="{{ '1' if request.state.user and request.state.user['cursor_effects'] else '0' }}">
+<button type="button" class="theme-float" data-theme-toggle aria-label="Включить тёмную тему">
+  <span data-theme-icon aria-hidden="true">☾</span>
+</button>
 <main class="prof">
   <a class="back" href="/admin/">← в кабинет</a>
   {% if u['avatar_path'] %}

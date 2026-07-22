@@ -11,6 +11,7 @@
   <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
   <link rel="manifest" href="/static/manifest.json">
   <meta name="theme-color" content="#b65f6f">
+  <script src="{{ asset('theme.js') }}"></script>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>♥</text></svg>">
   <link rel="stylesheet" href="{{ asset('public.css') }}">
   <style>
@@ -30,7 +31,9 @@
   </style>
 </head>
 <body data-token="{{ token }}" data-name="{{ guest_name or '' }}"
-      data-auth="{{ '1' if me else '' }}" data-action-base="/d/{{ token }}">
+      data-auth="{{ '1' if me else '' }}" data-action-base="/d/{{ token }}"
+      data-withdraw-url="/d/{{ token }}/withdraw"
+      data-ink-interactive="{{ '1' if me and me['cursor_effects'] else '0' }}">
 
 <div class="bg-hearts" aria-hidden="true">
   <span>♥</span><span>♡</span><span>♥</span><span>♡</span><span>♥</span><span>♡</span><span>♥</span>
@@ -71,9 +74,13 @@
   </filter>
 </svg>
 
-{% if not me %}
-<button type="button" class="login-corner" id="loginOpen">Войти</button>
-{% endif %}
+<div class="corner-actions">
+  <button type="button" class="promo-btn theme-toggle" data-theme-toggle aria-label="Включить тёмную тему">
+    <span class="promo-ic" data-theme-icon aria-hidden="true">☾</span>
+    <span class="promo-lb" data-theme-label>Тёмная тема</span>
+  </button>
+  {% if not me %}<button type="button" class="login-corner" id="loginOpen">Войти</button>{% endif %}
+</div>
 
 <div class="wrap">
   <header class="hero">
@@ -82,18 +89,39 @@
     <p class="share-from">поделился: {{ owner_name }}</p>
   </header>
 
+  {% if bot and (not me or not me['bot_linked']) %}
+  <section class="notify-cta tg-connect" data-return-to="/d/{{ token }}"
+           aria-label="Уведомления в Telegram">
+    <div class="notify-cta-icon" aria-hidden="true">🔔</div>
+    <div class="notify-cta-copy">
+      <b>Подключите уведомления в Telegram</b>
+      <span>Пришлём результат голосования, важные изменения и напоминания.</span>
+      <span data-tg-hint hidden>Нажмите <b>Start</b>, затем <b>Подтвердить</b> в боте и вернитесь сюда.</span>
+      <span data-tg-error class="err" hidden></span>
+    </div>
+    <button type="button" class="btn book" data-tg-connect>Подключить</button>
+    <a data-tg-link href="#" target="_blank" rel="noopener" hidden></a>
+  </section>
+  {% endif %}
+
+  {% if vote_state %}
+  <section class="vote-summary vote-{{ vote_state.status }}">
+    {% if vote_state.status == 'unconfigured' %}<b>Голосование пока не открыто</b><span>Организатор настраивает правила и дедлайн. Сохранённый ранее выбор можно снять.</span>
+    {% elif vote_state.status == 'open' %}<b>Голосование идёт до {{ vote_state.voting_deadline | when }}</b><span>{% if vote_state.choice_mode == 'single' %}Можно выбрать один вариант.{% else %}Можно выбрать несколько вариантов.{% endif %}</span>
+    {% elif vote_state.status == 'tie' %}<b>Ничья</b><span>Организатор вручную выбирает победителя среди лидеров.</span>
+    {% elif vote_state.status == 'no_winner' %}<b>Никто не выбрал</b><span>Голосование завершено без победителя.</span>
+    {% else %}<b>Голосование завершено</b><span>{{ 'Это победившее свидание ♥' if d.is_winner else 'Победил другой вариант категории.' }}</span>{% endif %}
+  </section>
+  {% endif %}
+
   <section class="cards">
-    <article class="card{% if d.booked_by_me %} booked-me{% elif d.booked_others_list %} booked-other{% endif %}{% if not d.images and not d.videos %} nophoto{% endif %}"
-             id="date-{{ d.id }}" data-others="{{ d.booked_others }}">
+    <article class="card{% if d.booked_by_me %} booked-me{% endif %}{% if d.is_winner %} vote-winner{% elif d.is_loser %} vote-loser{% endif %}{% if not d.images and not d.videos %} nophoto{% endif %}"
+             id="date-{{ d.id }}">
       {% if d.images or d.videos %}
       <div class="gal-wrap">
         <div class="seal"{% if not d.booked_by_me %} hidden{% endif %}>♥</div>
         {% if d.pay_split %}<div class="badges"><span class="badge pay">{{ d.pay_split | pay_label }}</span></div>{% endif %}
-        <div class="booked-overlay" aria-hidden="true">
-          <div class="bo-inner"><span class="bo-heart">♥</span><span class="bo-text">Забронировано</span>
-            <span class="bo-who">{% if d.booked_by_me %}{{ guest_name or 'ты ♥' }}{% elif d.booked_others_list %}{{ d.booked_others_list[0] }}{% endif %}</span>
-          </div>
-        </div>
+        {% if d.is_winner %}<div class="winner-ribbon">Победитель ♥</div>{% endif %}
         <div class="gallery">
           {% for im in d.images %}
           <img src="/d/{{ token }}/image/{{ im['filename'] }}" alt=""
@@ -117,12 +145,7 @@
           <button type="button" class="report-link" data-id="{{ d.id }}" data-name="{{ d.name }}">пожаловаться</button>
           {% endif %}
         </div>
-        {% if not d.images and not d.videos and (d.booked_by_me or d.booked_others_list) %}
-        <div class="status-chip{% if d.booked_by_me %} mine{% endif %}">
-          <span aria-hidden="true">♥</span>
-          <span>Забронировано{% if d.booked_by_me %} · {{ guest_name or 'ты' }}{% elif d.booked_others_list %} · {{ d.booked_others_list[0] }}{% endif %}</span>
-        </div>
-        {% endif %}
+        {% if not d.images and not d.videos and d.is_winner %}<div class="winner-ribbon inflow">Победитель ♥</div>{% endif %}
         <div class="meta">
           {% if d.starts_at %}
           <div class="when"><span aria-hidden="true">🕐</span>
@@ -132,7 +155,7 @@
                data-ics="/d/{{ token }}/ics">в календарь</a>
             {% endif %}
           </div>
-          {% elif can_act %}
+          {% elif can_question %}
           <div class="when">
             <button type="button" class="chip-suggest suggest"
                     data-id="{{ d.id }}" data-name="{{ d.name }}">📅 предложить дату</button>
@@ -151,15 +174,34 @@
         </div>
         {% endif %}
 
-        {% if not is_mine and can_act %}
+        {% if vote_state %}
+        {% set show_roster = vote_state.status in ('unconfigured', 'open')
+                             or (vote_state.status == 'resolved' and d.is_winner) %}
+        <div class="vote-progress{% if d.is_full %} full{% endif %}">
+          <div class="vote-progress-head"><b>{{ d.vote_count }}/{{ d.capacity }}</b><span>{{ 'участников' if show_roster else 'голосов' }}</span></div>
+          <div class="vote-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="{{ d.capacity }}" aria-valuenow="{{ d.vote_count }}">
+            <i style="--vote-width:{{ [100, (d.vote_count * 100 / d.capacity)] | min }}%"></i>
+          </div>
+          {% if show_roster and d.participants %}<div class="participants">
+            {% for person in d.participants %}<span class="participant{% if person['participation_withdrawn_at'] %} withdrawn{% endif %}">
+              {% if person['avatar_path'] and person['user_id'] %}<img src="/d/{{ token }}/participant-avatar/{{ person['user_id'] }}" alt="" width="26" height="26" loading="lazy">
+              {% else %}<span class="participant-ph">{{ person['name'][:1] | upper }}</span>{% endif %}
+              <span>{{ person['name'] }}{% if me and person['guest_token'] == ('u' ~ me['id']) %} · ты{% endif %}</span>
+            </span>{% endfor %}
+          </div>{% elif show_roster %}<p class="vote-empty">Пока без голосов.</p>{% endif %}
+        </div>
+        {% endif %}
+
+        {% if not is_mine and can_question %}
         <div class="actions">
-          {% if d.booked_by_me %}
-          <button class="btn book on" data-id="{{ d.id }}">Выбрано ♥</button>
-          {% elif d.booked_others_list %}
-          <button class="btn book" data-id="{{ d.id }}" disabled>Занято</button>
-          {% else %}
-          <button class="btn book" data-id="{{ d.id }}">Выбрать ♥</button>
+          {% if can_vote and vote_state and vote_state.status == 'open' %}
+            {% if d.booked_by_me %}<button class="btn book on" data-id="{{ d.id }}">Выбрано ♥</button>
+            {% elif can_cast_vote and d.is_full %}<button class="btn book" data-id="{{ d.id }}" disabled>Набрано {{ d.vote_count }}/{{ d.capacity }}</button>
+            {% elif can_cast_vote %}<button class="btn book" data-id="{{ d.id }}">Выбрать ♥</button>{% endif %}
+          {% elif can_vote and vote_state and vote_state.status == 'unconfigured' and d.booked_by_me %}
+            <button class="btn book on" data-id="{{ d.id }}">Снять старый выбор</button>
           {% endif %}
+          {% if d.is_winner and d.booked_by_me and not d.participation_withdrawn %}<button class="btn ghost withdraw-vote" type="button">Отказаться от участия</button>{% endif %}
           <button class="btn ghost ask" data-id="{{ d.id }}" data-name="{{ d.name }}">Спросить 💬</button>
         </div>
         {% endif %}
@@ -210,17 +252,11 @@
     <h3 class="dlg-head">Войти, чтобы выбрать свидание</h3>
     <p class="dlg-sub">Вход через Telegram — быстро и без пароля&nbsp;♥</p>
   </div>
-  {% if not bot %}
-    <div class="err">Вход через Telegram пока не настроен.</div>
-  {% else %}
-    <label class="consent">
-      <input type="checkbox" id="tg-consent" data-next="/d/{{ token }}">
-      <span>Я принимаю
-        <a href="/terms" target="_blank" rel="noopener">Пользовательское соглашение</a>
-        и <a href="/privacy" target="_blank" rel="noopener">Политику конфиденциальности</a>.</span>
-    </label>
-    {% set next_url = "/d/" ~ token %}
+  {% set next_url = "/d/" ~ token %}
+  {% if bot or oauth %}
     {% include "auth/_login_methods.html" %}
+  {% else %}
+    <div class="err">Способы входа пока не настроены.</div>
   {% endif %}
 </dialog>
 
@@ -326,7 +362,7 @@
 
 <script src="{{ asset('ink.js') }}" defer></script>
 <script src="{{ asset('ui.js') }}"></script>
-{% if not me %}<script nonce="{{ csp_nonce }}" src="{{ asset('auth.js') }}"></script>{% endif %}
+{% if not me or not me['bot_linked'] %}<script nonce="{{ csp_nonce }}" src="{{ asset('auth.js') }}"></script>{% endif %}
 <script src="{{ asset('guest.js') }}" defer></script>
 </body>
 </html>

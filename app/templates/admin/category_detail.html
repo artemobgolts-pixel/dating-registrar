@@ -8,7 +8,7 @@
 </div>
 
 <div class="card">
-  <form method="post" action="/admin/categories/{{ cat['id'] }}/rename"
+  <form method="post" action="/admin/categories/{{ cat['id'] }}/rename" data-tour="category-description"
         enctype="multipart/form-data" style="display:grid;gap:10px">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <input name="name" value="{{ cat['name'] }}" required maxlength="200">
@@ -32,7 +32,7 @@
     <input type="hidden" name="og_desc" id="ogDescField" value="{{ cat['og_desc'] or '' }}">
     <input type="file" name="og_image" id="ogInput" accept="image/*" hidden>
 
-    <div class="og-preview editable" id="ogPreview"
+    <div class="og-preview editable" id="ogPreview" data-tour="category-preview"
          data-cid="{{ cat['id'] }}"
          data-has-image="{{ '1' if cat['og_image'] else '' }}"
          aria-label="так ссылка выглядит при отправке">
@@ -76,50 +76,133 @@
   </form>
 </div>
 
-<div class="card">
+<div class="card voting-settings" data-tour="category-voting">
+  <div class="bar voting-head">
+    <div>
+      <b>Голосование</b>
+      <div class="muted tiny">Настройки действуют только внутри этой категории.</div>
+    </div>
+    {% if voting_state.status == 'unconfigured' %}
+      <span class="badge amber">Нужно настроить</span>
+    {% elif voting_state.status == 'open' and can_change_composition %}
+      <span class="badge rose">Идёт голосование</span>
+    {% elif voting_state.status == 'open' %}
+      <span class="badge amber">Дедлайн наступил · считаем результат</span>
+    {% elif voting_state.status == 'tie' %}
+      <span class="badge amber">Ничья · нужен твой выбор</span>
+    {% elif voting_state.status == 'resolved' %}
+      <span class="badge rose">Победитель выбран</span>
+    {% else %}
+      <span class="badge">Никто не выбрал</span>
+    {% endif %}
+  </div>
+
+  {% if voting_state.status != 'unconfigured' %}
+  <div class="voting-summary">
+    <span><b>{{ voting_state.total_votes }}</b> {{ voting_state.total_votes | plural('голос', 'голоса', 'голосов') }}</span>
+    <span>{{ 'Один вариант' if voting_state.choice_mode == 'single' else 'Несколько вариантов' }}</span>
+    {% if voting_state.voting_deadline %}<span>Дедлайн: <b>{{ voting_state.voting_deadline | ts }} МСК</b></span>{% endif %}
+  </div>
+  {% else %}
+  <p class="muted" style="margin:12px 0 0">До запуска гости видят варианты, но не могут голосовать. Старые выборы сохраняются{% if voting_state.total_votes %}: сейчас {{ voting_state.total_votes }} {{ voting_state.total_votes | plural('голос', 'голоса', 'голосов') }}{% endif %}.</p>
+  {% endif %}
+
+  {% if voting_state.status in ('unconfigured', 'open') and can_change_composition %}
+  <form class="voting-form" method="post" action="/admin/categories/{{ cat['id'] }}/voting">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="field" style="margin:0">
+      <label class="field-label">Сколько вариантов может выбрать один человек</label>
+      <div class="choice-pick">
+        <label class="choice-opt">
+          <input type="radio" name="choice_mode" value="single"
+                 {% if voting_state.choice_mode != 'multiple' %}checked{% endif %}>
+          <span><b>Один</b><small>Новый выбор заменит предыдущий</small></span>
+        </label>
+        <label class="choice-opt">
+          <input type="radio" name="choice_mode" value="multiple"
+                 {% if voting_state.choice_mode == 'multiple' %}checked{% endif %}>
+          <span><b>Несколько</b><small>Можно отметить сколько угодно свиданий</small></span>
+        </label>
+      </div>
+    </div>
+    <label class="field" style="margin:0">
+      <span class="field-label">Дедлайн голосования</span>
+      <input type="datetime-local" name="voting_deadline" required
+             value="{{ voting_state.voting_deadline[:16] if voting_state.voting_deadline else '' }}">
+      <small class="muted">Время указывается по Москве и должно быть раньше начала всех свиданий.</small>
+    </label>
+    <button class="btn primary" type="submit">{{ 'Запустить голосование' if voting_state.status == 'unconfigured' else 'Сохранить настройки' }}</button>
+  </form>
+  {% elif voting_state.status == 'tie' %}
+  <div class="voting-tie-note">
+    У лидеров одинаковое число голосов. Выбери победителя кнопкой в таблице ниже — доступны только лидеры.
+  </div>
+  {% elif voting_state.status == 'no_winner' %}
+  <p class="muted" style="margin:12px 0 0">До дедлайна никто не проголосовал. Категория завершена со статусом «Никто не выбрал».</p>
+  {% endif %}
+</div>
+
+<div class="card" data-tour="category-dates">
   <div class="bar">
     <b>Свидания в категории</b>
-    <a class="btn small primary" href="/admin/dates/new?category={{ cat['id'] }}">+ Новое свидание</a>
+    {% if can_change_composition %}
+      <a class="btn small primary" href="/admin/dates/new?category={{ cat['id'] }}">+ Новое свидание</a>
+    {% else %}
+      <span class="badge">Состав зафиксирован</span>
+    {% endif %}
   </div>
 
   {% if dates %}
   <div class="table-wrap">
   <table>
-    <thead><tr><th></th><th>Название</th><th>Когда</th><th>Выбор</th><th></th></tr></thead>
-    <tbody id="catRows" data-cid="{{ cat['id'] }}">
+    <thead><tr><th></th><th>Название</th><th>Когда</th><th>Голоса / мест</th><th></th></tr></thead>
+    <tbody {% if can_change_composition %}id="catRows" data-cid="{{ cat['id'] }}"{% endif %}>
     {% for d in dates %}
-    <tr class="drag-row" data-sort="1" data-did="{{ d['id'] }}">
-      <td class="drag-h" title="Перетащи, чтобы изменить порядок">⋮⋮</td>
+    <tr class="{% if can_change_composition %}drag-row{% endif %}{% if cat['winner_date_id'] == d['id'] %} voting-winner{% endif %}"
+        {% if can_change_composition %}data-sort="1"{% endif %} data-did="{{ d['id'] }}">
+      <td class="drag-h" {% if can_change_composition %}title="Перетащи, чтобы изменить порядок"{% endif %}>{{ '⋮⋮' if can_change_composition else '·' }}</td>
       <td>
         <a href="/admin/dates/{{ d['id'] }}/edit">{{ d['name'] }}</a>
+        {% if cat['winner_date_id'] == d['id'] %}<span class="badge rose">Победитель</span>{% endif %}
+        {% if voting_state.status == 'tie' and d['id'] in leader_ids %}<span class="badge amber">Лидер</span>{% endif %}
         {% if d['is_draft'] %}<span class="badge amber">{{ 'на модерации' if d['origin'] == 'guest' else 'неактивно' }}</span>{% endif %}
         {% if d['origin'] == 'guest' %}<span class="badge">💡 предложено</span>{% endif %}
         {% if d['archived_at'] %}<span class="badge">архив</span>{% endif %}
       </td>
       <td class="muted">{{ d['starts_at'] | when(d['ends_at']) or '—' }}</td>
       <td>
-        {{ d['books'] or '—' }}
+        <b>{{ d['books'] }}/{{ d['capacity'] }}</b>
+        <progress class="vote-progress" value="{{ d['books'] }}" max="{{ d['capacity'] }}">{{ d['books'] }}/{{ d['capacity'] }}</progress>
         {% if d['booked_names'] %}<div class="muted tiny">{{ d['booked_names'] }}</div>{% endif %}
       </td>
       <td>
+        {% if voting_state.status == 'tie' and d['id'] in leader_ids %}
+        <form class="inline" method="post" action="/admin/categories/{{ cat['id'] }}/voting/resolve"
+              data-confirm="Выбрать «{{ d['name'] }}» победителем? Результат нельзя будет изменить.">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <input type="hidden" name="winner_date_id" value="{{ d['id'] }}">
+          <button class="btn small primary">Выбрать победителем</button>
+        </form>
+        {% elif can_change_composition %}
         <form class="inline" method="post" action="/admin/categories/{{ cat['id'] }}/detach"
               data-confirm="Убрать свидание из категории? Брони по нему в этой категории удалятся.">
           <input type="hidden" name="csrf" value="{{ csrf }}">
           <input type="hidden" name="date_id" value="{{ d['id'] }}">
           <button class="btn small">Убрать</button>
         </form>
+        {% endif %}
       </td>
     </tr>
     {% endfor %}
     </tbody>
   </table>
   </div>
-  <p class="muted" style="font-size:12.5px;margin:8px 0 0">Перетащи строку за ⋮⋮ — этот порядок увидят на странице.</p>
+  {% if can_change_composition %}<p class="muted" style="font-size:12.5px;margin:8px 0 0">Перетащи строку за ⋮⋮ — этот порядок увидят на странице.</p>{% endif %}
   {% else %}
   <p class="muted">В категории пока нет свиданий.</p>
   {% endif %}
 
-  {% if attachable %}
+  {% if attachable and can_change_composition %}
   <form method="post" action="/admin/categories/{{ cat['id'] }}/attach" style="display:flex;gap:10px;margin-top:14px">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <select name="date_id" required style="flex:1">
@@ -131,7 +214,7 @@
   {% endif %}
 </div>
 
-<div class="card">
+<div class="card" data-tour="category-actions">
   <div class="cat-actions">
     {% if cat['link_enabled'] %}
     <button type="button" class="btn ghost" data-copy="{{ BASE_URL }}/c/{{ cat['link_token'] }}">🔗 Скопировать ссылку</button>
@@ -143,9 +226,8 @@
     <form class="inline" method="post" action="/admin/categories/{{ cat['id'] }}/delete"
           data-confirm="Удалить категорию? Свидания останутся, но брони в этой категории удалятся, а ссылка перестанет работать.">
       <input type="hidden" name="csrf" value="{{ csrf }}">
-      <button class="btn danger">Удалить категорию</button>
+      <button class="btn danger" {% if not can_change_composition %}disabled title="Завершённое голосование нельзя удалить"{% endif %}>Удалить категорию</button>
     </form>
   </div>
 </div>
 {% endblock %}
-

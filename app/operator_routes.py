@@ -9,20 +9,143 @@ current_operator: не-оператор получает 404, аноним → /
 """
 
 import logging
+import secrets
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 import images
 import settings as app_settings
+import voting
+import voting_events
 from config import BASE_URL
-from helpers import now_iso
+from helpers import now_iso, now_naive
 from users import current_operator, get_user
 from web import get_db, redir, templates
 
 log = logging.getLogger("operator")
 
 router = APIRouter(prefix="/operator", dependencies=[Depends(current_operator)])
+
+
+def _category_frozen(cat) -> bool:
+    if cat["closed_at"] is not None or cat["voting_status"] in voting.CLOSED_STATUSES:
+        return True
+    if cat["voting_status"] == voting.STATUS_OPEN and cat["voting_deadline"]:
+        try:
+            return now_naive() >= datetime.fromisoformat(cat["voting_deadline"])
+        except (TypeError, ValueError):
+            return True
+    return False
+
+
+def _require_category_not_frozen(conn, cat) -> None:
+    # Первый write в транзакции берёт SQLite RESERVED lock. После него
+    # закрытие опроса/новый голос не смогут вклиниться между проверкой и
+    # операторским DELETE/UPDATE.
+    category_id = int(cat["id"])
+    conn.execute("UPDATE categories SET id=id WHERE id=?", (category_id,))
+    fresh = conn.execute("SELECT * FROM categories WHERE id=?", (category_id,)).fetchone()
+    if not fresh:
+        raise HTTPException(404)
+    if _category_frozen(fresh):
+        raise HTTPException(409, "Голосование завершено — результат и голоса зафиксированы")
+
+
+def _require_date_not_frozen(conn, date_id: int) -> None:
+    # Блокируем writer'ов до чтения состава категорий: иначе свидание могло
+    # попасть в закрывающийся опрос сразу после SELECT.
+    conn.execute("UPDATE dates SET id=id WHERE id=?", (date_id,))
+    for cat in conn.execute(
+        "SELECT c.* FROM categories c JOIN date_categories dc ON dc.category_id=c.id "
+        "WHERE dc.date_id=?", (date_id,),
+    ):
+        _require_category_not_frozen(conn, cat)
+
+
+def _validate_date_after_open_deadlines(conn, date_id: int,
+                                        starts_at: str | None) -> None:
+    if not starts_at:
+        return
+    try:
+        starts = datetime.fromisoformat(starts_at)
+    except (TypeError, ValueError):
+        raise HTTPException(409, "У свидания некорректно задано время")
+    for cat in conn.execute(
+        "SELECT c.name, c.voting_deadline FROM categories c "
+        "JOIN date_categories dc ON dc.category_id=c.id "
+        "WHERE dc.date_id=? AND c.voting_status='open' "
+        "AND c.voting_deadline IS NOT NULL", (date_id,),
+    ):
+        try:
+            deadline = datetime.fromisoformat(cat["voting_deadline"])
+        except (TypeError, ValueError):
+            raise HTTPException(409, "У категории некорректно задан дедлайн")
+        if starts <= deadline:
+            raise HTTPException(
+                409,
+                f"Начало свидания должно быть позже дедлайна категории «{cat['name']}»",
+            )
+
+
+def _queue_date_removal_from_categories(conn, date_id: int) -> set[tuple[int, int]]:
+    """Ставит уведомления всем авторизованным голосовавшим за свидание.
+
+    Возвращает пары ``(category_id, user_id)``: после фактического удаления
+    голосов по ним нужно убрать дедлайн-напоминание, если других голосов в
+    этой категории у пользователя не осталось.
+    """
+    d = conn.execute("SELECT name FROM dates WHERE id=?", (date_id,)).fetchone()
+    if not d:
+        return set()
+    categories = conn.execute(
+        "SELECT DISTINCT c.id, c.name, c.link_token FROM categories c "
+        "JOIN bookings b ON b.category_id=c.id "
+        "WHERE b.date_id=? ORDER BY c.id", (date_id,),
+    ).fetchall()
+    affected: set[tuple[int, int]] = set()
+    for cat in categories:
+        affected.update(
+            (int(cat["id"]), int(row["user_id"]))
+            for row in conn.execute(
+                "SELECT DISTINCT user_id FROM bookings "
+                "WHERE date_id=? AND category_id=? AND user_id IS NOT NULL",
+                (date_id, cat["id"]),
+            )
+        )
+        voting_events.queue_date_removed(
+            conn, date_id, d["name"], int(cat["id"]), cat["name"],
+            cat["link_token"],
+        )
+    return affected
+
+
+def _cancel_empty_vote_deadlines(conn, affected: set[tuple[int, int]]) -> None:
+    """Отменяет напоминание, только когда в категории не осталось голосов."""
+    for category_id, user_id in affected:
+        remaining = conn.execute(
+            "SELECT 1 FROM bookings WHERE category_id=? AND user_id=? LIMIT 1",
+            (category_id, user_id),
+        ).fetchone()
+        if not remaining:
+            voting_events.cancel_deadline_reminder(conn, category_id, user_id)
+
+
+def _queue_category_removal(conn, cat) -> None:
+    """Отменяет устаревшие события категории и ставит notices по голосам."""
+    category_id = int(cat["id"])
+    voting_events.cancel_category_notifications(conn, category_id)
+    dates = conn.execute(
+        "SELECT DISTINCT d.id, d.name FROM dates d "
+        "JOIN bookings b ON b.date_id=d.id WHERE b.category_id=? ORDER BY d.id",
+        (category_id,),
+    ).fetchall()
+    for d in dates:
+        voting_events.queue_date_removed(
+            conn, int(d["id"]), d["name"], category_id, cat["name"],
+            None,
+        )
 
 
 def octx(request: Request, **extra) -> dict:
@@ -156,15 +279,53 @@ def user_delete(uid: int, request: Request, conn=Depends(get_db)):
     u = _target(conn, uid)
     if u["id"] == request.state.user["id"]:
         raise HTTPException(400, "Нельзя удалить самого себя")
+    # Сериализуем удаление с любыми конкурентными изменениями пользователя и
+    # только после блокировки записи собираем полный список файлов и связей.
+    if conn.execute("UPDATE users SET id=id WHERE id=?", (uid,)).rowcount == 0:
+        raise HTTPException(404)
+    u = _target(conn, uid)
     files = [r["filename"] for r in conn.execute(
         "SELECT di.filename FROM date_images di JOIN dates d ON d.id=di.date_id "
         "WHERE d.owner_id=?", (uid,))]
     files += [r["filename"] for r in conn.execute(
         "SELECT dv.filename FROM date_videos dv JOIN dates d ON d.id=dv.date_id "
         "WHERE d.owner_id=?", (uid,))]
+    files += [r["og_image"] for r in conn.execute(
+        "SELECT og_image FROM categories WHERE owner_id=? AND og_image IS NOT NULL",
+        (uid,))]
     if u["avatar_path"]:
         files.append(u["avatar_path"])
+
+    for cat in conn.execute("SELECT * FROM categories WHERE owner_id=?", (uid,)).fetchall():
+        _queue_category_removal(conn, cat)
+
+    # Голоса в чужих категориях сохраняем, чтобы не пересчитывать зафиксированный
+    # результат, но полностью отвязываем их и другие действия от предсказуемого
+    # u<ID>. Один случайный псевдоним сохраняет связь нескольких выборов одного
+    # анонимного участника, не раскрывая id удалённого аккаунта.
+    old_guest = f"u{uid}"
+    anon_guest = "deleted-" + secrets.token_urlsafe(18)
+    identity_columns = (
+        ("bookings", "guest_token"),
+        ("questions", "guest_token"),
+        ("dates", "guest_token"),
+        ("reports", "reporter"),
+    )
+    for table, column in identity_columns:
+        conn.execute(
+            f"UPDATE {table} SET {column}=? WHERE {column}=?",
+            (anon_guest, old_guest),
+        )
+    conn.execute("DELETE FROM guests WHERE token=?", (old_guest,))
     conn.execute("DELETE FROM users WHERE id=?", (uid,))   # FK CASCADE снесёт всё
+    has_surviving_refs = any(conn.execute(
+        f"SELECT 1 FROM {table} WHERE {column}=? LIMIT 1", (anon_guest,)
+    ).fetchone() for table, column in identity_columns)
+    if has_surviving_refs:
+        conn.execute(
+            "INSERT INTO guests(token, name, created_at) VALUES(?,?,?)",
+            (anon_guest, "Удалённый участник", now_iso()),
+        )
     conn.commit()
     for fn in files:                                       # файлы — после коммита
         images.delete_file(fn)
@@ -233,15 +394,21 @@ def report_takedown(rid: int, request: Request, conn=Depends(get_db)):
     tt, tid = r["target_type"], r["target_id"]
     files = []
     if tt == "date":
+        _require_date_not_frozen(conn, tid)
         files = [x["filename"] for x in conn.execute(
             "SELECT filename FROM date_images WHERE date_id=?", (tid,))]
         files += [x["filename"] for x in conn.execute(
             "SELECT filename FROM date_videos WHERE date_id=?", (tid,))]
+        affected = _queue_date_removal_from_categories(conn, tid)
         conn.execute("DELETE FROM dates WHERE id=?", (tid,))
+        _cancel_empty_vote_deadlines(conn, affected)
     else:
-        files = [x["filename"] for x in conn.execute(
-            "SELECT di.filename FROM date_images di JOIN dates d ON d.id=di.date_id "
-            "JOIN date_categories dc ON dc.date_id=d.id WHERE dc.category_id=?", (tid,))]
+        target_cat = _cat_or_404(conn, tid)
+        _require_category_not_frozen(conn, target_cat)
+        # Свидания переживают удаление категории, поэтому их медиа трогать
+        # нельзя. Удаляем только собственную картинку превью категории.
+        files = [target_cat["og_image"]] if target_cat["og_image"] else []
+        _queue_category_removal(conn, target_cat)
         conn.execute("DELETE FROM categories WHERE id=?", (tid,))
     conn.execute(
         "UPDATE reports SET status='resolved', resolved_at=? "
@@ -307,9 +474,13 @@ def cat_toggle(cid: int, request: Request, conn=Depends(get_db)):
 def cat_delete(cid: int, request: Request, conn=Depends(get_db)):
     """Удаляет категорию (связи date_categories — каскадом). Свидания остаются
     у владельца, как и в кабинете."""
-    _cat_or_404(conn, cid)
+    cat = _cat_or_404(conn, cid)
+    _require_category_not_frozen(conn, cat)
+    _queue_category_removal(conn, cat)
     conn.execute("DELETE FROM categories WHERE id=?", (cid,))
     conn.commit()
+    if cat["og_image"]:
+        images.delete_file(cat["og_image"])
     log.warning("operator %s deleted category %s", request.state.user["id"], cid)
     return redir("/operator/categories", "Категория удалена (свидания остались)")
 
@@ -365,10 +536,16 @@ def _date_or_404(conn, did: int):
 @router.post("/dates/{did}/archive")
 def date_archive(did: int, request: Request, conn=Depends(get_db)):
     d = _date_or_404(conn, did)
+    _require_date_not_frozen(conn, did)
+    d = _date_or_404(conn, did)
     if d["archived_at"]:
+        _validate_date_after_open_deadlines(conn, did, d["starts_at"])
         conn.execute("UPDATE dates SET archived_at=NULL WHERE id=?", (did,))
         msg = "Свидание возвращено из архива"
     else:
+        affected = _queue_date_removal_from_categories(conn, did)
+        conn.execute("DELETE FROM bookings WHERE date_id=?", (did,))
+        _cancel_empty_vote_deadlines(conn, affected)
         conn.execute("UPDATE dates SET archived_at=? WHERE id=?", (now_iso(), did))
         msg = "Свидание отправлено в архив"
     conn.commit()
@@ -380,11 +557,14 @@ def date_delete(did: int, request: Request, conn=Depends(get_db)):
     """Удаляет свидание со всеми медиа (файлы с диска) и закрывает открытые
     жалобы на него."""
     _date_or_404(conn, did)
+    _require_date_not_frozen(conn, did)
     files = [r["filename"] for r in conn.execute(
         "SELECT filename FROM date_images WHERE date_id=?", (did,))]
     files += [r["filename"] for r in conn.execute(
         "SELECT filename FROM date_videos WHERE date_id=?", (did,))]
+    affected = _queue_date_removal_from_categories(conn, did)
     conn.execute("DELETE FROM dates WHERE id=?", (did,))
+    _cancel_empty_vote_deadlines(conn, affected)
     conn.execute(
         "UPDATE reports SET status='resolved', resolved_at=? "
         "WHERE target_type='date' AND target_id=? AND status='open'",
@@ -431,10 +611,26 @@ def bookings_list(request: Request, q: str = "", page: int = 1, conn=Depends(get
 @router.post("/bookings/{bid}/delete")
 def booking_delete(bid: int, request: Request, conn=Depends(get_db)):
     """Снять бронь для разбора спорной ситуации — свидание снова свободно."""
-    b = conn.execute("SELECT 1 FROM bookings WHERE id=?", (bid,)).fetchone()
+    b = conn.execute(
+        "SELECT c.*, b.id AS booking_id, b.user_id AS vote_user_id, "
+        "b.category_id AS vote_category_id, d.name AS date_name "
+        "FROM bookings b JOIN categories c ON c.id=b.category_id "
+        "JOIN dates d ON d.id=b.date_id "
+        "WHERE b.id=?", (bid,),
+    ).fetchone()
     if not b:
         raise HTTPException(404)
+    _require_category_not_frozen(conn, b)
+    voting_events.queue_vote_removed_by_owner(
+        conn, booking_id=int(b["booking_id"]), user_id=b["vote_user_id"],
+        category_id=int(b["vote_category_id"]), category_name=b["name"],
+        date_name=b["date_name"], category_token=b["link_token"],
+    )
     conn.execute("DELETE FROM bookings WHERE id=?", (bid,))
+    if b["vote_user_id"] is not None:
+        _cancel_empty_vote_deadlines(
+            conn, {(int(b["vote_category_id"]), int(b["vote_user_id"]))},
+        )
     conn.commit()
     log.warning("operator %s deleted booking %s", request.state.user["id"], bid)
     return redir("/operator/bookings", "Бронь снята — свидание снова свободно")

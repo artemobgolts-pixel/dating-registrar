@@ -4,15 +4,16 @@
 {% block content %}
 <h1>Категории</h1>
 
-<form method="post" action="/admin/categories/create" class="card" style="display:flex;gap:10px;align-items:center">
+<form method="post" action="/admin/categories/create" class="card" data-tour="category-create" style="display:flex;gap:10px;align-items:center">
   <input type="hidden" name="csrf" value="{{ csrf }}">
   <input name="name" required maxlength="200" placeholder="Название новой категории" style="flex:1">
   <button class="btn primary">Создать</button>
 </form>
 
+<div data-tour="categories-collection">
 {% for c in cats %}
 <div class="card cat-card{% if c['has_og'] %} has-thumb{% endif %}">
-  <a class="cat-link" href="/admin/categories/{{ c['id'] }}" aria-label="Открыть «{{ c['name'] }}»"></a>
+  <a class="cat-link" href="/admin/categories/{{ c['id'] }}" data-tour-category-link aria-label="Открыть «{{ c['name'] }}»"></a>
   {% if c['has_og'] %}
   <img class="cat-thumb" src="/admin/categories/{{ c['id'] }}/og-preview" alt="" loading="lazy" decoding="async">
   {% endif %}
@@ -21,6 +22,11 @@
       <div>
         <span class="cat-name">{{ c['name'] }}</span>
         <span class="badge">{{ c['dcount'] }} {{ c['dcount'] | plural('свидание', 'свидания', 'свиданий') }}</span>
+        {% if c['voting_status'] == 'unconfigured' %}<span class="badge amber">настрой голосование</span>
+        {% elif c['voting_status'] == 'open' %}<span class="badge rose">голосование идёт</span>
+        {% elif c['voting_status'] == 'tie' %}<span class="badge amber">ничья</span>
+        {% elif c['voting_status'] == 'resolved' %}<span class="badge rose">есть победитель</span>
+        {% elif c['voting_status'] == 'no_winner' %}<span class="badge">никто не выбрал</span>{% endif %}
         {% if c['moderate_proposals'] %}<span class="badge amber">модерация</span>{% endif %}
         {% if not c['link_enabled'] %}<span class="badge" style="background:#fdeeee;color:#a33">ссылка выкл.</span>{% endif %}
       </div>
@@ -53,4 +59,5 @@
 {% else %}
 <p class="muted">Пока нет ни одной категории — создай первую выше.</p>
 {% endfor %}
+</div>
 {% endblock %}

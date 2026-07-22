@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <title>{% block title %}Админ{% endblock %} · date4you</title>
+<meta name="theme-color" content="#b65f6f">
+<script src="{{ asset('theme.js') }}"></script>
 <style nonce="{{ csp_nonce }}">
   :root { --bg:#f6f4f5; --line:#e2dcde; --ink:#2b2326; --muted:#8a7e82;
           --accent:#8f4a58; --danger:#b3261e; }
@@ -92,9 +94,42 @@
   input, select { font:inherit; padding:6px 9px; border:1px solid var(--line);
                   border-radius:8px; }
   .bar { display:flex; gap:10px; align-items:center; margin-bottom:16px; flex-wrap:wrap; }
+
+  html[data-theme="dark"] {
+    --bg:#171418; --line:#3b3138; --ink:#eee5ea; --muted:#aa9da4;
+    --accent:#d58a9b; --danger:#ef8e86;
+  }
+  html[data-theme="dark"] body { background:#171418; }
+  html[data-theme="dark"] header { background:#211b20; }
+  html[data-theme="dark"] header nav a {
+    color:var(--ink); border-color:#493b43; background:#2a2228;
+  }
+  html[data-theme="dark"] header nav a:hover { background:#342a31; }
+  html[data-theme="dark"] header nav a.on { color:#fff; border-color:transparent; }
+  html[data-theme="dark"] header nav a.muted { color:var(--muted); background:none; }
+  html[data-theme="dark"] table,
+  html[data-theme="dark"] .stat,
+  html[data-theme="dark"] .btn { background:#231d22; }
+  html[data-theme="dark"] th { background:#2b2329; }
+  html[data-theme="dark"] input,
+  html[data-theme="dark"] select,
+  html[data-theme="dark"] textarea { background:#211b20; color:var(--ink); }
+  html[data-theme="dark"] .flash { background:#233329; border-color:#385441; }
+  html[data-theme="dark"] .flash.err { background:#3a2426; border-color:#63383b; }
+  html[data-theme="dark"] .badge { background:#342d32; }
+  html[data-theme="dark"] .badge.op { background:#3d3045; color:#d4b7e7; }
+  html[data-theme="dark"] .badge.ban { background:#4a2929; color:#f1a29c; }
+  @media (max-width:720px) {
+    html[data-theme="dark"] header nav {
+      background:rgba(33,27,32,.88); border-color:rgba(255,255,255,.1);
+      box-shadow:0 12px 32px rgba(0,0,0,.38);
+    }
+    html[data-theme="dark"] header nav a { background:none; }
+  }
 </style>
 </head>
-<body data-csrf="{{ csrf }}">
+<body data-csrf="{{ csrf }}"
+      data-ink-interactive="{{ '1' if user and user['cursor_effects'] else '0' }}">
 <header>
   <span class="brand">⚙ Админ</span>
   <nav>
@@ -108,6 +143,9 @@
     <a href="/operator/settings" class="{{ 'on' if active=='settings' else '' }}"><span class="ic" aria-hidden="true">⚙</span>Настройки</a>
     <a href="/admin/" class="muted"><span class="ic" aria-hidden="true">↩</span>в кабинет</a>
   </nav>
+  <button type="button" class="btn small" data-theme-toggle aria-label="Включить тёмную тему">
+    <span data-theme-icon aria-hidden="true">☾</span>
+  </button>
   <form method="post" action="/admin/logout">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <button class="btn small"><span aria-hidden="true">🚪</span><span class="lbx">Выйти</span></button>

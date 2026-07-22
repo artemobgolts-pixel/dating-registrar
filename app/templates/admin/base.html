@@ -15,6 +15,7 @@
 <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
 <link rel="manifest" href="/static/manifest.json">
 <meta name="theme-color" content="#b65f6f">
+<script src="{{ asset('theme.js') }}" data-turbo-track="reload"></script>
 <link rel="stylesheet" href="{{ asset('admin.css') }}" data-turbo-track="reload">
 <!-- Turbo Drive: мгновенная навигация без полной перезагрузки (self-hosted).
      Грузим в <head> с defer, чтобы перехват кликов работал с первого экрана. -->
@@ -27,7 +28,9 @@
 <script src="{{ asset('ink.js') }}" data-turbo-track="reload" defer></script>
 {% block head %}{% endblock %}
 </head>
-<body data-csrf="{{ csrf }}">
+<body data-csrf="{{ csrf }}"
+      data-user-id="{{ user['id'] if user else '' }}"
+      data-ink-interactive="{{ '1' if user and user['cursor_effects'] else '0' }}">
 <!-- Фон «растекающиеся чернила» — тот же WebGL-шейдер, что на гостевой и
      заглушках (/static/ink.js). CSS-дым ниже — фолбэк без WebGL2.
      data-turbo-permanent: Turbo сохраняет этот узел между переходами, поэтому
@@ -82,6 +85,9 @@
     {% if user['is_operator'] %}<a href="/operator/" class="op-link"><span class="ic" aria-hidden="true">⚙</span><span class="lb">Админ</span></a>{% endif %}
   </nav>
   <div class="top-right">
+    <button type="button" class="bell" data-theme-toggle aria-label="Включить тёмную тему">
+      <span class="bell-ic" data-theme-icon aria-hidden="true">☾</span>
+    </button>
     {% if SUPPORT_URL %}
     <a class="bell bell-link" href="{{ SUPPORT_URL }}" target="_blank" rel="noopener"
        aria-label="Помощь">
@@ -119,7 +125,7 @@
   <span class="tg-connect-msg">🔔 Подключи бота, чтобы получать уведомления, когда выберут свидание.</span>
   <button type="button" data-tg-connect class="btn primary">Подключить бота</button>
   <a data-tg-link href="#" target="_blank" rel="noopener" hidden></a>
-  <span data-tg-hint hidden>Нажми <b>Start</b> в боте и вернись сюда.</span>
+  <span data-tg-hint hidden>Нажми <b>Start</b>, затем <b>Подтвердить</b> в боте и вернись сюда.</span>
   <span data-tg-error class="err" hidden></span>
 </div>
 {% endif %}

@@ -1,27 +1,40 @@
 {# Единый блок способов входа: Telegram Login Widget + OAuth-иконки.
    Ожидает в контексте: bot, oauth, и опционально next_url (куда вернуться).
-   Кнопки видны всегда; клики гасит auth.js до отметки согласия.
-
-   Telegram — ОФИЦИАЛЬНЫЙ Login Widget (telegram.org), а НЕ проброс в бота: после
-   согласия auth.js подставляет виджет в #tg-widget-wrap, Telegram рисует свою
-   кнопку «Log in with Telegram» и по колбэку /auth/widget логинит на месте.
-   OAuth (Discord/Google/Яндекс) — компактные иконки ниже. #}
-<div class="login-methods" id="loginMethods">
+   Telegram — официальный Login Widget (telegram.org), а не проброс в бота:
+   auth.js лениво подставляет скрипт, когда блок действительно видим (важно для
+   закрытого dialog). OAuth (Discord/Google/Яндекс) — компактные иконки ниже. #}
+<div class="login-methods" data-login-methods>
   {% if bot %}
-  <div id="tg-widget-wrap" class="tg-widget-wrap" data-bot="{{ bot }}"
-       {% if next_url %}data-next="{{ next_url }}"{% endif %} hidden></div>
+  <div class="tg-widget-wrap" data-tg-widget data-bot="{{ bot }}"
+       data-auth-url="/auth/widget?widget_state={{ widget_state | urlencode }}{% if next_url %}&amp;return_to={{ next_url | urlencode }}{% endif %}"></div>
   {% endif %}
   {% if oauth %}
-  <div class="oauth-sep"><span>или через соцсети</span></div>
+  <div class="oauth-sep"><span>{{ 'или через соцсети' if bot else 'Войти через соцсеть' }}</span></div>
   <div class="oauth-row">
     {% for p in oauth %}
-    <a class="oauth-btn oauth-{{ p['slug'] }}" href="/auth/{{ p['slug'] }}{% if next_url %}?next={{ next_url }}{% endif %}"
-       data-oauth aria-label="Войти через {{ p['label'] }}" title="Войти через {{ p['label'] }}">
+    <a class="oauth-btn oauth-{{ p['slug'] }}" href="/auth/{{ p['slug'] }}{% if next_url %}?next={{ next_url | urlencode }}{% endif %}"
+       aria-label="Войти через {{ p['label'] }}" title="Войти через {{ p['label'] }}">
       {% include "auth/_oauth_icon.html" %}
     </a>
     {% endfor %}
   </div>
   {% endif %}
 </div>
-<p class="login-hint" id="tg-widget-gate">Отметь согласие выше, чтобы войти.</p>
-<div id="tg-error" class="err" hidden></div>
+
+{% if bot and VPN_URL %}
+<aside class="login-vpn">
+  <div class="login-vpn-copy">
+    <strong>Telegram не открывается?</strong>
+    <span>Для входа через Telegram может понадобиться VPN.</span>
+  </div>
+  <a class="login-vpn-link" href="{{ VPN_URL }}" target="_blank" rel="noopener sponsored">
+    <img class="login-vpn-logo" src="/static/vpn-logo.webp" alt="" width="28" height="28" decoding="async">
+    <span>Подключить VPN</span>
+  </a>
+</aside>
+{% endif %}
+
+<p class="login-legal">Продолжая вход, вы принимаете
+  <a href="/terms" target="_blank" rel="noopener">Пользовательское соглашение</a>
+  и <a href="/privacy" target="_blank" rel="noopener">Политику конфиденциальности</a>.
+</p>

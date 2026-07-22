@@ -35,9 +35,10 @@
     // «Пройти обучение заново» (профиль): снимаем флаг и запускаем тур. Сам тур
     // живёт в tour.js и вешает window.d4yStartTour.
     document.addEventListener("click", function (e) {
-      if (e.target.closest("[data-tour-start]") && window.d4yStartTour) {
+      var tourButton = e.target.closest("[data-tour-start]");
+      if (tourButton && window.d4yStartTour) {
         e.preventDefault();
-        window.d4yStartTour();
+        window.d4yStartTour(tourButton.getAttribute("data-tour-start") || "dashboard");
       }
     });
     document.addEventListener("change", function (e) {
@@ -582,6 +583,17 @@
     }
     form.addEventListener("input", schedule);
     form.addEventListener("change", schedule);
+    // Настройки оформления визуально вынесены в отдельную карточку, но связаны
+    // с profileForm через атрибут form=. Их события не всплывают внутрь формы.
+    document.querySelectorAll('[form="profileForm"]').forEach(function (control) {
+      control.addEventListener("input", schedule);
+      control.addEventListener("change", schedule);
+      if (control.name === "cursor_effects") {
+        control.addEventListener("change", function () {
+          document.body.setAttribute("data-ink-interactive", control.checked ? "1" : "0");
+        });
+      }
+    });
   }
 
   // --- дашборд: QR-тоггл, скачивание SVG, системное «Поделиться» --------------

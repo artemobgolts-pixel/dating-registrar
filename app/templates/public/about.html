@@ -6,6 +6,8 @@
 <meta name="robots" content="noindex, nofollow">
 <title>О проекте · date4you</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>♥</text></svg>">
+<meta name="theme-color" content="#b65f6f">
+<script src="{{ asset('theme.js') }}"></script>
 <link rel="stylesheet" href="{{ asset('public.css') }}">
 <style>
   .legal { position: relative; z-index: 1; max-width: 680px; margin: 0 auto; padding: 40px 22px 80px; }
@@ -22,7 +24,7 @@
     padding: 16px 18px; margin-top: 6px; }
 </style>
 </head>
-<body>
+<body data-ink-interactive="{{ '1' if request.state.user and request.state.user['cursor_effects'] else '0' }}">
 {% include "public/_bg.html" %}
 <main class="legal">
   <a class="back" href="/">← на главную</a>

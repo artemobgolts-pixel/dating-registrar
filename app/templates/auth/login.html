@@ -12,10 +12,14 @@
 <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
 <link rel="manifest" href="/static/manifest.json">
 <meta name="theme-color" content="#b65f6f">
+<script src="{{ asset('theme.js') }}"></script>
 <link rel="stylesheet" href="{{ asset('admin.css') }}">
 </head>
-<body>
+<body data-ink-interactive="{{ '1' if request.state.user and request.state.user['cursor_effects'] else '0' }}">
 {% include "public/_bg.html" %}
+<button type="button" class="login-theme" data-theme-toggle aria-label="Включить тёмную тему">
+  <span data-theme-icon aria-hidden="true">☾</span><span data-theme-label>Тёмная тема</span>
+</button>
 <div class="login-page">
   <div class="login-center">
   <div class="login-card">
@@ -25,13 +29,6 @@
     {% if not bot and not oauth %}
       <div class="err">Вход пока не настроен.</div>
     {% else %}
-      <label class="consent">
-        <input type="checkbox" id="tg-consent">
-        <span>Я принимаю
-          <a href="/terms" target="_blank" rel="noopener">Пользовательское соглашение</a>
-          и <a href="/privacy" target="_blank" rel="noopener">Политику конфиденциальности</a>.</span>
-      </label>
-
       {% include "auth/_login_methods.html" %}
 
       <p class="login-note">Вход через Telegram, Google, Discord или Яндекс.

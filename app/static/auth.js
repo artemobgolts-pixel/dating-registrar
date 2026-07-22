@@ -1,80 +1,49 @@
 // Вход/подключение Telegram. Две независимые поверхности:
-//   1) Страница входа (/login) и вход-модалки: чекбокс согласия разблокирует
-//      кнопки входа. Telegram-вход — по deep-link (start → бот → поллинг), а не
-//      через iframe-виджет telegram.org (тот не грузится на части сетей/РФ-хостах
-//      и оставлял пустое место вместо кнопки). OAuth-кнопки — обычные ссылки.
-//   2) Кабинет: блоки «Подключить уведомления» (.tg-connect) — тот же deep-link.
+//   1) Страница входа (/login) и вход-модалки: официальный Telegram Login Widget
+//      + обычные OAuth-ссылки. Согласие с документами показывается пассивным
+//      текстом в шаблоне и не блокирует способы входа.
+//   2) Кабинет: блоки «Подключить уведомления» (.tg-connect) — deep-link в бота.
 (function () {
   "use strict";
 
-  // --- 1. Гейт согласия на странице/в модалке входа: согласие → Telegram Login
-  //        Widget (telegram.org) + разблокировка OAuth-кнопок. Виджет — НЕ проброс
-  //        в бота: Telegram рисует свою кнопку, по колбэку /auth/widget логинит.
-  var consent = document.getElementById("tg-consent");
-  if (consent) {
-    var widgetGate = document.getElementById("tg-widget-gate");
-    var methods = document.getElementById("loginMethods");
-    var oauthLinks = methods ? methods.querySelectorAll("[data-oauth]") : [];
-    var widgetWrap = document.getElementById("tg-widget-wrap");
-
-    // Виджет Telegram вставляем динамически при первом согласии. Если оставить
-    // <script> статически внутри скрытого контейнера (display:none), Telegram
-    // подменяет его на iframe нулевого размера и кнопка не появляется — поэтому
-    // грузим скрипт, когда контейнер уже видим (согласие отмечено).
-    var widgetLoaded = false;
-    function loadWidget() {
-      if (widgetLoaded || !widgetWrap) return;
-      widgetLoaded = true;
-      var s = document.createElement("script");
-      s.async = true;
-      s.src = "https://telegram.org/js/telegram-widget.js?22";
-      s.setAttribute("data-telegram-login", widgetWrap.getAttribute("data-bot") || "");
-      s.setAttribute("data-size", "large");
-      s.setAttribute("data-radius", "12");
-      s.setAttribute("data-auth-url", "/auth/widget");
-      s.setAttribute("data-request-access", "write");
-      widgetWrap.appendChild(s);
-    }
-
-    var syncConsent = function () {
-      var ok = consent.checked;
-      if (methods) methods.classList.toggle("gated", !ok);
-      if (widgetWrap) widgetWrap.hidden = !ok;
-      if (widgetGate) widgetGate.hidden = ok;
-      Array.prototype.forEach.call(oauthLinks, function (a) {
-        a.setAttribute("aria-disabled", ok ? "false" : "true");
-      });
-      if (ok) {
-        loadWidget();
-        // дублируем согласие в сессию: серверный /auth/widget без флага вернёт 403,
-        // даже если кто-то покажет виджет правкой DOM. next (data-next) — куда
-        // вернуться после входа (гостевая ссылка); на /login next уже сохранён.
-        var nxt = consent.getAttribute("data-next");
-        var url = "/auth/consent" + (nxt ? "?next=" + encodeURIComponent(nxt) : "");
-        fetch(url, { method: "POST", credentials: "same-origin" })
-          .catch(function () { /* сеть моргнула — повторим при следующем change */ });
-      }
-    };
-    consent.addEventListener("change", syncConsent);
-
-    // подсветка чекбокса при попытке войти без согласия (OAuth-кнопки)
-    function nudgeConsent() {
-      if (widgetGate) { widgetGate.classList.remove("shake"); void widgetGate.offsetWidth; widgetGate.classList.add("shake"); }
-      var box = consent.closest(".consent");
-      if (box) { box.classList.remove("shake"); void box.offsetWidth; box.classList.add("shake"); }
-    }
-    function blockIfNoConsent(e) {
-      if (consent.checked) return false;
-      e.preventDefault();
-      nudgeConsent();
-      return true;
-    }
-    Array.prototype.forEach.call(oauthLinks, function (a) {
-      a.addEventListener("click", blockIfNoConsent);
-    });
-
-    syncConsent();
+  // --- 1. Telegram Login Widget ---------------------------------------------
+  function loadLoginWidget(wrap) {
+    if (!wrap || wrap.dataset.tgLoaded || !wrap.getAttribute("data-bot")) return;
+    wrap.dataset.tgLoaded = "1";
+    var s = document.createElement("script");
+    s.async = true;
+    s.src = "https://telegram.org/js/telegram-widget.js?22";
+    s.setAttribute("data-telegram-login", wrap.getAttribute("data-bot"));
+    s.setAttribute("data-size", "large");
+    s.setAttribute("data-radius", "12");
+    s.setAttribute("data-auth-url", wrap.getAttribute("data-auth-url") || "/auth/widget");
+    s.setAttribute("data-request-access", "write");
+    wrap.appendChild(s);
   }
+
+  function prepareLoginWidget(wrap) {
+    if (!wrap || wrap.dataset.tgPrepared) return;
+    wrap.dataset.tgPrepared = "1";
+    var dialog = wrap.closest("dialog");
+    if (!dialog || dialog.open) {
+      loadLoginWidget(wrap);
+      return;
+    }
+    // Telegram превращает скрипт в iframe с нулевыми размерами, если выполнить
+    // его внутри закрытого dialog. Ждём появления атрибута open и грузим один раз.
+    var observer = new MutationObserver(function () {
+      if (!dialog.open) return;
+      observer.disconnect();
+      loadLoginWidget(wrap);
+    });
+    observer.observe(dialog, { attributes: true, attributeFilter: ["open"] });
+  }
+
+  function prepareLoginWidgets() {
+    Array.prototype.forEach.call(document.querySelectorAll("[data-tg-widget]"),
+      prepareLoginWidget);
+  }
+  prepareLoginWidgets();
 
   // --- 2. Подключение бота в кабинете (deep-link + поллинг) --------------------
   function wire(box) {
@@ -84,6 +53,7 @@
     var link = box.querySelector("[data-tg-link]");
     var errBox = box.querySelector("[data-tg-error]");
     var label = btn.textContent;
+    var returnTo = box.getAttribute("data-return-to") || "";
     var timer = null;
 
     function showError(msg) {
@@ -99,6 +69,8 @@
           if (d.status === "ok") { window.location = d.redirect || "/admin/"; return; }
           if (d.status === "expired") { clearInterval(timer); showError("Код истёк — нажми кнопку ещё раз."); return; }
           if (d.status === "banned") { clearInterval(timer); showError("Доступ закрыт. Напиши в поддержку."); return; }
+          if (d.status === "conflict") { clearInterval(timer); showError("Этот Telegram уже связан с другим аккаунтом."); return; }
+          if (d.status === "forbidden") { clearInterval(timer); showError("Код создан в другой сессии. Начни подключение заново."); return; }
         })
         .catch(function () { /* временная сетевая ошибка — продолжаем поллинг */ });
     }
@@ -107,7 +79,9 @@
       if (errBox) errBox.hidden = true;
       btn.disabled = true;
       btn.textContent = "Открываю Telegram…";
-      fetch("/auth/start", { method: "POST", credentials: "same-origin" })
+      var startUrl = "/auth/start" + (returnTo
+        ? "?return_to=" + encodeURIComponent(returnTo) : "");
+      fetch(startUrl, { method: "POST", credentials: "same-origin" })
         .then(function (r) {
           if (!r.ok) throw new Error("start failed");
           return r.json();
@@ -132,5 +106,8 @@
   }
   wireAll();
   // под Turbo баннер «подключить бота» — новый узел после перехода: переинициализируем
-  document.addEventListener("turbo:load", wireAll);
+  document.addEventListener("turbo:load", function () {
+    prepareLoginWidgets();
+    wireAll();
+  });
 })();

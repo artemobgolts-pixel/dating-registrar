@@ -17,6 +17,7 @@ import time
 import subprocess
 import sys
 import zipfile
+from datetime import datetime, timedelta
 from urllib.parse import unquote
 from pathlib import Path
 
@@ -104,21 +105,45 @@ def refresh_csrf(c) -> None:
     CSRF["v"] = re.search(r'name="csrf" value="([^"]+)"', page.text).group(1)
 
 
+TG_WEBHOOK_HEADERS = {"X-Telegram-Bot-Api-Secret-Token": "hook-secret"}
+
+
+def tg_open_login(c, code, telegram_id, username="user", first_name="Тест"):
+    """Имитирует /start: код привязан к Telegram, но вход ещё не подтверждён."""
+    person = {"id": telegram_id, "username": username, "first_name": first_name}
+    wh = c.post("/tg/webhook", headers=TG_WEBHOOK_HEADERS,
+                json={"message": {"text": f"/start {code}", "from": person}})
+    assert wh.status_code == 200, wh.status_code
+    return person
+
+
+def tg_confirm_login(c, code, telegram_id, username="user", first_name="Тест",
+                     callback_id=None):
+    """Имитирует явное нажатие inline-кнопки «Подтвердить» в Telegram."""
+    person = {"id": telegram_id, "username": username, "first_name": first_name}
+    callback_id = callback_id or f"confirm-{telegram_id}-{code}"
+    wh = c.post("/tg/webhook", headers=TG_WEBHOOK_HEADERS,
+                json={"callback_query": {
+                    "id": callback_id,
+                    "data": f"auth_confirm:{code}",
+                    "from": person,
+                }})
+    assert wh.status_code == 200, wh.status_code
+    return wh
+
+
 def tg_login(c, telegram_id, username="user", first_name="Тест"):
-    """Полный реальный поток входа: start → вебхук от Telegram → poll.
+    """Полный поток: start → /start → pending → inline callback → poll.
 
     Возвращает финальный ответ poll. Сессия логина оседает в куках клиента c.
     """
     r = c.post("/auth/start")
     assert r.status_code == 200, r.status_code
     code = r.json()["code"]
-    # Telegram присылает /start <код> с секретным заголовком вебхука
-    wh = c.post("/tg/webhook",
-                headers={"X-Telegram-Bot-Api-Secret-Token": "hook-secret"},
-                json={"message": {"text": f"/start {code}",
-                                  "from": {"id": telegram_id, "username": username,
-                                           "first_name": first_name}}})
-    assert wh.status_code == 200, wh.status_code
+    tg_open_login(c, code, telegram_id, username, first_name)
+    pending = c.get(f"/auth/poll?code={code}")
+    assert pending.status_code == 200 and pending.json()["status"] == "pending"
+    tg_confirm_login(c, code, telegram_id, username, first_name)
     return c.get(f"/auth/poll?code={code}")
 
 
@@ -140,6 +165,28 @@ def db_all(sql, args=()):
     rows = conn.execute(sql, args).fetchall()
     conn.close()
     return rows
+
+
+def configure_voting(cid, mode="multiple"):
+    """Явно открывает голосование для legacy-сценариев бронирования.
+
+    Новая продуктовая модель намеренно оставляет свежую категорию в состоянии
+    ``unconfigured``. Старые smoke-сценарии ниже тестируют другие подсистемы,
+    поэтому дают им динамический будущий дедлайн и сохраняют прежнюю семантику
+    нескольких вариантов на одного гостя через режим ``multiple``.
+    """
+    import voting
+
+    conn = dbm.connect()
+    owner_id = conn.execute(
+        "SELECT owner_id FROM categories WHERE id=?", (cid,)
+    ).fetchone()[0]
+    deadline = (datetime.now() + timedelta(days=30)).replace(
+        second=0, microsecond=0
+    ).isoformat(timespec="minutes")
+    voting.configure_category(conn, cid, owner_id, mode, deadline)
+    conn.commit()
+    conn.close()
 
 
 def set_moderation(cid, on):
@@ -195,11 +242,11 @@ with TestClient(main.app, follow_redirects=False) as c:
     # ---------- вход через Telegram-бота ----------
     r = c.get("/admin/")
     assert r.status_code == 303 and "/login" in r.headers["location"]
-    # страница входа отдаёт способы входа (Telegram Login Widget + OAuth-иконки),
-    # разблокируемые чекбоксом согласия, а не форму логин/пароль
+    # страница входа отдаёт способы входа (Telegram Login Widget + OAuth-иконки)
+    # сразу, а условия показывает пассивным текстом без обязательной галочки
     lp = c.get("/login")
-    assert lp.status_code == 200 and 'id="tg-widget-wrap"' in lp.text \
-        and "tg-consent" in lp.text
+    assert lp.status_code == 200 and "data-tg-widget" in lp.text
+    assert "tg-consent" not in lp.text and "Продолжая вход" in lp.text
 
     # вебхук без секрета — 403 (иначе любой подтвердит чужой код)
     r0 = c.post("/auth/start")
@@ -247,26 +294,42 @@ with TestClient(main.app, follow_redirects=False) as c:
     cc.close()
     step("TTL-чистка кодов входа: протухший снесён, свежий жив (не зависит от TZ)")
 
-    # Смягчение фишинга: при подтверждении бот шлёт предупреждение ТОМУ, кто
-    # нажал Start (chat_id == его telegram_id), а не оператору.
+    # Смягчение фишинга: /start только показывает inline-подтверждение, а аккаунт
+    # создаётся после callback. Оба сообщения уходят на telegram_id пользователя.
     captured = []
     def _cap(url, json=None, timeout=None):
-        captured.append((json["chat_id"], json["text"]))
+        captured.append((url.rsplit("/", 1)[-1], dict(json or {})))
         class _R: status_code = 200; text = "ok"
         return _R()
     real_post = main.notify.httpx.post
+    real_token = main.notify.TOKEN
     main.notify.httpx.post = _cap
     main.notify.TOKEN = "t"
-    sc2 = TestClient(main.app, follow_redirects=False)
-    code2 = sc2.post("/auth/start").json()["code"]
-    sc2.post("/tg/webhook",
-             headers={"X-Telegram-Bot-Api-Secret-Token": "hook-secret"},
-             json={"message": {"text": f"/start {code2}", "from": {"id": 660002}}})
-    main.notify.TOKEN = ""
-    main.notify.httpx.post = real_post
-    assert captured and captured[0][0] == 660002, captured
-    assert "вход" in captured[0][1].lower() and "не закрывайте" in captured[0][1].lower()
-    step("вход: бот предупреждает подтвердившего (смягчение фишинга/session-fixation)")
+    try:
+        sc2 = TestClient(main.app, follow_redirects=False)
+        code2 = sc2.post("/auth/start").json()["code"]
+        tg_open_login(sc2, code2, 660002)
+        with TestClient(main.app, follow_redirects=False) as code_thief:
+            stolen = code_thief.get(f"/auth/poll?code={code2}")
+            assert stolen.status_code == 403 and stolen.json()["status"] == "forbidden"
+        assert sc2.get(f"/auth/poll?code={code2}").json()["status"] == "pending"
+        callback_id = "callback-login-660002"
+        tg_confirm_login(sc2, code2, 660002, callback_id=callback_id)
+        assert sc2.get(f"/auth/poll?code={code2}").json()["status"] == "ok"
+    finally:
+        main.notify.TOKEN = real_token
+        main.notify.httpx.post = real_post
+    sent = [payload for method, payload in captured if method == "sendMessage"]
+    answered = [payload for method, payload in captured
+                if method == "answerCallbackQuery"]
+    assert len(sent) == 2 and all(p["chat_id"] == 660002 for p in sent), captured
+    buttons = sent[0]["reply_markup"]["inline_keyboard"][0]
+    assert buttons[0]["callback_data"] == f"auth_confirm:{code2}"
+    assert buttons[1]["callback_data"] == f"auth_cancel:{code2}"
+    assert "войти" in sent[0]["text"].lower()
+    assert "подтверждён" in sent[1]["text"].lower()
+    assert answered == [{"callback_query_id": callback_id, "text": "Подтверждено"}]
+    step("вход: /start оставляет pending, inline callback подтверждает привязанную браузерную сессию")
 
     refresh_csrf(c)
     assert CSRF["v"]
@@ -346,6 +409,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     }, files=[("images", ("a.png", png(), "image/png"))])
     assert r.status_code == 303, r.text
     did = db_one("SELECT id FROM dates WHERE name='Ужин на крыше'")["id"]
+    configure_voting(cid, "multiple")
     step("свидание с фото создано из админки")
 
     # ---------- дружелюбные ошибки админки ----------
@@ -465,11 +529,11 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert "Выбрано ♥" in page                         # кнопка-переключатель
     mycard = re.search(r'<article[^>]*id="date-%d".*?</article>' % did, page, re.S).group(0)
     assert "booked-me" in mycard                        # карточка помечена выбором
-    assert "booked-overlay" in mycard and "Забронировано" in mycard    # оверлей на фото
+    assert "vote-progress" in mycard and "1/1" in mycard
     assert '<div class="seal">♥' in mycard              # печать ♥ показана (карточка с фото)
-    assert "Аня" in mycard                              # имя выбравшего на оверлее
+    assert "Аня" in mycard and "· ты" in mycard        # участники видны во время голосования
     assert ga.post(f"/c/{tok}/vote", data={"date_id": did}).status_code == 404
-    step("выбор работает как переключатель; оверлей «Забронировано» на фото; /vote удалён")
+    step("голос работает как переключатель; видны прогресс и участники; /vote удалён")
 
     # ---------- вопрос и ответ ----------
     r = ga.post(f"/c/{tok}/question", data={"date_id": did, "text": "Можно прийти позже?"})
@@ -568,21 +632,20 @@ with TestClient(main.app, follow_redirects=False) as c:
 
     # ---------- одно свидание выбирает только один человек ----------
     g2 = guest_client(700102, tok, "Борис")
-    r = g2.post(f"/c/{tok}/book", data={"date_id": did})   # занято Аней
-    assert r.status_code == 409 and "Аня" in r.json()["detail"], r.text
+    r = g2.post(f"/c/{tok}/book", data={"date_id": did})   # лимит 1 уже занят Аней
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "capacity_reached", r.text
     g2page = g2.get(f"/c/{tok}").text
     card1 = re.search(r'<article[^>]*id="date-%d".*?</article>' % did, g2page, re.S).group(0)
-    assert "booked-other" in card1                         # карточка перекрашена
-    assert "booked-overlay" in card1 and "Забронировано" in card1   # оверлей на фото
-    assert "Аня" in card1                                  # имя того, кто занял
-    assert "Занято" in card1                           # кнопка выбора заблокирована
+    assert "vote-progress" in card1 and "1/1" in card1
+    assert "Аня" in card1                                  # имя участника видно всем
+    assert "Набрано 1/1" in card1                           # кнопка выбора заблокирована
 
     r = g2.post(f"/c/{tok}/book", data={"date_id": did2})  # свободное — можно
     assert r.json()["booked"] is True
     page = ga.get(f"/c/{tok}").text
     card2 = re.search(r'<article[^>]*id="date-%d".*?</article>' % did2, page, re.S).group(0)
-    assert "booked-other" in card2 and "Забронировано" in card2   # Аня видит занятость
-    assert "Борис" in card2                                # имя того, кто занял
+    assert "vote-progress" in card2 and "1/1" in card2
+    assert "Борис" in card2                                # имя участника видно всем
 
     # один гость выбирает НЕСКОЛЬКО свиданий (правило «одно свидание — один
     # человек» при этом сохраняется: на занятое — 409)
@@ -614,7 +677,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert db_one("SELECT COUNT(*) AS n FROM bookings WHERE category_id=?", (cid,))["n"] == 1
     r = g2.post(f"/c/{tok}/book", data={"date_id": did2})  # Борис выбирает заново
     assert r.json()["booked"] is True
-    step("несколько свиданий на гостя; чужое — 409; повторный тап снимает; админ снимает")
+    step("multiple: несколько вариантов на гостя; заполненный — 409; повторный тап снимает")
 
     # ---------- предложение гостя (без модерации) ----------
     main._rates.clear()
@@ -762,10 +825,10 @@ with TestClient(main.app, follow_redirects=False) as c:
     page = ga.get(f"/c/{tok}").text
     assert "Ужин на крыше" in page
     card = re.search(r'<article[^>]*id="date-%d".*?</article>' % did, page, re.S).group(0)
-    # архив, выбранный гостем: статус «Проведено с {автор}» вместо «Было»
-    assert "booked-overlay" in card and "Проведено с" in card
+    # Архивация во время открытого голосования снимает бюллетень: неактивный
+    # вариант не сможет победить за спиной у участников.
     assert 'class="card past"' in card                # карточка в общем списке
-    assert "проведено с" in card                      # подпись-память под карточкой
+    assert "проведено с" not in card
     assert "Выбрать ♥" not in card                    # действий в архиве нет
     assert ga.get(f"/c/{tok}/image/{fn_did}").status_code == 200   # фото остаётся
     assert ga.get(f"/c/{tok}/ics/{did}").status_code == 404
@@ -775,9 +838,10 @@ with TestClient(main.app, follow_redirects=False) as c:
                   "WHERE d.archived_at IS NULL")[0] == 1
     r = apost(c, f"/admin/dates/{did}/archive", {"next": "/admin/dates?view=archived"})
     page = ga.get(f"/c/{tok}").text
-    assert "Выбрано ♥" in page
+    card = re.search(r'<article[^>]*id="date-%d".*?</article>' % did, page, re.S).group(0)
+    assert "Выбрать ♥" in card and "Выбрано ♥" not in card
     assert db_one("SELECT COUNT(*) FROM bookings b JOIN dates d ON d.id=b.date_id "
-                  "WHERE d.archived_at IS NULL")[0] == 2
+                  "WHERE d.archived_at IS NULL")[0] == 1
     # архив брони НЕ блокирует выбор другого активного свидания тем же гостем:
     # создаём свежее активное свидание и проверяем, что Аня может его выбрать
     r = apost(c, "/admin/dates/new", {"name": "Новый вечер", "categories": str(cid)})
@@ -786,18 +850,32 @@ with TestClient(main.app, follow_redirects=False) as c:
     rb = ga.post(f"/c/{tok}/book", data={"date_id": did_new})
     assert rb.status_code == 200 and rb.json().get("booked") is True
     apost(c, f"/admin/dates/{did_new}/delete", {})   # прибираем за тестом
-    step("архив остаётся на странице (оверлей «Было», фото видны), выбор и .ics закрыты")
+    step("архив остаётся на странице, фото видны, голосование и .ics закрыты")
 
     # ---------- авто-архив срабатывает прямо при открытии страницы ----------
+    # Открытое голосование не позволяет через UI добавить вариант, который
+    # начинается до дедлайна. Для изолированной проверки миграционного
+    # автоархива создаём допустимый вариант и имитируем старую строку в БД.
     r = apost(c, "/admin/dates/new", {
-        "name": "Вчерашний вечер", "starts_at": "2020-02-14T19:00",
-        "ends_at": "2020-02-14T22:00", "categories": str(cid)})
+        "name": "Вчерашний вечер", "categories": str(cid)})
     assert r.status_code == 303
+    _q = dbm.connect()
+    # Старые/внешне импортированные базы могли содержать такую строку ещё до
+    # появления v24-инварианта. На мгновение отключаем только новый guard,
+    # затем сразу восстанавливаем актуальную схему.
+    _q.execute("DROP TRIGGER IF EXISTS trg_dates_open_deadline_update")
+    _q.execute(
+        "UPDATE dates SET starts_at='2020-02-14T19:00', "
+        "ends_at='2020-02-14T22:00' WHERE name='Вчерашний вечер'"
+    )
+    _q.commit()
+    _q.executescript(dbm.SCHEMA)
+    _q.close()
     page = ga.get(f"/c/{tok}").text     # страница сама вызывает авто-архив
     assert "Вчерашний вечер" in page
     card = re.search(r'<article[^>]*>(?:(?!</article>).)*Вчерашний вечер.*?</article>',
                      page, re.S).group(0)
-    assert "past" in card and "Было" in card
+    assert "past" in card and "Выбрать ♥" not in card
     assert db_one("SELECT archived_at FROM dates WHERE name='Вчерашний вечер'")["archived_at"]
     step("просроченное свидание мгновенно получает статус «в архиве» на гостевой странице")
 
@@ -809,14 +887,33 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert ga.post(f"/c/{tok}/book", data={"date_id": did}).status_code == 410
     apost(c, f"/admin/categories/{cid}/toggle", {})
 
+    # Любое ожидающее уведомление с прежним секретным URL должно быть
+    # переписано атомарно, даже если его event_key не начинается с category:.
+    _q = dbm.connect()
+    _owner = _q.execute("SELECT owner_id FROM categories WHERE id=?", (cid,)).fetchone()[0]
+    _stamp = main.now_iso()
+    _q.execute(
+        "INSERT INTO notification_outbox(user_id,kind,event_key,text,send_at,created_at,updated_at) "
+        "VALUES(?,?,?,?,?,?,?)",
+        (_owner, "date_changed", f"synthetic-change:{cid}",
+         f"Открой https://t.local/c/{tok}", "2099-01-01T00:00:00", _stamp, _stamp),
+    )
+    _q.commit(); _q.close()
     apost(c, f"/admin/categories/{cid}/regenerate", {})
     assert ga.get(f"/c/{tok}").status_code == 404
     detail = c.get(f"/admin/categories/{cid}").text
     new_tok = re.search(r"https://t\.local/c/([A-Za-z0-9_-]+)", detail).group(1)
     assert new_tok != tok
+    queued_text = db_one(
+        "SELECT text FROM notification_outbox WHERE event_key=?",
+        (f"synthetic-change:{cid}",),
+    )["text"]
+    assert f"/c/{new_tok}" in queued_text and f"/c/{tok}" not in queued_text
     tok = new_tok
     page = ga.get(f"/c/{tok}").text
-    assert "Выбрано ♥" in page and 'id="greetName">Аня<' in page
+    # Ссылка меняется, пользовательская сессия сохраняется; снятый при архиве
+    # голос намеренно не воскресает.
+    assert "Выбрано ♥" not in page and 'id="greetName">Аня<' in page
     step("выключенная ссылка отдаёт 404/410 (и для фото); после перегенерации брони и имя целы")
 
     # ---------- привязка к категории ----------
@@ -868,7 +965,7 @@ with TestClient(main.app, follow_redirects=False) as c:
 
     r = c.get("/admin/export/csv")
     assert r.status_code == 200 and r.text.startswith("\ufeff")
-    assert "Ужин на крыше" in r.text and "Кто выбрал" in r.text and "Аня" in r.text
+    assert "Ужин на крыше" in r.text and "Кто выбрал" in r.text and "Борис" in r.text
     r = c.get("/admin/export/json")
     data = json.loads(r.text)
     assert any(d["name"] == "Ужин на крыше" for d in data["dates"])
@@ -991,6 +1088,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert r.status_code == 303
     vc = db_one("SELECT id, link_token FROM categories WHERE name='Витрина'")
     vcid, vtok = vc["id"], vc["link_token"]
+    configure_voting(vcid, "multiple")
     apost(c, f"/admin/categories/{vcid}/moderation", {})  # витринные фичи без модерации
 
     # описание категории (видно всем) + разметка в нём
@@ -1455,16 +1553,29 @@ assert {"answer", "answered_at", "suggest_starts", "suggest_ends"} <= qcols
 assert "user_id" in qcols                 # v13: автор вопроса (уведомление при ответе)
 dcols = {r[1] for r in conn.execute("PRAGMA table_info(dates)")}
 assert {"is_draft", "pay_split", "place_url"} <= dcols
+assert "capacity" in dcols and conn.execute(
+    "SELECT capacity FROM dates WHERE id=1").fetchone()[0] == 1  # v22
 assert "is_chosen" not in dcols          # v8: мёртвая колонка дропнута
 assert "proposed_by" in dcols             # v13: автор предложения
 ccols = {r[1] for r in conn.execute("PRAGMA table_info(categories)")}
 assert "description" in ccols
 assert "owner_id" in ccols                # v9: владелец категории
 assert {"og_title", "og_desc", "og_image", "og_focus"} <= ccols   # v14/v15/v21: превью ссылки
+assert {"choice_mode", "voting_deadline", "voting_status", "closed_at",
+        "resolved_at", "winner_date_id"} <= ccols                  # v22: голосование
+legacy_voting = conn.execute(
+    "SELECT choice_mode, voting_deadline, voting_status FROM categories "
+    "WHERE name='Старая'").fetchone()
+assert tuple(legacy_voting) == (None, None, "unconfigured")
 assert "owner_id" in dcols                # v9: владелец свидания
 # v13: мягкая очередь модерации + per-user поля + таблица настроек
 assert "is_reviewed" in ccols and "is_reviewed" in {r[1] for r in conn.execute("PRAGMA table_info(users)")}
 assert "user_id" in {r[1] for r in conn.execute("PRAGMA table_info(bookings)")}
+assert "participation_withdrawn_at" in {
+    r[1] for r in conn.execute("PRAGMA table_info(bookings)")}
+assert "cursor_effects" in {r[1] for r in conn.execute("PRAGMA table_info(users)")}
+assert {"purpose", "user_id", "error"} <= {
+    r[1] for r in conn.execute("PRAGMA table_info(login_codes)")}
 assert conn.execute(
     "SELECT 1 FROM sqlite_master WHERE type='table' AND name='settings'").fetchone()
 # дефолт is_reviewed=1: старые пользователи/категории не «ждут проверки»
@@ -1500,11 +1611,14 @@ for t in ("guests", "bookings", "date_links", "date_images", "date_categories",
     assert conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (t,)
     ).fetchone(), f"после миграции нет таблицы {t}"
-for ix in ("idx_book_cat", "idx_dc_cat", "idx_q_read", "idx_book_date",
+for ix in ("idx_book_cat", "idx_dc_cat", "idx_q_read", "idx_book_vote",
            "idx_book_guest", "idx_dv_date"):
     assert conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='index' AND name=?", (ix,)
     ).fetchone(), f"после миграции нет индекса {ix}"
+assert not conn.execute(
+    "SELECT 1 FROM sqlite_master WHERE type='index' AND name='idx_book_date'"
+).fetchone(), "v22 должен снять глобальный UNIQUE(date_id)"
 # v6 снял UNIQUE(категория, гость): таблица bookings пересобрана без него
 bk_sql = conn.execute(
     "SELECT sql FROM sqlite_master WHERE type='table' AND name='bookings'"
@@ -1732,9 +1846,60 @@ with TestClient(main.app, follow_redirects=False) as cop, \
     assert db_one("SELECT is_active FROM users WHERE id=?", (uid_op,))[0] == 1
     assert db_one("SELECT is_operator FROM users WHERE id=?", (uid_op,))[0] == 1
 
-    # удаление пользователя со всеми данными (каскад)
+    # Действия удаляемого участника в чужой категории должны пережить удаление
+    # как обезличенные записи: результат не пересчитывается, имя и u<ID> исчезают.
+    ident = dbm.connect()
+    icat = ident.execute(
+        "INSERT INTO categories(owner_id,name,link_token,created_at) VALUES(?,?,?,?)",
+        (uid_op, "Категория для обезличивания", "identity-delete-cat", main.now_iso()),
+    ).lastrowid
+    idate = ident.execute(
+        "INSERT INTO dates(owner_id,name,origin,guest_token,proposed_by,created_at) "
+        "VALUES(?,?,?,?,?,?)",
+        (uid_op, "Предложение удаляемого", "guest", f"u{uid_nop}", uid_nop,
+         main.now_iso()),
+    ).lastrowid
+    ident.execute(
+        "INSERT INTO date_categories(date_id,category_id,position) VALUES(?,?,0)",
+        (idate, icat),
+    )
+    ident.execute(
+        "INSERT INTO guests(token,name,created_at) VALUES(?,?,?)",
+        (f"u{uid_nop}", "Имя, которое надо удалить", main.now_iso()),
+    )
+    ibook = ident.execute(
+        "INSERT INTO bookings(date_id,category_id,guest_token,user_id,created_at) "
+        "VALUES(?,?,?,?,?)",
+        (idate, icat, f"u{uid_nop}", uid_nop, main.now_iso()),
+    ).lastrowid
+    iquestion = ident.execute(
+        "INSERT INTO questions(date_id,category_id,guest_token,user_id,text,created_at) "
+        "VALUES(?,?,?,?,?,?)",
+        (idate, icat, f"u{uid_nop}", uid_nop, "Обезличить вопрос", main.now_iso()),
+    ).lastrowid
+    ireport = ident.execute(
+        "INSERT INTO reports(target_type,target_id,reporter,reason,created_at) "
+        "VALUES('date',?,?,?,?)",
+        (idate, f"u{uid_nop}", "Обезличить жалобу", main.now_iso()),
+    ).lastrowid
+    ident.commit()
+    ident.close()
+
+    # удаление аккаунта и принадлежащих ему данных (каскад)
     assert opost(f"/operator/users/{uid_nop}/delete").status_code == 303
     assert not db_one("SELECT 1 FROM users WHERE id=?", (uid_nop,))
+    ballot = db_one(
+        "SELECT guest_token,user_id FROM bookings WHERE id=?", (ibook,),
+    )
+    assert ballot and ballot["user_id"] is None
+    anon_token = ballot["guest_token"]
+    assert anon_token.startswith("deleted-") and anon_token != f"u{uid_nop}"
+    assert db_one("SELECT guest_token FROM questions WHERE id=?", (iquestion,))[0] == anon_token
+    assert db_one("SELECT guest_token FROM dates WHERE id=?", (idate,))[0] == anon_token
+    assert db_one("SELECT reporter FROM reports WHERE id=?", (ireport,))[0] == anon_token
+    assert not db_one("SELECT 1 FROM guests WHERE token=?", (f"u{uid_nop}",))
+    assert db_one("SELECT name FROM guests WHERE token=?", (anon_token,))[0] == \
+        "Удалённый участник"
 step("операторская админка: гейт 404 для не-оператора, баны/квоты/роли/удаление, самозащита")
 
 
@@ -1962,6 +2127,7 @@ with TestClient(main.app, follow_redirects=False) as cown, \
     set_moderation(bcid, False)                                # выкл модерацию (операторская)
     ownb("/admin/dates/new", {"name": "Прогулка", "categories": str(bcid)})
     bdid = db_one("SELECT id FROM dates WHERE name='Прогулка'")[0]
+    configure_voting(bcid, "multiple")
 
     # гость представляется и бронирует
     main._rates.clear()
@@ -2044,54 +2210,100 @@ def _widget_params(tg_id, token, username="widgetuser", first_name="Виджет
     data["hash"] = _hm.new(secret, pairs.encode(), _hl.sha256).hexdigest()
     return data
 
+def _widget_state(client):
+    page = client.get("/login")
+    match = re.search(r"widget_state=([A-Za-z0-9_-]+)", page.text)
+    assert match, "страница входа должна выпустить session-bound Widget state"
+    return match.group(1)
+
 with TestClient(main.app, follow_redirects=False) as cw:
     _saved_token = _nf.TOKEN
     _saved_send = _nf.send_to
+    _saved_http_post = _nf.httpx.post
     _nf.TOKEN = "123456:test-bot-token"        # включаем проверку подписи
-    _nf.send_to = lambda *a, **k: None         # без реальных сетевых вызовов
+    _nf.send_to = lambda *a, **k: True         # успешная доставка без реальной сети
+    class _WebhookOK:
+        status_code = 200
+        text = '{"ok":true}'
+    _nf.httpx.post = lambda *a, **k: _WebhookOK()  # lifespan вложенных клиентов
     try:
+        # Два параллельно открытых окна получают независимые одноразовые state.
+        good_state = _widget_state(cw)
+        stale_state = _widget_state(cw)
+        assert good_state != stale_state
+
         # подделанная подпись → 403, аккаунт не создаётся
         bad = _widget_params(990200, "wrong-token")
         assert cw.get("/auth/widget", params=bad).status_code == 403
         assert not db_one("SELECT 1 FROM users WHERE telegram_id=990200")
 
-        # без отметки согласия валидная подпись тоже отклоняется (серверный гейт)
+        # валидная подпись логинит без отдельной галочки; локальный return_to не
+        # входит в HMAC Telegram, но проходит серверный белый список
         good = _widget_params(990200, _nf.TOKEN)
-        cw.get("/login")                           # сбрасывает consent=False в сессии
-        assert cw.get("/auth/widget", params=good).status_code == 403
-        assert not db_one("SELECT 1 FROM users WHERE telegram_id=990200")
-
-        # отметили согласие → валидная подпись логинит, bot_linked=0 (бот не запущен)
-        assert cw.post("/auth/consent").status_code == 200
+        good["widget_state"] = good_state
+        good["return_to"] = "/c/widget-return"
         r = cw.get("/auth/widget", params=good)
-        assert r.status_code == 303 and r.headers["location"] == "/admin/"
+        assert r.status_code == 303 and r.headers["location"] == "/c/widget-return"
+        assert cw.get("/auth/widget", params=good).status_code == 403, \
+            "Widget callback должен быть одноразовым"
         row = db_one("SELECT id, bot_linked FROM users WHERE telegram_id=990200")
         assert row and row["bot_linked"] == 0
+
+        # внешний return_to тоже не ломает HMAC, но отбрасывается → кабинет
+        with TestClient(main.app, follow_redirects=False) as cw_external:
+            external = _widget_params(990202, _nf.TOKEN)
+            external["widget_state"] = _widget_state(cw_external)
+            external["return_to"] = "https://evil.example/steal"
+            ext = cw_external.get("/auth/widget", params=external)
+            assert ext.status_code == 303 and ext.headers["location"] == "/admin/"
 
         # в кабинете виден баннер «подключить бота»
         assert "Подключить бота" in cw.get("/admin/").text
 
-        # тот же человек запускает бота (deeplink) → bot_linked становится 1
+        # тот же человек запускает бота: код purpose-bound к его user_id, чужая
+        # сессия его не забирает, poll не переключает аккаунт
         main._rates.clear()
-        sec = {"X-Telegram-Bot-Api-Secret-Token": "hook-secret"}
-        st = cw.post("/auth/start").json()["code"]
-        cw.post("/tg/webhook", headers=sec, json={"message": {
-            "text": f"/start {st}", "from": {"id": 990200, "username": "widgetuser"}}})
+        st = cw.post("/auth/start?return_to=/c/guest-return").json()["code"]
+        link_code = db_one("SELECT purpose, user_id FROM login_codes WHERE code=?", (st,))
+        assert link_code["purpose"] == "link" and link_code["user_id"] == row["id"]
+        tg_open_login(cw, st, 990200, username="widgetuser")
+        with TestClient(main.app, follow_redirects=False) as stranger:
+            denied = stranger.get(f"/auth/poll?code={st}")
+            assert denied.status_code == 403 and denied.json()["status"] == "forbidden"
+        assert cw.get(f"/auth/poll?code={st}").json()["status"] == "pending"
+        tg_confirm_login(cw, st, 990200, username="widgetuser")
+        linked = cw.get(f"/auth/poll?code={st}").json()
+        assert linked["status"] == "ok" and linked["linked"] is True
+        assert linked["redirect"] == "/c/guest-return"
         assert db_one("SELECT bot_linked FROM users WHERE telegram_id=990200")[0] == 1
         # баннер исчез
         assert "Подключить бота" not in cw.get("/admin/").text
 
+        # Telegram другого аккаунта не присоединяется и аккаунты не сливаются
+        with TestClient(main.app, follow_redirects=False) as cconf:
+            assert tg_login(cconf, 990203, username="other-widget").json()["status"] == "ok"
+            other_id = db_one("SELECT id FROM users WHERE telegram_id=990203")["id"]
+            conflict_code = cconf.post("/auth/start").json()["code"]
+            tg_open_login(cconf, conflict_code, 990200, username="widgetuser")
+            assert cconf.get(f"/auth/poll?code={conflict_code}").json()["status"] == "pending"
+            tg_confirm_login(cconf, conflict_code, 990200, username="widgetuser")
+            conflict = cconf.get(f"/auth/poll?code={conflict_code}").json()
+            assert conflict["status"] == "conflict"
+            assert db_one("SELECT telegram_id FROM users WHERE id=?", (other_id,))[0] == 990203
+
         # просроченная подпись (старый auth_date) → 403
-        stale = _widget_params(990201, _nf.TOKEN)
+        stale = _widget_params(990204, _nf.TOKEN)
         stale["auth_date"] = "1000000000"
         stale_pairs = "\n".join(sorted(f"{k}={v}" for k, v in stale.items() if k != "hash"))
         stale["hash"] = _hm.new(_hl.sha256(_nf.TOKEN.encode()).digest(),
                                 stale_pairs.encode(), _hl.sha256).hexdigest()
+        stale["widget_state"] = stale_state
         assert cw.get("/auth/widget", params=stale).status_code == 403
     finally:
         _nf.TOKEN = _saved_token
         _nf.send_to = _saved_send
-step("вход: виджет (подпись HMAC, bot_linked=0, баннер) ↔ deeplink (bot_linked=1); подделка/протухшая подпись → 403")
+        _nf.httpx.post = _saved_http_post
+step("вход: пассивное согласие, безопасный return_to, purpose-bound привязка Telegram без слияния")
 
 
 # ---------- 1.5: per-owner уведомления по bot_linked ----------
@@ -2110,18 +2322,19 @@ with TestClient(main.app, follow_redirects=False) as cown, \
     ntok = nc["link_token"]
     ownn("/admin/dates/new", {"name": "Кафе", "categories": str(nc["id"])})
     ndid = db_one("SELECT id FROM dates WHERE name='Кафе'")[0]
+    configure_voting(nc["id"], "multiple")
 
     # перехватываем send_to: (chat_id, text)
     sent = []
     _saved = _nf.send_to
-    _nf.send_to = lambda chat, text: sent.append((chat, text))
+    _nf.send_to = lambda chat, text, **kwargs: sent.append((chat, text))
     try:
         main._rates.clear()
         assert tg_login(gn, 990333, username="guestn").json()["status"] == "ok"
         set_name(gn, ntok, "Гостья")
         assert gn.post(f"/c/{ntok}/book", data={"date_id": ndid}).json()["booked"] is True
         # фон BackgroundTasks в TestClient выполняется синхронно к этому моменту
-        assert any(c == 990300 and "Новый выбор" in t for c, t in sent), \
+        assert any(c == 990300 and "Новый голос" in t for c, t in sent), \
             f"владельцу с bot_linked=1 должно уйти уведомление, sent={sent}"
 
         # отключаем бота владельцу → уведомление НЕ шлётся
@@ -2136,7 +2349,7 @@ with TestClient(main.app, follow_redirects=False) as cown, \
 step("1.5: выбор свидания шлёт уведомление владельцу при bot_linked=1 и молчит при bot_linked=0")
 
 
-# ---------- 1.8: юридические документы, согласие, cookie ----------
+# ---------- 1.8: юридические документы, пассивное согласие, cookie ----------
 with TestClient(main.app, follow_redirects=False) as cl:
     terms = cl.get("/terms")
     assert terms.status_code == 200
@@ -2146,13 +2359,18 @@ with TestClient(main.app, follow_redirects=False) as cl:
     assert priv.status_code == 200
     assert "Политика конфиденциальности" in priv.text
     assert "152-ФЗ" in priv.text and "удалить свой аккаунт" in priv.text
-    # на странице входа — чекбокс согласия со ссылками на оба документа
+    # на странице входа — пассивный текст со ссылками, без обязательного действия
     lp = cl.get("/login").text
-    assert 'id="tg-consent"' in lp and 'href="/terms"' in lp and 'href="/privacy"' in lp
-    # способы входа видны всегда; клики до согласия гасит auth.js. Telegram —
-    # официальный Login Widget (telegram.org), подставляется в #tg-widget-wrap
-    # после согласия; вход по колбэку /auth/widget (не проброс в бота).
-    assert 'id="tg-widget-wrap"' in lp and 'data-bot=' in lp
+    assert "Продолжая вход" in lp and "tg-consent" not in lp
+    assert 'href="/terms"' in lp and 'href="/privacy"' in lp
+    # способы входа активны сразу; Telegram — официальный Login Widget,
+    # который auth.js подставляет лениво (в dialog — только после открытия).
+    assert "data-tg-widget" in lp and 'data-bot=' in lp
+    assert "/auth/consent" not in lp
+    # VPN-плашка не является гейтом и ведёт на текущий рекламный URL
+    assert "Telegram не открывается?" in lp
+    assert "Для входа через Telegram может понадобиться VPN." in lp
+    assert "Подключить VPN" in lp and 'rel="noopener sponsored"' in lp
     # надпись про подключение уведомлений в профиле
     assert "уведомления" in lp.lower()
     # страница входа несёт footer-ссылки на юр-документы
@@ -2162,7 +2380,7 @@ with TestClient(main.app, follow_redirects=False) as cl:
     assert root.status_code == 307 and root.headers["location"] == "/login"
     # cookie-баннер убран — его нет ни на входе, ни на гостевой
     assert "cookie-bar" not in lp
-step("1.8: /terms и /privacy доступны (152-ФЗ, право на удаление); согласие на входе; / → /login")
+step("1.8: /terms и /privacy доступны; согласие пассивное; VPN-плашка; / → /login")
 
 
 # ---------- 1.10: страница «О проекте», поддержка, проекты автора ----------
@@ -2238,8 +2456,11 @@ with TestClient(main.app, follow_redirects=False) as cown, \
     # подпись автора кликабельна и ведёт на его публичный профиль (для всех)
     assert f'/u/{bc["owner_id"]}' in page and "Маргарита" in page
     # анониму показана кнопка «Войти»; вход — модалкой с возвратом на эту ссылку
-    # (next несёт чекбокс согласия data-next, см. auth.js → /auth/consent?next=)
-    assert ">Войти<" in page and f'data-next="/c/{btok2}"' in page
+    # Адрес возврата теперь передаётся непосредственно Telegram/OAuth-входу;
+    # пассивный текст правил не требует checkbox или отдельного consent-route.
+    assert ">Войти<" in page and 'data-auth-url="/auth/widget?widget_state=' in page
+    assert "return_to=" in page
+    assert "data-next=" not in page and "tg-consent" not in page
 step("#1: подпись автора кликабельна (/u/<id>), анониму — кнопка «Войти» с возвратом")
 
 
@@ -2289,7 +2510,7 @@ with TestClient(main.app, follow_redirects=False) as cown, \
     # перехват send_to: ответ админа должен уведомить автора вопроса
     sent = []
     _saved = _nf3.send_to
-    _nf3.send_to = lambda chat, text: sent.append((chat, text))
+    _nf3.send_to = lambda chat, text, **kwargs: sent.append((chat, text))
     try:
         r = ownq(f"/admin/questions/{qid_n}/answer",
                  {"text": "Да, есть!", "next": "/admin/questions"})
@@ -2568,12 +2789,13 @@ with TestClient(main.app, follow_redirects=False) as cui:
     # og-preview отдаёт кроп 1200×630 (WebP), не падает
     assert cui.get(f"/admin/categories/{mcat['id']}/og-preview").status_code == 200
 
-    # D: кнопки OAuth-провайдеров на странице входа — видны всегда, иконки,
-    # гейт согласия через .login-methods. Нужен анонимный клиент.
+    # D: кнопки OAuth-провайдеров на странице входа — активны сразу, с иконками.
+    # Нужен анонимный клиент.
     with TestClient(main.app, follow_redirects=False) as canon:
         login = canon.get("/login").text
         assert "/auth/discord" in login and "/auth/google" in login and "/auth/yandex" in login
-        assert 'id="loginMethods"' in login and "oauth-ico" in login
+        assert "data-login-methods" in login and "oauth-ico" in login
+        assert "tg-consent" not in login
     # не настроенный провайдер → 503; неизвестный → 404; настроенный → редирект на провайдера
     assert cui.get("/auth/google").status_code == 503
     assert cui.get("/auth/google/callback").status_code == 503
@@ -2635,6 +2857,22 @@ try:
         assert link and link["provider_uid"] == _FakeOAuthClient.provider_uid
         assert link["user_id"] == u["id"]
         # кабинет доступен под OAuth-аккаунтом (нет telegram — не падает)
+        assert coa.get("/admin/").status_code == 200
+
+        # Подключение Telegram из OAuth-сессии дополняет ЭТОТ аккаунт, не создаёт
+        # второй TG-аккаунт и не переключает user_id браузера.
+        tg_code = coa.post("/auth/start").json()["code"]
+        tg_link = db_one("SELECT purpose, user_id FROM login_codes WHERE code=?", (tg_code,))
+        assert tg_link["purpose"] == "link" and tg_link["user_id"] == u["id"]
+        tg_open_login(coa, tg_code, 773001, username="oauth-telegram")
+        assert coa.get(f"/auth/poll?code={tg_code}").json()["status"] == "pending"
+        tg_confirm_login(coa, tg_code, 773001, username="oauth-telegram")
+        tg_done = coa.get(f"/auth/poll?code={tg_code}").json()
+        assert tg_done["status"] == "ok" and tg_done["linked"] is True
+        linked_oauth = db_one("SELECT id, telegram_id, bot_linked FROM users WHERE id=?",
+                              (u["id"],))
+        assert linked_oauth["telegram_id"] == 773001 and linked_oauth["bot_linked"] == 1
+        assert db_one("SELECT COUNT(*) FROM users WHERE telegram_id=773001")[0] == 1
         assert coa.get("/admin/").status_code == 200
 
         # повторный вход тем же провайдером НЕ плодит дубль-аккаунт

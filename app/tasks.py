@@ -1,4 +1,4 @@
-"""Фоновые задачи: авто-архив просроченных свиданий и ежесуточный бэкап."""
+"""Фоновые задачи: архив, бэкап и доставка пользовательских уведомлений."""
 
 import asyncio
 import gzip
@@ -11,6 +11,8 @@ from pathlib import Path
 import backup
 import db
 import notify
+import notification_outbox
+import voting_events
 from config import TG_BACKUP_CHAT_ID
 from helpers import _parse, now_iso, now_naive
 
@@ -18,6 +20,38 @@ log = logging.getLogger("tasks")
 
 # Лимит Bot API на размер файла, отправляемого ботом, — 50 МБ. С запасом.
 TG_DOC_LIMIT = 49 * 1024 * 1024
+
+
+async def notification_outbox_loop() -> None:
+    """Отправляет наступившие сообщения, не блокируя event loop HTTP-запросами."""
+    while True:
+        try:
+            stats = await asyncio.to_thread(notification_outbox.process_due)
+            if stats.sent or stats.failed or stats.expired:
+                log.info(
+                    "Telegram outbox: отправлено=%d, ошибок=%d, ждут привязки=%d, "
+                    "просрочено=%d",
+                    stats.sent, stats.failed, stats.deferred, stats.expired,
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("Ошибка обработки Telegram outbox")
+        await asyncio.sleep(30)
+
+
+async def voting_close_loop() -> None:
+    """Фиксирует результаты вскоре после дедлайна, даже без открытия страницы."""
+    while True:
+        try:
+            closed = await asyncio.to_thread(voting_events.close_due_once)
+            if closed:
+                log.info("Закрыто голосований по дедлайну: %d", closed)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("Ошибка закрытия голосований")
+        await asyncio.sleep(30)
 
 
 def autoarchive_once(conn: sqlite3.Connection | None = None, *,

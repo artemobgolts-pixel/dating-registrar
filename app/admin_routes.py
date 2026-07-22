@@ -10,6 +10,7 @@ import logging
 import os
 import tempfile
 import zipfile
+from datetime import datetime
 
 import segno
 
@@ -26,6 +27,8 @@ import notify
 import places
 import public_routes
 import settings as app_settings
+import voting
+import voting_events
 from config import BASE_URL, SUPPORT_CONTACT, OAUTH_PROVIDERS, OAUTH_LABELS
 from guests import gname
 from helpers import (clean_text, new_link_token, normalize_period, now_iso, now_naive,
@@ -33,7 +36,7 @@ from helpers import (clean_text, new_link_token, normalize_period, now_iso, now_
 from fastapi.responses import JSONResponse
 from ownership import get_owned_category, get_owned_date
 from public_routes import (add_photos, copy_date_media_and_links, insert_date,
-                           next_cat_pos, notify_admin, notify_user, ranged_file,
+                           next_cat_pos, notify_admin, notify_user, parse_capacity, ranged_file,
                            save_links, VIDEO_TYPES)
 from ratelimit import user_throttle
 from tasks import autoarchive_once
@@ -50,6 +53,69 @@ from web import get_db, redir, templates
 
 router = APIRouter(prefix="/admin", dependencies=[Depends(current_user)])
 log = logging.getLogger("admin")
+
+
+def _raise_voting_http(exc: voting.VotingError) -> None:
+    """Переводит ожидаемую доменную ошибку голосования в понятный HTTP-ответ."""
+    raise HTTPException(exc.status_code, exc.message) from exc
+
+
+def _category_voting_is_closed(cat) -> bool:
+    """Считает состав зафиксированным и при уже наступившем дедлайне.
+
+    Фоновое закрытие может выполниться на несколько секунд позже дедлайна, но
+    это окно не должно позволять владельцу менять набор кандидатов.
+    """
+    if cat["closed_at"] is not None or cat["voting_status"] in voting.CLOSED_STATUSES:
+        return True
+    deadline = cat["voting_deadline"]
+    if cat["voting_status"] == voting.STATUS_OPEN and deadline:
+        try:
+            return now_naive() >= datetime.fromisoformat(deadline)
+        except (TypeError, ValueError):
+            return True
+    return False
+
+
+def _require_category_composition_mutable(conn, cat):
+    """Сериализует изменение состава с голосами и закрытием по дедлайну."""
+    cursor = conn.execute("UPDATE categories SET id=id WHERE id=?", (cat["id"],))
+    if cursor.rowcount == 0:
+        raise HTTPException(404, "Категория не найдена")
+    fresh = conn.execute("SELECT * FROM categories WHERE id=?", (cat["id"],)).fetchone()
+    if _category_voting_is_closed(fresh):
+        raise HTTPException(
+            409,
+            "Голосование уже завершено: состав и порядок свиданий зафиксированы",
+        )
+    return fresh
+
+
+def _validate_start_after_open_deadlines(conn, category_ids: list[int] | set[int],
+                                         starts_at: str | None) -> None:
+    """Не даёт поставить старт не позже дедлайна привязанного голосования."""
+    if not starts_at or not category_ids:
+        return
+    try:
+        starts = datetime.fromisoformat(starts_at)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "Неверный формат даты/времени")
+    placeholders = ",".join("?" * len(category_ids))
+    for cat in conn.execute(
+        f"SELECT id, name, voting_deadline FROM categories "
+        f"WHERE id IN ({placeholders}) AND voting_status='open' "
+        "AND voting_deadline IS NOT NULL",
+        tuple(category_ids),
+    ):
+        try:
+            deadline = datetime.fromisoformat(cat["voting_deadline"])
+        except (TypeError, ValueError):
+            raise HTTPException(409, f"У категории «{cat['name']}» некорректный дедлайн")
+        if starts <= deadline:
+            raise HTTPException(
+                400,
+                f"Начало свидания должно быть позже дедлайна категории «{cat['name']}»",
+            )
 
 
 def actx(request: Request, conn, **extra) -> dict:
@@ -92,6 +158,7 @@ def profile_save(request: Request,
                  display_name: str = Form(""),
                  birth_date: str = Form(""),
                  gender: str = Form(""),
+                 cursor_effects: str | None = Form(None),
                  avatar: UploadFile | None = File(None),
                  conn=Depends(get_db)):
     """Сохраняет профиль владельца. Аватар — опционально; старый файл сносим
@@ -109,14 +176,15 @@ def profile_save(request: Request,
             raise HTTPException(400, str(e))
 
     old_avatar = request.state.user["avatar_path"]
+    effects = 1 if cursor_effects is not None else 0
     if new_avatar:
         conn.execute(
-            "UPDATE users SET display_name=?, birth_date=?, gender=?, avatar_path=? "
-            "WHERE id=?", (name, bdate, g, new_avatar, uid))
+            "UPDATE users SET display_name=?, birth_date=?, gender=?, avatar_path=?, "
+            "cursor_effects=? WHERE id=?", (name, bdate, g, new_avatar, effects, uid))
     else:
         conn.execute(
-            "UPDATE users SET display_name=?, birth_date=?, gender=? WHERE id=?",
-            (name, bdate, g, uid))
+            "UPDATE users SET display_name=?, birth_date=?, gender=?, cursor_effects=? "
+            "WHERE id=?", (name, bdate, g, effects, uid))
     conn.commit()
     if new_avatar and old_avatar:        # старый аватар — только после коммита
         images.delete_file(old_avatar)
@@ -505,12 +573,14 @@ async def import_json(request: Request, file: UploadFile = File(...),
         if not isinstance(d, dict):
             continue
         name = clean_text(str(d.get("name") or ""), 200, "Название") or "Без названия"
+        capacity_value = parse_capacity(d.get("capacity", 1))
         did = insert_date(
             conn, name=name, place=d.get("place"), starts=d.get("starts_at"),
             ends=d.get("ends_at"), comment=d.get("comment"),
             origin="admin", guest_token=None, owner_id=uid,
             draft=1 if d.get("is_draft") else 0,
-            pay_split=1 if d.get("pay_split") else 0, place_url=d.get("place_url"))
+            pay_split=1 if d.get("pay_split") else 0, place_url=d.get("place_url"),
+            capacity=capacity_value)
         if d.get("archived_at"):
             conn.execute("UPDATE dates SET archived_at=? WHERE id=?",
                          (now_iso(), did))
@@ -597,11 +667,15 @@ def _cat_or_404(conn, cid: int, user):
 @router.get("/categories/{cid}", response_class=HTMLResponse)
 def category_detail(cid: int, request: Request, conn=Depends(get_db)):
     cat = _cat_or_404(conn, cid, request.state.user)
+    voting_events.close_due_once(conn, category_id=cid)
+    cat = _cat_or_404(conn, cid, request.state.user)
     dates = conn.execute(
         "SELECT d.*, "
         "(SELECT COUNT(*) FROM bookings b WHERE b.date_id=d.id AND b.category_id=?) AS books, "
-        "(SELECT GROUP_CONCAT(COALESCE(g.name, '#' || substr(b.guest_token,1,6)), ', ') "
-        " FROM bookings b LEFT JOIN guests g ON g.token=b.guest_token "
+        "(SELECT GROUP_CONCAT(COALESCE(u.display_name, u.tg_username, g.name, "
+        "'#' || substr(b.guest_token,1,6)), ', ') "
+        " FROM bookings b LEFT JOIN users u ON u.id=b.user_id "
+        " LEFT JOIN guests g ON g.token=b.guest_token "
         " WHERE b.date_id=d.id AND b.category_id=?) AS booked_names "
         "FROM dates d JOIN date_categories dc ON dc.date_id=d.id "
         "WHERE dc.category_id=? "
@@ -624,10 +698,51 @@ def category_detail(cid: int, request: Request, conn=Depends(get_db)):
             "JOIN date_images di ON di.date_id=d.id "
             "WHERE dc.category_id=? AND d.archived_at IS NULL AND d.is_draft=0 LIMIT 1",
             (cid,)).fetchone() is not None
+    state = voting.get_category_state(conn, cid)
+    leader_ids = set(state.leader_date_ids)
+    can_change_composition = not _category_voting_is_closed(cat)
     return templates.TemplateResponse(
         request, "admin/category_detail.html",
         actx(request, conn, active="cats", cat=cat, dates=dates, attachable=attachable,
-             auto_og=auto_og))
+             auto_og=auto_og, voting_state=state, leader_ids=leader_ids,
+             can_change_composition=can_change_composition))
+
+
+@router.post("/categories/{cid}/voting")
+def category_voting_configure(cid: int, request: Request,
+                              choice_mode: str = Form(...),
+                              voting_deadline: str = Form(...),
+                              conn=Depends(get_db)):
+    """Явная настройка режима и ручного дедлайна голосования (время МСК)."""
+    cat = _cat_or_404(conn, cid, request.state.user)
+    try:
+        state = voting.configure_category(
+            conn, cid, cat["owner_id"], choice_mode, voting_deadline,
+        )
+    except voting.VotingError as exc:
+        _raise_voting_http(exc)
+    for row in conn.execute(
+        "SELECT DISTINCT user_id FROM bookings WHERE category_id=? AND user_id IS NOT NULL",
+        (cid,),
+    ):
+        voting_events.queue_deadline_reminder(conn, cid, int(row["user_id"]))
+    conn.commit()
+    return redir(f"/admin/categories/{cid}", "Настройки голосования сохранены")
+
+
+@router.post("/categories/{cid}/voting/resolve")
+def category_voting_resolve_tie(cid: int, request: Request,
+                                winner_date_id: int = Form(...),
+                                conn=Depends(get_db)):
+    """При ничьей владелец вручную выбирает одного из фактических лидеров."""
+    cat = _cat_or_404(conn, cid, request.state.user)
+    try:
+        state = voting.resolve_tie(conn, cid, cat["owner_id"], winner_date_id)
+    except voting.VotingError as exc:
+        _raise_voting_http(exc)
+    voting_events.queue_category_outcome(conn, state)
+    conn.commit()
+    return redir(f"/admin/categories/{cid}", "Победитель выбран")
 
 
 def _category_collage_sources(conn, cid: int) -> list[str]:
@@ -798,8 +913,46 @@ def category_moderation(cid: int, request: Request, conn=Depends(get_db)):
 @router.post("/categories/{cid}/regenerate")
 def category_regenerate(cid: int, request: Request, conn=Depends(get_db)):
     _cat_or_404(conn, cid, request.state.user)
+    # Сначала берём блокировку записи, затем заново читаем текущий токен. При двух
+    # одновременных регенерациях второй запрос заменит в очереди ссылку первого,
+    # а не устаревшую ссылку, которую видел до ожидания блокировки.
+    if conn.execute("UPDATE categories SET id=id WHERE id=?", (cid,)).rowcount == 0:
+        raise HTTPException(404, "Категория не найдена")
+    cat = _cat_or_404(conn, cid, request.state.user)
+    old_token = cat["link_token"]
     token = new_link_token()
     conn.execute("UPDATE categories SET link_token=?, link_enabled=1 WHERE id=?", (token, cid))
+
+    # Обновляем каждое неотправленное сообщение с точным секретным URL, включая
+    # уже наступившие и сообщения с иным event_key. Снять claim безопасно:
+    # воркер повторно проверяет уникальную аренду непосредственно перед отправкой.
+    if old_token:
+        old_url = f"{BASE_URL}/c/{old_token}"
+        new_url = f"{BASE_URL}/c/{token}"
+        stamp = now_iso()
+        conn.execute(
+            "UPDATE notification_outbox SET text=REPLACE(text, ?, ?), "
+            "claimed_at=NULL, updated_at=? "
+            "WHERE sent_at IS NULL AND cancelled_at IS NULL AND instr(text, ?) > 0",
+            (old_url, new_url, stamp, old_url),
+        )
+
+    # После получения блокировки перечитываем статус: фоновый обработчик мог
+    # успеть завершить голосование до начала этой транзакции.
+    cat = conn.execute("SELECT * FROM categories WHERE id=?", (cid,)).fetchone()
+
+    # Пересобираем уведомления в той же транзакции, чтобы нигде не осталась
+    # очередь со старой, уже недействующей гостевой ссылкой.
+    if cat["voting_status"] == voting.STATUS_OPEN:
+        voters = conn.execute(
+            "SELECT DISTINCT user_id FROM bookings "
+            "WHERE category_id=? AND user_id IS NOT NULL",
+            (cid,),
+        ).fetchall()
+        for voter in voters:
+            voting_events.queue_deadline_reminder(conn, cid, int(voter["user_id"]))
+    elif cat["voting_status"] in voting.CLOSED_STATUSES:
+        voting_events.queue_category_outcome(conn, voting.get_category_state(conn, cid))
     conn.commit()
     return redir(f"/admin/categories/{cid}",
                  "Новая ссылка сгенерирована. Старая больше не работает, все данные сохранены.")
@@ -808,8 +961,20 @@ def category_regenerate(cid: int, request: Request, conn=Depends(get_db)):
 @router.post("/categories/{cid}/delete")
 def category_delete(cid: int, request: Request, bg: BackgroundTasks, conn=Depends(get_db)):
     cat = _cat_or_404(conn, cid, request.state.user)
+    cat = _require_category_composition_mutable(conn, cat)
+    affected = conn.execute(
+        "SELECT DISTINCT d.id, d.name FROM dates d JOIN bookings b ON b.date_id=d.id "
+        "WHERE b.category_id=?", (cid,),
+    ).fetchall()
+    voting_events.cancel_category_notifications(conn, cid)
+    for d in affected:
+        voting_events.queue_date_removed(
+            conn, d["id"], d["name"], cid, cat["name"], None,
+        )
     conn.execute("DELETE FROM categories WHERE id=?", (cid,))
     conn.commit()
+    if cat["og_image"]:
+        images.delete_file(cat["og_image"])
     actor = request.state.user["display_name"] or request.state.user["tg_username"] or "—"
     notify_admin(bg, conn, cat["owner_id"], notify.card(
         "🗑 Удалена категория",
@@ -822,9 +987,11 @@ def category_delete(cid: int, request: Request, bg: BackgroundTasks, conn=Depend
 def category_attach(cid: int, request: Request, date_id: int = Form(...),
                     conn=Depends(get_db)):
     cat = _cat_or_404(conn, cid, request.state.user)
+    cat = _require_category_composition_mutable(conn, cat)
     # привязать можно только свидание ТОГО ЖЕ владельца, что и категория, —
     # иначе чужое утечёт в категорию (для админа контекст = владелец категории)
-    get_owned_date(conn, date_id, cat["owner_id"])
+    date_row = get_owned_date(conn, date_id, cat["owner_id"])
+    _validate_start_after_open_deadlines(conn, [cid], date_row["starts_at"])
     conn.execute(
         "INSERT OR IGNORE INTO date_categories(date_id, category_id, position) "
         "VALUES(?,?,?)", (date_id, cid, next_cat_pos(conn, cid)))
@@ -838,7 +1005,8 @@ def category_attach(cid: int, request: Request, date_id: int = Form(...),
 def category_dates_reorder(cid: int, request: Request, order: str = Form(...),
                            conn=Depends(get_db)):
     """Drag-and-drop порядок свиданий: order — id через запятую."""
-    _cat_or_404(conn, cid, request.state.user)
+    cat = _cat_or_404(conn, cid, request.state.user)
+    cat = _require_category_composition_mutable(conn, cat)
     ids_db = [r[0] for r in conn.execute(
         "SELECT date_id FROM date_categories WHERE category_id=?", (cid,))]
     try:
@@ -858,9 +1026,26 @@ def category_dates_reorder(cid: int, request: Request, order: str = Form(...),
 @router.post("/categories/{cid}/detach")
 def category_detach(cid: int, request: Request, date_id: int = Form(...),
                     conn=Depends(get_db)):
-    _cat_or_404(conn, cid, request.state.user)
-    conn.execute("DELETE FROM date_categories WHERE date_id=? AND category_id=?", (date_id, cid))
+    cat = _cat_or_404(conn, cid, request.state.user)
+    cat = _require_category_composition_mutable(conn, cat)
+    d = conn.execute("SELECT name FROM dates WHERE id=?", (date_id,)).fetchone()
+    affected_users = [int(r["user_id"]) for r in conn.execute(
+        "SELECT DISTINCT user_id FROM bookings WHERE date_id=? AND category_id=? "
+        "AND user_id IS NOT NULL", (date_id, cid),
+    )]
+    if d:
+        voting_events.queue_date_removed(
+            conn, date_id, d["name"], cid, cat["name"], cat["link_token"],
+        )
     conn.execute("DELETE FROM bookings WHERE date_id=? AND category_id=?", (date_id, cid))
+    conn.execute("DELETE FROM date_categories WHERE date_id=? AND category_id=?", (date_id, cid))
+    for user_id in affected_users:
+        still_voting = conn.execute(
+            "SELECT 1 FROM bookings WHERE category_id=? AND user_id=? LIMIT 1",
+            (cid, user_id),
+        ).fetchone()
+        if not still_voting:
+            voting_events.cancel_deadline_reminder(conn, cid, user_id)
     # если это была последняя категория свидания — оно становится неактивным
     still = conn.execute(
         "SELECT 1 FROM date_categories WHERE date_id=? LIMIT 1", (date_id,)).fetchone()
@@ -975,7 +1160,8 @@ def dates_list(request: Request, conn=Depends(get_db)):
 
 def _all_cats(conn, uid: int):
     return conn.execute(
-        "SELECT id, name FROM categories WHERE owner_id=? ORDER BY created_at DESC",
+        "SELECT id, name, voting_status, voting_deadline, closed_at "
+        "FROM categories WHERE owner_id=? ORDER BY created_at DESC",
         (uid,)).fetchall()
 
 
@@ -1015,10 +1201,14 @@ def date_new_form(request: Request, conn=Depends(get_db)):
     pre = request.query_params.get("category")
     if pre and pre.isdigit():
         checked.add(int(pre))
+    cats = _all_cats(conn, request.state.user["id"])
+    locked_cat_ids = {c["id"] for c in cats if _category_voting_is_closed(c)}
+    checked.difference_update(locked_cat_ids)
     return templates.TemplateResponse(
         request, "admin/date_form.html",
         actx(request, conn, active="dates", date=None, photos=[], videos=[], links_text="",
-             cats=_all_cats(conn, request.state.user["id"]), checked=checked, slots=images.MAX_IMAGES))
+             cats=cats, checked=checked, locked_cat_ids=locked_cat_ids,
+             slots=images.MAX_IMAGES))
 
 
 @router.post("/dates/new")
@@ -1026,6 +1216,7 @@ def date_create(request: Request, bg: BackgroundTasks,
                 name: str = Form(...), place: str = Form(""),
                 starts_at: str = Form(""), ends_at: str = Form(""),
                 links: str = Form(""), comment: str = Form(""),
+                capacity: str = Form("1"),
                 pay: str | None = Form(None),
                 is_public: str | None = Form(None),
                 categories: list[int] = Form(default=[]),
@@ -1041,18 +1232,25 @@ def date_create(request: Request, bg: BackgroundTasks,
     comment = clean_text(comment, 2000, "Комментарий")
     starts, ends = normalize_period(parse_dt_local(starts_at), parse_dt_local(ends_at))
     link_list = parse_links(links)
+    pay_value = parse_pay(pay)
+    public_value = parse_public(is_public)
 
     # привязываем только СВОИ категории (чужие id из формы молча игнорируем)
     own_cats = {r[0] for r in conn.execute(
         "SELECT id FROM categories WHERE owner_id=?", (uid,))}
     attach = [c for c in categories if c in own_cats]
+    for cid in attach:
+        cat = conn.execute("SELECT * FROM categories WHERE id=?", (cid,)).fetchone()
+        _require_category_composition_mutable(conn, cat)
+    _validate_start_after_open_deadlines(conn, attach, starts)
+    capacity_value = parse_capacity(capacity)
     # свидание без категорий неактивно автоматически (гости его не видят)
     date_id = insert_date(conn, name=name, place=place, starts=starts, ends=ends,
                           comment=comment, origin="admin", guest_token=None,
                           owner_id=uid,
                           draft=0 if attach else 1,
-                          pay_split=parse_pay(pay), place_url=place_url,
-                          is_public=parse_public(is_public))
+                          pay_split=pay_value, place_url=place_url,
+                          is_public=public_value, capacity=capacity_value)
     for cid in attach:
         conn.execute(
             "INSERT OR IGNORE INTO date_categories(date_id, category_id, position) "
@@ -1108,6 +1306,22 @@ def _date_or_404(conn, did: int, user):
     return get_owned_date(conn, did, user["id"])
 
 
+def _require_date_not_in_closed_vote(conn, did: int, action: str) -> None:
+    # Lock the date first: every competing category/vote mutation is a writer,
+    # so the category list and deadline checks below remain a stable snapshot.
+    if conn.execute("UPDATE dates SET id=id WHERE id=?", (did,)).rowcount == 0:
+        raise HTTPException(404, "Свидание не найдено")
+    for cat in conn.execute(
+        "SELECT c.* FROM categories c JOIN date_categories dc ON dc.category_id=c.id "
+        "WHERE dc.date_id=?", (did,),
+    ):
+        if _category_voting_is_closed(cat):
+            raise HTTPException(
+                409,
+                f"Нельзя {action}: голосование в категории «{cat['name']}» уже завершено",
+            )
+
+
 @router.get("/dates/{did}/edit", response_class=HTMLResponse)
 def date_edit_form(did: int, request: Request, conn=Depends(get_db)):
     d = _date_or_404(conn, did, request.state.user)
@@ -1121,11 +1335,15 @@ def date_edit_form(did: int, request: Request, conn=Depends(get_db)):
         "SELECT * FROM date_videos WHERE date_id=? ORDER BY position, id", (did,)).fetchall()
     booked = conn.execute(
         "SELECT b.id AS bid, "
-        "COALESCE(g.name, '#' || substr(b.guest_token,1,6)) AS name, c.name AS cat "
-        "FROM bookings b LEFT JOIN guests g ON g.token=b.guest_token "
+        "COALESCE(u.display_name, u.tg_username, g.name, "
+        "'#' || substr(b.guest_token,1,6)) AS name, c.name AS cat "
+        "FROM bookings b LEFT JOIN users u ON u.id=b.user_id "
+        "LEFT JOIN guests g ON g.token=b.guest_token "
         "JOIN categories c ON c.id=b.category_id WHERE b.date_id=? ORDER BY b.created_at",
         (did,)).fetchall()
     proposer = gname(conn, d["guest_token"]) if d["origin"] == "guest" else None
+    cats = _all_cats(conn, d["owner_id"])
+    locked_cat_ids = {c["id"] for c in cats if _category_voting_is_closed(c)}
     return templates.TemplateResponse(
         request, "admin/date_form.html",
         actx(request, conn, active="dates", date=d, photos=photos, videos=videos,
@@ -1133,7 +1351,7 @@ def date_edit_form(did: int, request: Request, conn=Depends(get_db)):
              proposer=proposer,
              links_text="\n".join(r["url"] for r in link_rows),
              # категории показываем владельца свидания (админ может править чужое)
-             cats=_all_cats(conn, d["owner_id"]), checked=checked,
+             cats=cats, checked=checked, locked_cat_ids=locked_cat_ids,
              slots=images.MAX_IMAGES - len(photos)))
 
 
@@ -1142,6 +1360,7 @@ def date_update(did: int, request: Request, bg: BackgroundTasks, name: str = For
                 place: str = Form(""),
                 starts_at: str = Form(""), ends_at: str = Form(""),
                 links: str = Form(""), comment: str = Form(""),
+                capacity: str = Form("1"),
                 pay: str | None = Form(None),
                 is_public: str | None = Form(None),
                 categories: list[int] = Form(default=[]),
@@ -1150,6 +1369,11 @@ def date_update(did: int, request: Request, bg: BackgroundTasks, name: str = For
                 image_focuses: str = Form(""),
                 conn=Depends(get_db)):
     d = _date_or_404(conn, did, request.state.user)
+    # Проверяем расписание, вместимость и категории в той же сериализованной
+    # транзакции, что и запись. После блокировки перечитываем свидание, чтобы
+    # параллельная настройка категории не сделала снимок устаревшим.
+    conn.execute("UPDATE dates SET id=id WHERE id=?", (did,))
+    d = _date_or_404(conn, did, request.state.user)
     user_throttle("dateedit", request.state.user["id"], request)
     name = clean_text(name, 200, "Название", required=True)
     place, place_url, needs_resolve = places.place_on_edit(
@@ -1157,34 +1381,92 @@ def date_update(did: int, request: Request, bg: BackgroundTasks, name: str = For
     comment = clean_text(comment, 2000, "Комментарий")
     starts, ends = normalize_period(parse_dt_local(starts_at), parse_dt_local(ends_at))
     link_list = parse_links(links)
+    pay_value = parse_pay(pay)
+    public_value = parse_public(is_public)
 
     # привязываем только категории владельца свидания (чужие id из формы молча
     # игнорируем). Для админа, правящего чужое, контекст = владелец свидания.
     own_cats = {r[0] for r in conn.execute(
         "SELECT id FROM categories WHERE owner_id=?", (d["owner_id"],))}
     categories = [c for c in categories if c in own_cats]
+    requested = set(categories)
+    current = {r[0] for r in conn.execute(
+        "SELECT category_id FROM date_categories WHERE date_id=?", (did,))}
+
+    # Закрывшаяся категория — зафиксированный снимок: её нельзя ни добавить к
+    # свиданию, ни снять. Остальные категории синхронизируем точечно, не через
+    # DELETE/INSERT всех строк, чтобы не затронуть уже установленный порядок.
+    for cid in current ^ requested:
+        cat = conn.execute("SELECT * FROM categories WHERE id=?", (cid,)).fetchone()
+        if cat:
+            _require_category_composition_mutable(conn, cat)
+    _validate_start_after_open_deadlines(conn, requested, starts)
+
+    # После результата вместимость тоже остаётся частью зафиксированного
+    # варианта. До закрытия сервис разрешит изменение, но не ниже числа голосов
+    # в любой отдельно взятой категории.
+    capacity_value = parse_capacity(capacity)
+    if capacity_value != int(d["capacity"]):
+        for cid in current:
+            cat = conn.execute("SELECT * FROM categories WHERE id=?", (cid,)).fetchone()
+            if cat and _category_voting_is_closed(cat):
+                raise HTTPException(
+                    409,
+                    "Нельзя изменить количество участников после завершения голосования",
+                )
+    try:
+        voting.set_date_capacity(
+            conn, did, d["owner_id"], capacity_value,
+        )
+    except voting.VotingError as exc:
+        _raise_voting_http(exc)
     # свидание без категорий неактивно автоматически (гости его не видят)
     is_draft = 0 if categories else 1
+
+    changed_labels: list[str] = []
+    if name != d["name"]:
+        changed_labels.append("название")
+    if place != (d["place"] or ""):
+        changed_labels.append("место")
+    if starts != d["starts_at"] or ends != d["ends_at"]:
+        changed_labels.append("дата или время")
+    if pay_value != int(d["pay_split"] or 0):
+        changed_labels.append("условия оплаты")
+    if capacity_value != int(d["capacity"] or 1):
+        changed_labels.append("количество участников")
 
     conn.execute(
         "UPDATE dates SET name=?, place=?, place_url=?, starts_at=?, ends_at=?, "
         "comment=?, is_draft=?, pay_split=?, is_public=? WHERE id=?",
         (name, place, place_url, starts, ends, comment,
-         is_draft, parse_pay(pay), parse_public(is_public), did))
+         is_draft, pay_value, public_value, did))
 
-    # Синхронизируем категории; выборы по отвязанным категориям удаляем
-    conn.execute("DELETE FROM date_categories WHERE date_id=?", (did,))
-    if categories:
-        for cid in categories:
-            conn.execute(
-                "INSERT OR IGNORE INTO date_categories(date_id, category_id, position) "
-                "VALUES(?,?,?)", (did, cid, next_cat_pos(conn, cid)))
-        placeholders = ",".join("?" * len(categories))
+    # Синхронизируем только фактическую разницу; голоса снятых открытых
+    # категорий удаляются, а неизменённые строки и их порядок сохраняются.
+    for cid in current - requested:
+        affected_users = [int(r["user_id"]) for r in conn.execute(
+            "SELECT DISTINCT user_id FROM bookings WHERE date_id=? AND category_id=? "
+            "AND user_id IS NOT NULL", (did, cid),
+        )]
+        removed_cat = conn.execute("SELECT * FROM categories WHERE id=?", (cid,)).fetchone()
+        if removed_cat:
+            voting_events.queue_date_removed(
+                conn, did, d["name"], cid, removed_cat["name"],
+                removed_cat["link_token"],
+            )
+        conn.execute("DELETE FROM bookings WHERE date_id=? AND category_id=?", (did, cid))
+        conn.execute("DELETE FROM date_categories WHERE date_id=? AND category_id=?", (did, cid))
+        for user_id in affected_users:
+            if not conn.execute(
+                "SELECT 1 FROM bookings WHERE category_id=? AND user_id=? LIMIT 1",
+                (cid, user_id),
+            ).fetchone():
+                voting_events.cancel_deadline_reminder(conn, cid, user_id)
+    for cid in requested - current:
         conn.execute(
-            f"DELETE FROM bookings WHERE date_id=? AND category_id NOT IN ({placeholders})",
-            (did, *categories))
-    else:
-        conn.execute("DELETE FROM bookings WHERE date_id=?", (did,))
+            "INSERT INTO date_categories(date_id, category_id, position) VALUES(?,?,?)",
+            (did, cid, next_cat_pos(conn, cid)),
+        )
 
     save_links(conn, did, link_list)
     existing = conn.execute(
@@ -1200,6 +1482,7 @@ def date_update(did: int, request: Request, bg: BackgroundTasks, name: str = For
         for fn in saved_files:
             images.delete_file(fn)
         raise
+    voting_events.queue_date_changed(conn, did, changed_labels)
     conn.commit()
     if needs_resolve:
         bg.add_task(places.resolve_into_db, did, place_url)
@@ -1211,6 +1494,8 @@ def date_update(did: int, request: Request, bg: BackgroundTasks, name: str = For
 def date_publish(did: int, request: Request, bg: BackgroundTasks,
                  next: str = Form("/admin/dates"), conn=Depends(get_db)):
     d = _date_or_404(conn, did, request.state.user)
+    _require_date_not_in_closed_vote(conn, did, "изменить состав свиданий")
+    d = _date_or_404(conn, did, request.state.user)
     # Инвариант: активно ⇔ есть хотя бы одна категория (иначе гости не видят).
     # Публиковать имеет смысл только свидание с категорией — иначе оно снова
     # «активно» в списке, но невидимо гостям (частая путаница «не публикуется»).
@@ -1220,6 +1505,10 @@ def date_publish(did: int, request: Request, bg: BackgroundTasks,
     if not has_cat:
         return redir(f"/admin/dates/{did}/edit",
                      "⚠ Добавь свидание хотя бы в одну категорию — иначе гости его не увидят")
+    category_ids = [int(r["category_id"]) for r in conn.execute(
+        "SELECT category_id FROM date_categories WHERE date_id=?", (did,)
+    )]
+    _validate_start_after_open_deadlines(conn, category_ids, d["starts_at"])
     conn.execute("UPDATE dates SET is_draft=0 WHERE id=?", (did,))
     conn.commit()
     # если это было предложение гостя — уведомим автора о публикации
@@ -1238,10 +1527,35 @@ def date_publish(did: int, request: Request, bg: BackgroundTasks,
 def date_archive(did: int, request: Request, next: str = Form("/admin/dates"),
                  conn=Depends(get_db)):
     d = _date_or_404(conn, did, request.state.user)
+    _require_date_not_in_closed_vote(conn, did, "перенести свидание в архив")
+    d = _date_or_404(conn, did, request.state.user)
     if d["archived_at"]:
+        category_ids = [int(r["category_id"]) for r in conn.execute(
+            "SELECT category_id FROM date_categories WHERE date_id=?", (did,)
+        )]
+        _validate_start_after_open_deadlines(conn, category_ids, d["starts_at"])
         conn.execute("UPDATE dates SET archived_at=NULL WHERE id=?", (did,))
         msg = "Возвращено из архива"
     else:
+        for cat in conn.execute(
+            "SELECT c.* FROM categories c JOIN date_categories dc ON dc.category_id=c.id "
+            "WHERE dc.date_id=?", (did,),
+        ).fetchall():
+            affected_users = [int(r["user_id"]) for r in conn.execute(
+                "SELECT DISTINCT user_id FROM bookings WHERE date_id=? AND category_id=? "
+                "AND user_id IS NOT NULL", (did, cat["id"]),
+            )]
+            voting_events.queue_date_removed(
+                conn, did, d["name"], cat["id"], cat["name"], cat["link_token"],
+            )
+            conn.execute("DELETE FROM bookings WHERE date_id=? AND category_id=?",
+                         (did, cat["id"]))
+            for user_id in affected_users:
+                if not conn.execute(
+                    "SELECT 1 FROM bookings WHERE category_id=? AND user_id=? LIMIT 1",
+                    (cat["id"], user_id),
+                ).fetchone():
+                    voting_events.cancel_deadline_reminder(conn, cat["id"], user_id)
         conn.execute("UPDATE dates SET archived_at=? WHERE id=?", (now_iso(), did))
         msg = "Перенесено в архив"
     conn.commit()
@@ -1251,11 +1565,31 @@ def date_archive(did: int, request: Request, next: str = Form("/admin/dates"),
 @router.post("/dates/{did}/delete")
 def date_delete(did: int, request: Request, bg: BackgroundTasks, conn=Depends(get_db)):
     d = _date_or_404(conn, did, request.state.user)
+    _require_date_not_in_closed_vote(conn, did, "удалить свидание")
+    affected_by_cat: dict[int, list[int]] = {}
+    for cat in conn.execute(
+        "SELECT c.* FROM categories c JOIN date_categories dc ON dc.category_id=c.id "
+        "WHERE dc.date_id=?", (did,),
+    ).fetchall():
+        affected_by_cat[int(cat["id"])] = [int(r["user_id"]) for r in conn.execute(
+            "SELECT DISTINCT user_id FROM bookings WHERE date_id=? AND category_id=? "
+            "AND user_id IS NOT NULL", (did, cat["id"]),
+        )]
+        voting_events.queue_date_removed(
+            conn, did, d["name"], cat["id"], cat["name"], cat["link_token"],
+        )
     files = [r["filename"] for r in conn.execute(
         "SELECT filename FROM date_images WHERE date_id=?", (did,))]
     files += [r["filename"] for r in conn.execute(
         "SELECT filename FROM date_videos WHERE date_id=?", (did,))]
     conn.execute("DELETE FROM dates WHERE id=?", (did,))
+    for category_id, user_ids in affected_by_cat.items():
+        for user_id in user_ids:
+            if not conn.execute(
+                "SELECT 1 FROM bookings WHERE category_id=? AND user_id=? LIMIT 1",
+                (category_id, user_id),
+            ).fetchone():
+                voting_events.cancel_deadline_reminder(conn, category_id, user_id)
     conn.commit()
     for fn in files:                  # файлы — только после коммита
         images.delete_file(fn)
@@ -1279,7 +1613,8 @@ def date_clone(did: int, request: Request, next: str = Form("/admin/dates"),
         conn, name=f"{src['name']} (копия)", place=src["place"],
         starts=src["starts_at"], ends=src["ends_at"], comment=src["comment"],
         origin="admin", guest_token=None, draft=1, owner_id=request.state.user["id"],
-        pay_split=src["pay_split"], place_url=src["place_url"])
+        pay_split=src["pay_split"], place_url=src["place_url"],
+        capacity=src["capacity"])
 
     # ссылки и физические копии фото/видео — общий хелпер (его же зовёт «добавить
     # себе» по share-ссылке). При ошибке он сам подчистит осиротевшие копии.
@@ -1294,7 +1629,8 @@ def booking_delete(bid: int, request: Request, bg: BackgroundTasks,
                    next: str = Form("/admin/dates"), conn=Depends(get_db)):
     """Снять чужой выбор со свидания (например, по просьбе гостя)."""
     row = conn.execute(
-        "SELECT b.id, b.user_id, d.name AS dname, c.name AS cname, "
+        "SELECT b.id, b.user_id, b.category_id, d.name AS dname, c.name AS cname, "
+        "c.link_token, "
         "COALESCE(g.name, 'человек') AS nm FROM bookings b "
         "JOIN dates d ON d.id=b.date_id "
         "JOIN categories c ON c.id=b.category_id "
@@ -1302,12 +1638,24 @@ def booking_delete(bid: int, request: Request, bg: BackgroundTasks,
         "WHERE b.id=? AND d.owner_id=?", (bid, request.state.user["id"])).fetchone()
     if not row:
         raise HTTPException(404, "Выбор не найден")
+    cat = conn.execute("SELECT * FROM categories WHERE id=(SELECT category_id FROM bookings WHERE id=?)",
+                       (bid,)).fetchone()
+    if cat:
+        _require_category_composition_mutable(conn, cat)
+    voting_events.queue_vote_removed_by_owner(
+        conn, booking_id=row["id"], user_id=row["user_id"],
+        category_id=row["category_id"], category_name=row["cname"],
+        date_name=row["dname"], category_token=row["link_token"],
+    )
     conn.execute("DELETE FROM bookings WHERE id=?", (bid,))
+    if row["user_id"] is not None and not conn.execute(
+        "SELECT 1 FROM bookings WHERE category_id=? AND user_id=? LIMIT 1",
+        (row["category_id"], row["user_id"]),
+    ).fetchone():
+        voting_events.cancel_deadline_reminder(
+            conn, row["category_id"], int(row["user_id"]),
+        )
     conn.commit()
-    notify_user(bg, conn, row["user_id"], notify.card(
-        "ℹ️ Твой выбор снят",
-        f"«{notify.esc(row['dname'])}» · {notify.esc(row['cname'])}",
-        "Свидание снова свободно — можно выбрать другое ♥"))
     return redir(next, f"Выбор снят — свидание снова свободно ({row['nm']})")
 
 
@@ -1420,9 +1768,27 @@ def question_accept_time(qid: int, request: Request, bg: BackgroundTasks,
     q = _owned_question(conn, qid, request.state.user["id"])
     if not q or not q["suggest_starts"]:
         raise HTTPException(404, "Это не предложение времени")
+    # Сериализуем с настройкой категории и проверяем время по тому же правилу,
+    # что редактор свидания. Так DB-защита превращается в понятную ошибку формы,
+    # а не в необработанный IntegrityError/500.
+    if conn.execute("UPDATE dates SET id=id WHERE id=?", (q["date_id"],)).rowcount == 0:
+        raise HTTPException(404, "Свидание не найдено")
+    q = _owned_question(conn, qid, request.state.user["id"])
+    if not q or not q["suggest_starts"]:
+        raise HTTPException(404, "Это не предложение времени")
+    category_ids = [int(r["category_id"]) for r in conn.execute(
+        "SELECT category_id FROM date_categories WHERE date_id=?", (q["date_id"],)
+    )]
+    _validate_start_after_open_deadlines(conn, category_ids, q["suggest_starts"])
+    old_period = conn.execute(
+        "SELECT starts_at, ends_at FROM dates WHERE id=?", (q["date_id"],)
+    ).fetchone()
     answer = "✅ Принято! Время назначено ♥"
     conn.execute("UPDATE dates SET starts_at=?, ends_at=? WHERE id=?",
                  (q["suggest_starts"], q["suggest_ends"], q["date_id"]))
+    if (old_period["starts_at"], old_period["ends_at"]) != \
+            (q["suggest_starts"], q["suggest_ends"]):
+        voting_events.queue_date_changed(conn, q["date_id"], ["дата или время"])
     conn.execute(
         "UPDATE questions SET answer=?, answered_at=?, is_read=1 WHERE id=?",
         (answer, now_iso(), qid))

@@ -50,29 +50,53 @@ def card(title: str, *lines: str) -> str:
     return f"{head}\n{body}" if body else head
 
 
-def send_to(chat_id: int | str, text: str) -> None:
+def send_to(chat_id: int | str, text: str, *, reply_markup: dict | None = None) -> bool:
     """Шлёт сообщение конкретному chat_id (напр. тому, кто подтвердил вход).
 
     В отличие от notify() не требует CHAT — нужен только TOKEN. Ошибки не валят
     вызвавшего: вход не должен падать из-за недоставленного предупреждения.
+    Возвращает True только после успешного ответа Telegram — очередь использует
+    результат, чтобы не помечать недоставленное сообщение отправленным.
     """
     if not TOKEN:
-        return
+        return False
     try:
+        payload = {
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": True,
+        }
+        if reply_markup:
+            payload["reply_markup"] = reply_markup
         r = httpx.post(
             f"https://api.telegram.org/bot{TOKEN}/sendMessage",
-            json={
-                "chat_id": chat_id,
-                "text": text,
-                "parse_mode": "HTML",
-                "disable_web_page_preview": True,
-            },
+            json=payload,
             timeout=10,
         )
         if r.status_code >= 400:
             log.warning("Telegram API %s: %s", r.status_code, r.text[:200])
+            return False
+        return True
     except Exception as e:
         log.warning("Не удалось отправить сообщение в Telegram: %s", e)
+        return False
+
+
+def answer_callback(query_id: str, text: str = "") -> bool:
+    """Закрывает индикатор inline-кнопки Telegram; ошибка не ломает вход."""
+    if not TOKEN or not query_id:
+        return False
+    try:
+        r = httpx.post(
+            f"https://api.telegram.org/bot{TOKEN}/answerCallbackQuery",
+            json={"callback_query_id": query_id, "text": text[:200]},
+            timeout=10,
+        )
+        return r.status_code < 400
+    except Exception as e:
+        log.warning("Не удалось ответить на callback Telegram: %s", e)
+        return False
 
 
 def send_document(chat_id: int | str, path, caption: str | None = None,

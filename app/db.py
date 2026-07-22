@@ -50,6 +50,18 @@
   v21 — categories.og_focus: точка фокуса своей картинки превью ссылки «X% Y%»
        (как date_images.focus). og:image кропается по ней в 1200×630 (WYSIWYG
        с редактором). NULL = центр.
+  v22 — голосование с ручной настройкой категории: режим single/multiple,
+       обязательный дедлайн, явный статус и зафиксированный результат;
+       вместимость свидания 1..100 считается отдельно в каждой категории,
+       глобальная уникальность брони по date_id снята. После результата участник
+       может отказаться без удаления голоса. Также: настройка эффекта курсора
+       в профиле и отдельный purpose у Telegram-кодов для безопасной привязки.
+  v23 — надёжная очередь Telegram-уведомлений: дедупликация событий,
+       отложенная отправка, срок жизни, повторные попытки и отмена.
+  v24 — DB-инварианты голосования: single-режим не включается
+        поверх несовместимых голосов, а дедлайн всегда раньше
+        старта каждого активного кандидата, в том числе при гонках
+        между параллельными запросами.
 
 Свежая база создаётся сразу по последней схеме. Существующая —
 докатывается миграциями при старте приложения.
@@ -63,7 +75,7 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "app.db"
 
-LATEST_VERSION = 21
+LATEST_VERSION = 24
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -79,9 +91,34 @@ CREATE TABLE IF NOT EXISTS users (
     is_reviewed INTEGER NOT NULL DEFAULT 1,  -- 0 = новый, ждёт проверки админом (мягкая очередь)
     date_limit INTEGER NOT NULL DEFAULT 30,  -- квота свиданий; оператор поднимает вручную
     bot_linked INTEGER NOT NULL DEFAULT 0,   -- 1 = запускал бота → можно слать уведомления
+    cursor_effects INTEGER NOT NULL DEFAULT 0, -- 1 = декоративные эффекты курсора включены
     created_at TEXT NOT NULL,
     last_login_at TEXT
 );
+
+-- Надёжная очередь пользовательских Telegram-уведомлений. chat_id намеренно
+-- не сохраняется: он резолвится по user_id непосредственно перед отправкой,
+-- поэтому сообщение дождётся поздней привязки Telegram к аккаунту.
+CREATE TABLE IF NOT EXISTS notification_outbox (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    event_key TEXT NOT NULL UNIQUE,
+    text TEXT NOT NULL,
+    send_at TEXT NOT NULL,
+    expires_at TEXT,
+    sent_at TEXT,
+    cancelled_at TEXT,
+    claimed_at TEXT,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_notification_outbox_due
+    ON notification_outbox(sent_at, cancelled_at, send_at);
+CREATE INDEX IF NOT EXISTS idx_notification_outbox_user
+    ON notification_outbox(user_id, kind);
 
 -- Привязки OAuth-провайдеров к аккаунту (Discord/Google/Yandex).
 CREATE TABLE IF NOT EXISTS oauth_accounts (
@@ -104,7 +141,10 @@ CREATE TABLE IF NOT EXISTS settings (
 CREATE TABLE IF NOT EXISTS login_codes (
     code TEXT PRIMARY KEY,
     telegram_id INTEGER,          -- проставляется ботом после /start <code>
-    status TEXT NOT NULL DEFAULT 'pending',  -- 'pending' | 'confirmed'
+    status TEXT NOT NULL DEFAULT 'pending',  -- pending/awaiting_confirmation/processing/confirmed/conflict
+    purpose TEXT NOT NULL DEFAULT 'login',   -- 'login' | 'link'
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE, -- аккаунт для link-кода
+    error TEXT,                   -- машинная причина неуспеха, напр. telegram_in_use
     created_at TEXT NOT NULL
 );
 
@@ -121,6 +161,13 @@ CREATE TABLE IF NOT EXISTS categories (
     og_desc TEXT,              -- описание превью ссылки (NULL = дефолт)
     og_image TEXT,             -- картинка превью ссылки, WebP-файл (NULL = /static/og.png)
     og_focus TEXT,             -- точка фокуса своей картинки превью: «X% Y%» (NULL = центр)
+    choice_mode TEXT CHECK(choice_mode IN ('single', 'multiple')),
+    voting_deadline TEXT,      -- задаётся владельцем явно, время МСК
+    voting_status TEXT NOT NULL DEFAULT 'unconfigured'
+        CHECK(voting_status IN ('unconfigured', 'open', 'tie', 'resolved', 'no_winner')),
+    closed_at TEXT,            -- момент заморозки бюллетеней после дедлайна
+    resolved_at TEXT,          -- момент появления финального результата
+    winner_date_id INTEGER REFERENCES dates(id) ON DELETE RESTRICT,
     created_at TEXT NOT NULL
 );
 
@@ -140,6 +187,7 @@ CREATE TABLE IF NOT EXISTS dates (
     place_url TEXT,            -- если «место» вставили ссылкой на карты
     share_token TEXT,          -- секретная ссылка на это свидание (/d/<токен>) для «добавить себе»
     is_public INTEGER NOT NULL DEFAULT 1,   -- 1 = видно в общей ленте комьюнити
+    capacity INTEGER NOT NULL DEFAULT 1 CHECK(capacity BETWEEN 1 AND 100),
     archived_at TEXT,          -- NULL = активно
     created_at TEXT NOT NULL
 );
@@ -182,14 +230,16 @@ CREATE TABLE IF NOT EXISTS guests (
     created_at TEXT NOT NULL
 );
 
--- Выбор свиданий гостем. Гость может выбрать НЕСКОЛЬКО свиданий в категории,
--- но одно свидание может выбрать только ОДИН человек (уникальный idx_book_date).
+-- Голоса за свидания. Допустимое число вариантов у участника задаёт
+-- categories.choice_mode, а dates.capacity ограничивает участников отдельно
+-- в каждой категории (проверяется доменным модулем и триггерами ниже).
 CREATE TABLE IF NOT EXISTS bookings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     date_id INTEGER NOT NULL REFERENCES dates(id) ON DELETE CASCADE,
     category_id INTEGER NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
     guest_token TEXT NOT NULL,
     user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,  -- залогиненный гость (для уведомлений)
+    participation_withdrawn_at TEXT, -- отказ после результата; сам голос сохраняется
     created_at TEXT NOT NULL
 );
 
@@ -222,8 +272,10 @@ CREATE TABLE IF NOT EXISTS reports (
 );
 
 CREATE INDEX IF NOT EXISTS idx_book_cat ON bookings(category_id);
--- свидание выбирает максимум один человек
-CREATE UNIQUE INDEX IF NOT EXISTS idx_book_date ON bookings(date_id);
+-- один участник голосует за конкретное свидание в категории только один раз;
+-- capacity применяется к каждой паре (date_id, category_id) независимо.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_book_vote
+    ON bookings(date_id, category_id, guest_token);
 CREATE INDEX IF NOT EXISTS idx_book_guest ON bookings(category_id, guest_token);
 CREATE INDEX IF NOT EXISTS idx_dc_cat ON date_categories(category_id);
 CREATE INDEX IF NOT EXISTS idx_q_read ON questions(is_read);
@@ -236,6 +288,155 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_dates_share ON dates(share_token);
 -- лента комьюнити на главной: свежие публичные активные свидания
 CREATE INDEX IF NOT EXISTS idx_dates_public ON dates(is_public, is_draft, archived_at, id);
 CREATE INDEX IF NOT EXISTS idx_reports_status ON reports(status, created_at);
+
+-- Даже прямые записи в bookings не могут переполнить свидание. SQLite
+-- сериализует пишущие транзакции, поэтому проверка COUNT и INSERT атомарны
+-- относительно другого writer'а.
+CREATE TRIGGER IF NOT EXISTS trg_bookings_capacity_insert
+BEFORE INSERT ON bookings
+WHEN (
+    SELECT COUNT(*) FROM bookings
+    WHERE date_id=NEW.date_id AND category_id=NEW.category_id
+) >= COALESCE((SELECT capacity FROM dates WHERE id=NEW.date_id), 0)
+BEGIN
+    SELECT RAISE(ABORT, 'booking_capacity_reached');
+END;
+
+-- В single-режиме у участника не может быть двух вариантов в категории.
+CREATE TRIGGER IF NOT EXISTS trg_bookings_single_insert
+BEFORE INSERT ON bookings
+WHEN (SELECT choice_mode FROM categories WHERE id=NEW.category_id)='single'
+ AND EXISTS (
+    SELECT 1 FROM bookings
+    WHERE category_id=NEW.category_id AND guest_token=NEW.guest_token
+ )
+BEGIN
+    SELECT RAISE(ABORT, 'single_choice_only');
+END;
+
+-- closed_at блокирует появление новых бюллетеней. Удаление/изменение старых
+-- запрещает доменный модуль: DB-триггер на DELETE/UPDATE здесь намеренно не
+-- ставим, иначе он также заблокирует штатные FK-каскады удаления аккаунта.
+CREATE TRIGGER IF NOT EXISTS trg_bookings_closed_insert
+BEFORE INSERT ON bookings
+WHEN EXISTS (
+    SELECT 1 FROM categories WHERE id=NEW.category_id AND closed_at IS NOT NULL
+)
+BEGIN
+    SELECT RAISE(ABORT, 'voting_closed');
+END;
+
+-- Нельзя уменьшить capacity ниже уже набранного количества ни в одной из
+-- категорий, где используется это свидание.
+CREATE TRIGGER IF NOT EXISTS trg_dates_capacity_update
+BEFORE UPDATE OF capacity ON dates
+WHEN EXISTS (
+    SELECT 1 FROM bookings WHERE date_id=OLD.id
+    GROUP BY category_id HAVING COUNT(*) > NEW.capacity
+)
+BEGIN
+    SELECT RAISE(ABORT, 'capacity_below_existing_votes');
+END;
+
+-- Переключить категорию в single нельзя, если сохранённые бюллетени уже
+-- содержат несколько вариантов одного участника. Это последний рубеж помимо
+-- доменной проверки и остаётся атомарным при параллельных запросах.
+CREATE TRIGGER IF NOT EXISTS trg_categories_single_update
+BEFORE UPDATE OF choice_mode ON categories
+WHEN NEW.choice_mode='single' AND EXISTS (
+    SELECT 1 FROM bookings WHERE category_id=NEW.id
+    GROUP BY guest_token HAVING COUNT(*) > 1
+)
+BEGIN
+    SELECT RAISE(ABORT, 'existing_votes_incompatible');
+END;
+
+-- Открытое голосование обязано иметь полный конфиг, а его дедлайн должен быть
+-- строго раньше старта каждого активного свидания.
+CREATE TRIGGER IF NOT EXISTS trg_categories_voting_config_update
+BEFORE UPDATE OF choice_mode, voting_deadline, voting_status ON categories
+WHEN NEW.voting_status='open' AND (
+    NEW.choice_mode IS NULL OR NEW.choice_mode NOT IN ('single', 'multiple')
+    OR NEW.voting_deadline IS NULL OR TRIM(NEW.voting_deadline)=''
+    OR datetime(NEW.voting_deadline) IS NULL
+    OR EXISTS (
+        SELECT 1 FROM date_categories dc JOIN dates d ON d.id=dc.date_id
+        WHERE dc.category_id=NEW.id AND d.archived_at IS NULL AND d.is_draft=0
+          AND d.starts_at IS NOT NULL AND NEW.voting_deadline>=d.starts_at
+    )
+)
+BEGIN
+    SELECT RAISE(ABORT, 'invalid_voting_configuration');
+END;
+
+-- Нельзя незаметно добавить в открытый опрос вариант, который начинается до
+-- дедлайна или одновременно с ним.
+CREATE TRIGGER IF NOT EXISTS trg_date_categories_deadline_insert
+BEFORE INSERT ON date_categories
+WHEN EXISTS (
+    SELECT 1 FROM categories c JOIN dates d ON d.id=NEW.date_id
+    WHERE c.id=NEW.category_id AND c.voting_status='open'
+      AND d.archived_at IS NULL AND d.is_draft=0 AND d.starts_at IS NOT NULL
+      AND c.voting_deadline>=d.starts_at
+)
+BEGIN
+    SELECT RAISE(ABORT, 'candidate_before_deadline');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_date_categories_frozen_insert
+BEFORE INSERT ON date_categories
+WHEN EXISTS (
+    SELECT 1 FROM categories c WHERE c.id=NEW.category_id
+      AND (c.closed_at IS NOT NULL OR c.voting_status IN ('tie', 'resolved', 'no_winner'))
+)
+BEGIN
+    SELECT RAISE(ABORT, 'category_composition_frozen');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_date_categories_deadline_update
+BEFORE UPDATE OF date_id, category_id ON date_categories
+WHEN EXISTS (
+    SELECT 1 FROM categories c JOIN dates d ON d.id=NEW.date_id
+    WHERE c.id=NEW.category_id AND c.voting_status='open'
+      AND d.archived_at IS NULL AND d.is_draft=0 AND d.starts_at IS NOT NULL
+      AND c.voting_deadline>=d.starts_at
+)
+BEGIN
+    SELECT RAISE(ABORT, 'candidate_before_deadline');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_date_categories_frozen_update
+BEFORE UPDATE ON date_categories
+WHEN EXISTS (
+    SELECT 1 FROM categories c WHERE c.id IN (OLD.category_id, NEW.category_id)
+      AND (c.closed_at IS NOT NULL OR c.voting_status IN ('tie', 'resolved', 'no_winner'))
+)
+BEGIN
+    SELECT RAISE(ABORT, 'category_composition_frozen');
+END;
+
+-- Аналогичная защита действует при редактировании времени, публикации и
+-- возврате свидания из архива.
+CREATE TRIGGER IF NOT EXISTS trg_dates_open_deadline_update
+BEFORE UPDATE OF starts_at, archived_at, is_draft ON dates
+WHEN NEW.archived_at IS NULL AND NEW.is_draft=0 AND NEW.starts_at IS NOT NULL
+ AND EXISTS (
+    SELECT 1 FROM date_categories dc JOIN categories c ON c.id=dc.category_id
+    WHERE dc.date_id=NEW.id AND c.voting_status='open'
+      AND c.voting_deadline>=NEW.starts_at
+ )
+BEGIN
+    SELECT RAISE(ABORT, 'candidate_before_deadline');
+END;
+
+-- winner_date_id использует RESTRICT, чтобы победившее свидание нельзя было
+-- удалить отдельно. При удалении всего аккаунта сначала удаляем его категории:
+-- затем штатный CASCADE users→dates не упирается в уже снятую ссылку результата.
+CREATE TRIGGER IF NOT EXISTS trg_users_delete_owned_categories
+BEFORE DELETE ON users
+BEGIN
+    DELETE FROM categories WHERE owner_id=OLD.id;
+END;
 """
 
 # Миграции: ключ — целевая версия, значение — SQL, который к ней приводит.
@@ -578,6 +779,192 @@ MIGRATIONS: dict[int, str] = {
         -- Владелец двигает картинку в редакторе категории, чтобы выбрать кадр 1200×630;
         -- og:image кропается по этой точке (WYSIWYG). NULL = центр (50% 50%).
         ALTER TABLE categories ADD COLUMN og_focus TEXT;
+    """,
+    22: """
+        -- Настройки профиля и безопасное разделение Telegram-кодов входа/привязки.
+        ALTER TABLE users ADD COLUMN cursor_effects INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE login_codes ADD COLUMN purpose TEXT NOT NULL DEFAULT 'login';
+        ALTER TABLE login_codes ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE;
+        ALTER TABLE login_codes ADD COLUMN error TEXT;
+
+        -- Категории до v22 намеренно остаются unconfigured: старые голоса
+        -- сохраняются, но новые нельзя принимать, пока владелец явно не задаст
+        -- режим и дедлайн.
+        ALTER TABLE categories ADD COLUMN choice_mode TEXT
+            CHECK(choice_mode IN ('single', 'multiple'));
+        ALTER TABLE categories ADD COLUMN voting_deadline TEXT;
+        ALTER TABLE categories ADD COLUMN voting_status TEXT NOT NULL DEFAULT 'unconfigured'
+            CHECK(voting_status IN ('unconfigured', 'open', 'tie', 'resolved', 'no_winner'));
+        ALTER TABLE categories ADD COLUMN closed_at TEXT;
+        ALTER TABLE categories ADD COLUMN resolved_at TEXT;
+        ALTER TABLE categories ADD COLUMN winner_date_id INTEGER
+            REFERENCES dates(id) ON DELETE RESTRICT;
+
+        -- capacity одинакова у самого свидания, но счётчик набирается отдельно
+        -- для каждой категории. Старые свидания сохраняют прежний максимум 1.
+        ALTER TABLE dates ADD COLUMN capacity INTEGER NOT NULL DEFAULT 1
+            CHECK(capacity BETWEEN 1 AND 100);
+        ALTER TABLE bookings ADD COLUMN participation_withdrawn_at TEXT;
+
+        -- Снимаем глобальную блокировку date_id: одно свидание теперь независимо
+        -- набирает людей в каждой категории. Повтор одного участника защищён
+        -- составным уникальным индексом.
+        DROP INDEX IF EXISTS idx_book_date;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_book_vote
+            ON bookings(date_id, category_id, guest_token);
+
+        CREATE TRIGGER IF NOT EXISTS trg_bookings_capacity_insert
+        BEFORE INSERT ON bookings
+        WHEN (
+            SELECT COUNT(*) FROM bookings
+            WHERE date_id=NEW.date_id AND category_id=NEW.category_id
+        ) >= COALESCE((SELECT capacity FROM dates WHERE id=NEW.date_id), 0)
+        BEGIN
+            SELECT RAISE(ABORT, 'booking_capacity_reached');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS trg_bookings_single_insert
+        BEFORE INSERT ON bookings
+        WHEN (SELECT choice_mode FROM categories WHERE id=NEW.category_id)='single'
+         AND EXISTS (
+            SELECT 1 FROM bookings
+            WHERE category_id=NEW.category_id AND guest_token=NEW.guest_token
+         )
+        BEGIN
+            SELECT RAISE(ABORT, 'single_choice_only');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS trg_bookings_closed_insert
+        BEFORE INSERT ON bookings
+        WHEN EXISTS (
+            SELECT 1 FROM categories WHERE id=NEW.category_id AND closed_at IS NOT NULL
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'voting_closed');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS trg_dates_capacity_update
+        BEFORE UPDATE OF capacity ON dates
+        WHEN EXISTS (
+            SELECT 1 FROM bookings WHERE date_id=OLD.id
+            GROUP BY category_id HAVING COUNT(*) > NEW.capacity
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'capacity_below_existing_votes');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS trg_users_delete_owned_categories
+        BEFORE DELETE ON users
+        BEGIN
+            DELETE FROM categories WHERE owner_id=OLD.id;
+        END;
+    """,
+    23: """
+        -- Пользовательская очередь Telegram. chat_id здесь нет намеренно:
+        -- он определяется по users непосредственно перед реальной отправкой.
+        CREATE TABLE notification_outbox (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            kind TEXT NOT NULL,
+            event_key TEXT NOT NULL UNIQUE,
+            text TEXT NOT NULL,
+            send_at TEXT NOT NULL,
+            expires_at TEXT,
+            sent_at TEXT,
+            cancelled_at TEXT,
+            claimed_at TEXT,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            last_error TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX idx_notification_outbox_due
+            ON notification_outbox(sent_at, cancelled_at, send_at);
+        CREATE INDEX idx_notification_outbox_user
+            ON notification_outbox(user_id, kind);
+    """,
+    24: """
+        CREATE TRIGGER IF NOT EXISTS trg_categories_single_update
+        BEFORE UPDATE OF choice_mode ON categories
+        WHEN NEW.choice_mode='single' AND EXISTS (
+            SELECT 1 FROM bookings WHERE category_id=NEW.id
+            GROUP BY guest_token HAVING COUNT(*) > 1
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'existing_votes_incompatible');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS trg_categories_voting_config_update
+        BEFORE UPDATE OF choice_mode, voting_deadline, voting_status ON categories
+        WHEN NEW.voting_status='open' AND (
+            NEW.choice_mode IS NULL OR NEW.choice_mode NOT IN ('single', 'multiple')
+            OR NEW.voting_deadline IS NULL OR TRIM(NEW.voting_deadline)=''
+            OR datetime(NEW.voting_deadline) IS NULL
+            OR EXISTS (
+                SELECT 1 FROM date_categories dc JOIN dates d ON d.id=dc.date_id
+                WHERE dc.category_id=NEW.id AND d.archived_at IS NULL AND d.is_draft=0
+                  AND d.starts_at IS NOT NULL AND NEW.voting_deadline>=d.starts_at
+            )
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'invalid_voting_configuration');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS trg_date_categories_deadline_insert
+        BEFORE INSERT ON date_categories
+        WHEN EXISTS (
+            SELECT 1 FROM categories c JOIN dates d ON d.id=NEW.date_id
+            WHERE c.id=NEW.category_id AND c.voting_status='open'
+              AND d.archived_at IS NULL AND d.is_draft=0 AND d.starts_at IS NOT NULL
+              AND c.voting_deadline>=d.starts_at
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'candidate_before_deadline');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS trg_date_categories_frozen_insert
+        BEFORE INSERT ON date_categories
+        WHEN EXISTS (
+            SELECT 1 FROM categories c WHERE c.id=NEW.category_id
+              AND (c.closed_at IS NOT NULL OR c.voting_status IN ('tie', 'resolved', 'no_winner'))
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'category_composition_frozen');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS trg_date_categories_deadline_update
+        BEFORE UPDATE OF date_id, category_id ON date_categories
+        WHEN EXISTS (
+            SELECT 1 FROM categories c JOIN dates d ON d.id=NEW.date_id
+            WHERE c.id=NEW.category_id AND c.voting_status='open'
+              AND d.archived_at IS NULL AND d.is_draft=0 AND d.starts_at IS NOT NULL
+              AND c.voting_deadline>=d.starts_at
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'candidate_before_deadline');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS trg_date_categories_frozen_update
+        BEFORE UPDATE ON date_categories
+        WHEN EXISTS (
+            SELECT 1 FROM categories c WHERE c.id IN (OLD.category_id, NEW.category_id)
+              AND (c.closed_at IS NOT NULL OR c.voting_status IN ('tie', 'resolved', 'no_winner'))
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'category_composition_frozen');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS trg_dates_open_deadline_update
+        BEFORE UPDATE OF starts_at, archived_at, is_draft ON dates
+        WHEN NEW.archived_at IS NULL AND NEW.is_draft=0 AND NEW.starts_at IS NOT NULL
+         AND EXISTS (
+            SELECT 1 FROM date_categories dc JOIN categories c ON c.id=dc.category_id
+            WHERE dc.date_id=NEW.id AND c.voting_status='open'
+              AND c.voting_deadline>=NEW.starts_at
+         )
+        BEGIN
+            SELECT RAISE(ABORT, 'candidate_before_deadline');
+        END;
     """,
 }
 

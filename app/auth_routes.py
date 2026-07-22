@@ -4,19 +4,21 @@
   1. /login — страница с кнопкой «Войти через Telegram».
   2. POST /auth/start — сервер генерит одноразовый код, кладёт в login_codes
      (status=pending) и отдаёт deep-link https://t.me/<бот>?start=<код>.
-  3. Человек жмёт Start в боте → Telegram шлёт боту апдейт на /tg/webhook
-     (с секретным заголовком). Обработчик помечает код confirmed и запоминает,
-     какой telegram_id его подтвердил.
+  3. Человек жмёт Start, затем явно подтверждает вход inline-кнопкой в боте.
+     Telegram шлёт апдейты на /tg/webhook с секретным заголовком; обработчик
+     атомарно связывает код с telegram_id и только после кнопки подтверждает его.
   4. Страница /login поллит GET /auth/poll?code=… — как только код confirmed,
      заводим/обновляем пользователя, кладём user_id в сессию и редиректим в кабинет.
 
 Коды живут TTL_SECONDS; протухшие чистятся лениво при обращении.
 """
 
+import asyncio
 import hashlib
 import hmac
 import logging
 import secrets
+import sqlite3
 import time
 
 import httpx
@@ -24,7 +26,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 import users
-from config import (BASE_URL, TG_BOT_USERNAME, TG_WEBHOOK_SECRET,
+from config import (BASE_URL, SUPPORT_CONTACT, TG_BOT_USERNAME, TG_WEBHOOK_SECRET,
                     OAUTH_PROVIDERS, OAUTH_LABELS, OAUTH_META)
 from helpers import now_iso, now_naive
 from datetime import timedelta
@@ -41,6 +43,71 @@ TTL_SECONDS = 600          # код входа живёт 10 минут
 # если там пусто — определяем по токену через getMe при старте (resolve_bot_username),
 # чтобы вход работал, даже когда владелец прописал только TG_BOT_TOKEN.
 BOT_USERNAME = TG_BOT_USERNAME
+_WIDGET_STATES_KEY = "tg_widget_states"
+_AUTH_FLOWS_KEY = "tg_auth_flows"
+
+
+def issue_widget_state(request: Request) -> str:
+    """Создаёт одноразовый nonce Telegram Widget, привязанный к сессии.
+
+    Небольшой список позволяет независимо работать нескольким открытым вкладкам.
+    SessionMiddleware подписывает значения и хранит их в HttpOnly-cookie.
+    """
+    values = request.session.get(_WIDGET_STATES_KEY, [])
+    if not isinstance(values, list):
+        values = []
+    values = [v for v in values if isinstance(v, str) and 20 <= len(v) <= 128]
+    state = secrets.token_urlsafe(24)
+    request.session[_WIDGET_STATES_KEY] = (values + [state])[-5:]
+    return state
+
+
+def _consume_widget_state(request: Request, candidate: str | None) -> bool:
+    """Однократно погашает nonce Widget, привязанный к браузерной сессии."""
+    values = request.session.get(_WIDGET_STATES_KEY, [])
+    if not candidate or not isinstance(values, list):
+        return False
+    match = next((v for v in values if isinstance(v, str)
+                  and secrets.compare_digest(v, candidate)), None)
+    if match is None:
+        return False
+    remaining = [v for v in values if v != match]
+    if remaining:
+        request.session[_WIDGET_STATES_KEY] = remaining
+    else:
+        request.session.pop(_WIDGET_STATES_KEY, None)
+    return True
+
+
+def _remember_auth_flow(request: Request, code: str, return_to: str | None) -> None:
+    """Привязывает deep-link код к выпустившей его браузерной сессии."""
+    flows = request.session.get(_AUTH_FLOWS_KEY, {})
+    if not isinstance(flows, dict):
+        flows = {}
+    clean = {k: v for k, v in flows.items()
+             if isinstance(k, str) and isinstance(v, str)}
+    clean[code] = return_to or ""
+    # Антиспам допускает десять попыток за окно — столько же держим в cookie.
+    request.session[_AUTH_FLOWS_KEY] = dict(list(clean.items())[-10:])
+
+
+def _auth_flow(request: Request, code: str) -> tuple[bool, str | None]:
+    flows = request.session.get(_AUTH_FLOWS_KEY, {})
+    if not isinstance(flows, dict) or code not in flows:
+        return False, None
+    return True, _safe_next(flows.get(code))
+
+
+def _consume_auth_flow(request: Request, code: str) -> None:
+    flows = request.session.get(_AUTH_FLOWS_KEY, {})
+    if not isinstance(flows, dict) or code not in flows:
+        return
+    flows = dict(flows)
+    flows.pop(code, None)
+    if flows:
+        request.session[_AUTH_FLOWS_KEY] = flows
+    else:
+        request.session.pop(_AUTH_FLOWS_KEY, None)
 
 
 def _safe_next(raw: str | None) -> str | None:
@@ -101,7 +168,7 @@ def setup_webhook() -> None:
             f"https://api.telegram.org/bot{notify.TOKEN}/setWebhook",
             json={"url": f"{BASE_URL}/tg/webhook",
                   "secret_token": TG_WEBHOOK_SECRET,
-                  "allowed_updates": ["message"]},
+                  "allowed_updates": ["message", "callback_query"]},
             timeout=10)
         if r.status_code >= 400:
             log.warning("setWebhook вернул %s: %s", r.status_code, r.text[:200])
@@ -119,9 +186,14 @@ def _gc_codes(conn) -> None:
     совпадает с хронологическим. Никакого mktime — он читал бы МСК-метку в TZ
     сервера (в Docker UTC) и раздувал реальный TTL до ~3 часов.
     """
-    cutoff = (now_naive() - timedelta(seconds=TTL_SECONDS)).isoformat(sep="T")
+    cutoff = _code_cutoff()
     conn.execute("DELETE FROM login_codes WHERE created_at < ?", (cutoff,))
     conn.commit()
+
+
+def _code_cutoff() -> str:
+    """Нижняя граница свежего кода в том же локальном ISO-формате, что БД."""
+    return (now_naive() - timedelta(seconds=TTL_SECONDS)).isoformat(sep="T")
 
 
 @router.get("/login", response_class=HTMLResponse)
@@ -129,17 +201,20 @@ def login_page(request: Request, conn=Depends(get_db)):
     # Запоминаем, куда вернуть после входа (например, на гостевую ссылку, с
     # которой пользователь нажал «Войти»). Только безопасные локальные пути.
     nxt = _safe_next(request.query_params.get("next"))
-    if nxt:
-        request.session["login_next"] = nxt
+    if "next" in request.query_params:
+        request.session.pop("login_next", None)
+        if nxt:
+            request.session["login_next"] = nxt
+    elif "msg" not in request.query_params:
+        # Обычный новый заход не должен наследовать адрес от старой/оборванной
+        # попытки. При возврате с ошибкой OAuth (?msg=...) оставляем его для retry.
+        request.session.pop("login_next", None)
     if request.session.get("user_id") and users.get_user(conn, request.session["user_id"]):
         return RedirectResponse(_post_login_redirect(request), status_code=303)
-    # Согласие сбрасываем на каждом заходе: галочку нужно поставить заново.
-    # Виджет на странице скрыт, пока согласие не отмечено (см. auth.js), а здесь —
-    # серверный рубеж: /auth/widget без согласия в сессии вернёт 403.
-    request.session["consent"] = False
     return templates.TemplateResponse(
         request, "auth/login.html",
-        {"bot": BOT_USERNAME, "oauth": _oauth_buttons()})
+        {"bot": BOT_USERNAME, "oauth": _oauth_buttons(), "next_url": nxt,
+         "widget_state": issue_widget_state(request) if BOT_USERNAME else None})
 
 
 def _oauth_buttons() -> list[dict]:
@@ -148,20 +223,6 @@ def _oauth_buttons() -> list[dict]:
     return [{"slug": slug, "label": OAUTH_LABELS.get(slug, slug),
              "enabled": bool(cid)}
             for slug, (cid, _s) in OAUTH_PROVIDERS.items()]
-
-
-@router.post("/auth/consent")
-def auth_consent(request: Request):
-    """Отметка галочки согласия. Кладём флаг в сессию, чтобы серверный обработчик
-    виджета мог убедиться: пользователь принял условия (галочку нельзя обойти,
-    отредактировав DOM). Необязательный next — куда вернуть после входа: со
-    страницы входа он уже сохранён, а со вход-модалки на гостевой ссылке его
-    передаёт сама модалка (?next=/c/<токен>)."""
-    nxt = _safe_next(request.query_params.get("next"))
-    if nxt:
-        request.session["login_next"] = nxt
-    request.session["consent"] = True
-    return JSONResponse({"ok": True})
 
 
 def _verify_widget(data: dict) -> bool:
@@ -175,7 +236,12 @@ def _verify_widget(data: dict) -> bool:
     if not notify.TOKEN:
         return False
     got = data.get("hash") or ""
-    pairs = sorted(f"{k}={v}" for k, v in data.items() if k != "hash")
+    # return_to и widget_state задаём мы в data-auth-url до перехода в Telegram.
+    # Telegram их не подписывает, поэтому они не входят в check-string:
+    # return_to отдельно проходит allow-list, а state сверяется с HttpOnly-
+    # сессией и одноразово погашается в колбэке.
+    pairs = sorted(f"{k}={v}" for k, v in data.items()
+                   if k not in ("hash", "return_to", "widget_state"))
     secret = hashlib.sha256(notify.TOKEN.encode()).digest()
     calc = hmac.new(secret, "\n".join(pairs).encode(), hashlib.sha256).hexdigest()
     if not hmac.compare_digest(calc, got):
@@ -196,13 +262,18 @@ def auth_widget(request: Request, conn=Depends(get_db)):
     ip = client_ip(request)
     if not rate_ok(f"widget:{ip}", 10, 600):
         raise HTTPException(429, "Слишком много попыток входа. Подожди немного.")
-    # Серверный рубеж согласия: галочку на странице входа нельзя обойти правкой
-    # DOM — без флага в сессии вход не открываем.
-    if not request.session.get("consent"):
-        raise HTTPException(403, "Сначала отметь согласие с условиями на странице входа.")
     data = dict(request.query_params)
     if not data.get("id") or not _verify_widget(data):
         raise HTTPException(403, "Подпись Telegram не подтвердилась. Попробуй ещё раз.")
+    if not _consume_widget_state(request, data.get("widget_state")):
+        raise HTTPException(403, "Сессия входа устарела. Открой страницу входа заново.")
+    # return_to не является полем Telegram и потому не покрыт HMAC. Разрешаем
+    # только локальные разделы; внешний/протокол-относительный адрес отбрасываем.
+    if "return_to" in data:
+        request.session.pop("login_next", None)
+        nxt = _safe_next(data.get("return_to"))
+        if nxt:
+            request.session["login_next"] = nxt
     tg_id = int(data["id"])
     uid = users.upsert_on_login(conn, tg_id, username=data.get("username"),
                                 first_name=data.get("first_name"), link_bot=False)
@@ -216,18 +287,38 @@ def auth_widget(request: Request, conn=Depends(get_db)):
 
 @router.post("/auth/start")
 def auth_start(request: Request, conn=Depends(get_db)):
-    """Создаёт одноразовый код и возвращает deep-link на бота."""
+    """Создаёт одноразовый код и возвращает deep-link на бота.
+
+    Для анонима это код входа. Для уже открытой сессии — purpose-bound код
+    подключения Telegram к тому же user_id: подтверждение такого кода никогда
+    не должно переключать браузер на другой аккаунт.
+    """
     ip = client_ip(request)
     # анти-спам: не больше 10 кодов с одного IP за 10 минут
     if not rate_ok(f"authstart:{ip}", 10, 600):
         raise HTTPException(429, "Слишком много попыток входа. Подожди немного.")
     if not BOT_USERNAME:
         raise HTTPException(503, "Вход через Telegram не настроен (TG_BOT_USERNAME).")
+    # Публичные баннеры запускают вход на месте. Запоминаем только проверенный
+    # локальный адрес возврата и затем привязываем его к конкретному коду.
+    explicit_nxt = None
+    if "return_to" in request.query_params:
+        request.session.pop("login_next", None)
+        explicit_nxt = _safe_next(request.query_params.get("return_to"))
+        if explicit_nxt:
+            request.session["login_next"] = explicit_nxt
     _gc_codes(conn)
     code = secrets.token_urlsafe(12)
+    session_uid = request.session.get("user_id")
+    target = users.get_user(conn, session_uid) if session_uid else None
+    link_uid = target["id"] if target and target["is_active"] else None
+    flow_nxt = (explicit_nxt if link_uid else
+                (explicit_nxt or _safe_next(request.session.get("login_next"))))
+    _remember_auth_flow(request, code, flow_nxt)
     conn.execute(
-        "INSERT INTO login_codes(code, status, created_at) VALUES(?, 'pending', ?)",
-        (code, now_iso()))
+        "INSERT INTO login_codes(code, status, created_at, purpose, user_id) "
+        "VALUES(?, 'pending', ?, ?, ?)",
+        (code, now_iso(), "link" if link_uid else "login", link_uid))
     conn.commit()
     return JSONResponse({"code": code,
                          "url": f"https://t.me/{BOT_USERNAME}?start={code}"})
@@ -240,10 +331,45 @@ def auth_poll(request: Request, code: str, conn=Depends(get_db)):
     Вебхук (отдельный запрос от Telegram, без сессии браузера) проставил коду
     telegram_id. Здесь по нему резолвим пользователя и кладём user_id в ЭТУ сессию.
     """
+    known_flow, flow_nxt = _auth_flow(request, code)
+    if not known_flow:
+        return JSONResponse({"status": "forbidden"}, status_code=403)
     row = conn.execute(
         "SELECT * FROM login_codes WHERE code=?", (code,)).fetchone()
     if not row:
+        _consume_auth_flow(request, code)
         return JSONResponse({"status": "expired"})
+    if row["created_at"] < _code_cutoff():
+        conn.execute("DELETE FROM login_codes WHERE code=?", (code,))
+        conn.commit()
+        _consume_auth_flow(request, code)
+        return JSONResponse({"status": "expired"})
+    if row["purpose"] == "link":
+        # Код жёстко привязан к сессии, которая его выпустила. Даже успешно
+        # подтверждённый link-код нельзя использовать для входа в ином браузере.
+        if request.session.get("user_id") != row["user_id"]:
+            return JSONResponse({"status": "forbidden"}, status_code=403)
+        if row["status"] == "conflict":
+            conn.execute("DELETE FROM login_codes WHERE code=?", (code,))
+            conn.commit()
+            _consume_auth_flow(request, code)
+            return JSONResponse({"status": "conflict"})
+        if row["status"] != "confirmed":
+            return JSONResponse({"status": "pending"})
+        user = users.get_user(conn, row["user_id"])
+        if not user or not user["is_active"]:
+            conn.execute("DELETE FROM login_codes WHERE code=?", (code,))
+            conn.commit()
+            _consume_auth_flow(request, code)
+            return JSONResponse({"status": "banned"})
+        conn.execute("DELETE FROM login_codes WHERE code=?", (code,))
+        conn.commit()
+        _consume_auth_flow(request, code)
+        # user_id в сессии намеренно не меняем: Telegram только привязан.
+        if flow_nxt and request.session.get("login_next") == flow_nxt:
+            request.session.pop("login_next", None)
+        return JSONResponse({"status": "ok", "linked": True,
+                             "redirect": flow_nxt or "/admin/profile"})
     if row["status"] != "confirmed" or not row["telegram_id"]:
         return JSONResponse({"status": "pending"})
     user = users.get_by_telegram(conn, row["telegram_id"])
@@ -252,17 +378,50 @@ def auth_poll(request: Request, code: str, conn=Depends(get_db)):
     if not user["is_active"]:
         conn.execute("DELETE FROM login_codes WHERE code=?", (code,))
         conn.commit()
+        _consume_auth_flow(request, code)
         return JSONResponse({"status": "banned"})
     conn.execute("DELETE FROM login_codes WHERE code=?", (code,))
     conn.commit()
+    _consume_auth_flow(request, code)
     request.session["user_id"] = user["id"]
     request.session["csrf"] = secrets.token_urlsafe(16)
-    return JSONResponse({"status": "ok", "redirect": _post_login_redirect(request)})
+    if flow_nxt and request.session.get("login_next") == flow_nxt:
+        request.session.pop("login_next", None)
+    return JSONResponse({"status": "ok", "redirect": flow_nxt or "/admin/"})
+
+
+def _link_telegram(conn, user_id: int, telegram_id: int,
+                   username: str | None) -> tuple[bool, str | None]:
+    """Привязывает Telegram к заданному аккаунту без автоматического слияния.
+
+    Повторная привязка того же Telegram к тому же пользователю идемпотентна.
+    Если telegram_id уже принадлежит другому user_id, возвращаем конфликт и не
+    меняем ни один аккаунт.
+    """
+    target = users.get_user(conn, user_id)
+    if not target or not target["is_active"]:
+        return False, "account_unavailable"
+    if target["telegram_id"] is not None and target["telegram_id"] != telegram_id:
+        return False, "telegram_mismatch"
+    existing = users.get_by_telegram(conn, telegram_id)
+    if existing and existing["id"] != user_id:
+        return False, "telegram_in_use"
+    try:
+        conn.execute(
+            "UPDATE users SET telegram_id=?, tg_username=?, "
+            "is_operator=CASE WHEN ? THEN 1 ELSE is_operator END, "
+            "bot_linked=1, last_login_at=? WHERE id=?",
+            (telegram_id, username, 1 if telegram_id in users.OPERATOR_TG_IDS else 0,
+             now_iso(), user_id))
+    except sqlite3.IntegrityError:
+        # Между SELECT и UPDATE другой запрос мог успеть занять telegram_id.
+        return False, "telegram_in_use"
+    return True, None
 
 
 @router.post("/tg/webhook")
 async def tg_webhook(request: Request, conn=Depends(get_db)):
-    """Приём апдейтов от Telegram. Интересует только /start <код> в личке.
+    """Приём /start и явного подтверждения inline-кнопкой в личке бота.
 
     Защита: секретный заголовок X-Telegram-Bot-Api-Secret-Token (его знает
     только Telegram, которому мы сами отдали секрет при setWebhook). Без
@@ -272,6 +431,99 @@ async def tg_webhook(request: Request, conn=Depends(get_db)):
     if not TG_WEBHOOK_SECRET or not secrets.compare_digest(hdr, TG_WEBHOOK_SECRET):
         raise HTTPException(403, "forbidden")
     update = await request.json()
+    import notify
+
+    callback = (update or {}).get("callback_query") or {}
+    if callback:
+        data = (callback.get("data") or "").strip()
+        frm = callback.get("from") or {}
+        tg_id = frm.get("id")
+        action = code = ""
+        if data.startswith("auth_confirm:"):
+            action, code = "confirm", data.split(":", 1)[1]
+        elif data.startswith("auth_cancel:"):
+            action, code = "cancel", data.split(":", 1)[1]
+        try:
+            tg_id = int(tg_id)
+        except (TypeError, ValueError):
+            tg_id = 0
+        cutoff = _code_cutoff()
+        row = conn.execute(
+            "SELECT * FROM login_codes WHERE code=? AND created_at>=?", (code, cutoff)
+        ).fetchone() if code else None
+        if (not row or row["status"] != "awaiting_confirmation" or not tg_id
+                or int(row["telegram_id"] or 0) != tg_id):
+            await asyncio.to_thread(
+                notify.answer_callback, callback.get("id") or "", "Код уже не действует")
+            return JSONResponse({"ok": True})
+
+        if action == "cancel":
+            deleted = conn.execute(
+                "DELETE FROM login_codes WHERE code=? "
+                "AND status='awaiting_confirmation' AND telegram_id=? AND created_at>=?",
+                (code, tg_id, cutoff),
+            )
+            if deleted.rowcount != 1:
+                conn.rollback()
+                await asyncio.to_thread(
+                    notify.answer_callback, callback.get("id") or "",
+                    "Код уже не действует")
+                return JSONResponse({"ok": True})
+            conn.commit()
+            await asyncio.gather(
+                asyncio.to_thread(
+                    notify.answer_callback, callback.get("id") or "", "Вход отменён"),
+                asyncio.to_thread(
+                    notify.send_to, tg_id,
+                    "Вход отменён. Аккаунт и сессия не изменены."),
+            )
+            return JSONResponse({"ok": True})
+
+        # Забираем код условным UPDATE. Это сериализует повторный callback и
+        # гонку «Подтвердить / Отмена»: побочные действия выполнит только один.
+        claimed = conn.execute(
+            "UPDATE login_codes SET status='processing' WHERE code=? "
+            "AND status='awaiting_confirmation' AND telegram_id=? AND created_at>=?",
+            (code, tg_id, cutoff),
+        )
+        if claimed.rowcount != 1:
+            conn.rollback()
+            await asyncio.to_thread(
+                notify.answer_callback, callback.get("id") or "", "Код уже не действует")
+            return JSONResponse({"ok": True})
+
+        if row["purpose"] == "link":
+            ok, error = _link_telegram(
+                conn, row["user_id"], tg_id, frm.get("username"))
+            conn.execute(
+                "UPDATE login_codes SET status=?, error=? WHERE code=?",
+                ("confirmed" if ok else "conflict", error, code),
+            )
+            if ok:
+                message = ("🔔 Telegram подключён к вашему аккаунту <b>" +
+                           notify.esc(BASE_URL) + "</b>. Уведомления включены.")
+            else:
+                message = ("⚠️ Этот Telegram уже связан с другим аккаунтом <b>" +
+                           notify.esc(BASE_URL) + "</b>. Аккаунты не объединялись.")
+        else:
+            users.upsert_on_login(
+                conn, tg_id, username=frm.get("username"),
+                first_name=frm.get("first_name"), link_bot=True, commit=False)
+            conn.execute(
+                "UPDATE login_codes SET status='confirmed' WHERE code=?", (code,))
+            message = (
+                "🔓 Вход в кабинет <b>" + notify.esc(BASE_URL) +
+                "</b> подтверждён. Вернитесь в браузер.\n\n"
+                "Если это были не вы, сразу сообщите в поддержку: <b>" +
+                notify.esc(SUPPORT_CONTACT or "контакт указан на сайте") + "</b>.")
+        conn.commit()
+        await asyncio.gather(
+            asyncio.to_thread(
+                notify.answer_callback, callback.get("id") or "", "Подтверждено"),
+            asyncio.to_thread(notify.send_to, tg_id, message),
+        )
+        return JSONResponse({"ok": True})
+
     msg = (update or {}).get("message") or {}
     text = (msg.get("text") or "").strip()
     frm = msg.get("from") or {}
@@ -281,30 +533,46 @@ async def tg_webhook(request: Request, conn=Depends(get_db)):
         return JSONResponse({"ok": True})
     parts = text.split(maxsplit=1)
     code = parts[1].strip() if len(parts) > 1 else ""
-    row = conn.execute("SELECT * FROM login_codes WHERE code=?", (code,)).fetchone() \
-        if code else None
-    if not row or row["status"] == "confirmed":
+    cutoff = _code_cutoff()
+    row = conn.execute(
+        "SELECT * FROM login_codes WHERE code=? AND created_at>=?", (code, cutoff)
+    ).fetchone() if code else None
+    if not row or row["status"] != "pending":
         return JSONResponse({"ok": True})
-    # Заводим/обновляем пользователя и помечаем код подтверждённым.
-    users.upsert_on_login(conn, int(tg_id),
-                          username=frm.get("username"),
-                          first_name=frm.get("first_name"),
-                          link_bot=True)
-    conn.execute("UPDATE login_codes SET status='confirmed', telegram_id=? WHERE code=?",
-                 (int(tg_id), code))
+    tg_id = int(tg_id)
+    claimed = conn.execute(
+        "UPDATE login_codes SET status='awaiting_confirmation', telegram_id=? "
+        "WHERE code=? AND status='pending' AND created_at>=?",
+        (tg_id, code, cutoff),
+    )
+    if claimed.rowcount != 1:
+        conn.rollback()
+        return JSONResponse({"ok": True})
     conn.commit()
-    # Смягчение фишинга/session-fixation: подтвердивший видит, КУДА и КАК он
-    # входит. Если он не начинал вход на сайте — это сигнал, что кто-то пытается
-    # войти под ним (попросил нажать Start по чужой ссылке). Сообщение шлём тому,
-    # кто нажал Start (его chat_id == tg_id в личке), а не оператору.
-    import notify
-    notify.send_to(
-        int(tg_id),
-        "🔓 Вы подтвердили вход в кабинет <b>" + notify.esc(BASE_URL) + "</b>.\n\n"
-        "Если вы <b>не</b> открывали страницу входа сами — <b>не закрывайте это "
-        "и никому не пересылайте</b>: кто-то мог попросить вас нажать Start, "
-        "чтобы войти под вашим именем. Просто проигнорируйте — без вашей страницы "
-        "входа сессия не откроется.")
+    if row["purpose"] == "link":
+        title = "Подключить Telegram-уведомления к открытому аккаунту?"
+    else:
+        title = "Войти в кабинет date4you в открытом браузере?"
+    prompt = (
+        "🔐 <b>" + title + "</b>\n\n"
+        "Подтверждайте только если вы сами только что начали это действие на <b>" +
+        notify.esc(BASE_URL) + "</b>. Никому не пересылайте ссылку или код.")
+    delivered = await asyncio.to_thread(
+        notify.send_to, tg_id, prompt,
+        reply_markup={"inline_keyboard": [[
+            {"text": "Подтвердить", "callback_data": f"auth_confirm:{code}"},
+            {"text": "Отмена", "callback_data": f"auth_cancel:{code}"},
+        ]]},
+    )
+    # При реальном сбое отправки разрешаем повторный /start. В тестовой/локальной
+    # среде без TG_BOT_TOKEN прямые webhook-вызовы остаются доступными для smoke.
+    if notify.TOKEN and not delivered:
+        conn.execute(
+            "UPDATE login_codes SET status='pending', telegram_id=NULL "
+            "WHERE code=? AND status='awaiting_confirmation' AND telegram_id=?",
+            (code, tg_id),
+        )
+        conn.commit()
     return JSONResponse({"ok": True})
 
 

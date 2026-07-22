@@ -35,6 +35,7 @@ import notify
 import operator_routes
 import public_routes
 import users
+import voting_events
 from config import COOKIE_SECURE, SECRET_KEY, SENTRY_DSN
 from web import redir
 
@@ -45,7 +46,8 @@ import places                                              # noqa: F401
 from helpers import now_iso, now_naive                     # noqa: F401
 from ratelimit import (_rates, client_ip,                  # noqa: F401
                        prune_rate_buckets, rates_gc_loop)
-from tasks import autoarchive_loop, autoarchive_once, backup_loop  # noqa: F401
+from tasks import (autoarchive_loop, autoarchive_once, backup_loop,
+                   notification_outbox_loop, voting_close_loop)     # noqa: F401
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("app")
@@ -67,6 +69,13 @@ if SENTRY_DSN:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.init_db()
+    # Preserve the ballot snapshot first after downtime. Every valid event
+    # starts after its poll deadline, so overdue polls must be resolved before
+    # the corresponding dates are auto-archived.
+    try:
+        voting_events.close_due_once()
+    except Exception:
+        log.exception("Ошибка закрытия голосований при старте")
     try:
         autoarchive_once()
         backup.make_backup_if_stale(hours=20)
@@ -84,7 +93,9 @@ async def lifespan(app: FastAPI):
                 log.info("Починены ссылки-места у старых свиданий: распознано %d", n)
         except Exception:
             log.exception("Ошибка починки ссылок-мест")
-    tasks = [asyncio.create_task(autoarchive_loop()),
+    tasks = [asyncio.create_task(notification_outbox_loop()),
+             asyncio.create_task(voting_close_loop()),
+             asyncio.create_task(autoarchive_loop()),
              asyncio.create_task(backup_loop()),
              asyncio.create_task(rates_gc_loop()),
              asyncio.create_task(_repair_places())]

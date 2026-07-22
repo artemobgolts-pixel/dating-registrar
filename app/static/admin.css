@@ -2436,3 +2436,270 @@ body.tour-lock { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) {
   .tour-spot, .tour-pop { transition: none; }
 }
+
+/* Нейтральная VPN-подсказка на экране входа. */
+.login-vpn {
+  display: flex; align-items: center; gap: 11px;
+  margin: 14px 0 0; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: 13px;
+  background: rgba(255, 255, 255, .5);
+  color: var(--muted); text-align: left; font-size: 13px; line-height: 1.35;
+}
+.login-vpn-logo { width: 30px; height: 30px; border-radius: 50%; flex: none; object-fit: cover; }
+.login-vpn-copy { min-width: 0; }
+.login-vpn-link { color: var(--rose-2); font-weight: 600; }
+
+.theme-pick { display: inline-flex; gap: 6px; }
+.theme-pick [data-theme-set][aria-pressed="true"] {
+  background: linear-gradient(135deg, var(--rose), var(--rose-2));
+  border-color: transparent; color: #fff;
+  box-shadow: 0 4px 12px rgba(150, 70, 85, .28);
+}
+
+/* ============================================================
+   ТЁМНАЯ ТЕМА. Сохраняем размеры, стекло, дым и всю анимацию; меняется только
+   спокойная ночная палитра. Атрибут выставляет /static/theme.js до загрузки CSS.
+   ============================================================ */
+html[data-theme="dark"] {
+  --bg: #171418;
+  --card: #251f24;
+  --ink: #efe6eb;
+  --muted: #b2a4ab;
+  --accent: #d48799;
+  --rose: #d48799;
+  --rose-2: #e7a2b1;
+  --peach: #c99170;
+  --rose-soft: #3a2931;
+  --line: #493942;
+}
+
+html[data-theme="dark"] body {
+  background:
+    radial-gradient(700px 360px at 90% -120px, rgba(117, 65, 80, .24), transparent 65%),
+    linear-gradient(180deg, #171418, #21181e 55%, #19161d);
+  color: var(--ink);
+}
+html[data-theme="dark"] .top {
+  background: linear-gradient(180deg, rgba(34,27,32,.9), rgba(30,24,29,.78));
+  border-color: var(--line);
+}
+html[data-theme="dark"] .bell,
+html[data-theme="dark"] nav a,
+html[data-theme="dark"] nav.glass-nav,
+html[data-theme="dark"] .tabs,
+html[data-theme="dark"] .dcount,
+html[data-theme="dark"] .viewtog {
+  background: rgba(45, 35, 42, .72);
+  border-color: rgba(255, 255, 255, .11);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08), 0 4px 14px rgba(0, 0, 0, .24);
+}
+html[data-theme="dark"] .bell:hover,
+html[data-theme="dark"] nav a:hover { background: rgba(59, 46, 55, .86); }
+html[data-theme="dark"] .bell.on,
+html[data-theme="dark"] nav a.on {
+  background: linear-gradient(135deg, #a75e70, #75404f);
+  border-color: transparent; color: #fff;
+}
+html[data-theme="dark"] .bell-count { border-color: #211a20; }
+@media (min-width: 721px) {
+  html[data-theme="dark"] nav.glass-nav a,
+  html[data-theme="dark"] nav.glass-nav a:hover { background: transparent; box-shadow: none; }
+}
+
+html[data-theme="dark"] .card,
+html[data-theme="dark"] .sec,
+html[data-theme="dark"] .notif-card,
+html[data-theme="dark"] .dcard,
+html[data-theme="dark"] .cat-card,
+html[data-theme="dark"] .drow,
+html[data-theme="dark"] .cfeed-card,
+html[data-theme="dark"] .stat {
+  background: linear-gradient(150deg, rgba(44,34,41,.78), rgba(31,25,31,.68));
+  border-color: rgba(255, 255, 255, .12);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .3), inset 0 1px 0 rgba(255, 255, 255, .07);
+}
+html[data-theme="dark"] .card::after {
+  background: linear-gradient(125deg,
+    rgba(212, 135, 153, .075),
+    rgba(201, 145, 112, .035) 45%,
+    rgba(135, 102, 150, .08));
+  mix-blend-mode: screen;
+}
+html[data-theme="dark"] .card table th,
+html[data-theme="dark"] .card .table-wrap { background: rgba(28, 23, 28, .42); }
+
+html[data-theme="dark"] .btn,
+html[data-theme="dark"] input,
+html[data-theme="dark"] textarea,
+html[data-theme="dark"] select,
+html[data-theme="dark"] .toolbar button,
+html[data-theme="dark"] .toggle,
+html[data-theme="dark"] .chip-cat,
+html[data-theme="dark"] .gender-opt,
+html[data-theme="dark"] .pay-opt {
+  background: rgba(38, 31, 37, .9);
+  border-color: var(--line);
+  color: var(--ink);
+}
+html[data-theme="dark"] input,
+html[data-theme="dark"] textarea,
+html[data-theme="dark"] select { color-scheme: dark; }
+html[data-theme="dark"] .btn.primary,
+html[data-theme="dark"] .toolbar button.active,
+html[data-theme="dark"] .chip-cat:has(input:checked),
+html[data-theme="dark"] .gender-opt:has(input:checked) {
+  background: linear-gradient(135deg, var(--rose), #955667);
+  border-color: transparent;
+  color: #fff;
+}
+html[data-theme="dark"] .btn.ghost,
+html[data-theme="dark"] .pcard .acts .ak { background: rgba(43, 34, 41, .78); }
+html[data-theme="dark"] input[type=file] { background: #2b2228; border-color: var(--line); }
+html[data-theme="dark"] input[type=file]::file-selector-button {
+  background: linear-gradient(180deg, #392d35, #30252c); color: var(--rose-2);
+}
+
+html[data-theme="dark"] .flash { background: #233329; border-color: #385441; color: #9dd8ae; }
+html[data-theme="dark"] .flash.err,
+html[data-theme="dark"] .err { background: #42272b; border-color: #6d3b42; color: #ffaaa8; }
+html[data-theme="dark"] .feed blockquote,
+html[data-theme="dark"] .linkbox code,
+html[data-theme="dark"] .copy-code { background: #2d252b; }
+html[data-theme="dark"] .badge { background: #342c32; }
+html[data-theme="dark"] .badge.rose { background: #432c35; }
+html[data-theme="dark"] .badge.amber { background: #413724; color: #dec17c; }
+html[data-theme="dark"] .thumb img,
+html[data-theme="dark"] .profile-avatar-ph,
+html[data-theme="dark"] .cfeed-ava-ph,
+html[data-theme="dark"] .og-img,
+html[data-theme="dark"] .cat-cover { background-color: #2d272c; }
+html[data-theme="dark"] tr.drag-row.dragging { background: #3b2931; }
+
+html[data-theme="dark"] .login-card {
+  background: linear-gradient(150deg, rgba(45,35,42,.84), rgba(30,25,30,.76));
+  border-color: rgba(255, 255, 255, .13);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, .42), inset 0 1px 0 rgba(255, 255, 255, .08);
+}
+html[data-theme="dark"] .consent { color: #c6b9bf; }
+html[data-theme="dark"] .oauth-btn,
+html[data-theme="dark"] .social-row,
+html[data-theme="dark"] .chip,
+html[data-theme="dark"] .dropzone,
+html[data-theme="dark"] .notif-quote,
+html[data-theme="dark"] .suggest-box,
+html[data-theme="dark"] .login-vpn {
+  background: rgba(42, 33, 40, .82);
+  border-color: var(--line);
+  color: var(--ink);
+}
+/* Telegram iframe намеренно остаётся в светлой схеме: иначе сам виджет рисует
+   непрозрачную чёрную подложку. */
+html[data-theme="dark"] #tg-widget-wrap,
+html[data-theme="dark"] .tg-widget-wrap { color-scheme: light; }
+html[data-theme="dark"] .social-badge.ok { background: #243b2d; color: #86d2a4; }
+
+html[data-theme="dark"] .savebar {
+  background: linear-gradient(150deg, rgba(47,37,44,.92), rgba(34,27,33,.88));
+  border-color: var(--line);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, .38);
+}
+html[data-theme="dark"] .pcard {
+  background: linear-gradient(150deg, rgba(47,37,44,.86), rgba(32,26,31,.78));
+  border-color: rgba(255, 255, 255, .12);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, .34);
+}
+html[data-theme="dark"] .pcard .desc,
+html[data-theme="dark"] .ed-desc,
+html[data-theme="dark"] .cfeed-desc,
+html[data-theme="dark"] .cwid-desc,
+html[data-theme="dark"] .tour-pop p { color: #c7bbc0; }
+html[data-theme="dark"] .ed-empty .btn { background: rgba(42,33,40,.94); }
+
+html[data-theme="dark"] .menu,
+html[data-theme="dark"] .cat-menu,
+html[data-theme="dark"] .community-dlg,
+html[data-theme="dark"] .tour-pop {
+  background: #251f24;
+  border-color: var(--line);
+  color: var(--ink);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, .45);
+}
+html[data-theme="dark"] .menu .danger:hover { background: #48292d; }
+html[data-theme="dark"] .community-dlg .dlg-x { background: rgba(48,38,45,.9); }
+html[data-theme="dark"] .cfeed-owner,
+html[data-theme="dark"] .dcard .edit-hint,
+html[data-theme="dark"] .dcard .foot .open-date,
+html[data-theme="dark"] .more,
+html[data-theme="dark"] .drow-act .btn,
+html[data-theme="dark"] .drow-act .more {
+  background: rgba(47, 37, 44, .82);
+  border-color: var(--line);
+}
+html[data-theme="dark"] .dcard.nocover .card-menu .more { background: rgba(47,37,44,.9); }
+html[data-theme="dark"] .og-warn { background: #3d3122; border-color: #655437; color: #e0c189; }
+html[data-theme="dark"] .btn.link-off { background: #42272b; border-color: #6d3b42; color: #ffaaa8; }
+html[data-theme="dark"] .btn.link-on { background: #243b2d; border-color: #385b45; color: #86d2a4; }
+
+/* Настройки группового голосования — те же мягкие стеклянные поверхности,
+   что и остальной редактор, без отдельной «технической» панели. */
+.capacity-field { display: grid; gap: 7px; margin: 16px 0 0; }
+.capacity-control { display: flex; align-items: center; gap: 8px; }
+.capacity-control input { width: 94px; }
+.capacity-suffix { color: var(--muted); font-size: 14px; }
+.chip-cat.locked { opacity: .66; cursor: not-allowed; }
+.chip-cat.locked input { pointer-events: none; }
+.voting-head { align-items: flex-start; }
+.voting-summary { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 12px; color: var(--muted); font-size: 13px; }
+.voting-form { display: grid; grid-template-columns: minmax(230px, 1.15fr) minmax(220px, .85fr) auto; align-items: end; gap: 14px; margin-top: 16px; }
+.choice-pick { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 7px; }
+.choice-opt { display: flex; align-items: flex-start; gap: 8px; min-width: 0; padding: 10px 11px; border: 1px solid var(--line); border-radius: 14px; background: rgba(255,255,255,.62); cursor: pointer; }
+.choice-opt input { width: auto; margin-top: 3px; accent-color: var(--accent); }
+.choice-opt span { display: grid; gap: 2px; min-width: 0; }
+.choice-opt small { color: var(--muted); line-height: 1.3; }
+.voting-tie-note { margin-top: 13px; padding: 11px 13px; border: 1px solid #ead8ae; border-radius: 14px; background: rgba(249,239,216,.62); color: #755d30; }
+.vote-progress { display: block; width: min(150px, 100%); height: 7px; margin: 5px 0; accent-color: var(--rose); }
+.voting-winner { background: rgba(181,81,103,.08); }
+html[data-theme="dark"] .choice-opt { background: rgba(38,31,37,.9); border-color: var(--line); }
+html[data-theme="dark"] .choice-opt:has(input:checked) { background: #432c35; border-color: #76505d; }
+html[data-theme="dark"] .voting-tie-note { background: #3d3122; border-color: #655437; color: #e0c189; }
+html[data-theme="dark"] .voting-winner { background: rgba(205,111,132,.12); }
+
+@media (max-width: 820px) {
+  .voting-form { grid-template-columns: 1fr; align-items: stretch; }
+}
+@media (max-width: 520px) {
+  .choice-pick { grid-template-columns: 1fr; }
+}
+
+html[data-theme="dark"] .bg-smoke .turb { opacity: .28; mix-blend-mode: screen; }
+html[data-theme="dark"] .bg-smoke span:nth-child(2) {
+  background: radial-gradient(46% 48% at 40% 40%, rgba(126,65,81,.42), transparent 66%);
+}
+html[data-theme="dark"] .bg-smoke span:nth-child(3) {
+  background: radial-gradient(46% 44% at 56% 40%, rgba(91,65,103,.34), transparent 66%);
+}
+html[data-theme="dark"] .bg-smoke span:nth-child(4) {
+  background: radial-gradient(46% 46% at 44% 50%, rgba(130,85,65,.3), transparent 66%);
+}
+
+.login-theme {
+  position: fixed; z-index: 20; top: 16px; right: 16px;
+  display: inline-flex; align-items: center; gap: 7px;
+  border: 1px solid var(--line); border-radius: 999px; padding: 9px 13px;
+  background: rgba(255,255,255,.58); color: var(--ink); cursor: pointer;
+  -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+  box-shadow: var(--shadow-soft);
+}
+html[data-theme="dark"] .login-theme { background: rgba(42,33,40,.78); }
+@media (max-width: 480px) { .login-theme [data-theme-label] { display: none; } }
+
+@media (max-width: 720px) {
+  html[data-theme="dark"] .top nav {
+    background: rgba(34, 27, 32, .9);
+    border-color: rgba(255, 255, 255, .11);
+    box-shadow: 0 12px 34px rgba(0, 0, 0, .42), inset 0 1px 0 rgba(255, 255, 255, .09);
+  }
+  html[data-theme="dark"] .top nav a,
+  html[data-theme="dark"] .top nav a:hover { background: none; }
+  html[data-theme="dark"] .top nav a.on { color: #fff; }
+}

@@ -28,7 +28,8 @@ def get_by_telegram(conn, telegram_id: int):
 
 
 def upsert_on_login(conn, telegram_id: int, *, username: str | None = None,
-                    first_name: str | None = None, link_bot: bool = False) -> int:
+                    first_name: str | None = None, link_bot: bool = False,
+                    commit: bool = True) -> int:
     """Заводит/обновляет пользователя после входа. Возвращает id.
 
     link_bot=True (вход через бота, deeplink) — выставляет bot_linked=1: бот
@@ -45,7 +46,8 @@ def upsert_on_login(conn, telegram_id: int, *, username: str | None = None,
             "last_login_at=? WHERE id=?",
             (username, 1 if (is_op or row["is_operator"]) else 0,
              1 if link_bot else 0, now_iso(), row["id"]))
-        conn.commit()
+        if commit:
+            conn.commit()
         return row["id"]
 
     cur = conn.execute(
@@ -56,7 +58,8 @@ def upsert_on_login(conn, telegram_id: int, *, username: str | None = None,
          # включена модерация пользователей (мягкая очередь у админа).
          0 if (not is_op and app_settings.is_on(conn, app_settings.MODERATE_USERS)) else 1,
          1 if link_bot else 0, now_iso(), now_iso()))
-    conn.commit()
+    if commit:
+        conn.commit()
     return cur.lastrowid
 
 

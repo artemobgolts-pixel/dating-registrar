@@ -23,7 +23,7 @@
 
   /* Вход обязателен для любого действия. Аноним видит окно входа (модалку с
      Telegram-виджетом) прямо здесь; после входа Telegram вернёт на эту же
-     страницу (next сохранён через /auth/consent). Если модалки нет — фолбэк
+     страницу (адрес возврата передаётся прямо в способ входа). Если модалки нет — фолбэк
      на страницу /login. */
   const loginDlg = $("#loginDlg");
   function goLogin() {
@@ -103,14 +103,28 @@
                                 Math.max(70, cr.top + cr.height / 2)), 140);
       card.classList.remove("glow"); void card.offsetWidth;   // перезапуск анимации
       card.classList.add("glow");
-      toast("Выбрано ♥");
+      toast("Голос учтён ♥");
     } else {
       setCardState(card, false);
-      toast("Выбор снят");
+      toast("Голос снят");
     }
+    // Single-режим мог одновременно снять выбор с другой карточки, а общий
+    // прогресс и открытый список участников меняются у всех голосующих.
+    setTimeout(() => location.reload(), 420);
   }
   document.querySelectorAll(".btn.book[data-id]").forEach((b) => {
     b.addEventListener("click", () => requireAuth(() => doBook(b)));
+  });
+
+  document.querySelectorAll(".withdraw-vote").forEach((b) => {
+    b.addEventListener("click", () => requireAuth(async () => {
+      if (!confirm("Отказаться от участия? Победитель и результат голосования не изменятся.")) return;
+      const withdrawUrl = document.body.dataset.withdrawUrl || (`/c/${TOKEN}/withdraw`);
+      const res = await post(withdrawUrl, new FormData());
+      if (!res.ok) return;
+      toast("Организатор уведомлён");
+      setTimeout(() => location.reload(), 500);
+    }));
   });
 
   /* --- вопрос --------------------------------------------------------------*/
@@ -250,6 +264,7 @@
     removedVid = false;
     upv.clear();
     $("#propPay").checked = !!(meta && meta.pay);
+    $("#propCapacity").value = (meta && meta.capacity) || 1;
     const vc = $("#propVidCur");
     vc.hidden = !curVid;
     vc.classList.remove("removed");
@@ -277,7 +292,8 @@
     propDlg.showModal();
   }
 
-  $("#fabPropose").onclick = () => requireAuth(() => openPropose(null));
+  const fabPropose = $("#fabPropose");
+  if (fabPropose) fabPropose.onclick = () => requireAuth(() => openPropose(null));
   document.querySelectorAll(".mine-actions .edit").forEach((b) => {
     b.addEventListener("click", () => requireAuth(() => openPropose(JSON.parse(b.dataset.meta))));
   });

@@ -7,17 +7,17 @@
 {% block content %}
 <div class="bar">
   <h1 class="serif" style="margin:0">Свидания</h1>
-  <a class="btn primary" href="/admin/dates/new">+ Новое свидание</a>
+  <a class="btn primary" href="/admin/dates/new" data-tour="dates-create">+ Новое свидание</a>
 </div>
 
 <div class="controls">
-  <div class="tabs">
+  <div class="tabs" data-tour="dates-statuses">
     <a href="/admin/dates?view=active{{ qs_keep }}" class="{{ 'on' if view == 'active' else '' }}">Активные{% if active_n %} <span class="pill">{{ active_n }}</span>{% endif %}</a>
     <a href="/admin/dates?view=drafts{{ qs_keep }}" class="{{ 'on' if view == 'drafts' else '' }}">Неактивные{% if drafts_n %} <span class="pill">{{ drafts_n }}</span>{% endif %}</a>
     <a href="/admin/dates?view=archived{{ qs_keep }}" class="{{ 'on' if view == 'archived' else '' }}">Архив{% if archived_n %} <span class="pill">{{ archived_n }}</span>{% endif %}</a>
   </div>
 
-  <form method="get" action="/admin/dates" class="filters">
+  <form method="get" action="/admin/dates" class="filters" data-tour="dates-controls">
     <input type="hidden" name="view" value="{{ view }}">
     <select name="sort" data-autosubmit>
       <option value="new" {{ 'selected' if sort == 'new' }}>Сначала новые</option>
@@ -44,7 +44,7 @@
 
 {% if rows %}
 {% if layout == 'cards' %}
-<div class="grid">
+<div class="grid" data-tour="dates-collection">
   {% for r in rows %}
   <div class="dcard{{ ' archived' if r['archived_at'] else '' }}{{ ' nocover' if not r['cover'] else '' }}">
     <a class="dcard-link" href="/admin/dates/{{ r['id'] }}/edit" aria-label="Редактировать «{{ r['name'] }}»"></a>
@@ -122,7 +122,7 @@
   {% endfor %}
 </div>
 {% else %}
-<div class="dlist">
+<div class="dlist" data-tour="dates-collection">
   {% for r in rows %}
   <div class="drow{{ ' archived' if r['archived_at'] else '' }}">
     <a class="drow-link" href="/admin/dates/{{ r['id'] }}/edit" aria-label="Редактировать «{{ r['name'] }}»"></a>
@@ -197,7 +197,7 @@
 {% endif %}
 
 {% else %}
-<div class="card">
+<div class="card" data-tour="dates-collection">
   <div class="empty-state">
     {% if view == 'archived' %}
     <div class="big">🗄</div>
@@ -215,4 +215,3 @@
 </div>
 {% endif %}
 {% endblock %}
-

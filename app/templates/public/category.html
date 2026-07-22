@@ -12,10 +12,12 @@
   <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
   <link rel="manifest" href="/static/manifest.json">
   <meta name="theme-color" content="#b65f6f">
+  <script src="{{ asset('theme.js') }}"></script>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>♥</text></svg>">
   <link rel="stylesheet" href="{{ asset('public.css') }}">
 </head>
-<body data-token="{{ token }}" data-name="{{ guest_name or '' }}" data-auth="{{ '1' if me else '' }}">
+<body data-token="{{ token }}" data-name="{{ guest_name or '' }}" data-auth="{{ '1' if me else '' }}"
+      data-ink-interactive="{{ '1' if me and me['cursor_effects'] else '0' }}">
 
 <div class="bg-hearts" aria-hidden="true">
   <span>♥</span><span>♡</span><span>♥</span><span>♡</span><span>♥</span><span>♡</span><span>♥</span>
@@ -64,6 +66,10 @@
     {# Правый верхний угол: поддержка автора, его проект (VPN) и вход.
        Порядок как в шапке кабинета — Помощь, VPN, затем «Войти». #}
     <div class="corner-actions">
+      <button type="button" class="promo-btn theme-toggle" data-theme-toggle aria-label="Включить тёмную тему">
+        <span class="promo-ic" data-theme-icon aria-hidden="true">☾</span>
+        <span class="promo-lb" data-theme-label>Тёмная тема</span>
+      </button>
       {% if SUPPORT_URL %}
       <a class="promo-btn" href="{{ SUPPORT_URL }}" target="_blank" rel="noopener" aria-label="Помощь">
         <span class="promo-ic" aria-hidden="true">
@@ -99,7 +105,7 @@
     </a>
     {% endif %}
 
-    <div class="greet" id="greet" {% if not guest_name or owner_is_me %}hidden{% endif %}>
+    <div class="greet" id="greet" {% if not guest_name or viewer_is_owner %}hidden{% endif %}>
       <span class="g-heart" aria-hidden="true">♥</span>
       <b id="greetName">{{ guest_name or '' }}</b>
     </div>
@@ -109,23 +115,53 @@
     {% endif %}
   </header>
 
+  {% if bot and (not me or not me['bot_linked']) %}
+  <section class="notify-cta tg-connect" data-return-to="/c/{{ token }}"
+           aria-label="Уведомления в Telegram">
+    <div class="notify-cta-icon" aria-hidden="true">🔔</div>
+    <div class="notify-cta-copy">
+      <b>Подключите уведомления в Telegram</b>
+      <span>Пришлём результат голосования, важные изменения и напоминания о победившем свидании.</span>
+      <span data-tg-hint hidden>Нажмите <b>Start</b>, затем <b>Подтвердить</b> в боте и вернитесь сюда.</span>
+      <span data-tg-error class="err" hidden></span>
+    </div>
+    <button type="button" class="btn book" data-tg-connect>Подключить</button>
+    <a data-tg-link href="#" target="_blank" rel="noopener" hidden></a>
+  </section>
+  {% endif %}
+
+  <section class="vote-summary vote-{{ vote_state.status }}" aria-live="polite">
+    {% if vote_state.status == 'unconfigured' %}
+      <b>Голосование пока не открыто</b>
+      <span>Организатор ещё настраивает правила и дедлайн. Уже сохранённые голоса видны и их можно снять, но новые временно не принимаются.</span>
+    {% elif vote_state.status == 'open' %}
+      <b>Голосование идёт до {{ vote_state.voting_deadline | when }}</b>
+      <span>{% if vote_state.choice_mode == 'single' %}Можно выбрать один вариант — новый выбор заменит предыдущий.{% else %}Можно выбрать несколько вариантов.{% endif %} Участники и прогресс видны всем.</span>
+    {% elif vote_state.status == 'tie' %}
+      <b>Голосование завершено — ничья</b>
+      <span>Организатор вручную выберет один из вариантов-лидеров. Голоса уже зафиксированы.</span>
+    {% elif vote_state.status == 'no_winner' %}
+      <b>Никто не выбрал</b>
+      <span>До дедлайна не было ни одного голоса, поэтому категория завершена без победителя.</span>
+    {% elif vote_state.status == 'resolved' %}
+      <b>Победитель выбран ♥</b>
+      <span>Он выделен ниже. Участники остальных вариантов в нём не участвуют.</span>
+    {% endif %}
+  </section>
+
   {% macro datecard(d) -%}
   {% set badges %}
     {%- if d.pending %}<span class="badge wait">⏳ ждёт проверки</span>
     {%- elif d.origin == 'guest' and not d.past %}<span class="badge guest">💡 идея гостя</span>{% endif -%}
     {%- if d.pay_split %}<span class="badge pay">{{ d.pay_split | pay_label }}</span>{% endif -%}
   {% endset %}
-  <article class="card{% if d.past %} past{% endif %}{% if d.booked_by_me and not d.past %} booked-me{% endif %}{% if d.booked_others_list and not d.past and not d.booked_by_me %} booked-other{% endif %}{% if not d.images and not d.videos %} nophoto{% endif %}"
-           id="date-{{ d.id }}" data-others="{{ d.booked_others }}">
+  <article class="card{% if d.past %} past{% endif %}{% if d.booked_by_me and not d.past %} booked-me{% endif %}{% if d.is_winner %} vote-winner{% elif d.is_loser %} vote-loser{% elif d.is_tie_leader %} vote-tie-leader{% endif %}{% if not d.images and not d.videos %} nophoto{% endif %}"
+           id="date-{{ d.id }}">
     {% if d.images or d.videos %}
     <div class="gal-wrap">
       {% if not d.past %}<div class="seal"{% if not d.booked_by_me %} hidden{% endif %}>♥</div>{% endif %}
       {% if badges | trim %}<div class="badges">{{ badges }}</div>{% endif %}
-      <div class="booked-overlay" aria-hidden="true">
-        <div class="bo-inner"><span class="bo-heart">{% if d.past %}✨{% else %}♥{% endif %}</span><span class="bo-text">{% if d.past %}{% if d.booked_by_me and owner_name and not owner_is_me %}Проведено с {{ owner_name }}{% else %}Было{% endif %}{% else %}Забронировано{% endif %}</span>
-          <span class="bo-who">{% if not d.past %}{% if d.booked_by_me %}{{ guest_name or 'ты ♥' }}{% elif d.booked_others_list %}{{ d.booked_others_list[0] }}{% endif %}{% endif %}</span>
-        </div>
-      </div>
+      {% if d.is_winner %}<div class="winner-ribbon">Победитель ♥</div>{% elif d.is_tie_leader %}<div class="winner-ribbon tie">Лидер при ничьей</div>{% endif %}
       <div class="gallery">
         {% for im in d.images %}
         <img src="/c/{{ token }}/image/{{ im['filename'] }}" alt=""
@@ -151,12 +187,7 @@
       </div>
       {# компактная плашка статуса для карточек без фото (большого оверлея нет):
          архив всегда помечаем «Было», активные — только когда есть бронь #}
-      {% if not d.images and not d.videos and (d.past or d.booked_by_me or d.booked_others_list) %}
-      <div class="status-chip{% if d.booked_by_me and not d.past %} mine{% endif %}">
-        <span aria-hidden="true">{% if d.past %}✨{% else %}♥{% endif %}</span>
-        <span>{% if d.past %}Было{% else %}Забронировано{% endif %}{% if d.booked_by_me %} · {{ guest_name or 'ты' }}{% elif d.booked_others_list %} · {{ d.booked_others_list[0] }}{% endif %}</span>
-      </div>
-      {% endif %}
+      {% if not d.images and not d.videos and d.is_winner %}<div class="winner-ribbon inflow">Победитель ♥</div>{% endif %}
       <div class="meta">
         {% if d.starts_at %}
         <div class="when"><span aria-hidden="true">🕐</span>
@@ -185,19 +216,55 @@
       </div>
       {% endif %}
 
+      {% if not d.pending %}
+      {% set show_roster = vote_state.status in ('unconfigured', 'open')
+                           or (vote_state.status == 'resolved' and d.is_winner) %}
+      <div class="vote-progress{% if d.is_full %} full{% endif %}">
+        <div class="vote-progress-head">
+          <b>{{ d.vote_count }}/{{ d.capacity }}</b>
+          <span>{{ 'участников' if show_roster else 'голосов' }}</span>
+        </div>
+        <div class="vote-progress-track" role="progressbar" aria-valuemin="0"
+             aria-valuemax="{{ d.capacity }}" aria-valuenow="{{ d.vote_count }}">
+          <i style="--vote-width:{{ [100, (d.vote_count * 100 / d.capacity)] | min }}%"></i>
+        </div>
+        {% if show_roster and d.participants %}
+        <div class="participants" aria-label="Участники">
+          {% for person in d.participants %}
+          <span class="participant{% if person['participation_withdrawn_at'] %} withdrawn{% endif %}">
+            {% if person['avatar_path'] and person['user_id'] %}
+            <img src="/c/{{ token }}/participant-avatar/{{ person['user_id'] }}" alt="" width="26" height="26" loading="lazy">
+            {% else %}<span class="participant-ph" aria-hidden="true">{{ person['name'][:1] | upper }}</span>{% endif %}
+            <span>{{ person['name'] }}{% if person['guest_token'] == guest %} · ты{% endif %}</span>
+            {% if person['participation_withdrawn_at'] %}<small>отказался(-ась)</small>{% endif %}
+          </span>
+          {% endfor %}
+        </div>
+        {% elif show_roster %}<p class="vote-empty">Пока без голосов — можно стать первым.</p>{% endif %}
+      </div>
+      {% endif %}
+
       {% if d.past %}
-        {% if d.booked_by_me and owner_name and not owner_is_me %}
+        {% if d.booked_by_me and owner_name and not viewer_is_owner
+              and ((vote_state.status == 'resolved' and d.is_winner and not d.participation_withdrawn)
+                   or vote_state.status in ('unconfigured', 'open')) %}
         <div class="booked">
           <span class="avs"><span class="av me">♥</span></span>
           <span class="who">проведено с {{ owner_name }}</span>
         </div>
-        {% elif d.booked_label %}
+        {% elif d.booked_label and vote_state.status in ('unconfigured', 'open') %}
         <div class="booked">
           <span class="avs">
             {% if d.booked_by_me %}<span class="av me">♥</span>{% endif %}
             {% for nm in d.booked_others_list %}<span class="av">{{ nm[:1] | upper }}</span>{% endfor %}
           </span>
           <span class="who">было: {{ d.booked_label }}</span>
+        </div>
+        {% endif %}
+        {% if vote_state.status == 'unconfigured' and d.booked_by_me
+              and not viewer_is_owner %}
+        <div class="actions">
+          <button class="btn book on" data-id="{{ d.id }}">Снять старый выбор</button>
         </div>
         {% endif %}
       {% endif %}
@@ -207,12 +274,21 @@
           <p class="note-pending">⏳ Предложение видно только тебе, пока его не проверили.</p>
         {% else %}
         <div class="actions">
-          {% if d.booked_by_me %}
-          <button class="btn book on" data-id="{{ d.id }}">Выбрано ♥</button>
-          {% elif d.booked_others_list %}
-          <button class="btn book" data-id="{{ d.id }}" disabled>Занято</button>
-          {% else %}
-          <button class="btn book" data-id="{{ d.id }}">Выбрать ♥</button>
+          {% if vote_state.status == 'open' and not viewer_is_owner %}
+            {% if d.booked_by_me %}
+            <button class="btn book on" data-id="{{ d.id }}">Выбрано ♥</button>
+            {% elif d.is_full %}
+            <button class="btn book" data-id="{{ d.id }}" disabled>Набрано {{ d.vote_count }}/{{ d.capacity }}</button>
+            {% else %}
+            <button class="btn book" data-id="{{ d.id }}">Выбрать ♥</button>
+            {% endif %}
+          {% elif vote_state.status == 'unconfigured' and d.booked_by_me and not viewer_is_owner %}
+            <button class="btn book on" data-id="{{ d.id }}">Снять старый выбор</button>
+          {% endif %}
+          {% if d.is_winner and d.booked_by_me and not d.participation_withdrawn %}
+          <button class="btn ghost withdraw-vote" type="button">Отказаться от участия</button>
+          {% elif d.is_winner and d.participation_withdrawn %}
+          <span class="withdrawn-note">Ты отказался(-ась); результат не пересчитывается.</span>
           {% endif %}
           <button class="btn ghost ask" data-id="{{ d.id }}" data-name="{{ d.name }}">Спросить 💬</button>
         </div>
@@ -257,7 +333,7 @@
   {% else %}
   <div class="empty">
     <div class="big">🌷</div>
-    Здесь пока пусто.<br>Предложи первое свидание — кнопка внизу ♥
+    Здесь пока пусто.{% if vote_state.status in ('unconfigured', 'open') %}<br>Предложи первое свидание — кнопка внизу ♥{% endif %}
   </div>
   {% endif %}
 
@@ -270,9 +346,9 @@
   </footer>
 </div>
 
-<button class="fab" id="fabPropose" aria-label="Предложить свидание">
-  <span class="plus" aria-hidden="true">+</span>
-</button>
+{% if vote_state.status in ('unconfigured', 'open') %}<button class="fab" id="fabPropose" aria-label="Создать свидание">
+  <span class="plus" aria-hidden="true">+</span><span class="fab-label">Создать свидание</span>
+</button>{% endif %}
 
 <!-- Вход прямо со страницы подборки (модалка с Telegram Login Widget) -->
 <dialog id="loginDlg" class="login-dlg">
@@ -282,17 +358,11 @@
     <h3 class="dlg-head">Войти, чтобы выбрать свидание</h3>
     <p class="dlg-sub">Вход через Telegram — быстро и без пароля&nbsp;♥</p>
   </div>
-  {% if not bot %}
-    <div class="err">Вход через Telegram пока не настроен.</div>
-  {% else %}
-    <label class="consent">
-      <input type="checkbox" id="tg-consent" data-next="/c/{{ token }}">
-      <span>Я принимаю
-        <a href="/terms" target="_blank" rel="noopener">Пользовательское соглашение</a>
-        и <a href="/privacy" target="_blank" rel="noopener">Политику конфиденциальности</a>.</span>
-    </label>
-    {% set next_url = "/c/" ~ token %}
+  {% set next_url = "/c/" ~ token %}
+  {% if bot or oauth %}
     {% include "auth/_login_methods.html" %}
+  {% else %}
+    <div class="err">Способы входа пока не настроены.</div>
   {% endif %}
 </dialog>
 
@@ -444,6 +514,11 @@
       </div>
       <p class="vid-hint" id="propVidHint" hidden>✕ — удалить это видео при сохранении</p>
     </div>
+    <div class="field">
+      <label for="propCapacity">Сколько участников нужно</label>
+      <input type="number" name="capacity" id="propCapacity" value="1" min="1" max="100" required>
+      <p class="alt-time">Автор не считается. 1 — обычное свидание, 2 и больше — групповое.</p>
+    </div>
     <label class="chk-line"><input type="checkbox" name="pay" value="1" id="propPay"> 💸 оплата 50/50</label>
     <div class="upbar" id="propBar" hidden><i></i></div>
     <div class="dlg-actions">
@@ -482,7 +557,7 @@
 
 <script src="{{ asset('ink.js') }}" defer></script>
 <script src="{{ asset('ui.js') }}"></script>
-{% if not me %}<script nonce="{{ csp_nonce }}" src="{{ asset('auth.js') }}"></script>{% endif %}
+{% if not me or not me['bot_linked'] %}<script nonce="{{ csp_nonce }}" src="{{ asset('auth.js') }}"></script>{% endif %}
 <script src="{{ asset('guest.js') }}" defer></script>
 </body>
 </html>

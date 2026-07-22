@@ -4,7 +4,7 @@
 {% block content %}
 <h1 class="serif">Главная</h1>
 
-<div class="quick">
+<div class="quick" data-tour="dashboard-create">
   <a class="btn primary" href="/admin/dates/new">+ Создать свидание</a>
   {% if share %}
   <button type="button" class="btn ghost" data-copy="{{ share_url }}">🔗 <span class="lbl-full">Скопировать ссылку</span><span class="lbl-short">Ссылка</span></button>
@@ -59,7 +59,7 @@
 {% endif %}
 
 
-<div class="card cfeed-card-wrap">
+<div class="card cfeed-card-wrap" data-tour="dashboard-feed">
   <b>Свидания комьюнити</b>
   <p class="muted" style="margin:6px 0 14px;font-size:13.5px">Публичные свидания других людей — листай и добавляй понравившиеся себе в коллекцию.</p>
   <div class="cfeed" id="communityFeed" data-feed-url="/admin/community"></div>
@@ -92,4 +92,3 @@
 </div>
 {% endif %}
 {% endblock %}
-
