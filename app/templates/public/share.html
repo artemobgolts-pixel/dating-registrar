@@ -75,9 +75,8 @@
 </svg>
 
 <div class="corner-actions">
-  <button type="button" class="promo-btn theme-toggle" data-theme-toggle aria-label="Включить тёмную тему">
-    <span class="promo-ic" data-theme-icon aria-hidden="true">☾</span>
-    <span class="promo-lb" data-theme-label>Тёмная тема</span>
+  <button type="button" class="promo-btn theme-toggle icon-only" data-theme-toggle aria-label="Включить тёмную тему">
+    <span class="promo-ic theme-moon-icon" data-theme-icon aria-hidden="true"></span>
   </button>
   {% if not me %}<button type="button" class="login-corner" id="loginOpen">Войти</button>{% endif %}
 </div>
@@ -104,10 +103,9 @@
   </section>
   {% endif %}
 
-  {% if vote_state %}
+  {% if vote_state and vote_state.status != 'unconfigured' %}
   <section class="vote-summary vote-{{ vote_state.status }}">
-    {% if vote_state.status == 'unconfigured' %}<b>Голосование пока не открыто</b><span>Организатор настраивает правила и дедлайн. Сохранённый ранее выбор можно снять.</span>
-    {% elif vote_state.status == 'open' %}<b>Голосование идёт до {{ vote_state.voting_deadline | when }}</b><span>{% if vote_state.choice_mode == 'single' %}Можно выбрать один вариант.{% else %}Можно выбрать несколько вариантов.{% endif %}</span>
+    {% if vote_state.status == 'open' %}<b>Голосование идёт до {{ vote_state.voting_deadline | when }}</b><span>{% if vote_state.choice_mode == 'single' %}Можно выбрать один вариант.{% else %}Можно выбрать несколько вариантов.{% endif %}</span>
     {% elif vote_state.status == 'tie' %}<b>Ничья</b><span>Организатор вручную выбирает победителя среди лидеров.</span>
     {% elif vote_state.status == 'no_winner' %}<b>Никто не выбрал</b><span>Голосование завершено без победителя.</span>
     {% else %}<b>Голосование завершено</b><span>{{ 'Это победившее свидание ♥' if d.is_winner else 'Победил другой вариант категории.' }}</span>{% endif %}

@@ -583,17 +583,12 @@
     }
     form.addEventListener("input", schedule);
     form.addEventListener("change", schedule);
-    // Настройки оформления визуально вынесены в отдельную карточку, но связаны
-    // с profileForm через атрибут form=. Их события не всплывают внутрь формы.
-    document.querySelectorAll('[form="profileForm"]').forEach(function (control) {
-      control.addEventListener("input", schedule);
-      control.addEventListener("change", schedule);
-      if (control.name === "cursor_effects") {
-        control.addEventListener("change", function () {
-          document.body.setAttribute("data-ink-interactive", control.checked ? "1" : "0");
-        });
-      }
-    });
+    var effectsControl = form.querySelector('[name="cursor_effects"]');
+    if (effectsControl) {
+      effectsControl.addEventListener("change", function () {
+        document.body.setAttribute("data-ink-interactive", effectsControl.checked ? "1" : "0");
+      });
+    }
   }
 
   // --- дашборд: QR-тоггл, скачивание SVG, системное «Поделиться» --------------

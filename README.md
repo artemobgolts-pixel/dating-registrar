@@ -236,8 +236,11 @@ Personal access tokens → Generate new token (classic, права `repo`).
    по умолчанию `backup`), затем добавь в cron:
 
    ```bash
-   17 4 * * *  cd /opt/date4you && ./scripts/backup.sh >> /var/log/date4you-backup.log 2>&1
+   0 21 * * *  cd /opt/date4you && ./scripts/backup.sh >> /var/log/date4you-backup.log 2>&1
    ```
+   На сервере с часовым поясом UTC это 00:00 по Москве. Telegram-отправка
+   выполняется только этим cron; встроенный цикл приложения хранит лишь
+   локальный свежий снимок и не дублирует сообщение.
 
    Параметры (`RCLONE_REMOTE`, `KEEP_REMOTE`, `SERVICE`, …) переопределяются
    переменными окружения — см. шапку скрипта. **Проверь восстановление** из

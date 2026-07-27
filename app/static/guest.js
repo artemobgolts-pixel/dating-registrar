@@ -263,7 +263,10 @@
     curVid = (meta && meta.videos && meta.videos[0]) || null;
     removedVid = false;
     upv.clear();
-    $("#propPay").checked = !!(meta && meta.pay);
+    var payValue = String((meta && meta.pay) || 0);
+    propForm.querySelectorAll('input[name="pay"]').forEach((input) => {
+      input.checked = input.value === payValue;
+    });
     $("#propCapacity").value = (meta && meta.capacity) || 1;
     const vc = $("#propVidCur");
     vc.hidden = !curVid;
@@ -272,8 +275,8 @@
     const vh = $("#propVidHint");
     if (vh) vh.hidden = !curVid;
     editId = meta ? meta.id : null;
-    $("#propHead").textContent = meta ? "Изменить предложение" : "Предложить свидание";
-    $("#propSubmit").textContent = meta ? "Сохранить ✓" : "Предложить 💡";
+    $("#propHead").textContent = meta ? "Изменить свидание" : "Создать свидание";
+    $("#propSubmit").textContent = meta ? "Сохранить изменения" : "Создать свидание";
     renderKept(meta ? meta.photos : []);
     if (meta) {
       propForm.name.value = meta.name;
@@ -298,6 +301,7 @@
     b.addEventListener("click", () => requireAuth(() => openPropose(JSON.parse(b.dataset.meta))));
   });
   $("#propCancel").onclick = () => propDlg.close();
+  $("#propCancelBottom").onclick = () => propDlg.close();
   $("#propVidRm").onclick = () => {
     removedVid = !removedVid;
     $("#propVidName").textContent =

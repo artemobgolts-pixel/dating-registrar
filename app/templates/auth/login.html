@@ -18,7 +18,7 @@
 <body data-ink-interactive="{{ '1' if request.state.user and request.state.user['cursor_effects'] else '0' }}">
 {% include "public/_bg.html" %}
 <button type="button" class="login-theme" data-theme-toggle aria-label="Включить тёмную тему">
-  <span data-theme-icon aria-hidden="true">☾</span><span data-theme-label>Тёмная тема</span>
+  <span class="theme-moon-icon" data-theme-icon aria-hidden="true"></span><span data-theme-label>Тёмная тема</span>
 </button>
 <div class="login-page">
   <div class="login-center">
@@ -26,14 +26,14 @@
     <h1>♥</h1>
     <div class="login-brand">date<span class="d4">4</span>you</div>
     <p class="login-lead">Войди, чтобы собрать свою подборку свиданий.</p>
+    {% if bot and VPN_URL %}
+      <p class="login-vpn-note">Чтобы войти через Telegram, включите
+        <a href="{{ VPN_URL }}" target="_blank" rel="noopener sponsored">VPN</a>.</p>
+    {% endif %}
     {% if not bot and not oauth %}
       <div class="err">Вход пока не настроен.</div>
     {% else %}
       {% include "auth/_login_methods.html" %}
-
-      <p class="login-note">Вход через Telegram, Google, Discord или Яндекс.
-        Telegram открывает окно подтверждения прямо здесь — бот не нужен.
-        Уведомления в Telegram можно подключить позже, в настройках профиля.</p>
     {% endif %}
   </div>
   </div>

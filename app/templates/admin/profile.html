@@ -7,25 +7,6 @@
   <a class="btn ghost" href="/admin/">← На главную</a>
 </div>
 
-<div class="card appearance-card" style="max-width:540px">
-  <b>🎨 Оформление</b>
-  <p class="muted" style="margin:8px 0 12px;font-size:13.5px">
-    Тема сохраняется в этом браузере и действует на всём сайте.</p>
-  <div class="theme-pick" role="group" aria-label="Тема сайта">
-    <button type="button" class="btn small" data-theme-set="light">Светлая</button>
-    <button type="button" class="btn small" data-theme-set="dark">Тёмная</button>
-  </div>
-  <label class="toggle cursor-effects-toggle" style="margin:16px 0 0">
-    <input type="checkbox" name="cursor_effects" value="1" form="profileForm"
-           {% if user['cursor_effects'] %}checked{% endif %}>
-    <span class="sw" aria-hidden="true"></span>
-    <span class="tcol">
-      <span class="t">След от курсора и кликов</span>
-      <span class="muted">Работает только на компьютере. По умолчанию выключено.</span>
-    </span>
-  </label>
-</div>
-
 <div class="card" style="max-width:540px">
   <form method="post" enctype="multipart/form-data" id="profileForm">
     <input type="hidden" name="csrf" value="{{ csrf }}">
@@ -66,6 +47,16 @@
       </div>
     </div>
 
+    <label class="toggle cursor-effects-toggle">
+      <input type="checkbox" name="cursor_effects" value="1"
+             {% if user['cursor_effects'] %}checked{% endif %}>
+      <span class="sw" aria-hidden="true"></span>
+      <span class="tcol">
+        <span class="t">След от курсора и кликов</span>
+        <span class="muted">Работает только на компьютере. По умолчанию выключено.</span>
+      </span>
+    </label>
+
     <p class="autosave-note" id="autosaveNote" aria-live="polite">Изменения сохраняются автоматически</p>
   </form>
 
@@ -102,8 +93,12 @@
     Короткие подсказки по основным разделам. Каждый курс можно повторить.</p>
   <div class="tour-course-actions">
     <button type="button" class="btn small primary" data-tour-start="dashboard">Основы</button>
-    <button type="button" class="btn small" data-tour-start="dates-list">Свидания</button>
-    <button type="button" class="btn small" data-tour-start="categories-list">Категории</button>
+    <a class="btn small" href="/admin/dates/new#tour=date-editor">Свидания</a>
+    {% if first_category_id %}
+    <a class="btn small" href="/admin/categories/{{ first_category_id }}#tour=category-editor">Категории</a>
+    {% else %}
+    <a class="btn small" href="/admin/categories">Категории</a>
+    {% endif %}
   </div>
 </div>
 

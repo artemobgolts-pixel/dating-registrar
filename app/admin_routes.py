@@ -148,9 +148,14 @@ def profile_form(request: Request, conn=Depends(get_db)):
     providers = [{"slug": s, "label": lbl, "linked": s in linked,
                   "enabled": bool(OAUTH_PROVIDERS[s][0])}
                  for s, lbl in OAUTH_LABELS.items()]
+    first_category = conn.execute(
+        "SELECT id FROM categories WHERE owner_id=? ORDER BY created_at LIMIT 1",
+        (request.state.user["id"],),
+    ).fetchone()
     return templates.TemplateResponse(
         request, "admin/profile.html",
-        actx(request, conn, active="profile", oauth_providers=providers))
+        actx(request, conn, active="profile", oauth_providers=providers,
+             first_category_id=first_category["id"] if first_category else None))
 
 
 @router.post("/profile")
@@ -640,17 +645,18 @@ def category_create(request: Request, bg: BackgroundTasks, name: str = Form(...)
     # мягкая очередь: при включённой модерации категорий новая помечается
     # is_reviewed=0 (ссылка работает сразу, админ просто видит её в очереди).
     reviewed = 0 if app_settings.is_on(conn, app_settings.MODERATE_CATEGORIES) else 1
-    conn.execute(
+    cursor = conn.execute(
         "INSERT INTO categories(owner_id, name, link_token, link_enabled, "
         "moderate_proposals, is_reviewed, created_at) VALUES(?,?,?,1,0,?,?)",
         (request.state.user["id"], name, token, reviewed, now_iso()))
+    category_id = int(cursor.lastrowid)
     conn.commit()
     actor = request.state.user["display_name"] or request.state.user["tg_username"] or "—"
     notify_admin(bg, conn, request.state.user["id"], notify.card(
         "🆕 Создана категория",
         f"«{notify.esc(name)}»",
         f"Кто: {notify.esc(actor)}"))
-    return redir("/admin/categories", "Категория создана")
+    return redir(f"/admin/categories/{category_id}", "Категория создана — добавь название и описание")
 
 
 def _cat_or_404(conn, cid: int, user):

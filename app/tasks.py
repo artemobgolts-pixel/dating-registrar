@@ -147,16 +147,18 @@ def ship_backup_to_tg(snapshot: Path) -> bool:
 
 
 async def backup_loop() -> None:
+    """Держит свежий локальный снимок базы без внешней отправки.
+
+    Telegram и облако обслуживает единственный серверный cron через
+    scripts/backup.sh. Разделение исключает дубли: перезапуск контейнера больше
+    не создаёт второе независимое расписание отправки.
+    """
     while True:
         await asyncio.sleep(6 * 3600)
         try:
             made = backup.make_backup_if_stale(hours=20)
             if made:
-                log.info("Авто-бэкап: %s", made)
-                if TG_BACKUP_CHAT_ID:
-                    sent = await asyncio.to_thread(ship_backup_to_tg, made)
-                    if sent:
-                        log.info("Бэкап отправлен в Telegram: %s", made.name)
+                log.info("Локальный авто-бэкап: %s", made)
         except asyncio.CancelledError:
             raise
         except Exception:

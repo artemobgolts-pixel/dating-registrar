@@ -7,16 +7,12 @@
   var attempted = {};
   var VERSIONS = {
     dashboard: 1,
-    "dates-list": 1,
-    "date-editor": 1,
-    "categories-list": 1,
-    "category-editor": 1
+    "date-editor": 2,
+    "category-editor": 2
   };
   var ROUTES = {
     dashboard: "/admin/#tour=dashboard",
-    "dates-list": "/admin/dates#tour=dates-list",
-    "date-editor": "/admin/dates/new#tour=date-editor",
-    "categories-list": "/admin/categories#tour=categories-list"
+    "date-editor": "/admin/dates/new#tour=date-editor"
   };
   var DEFINITIONS = {
     dashboard: [
@@ -29,38 +25,13 @@
       { sel: '.bell-link[aria-label="VPN"]', title: "Быстрый доступ к VPN",
         text: "Ссылка на VPN всегда находится в правой части шапки." }
     ],
-    "dates-list": [
-      { sel: '[data-tour="dates-create"]', title: "Создай свидание",
-        text: "Кнопка открывает визуальный редактор новой идеи." },
-      { sel: '[data-tour="dates-statuses"]', title: "Статусы свиданий",
-        text: "Активные видны в категориях, неактивные ждут публикации или категории, прошедшие хранятся в архиве." },
-      { sel: '[data-tour="dates-controls"]', title: "Найди нужное",
-        text: "Сортируй и фильтруй свидания по категории, выборам гостей и наличию даты." },
-      { sel: '[data-tour="dates-collection"]', title: "Управляй из списка",
-        text: "Открой карточку для правки. В меню доступны ссылка, копирование, архив и удаление." }
-    ],
     "date-editor": [
       { sel: '[data-tour="date-card-editor"]', title: "Карточка — это редактор",
         text: "Нажимай на название, место, описание и ссылки: изменения сразу выглядят так, как их увидит гость." },
-      { sel: '[data-tour="date-media"]', title: "Фото и видео",
-        text: "Добавляй медиа, листай и двигай фотографии, чтобы выбрать лучший кадр." },
-      { sel: '[data-tour="date-when"]', title: "Когда и где",
-        text: "Укажи начало, окончание и место. Поля можно оставить пустыми и договориться позже." },
       { sel: '[data-tour="date-modifiers"]', title: "Параметры свидания",
         text: "Здесь настраиваются условия оплаты и количество гостей. Создатель места не занимает." },
       { sel: '[data-tour="date-visibility"]', title: "Где показывать",
         text: "Добавь свидание в нужные категории и при желании оставь его в общей ленте." },
-      { sel: '[data-tour="date-save"]', title: "Сохрани результат",
-        text: "После сохранения свиданием можно делиться, управлять им из списка и следить за участниками." }
-    ],
-    "categories-list": [
-      { sel: '[data-tour="category-create"]', title: "Создай категорию",
-        text: "Категория — отдельная подборка со своей секретной ссылкой и дедлайном голосования." },
-      { sel: '[data-tour="categories-collection"]', title: "Открой настройки",
-        text: "Внутри категории можно оформить ссылку, добавить свидания и настроить правила выбора." },
-      { sel: '[data-tour="categories-collection"] .menu-wrap, [data-tour="categories-collection"]',
-        title: "Быстрые действия",
-        text: "В меню можно открыть или скопировать ссылку, создать новую ссылку и удалить категорию." }
     ],
     "category-editor": [
       { sel: '[data-tour="category-description"]', title: "Название и описание",
@@ -79,9 +50,7 @@
   function screenId() {
     var p = location.pathname.replace(/\/+$/, "") || "/";
     if (p === "/admin") return "dashboard";
-    if (p === "/admin/dates") return "dates-list";
     if (p === "/admin/dates/new" || /^\/admin\/dates\/\d+\/edit$/.test(p)) return "date-editor";
-    if (p === "/admin/categories") return "categories-list";
     if (/^\/admin\/categories\/\d+$/.test(p)) return "category-editor";
     return null;
   }
@@ -164,16 +133,6 @@
     var nextButton = overlay.querySelector(".tour-next");
     var aborting = false;
 
-    function continuation() {
-      if (!force) return null;
-      if (id === "dates-list") return "/admin/dates/new#tour=date-editor";
-      if (id === "categories-list") {
-        var first = document.querySelector("[data-tour-category-link]");
-        return first ? first.getAttribute("href") + "#tour=category-editor" : null;
-      }
-      return null;
-    }
-
     function layout() {
       if (!running || aborting) return;
       var step = steps[index];
@@ -197,7 +156,7 @@
       overlay.querySelector("#tourTitle").textContent = step.title;
       overlay.querySelector("#tourText").textContent = step.text;
       var last = index === steps.length - 1;
-      nextButton.textContent = last && continuation() ? "Продолжить" : (last ? "Готово" : "Далее");
+      nextButton.textContent = last ? "Готово" : "Далее";
       var popHeight = pop.offsetHeight || 160;
       pop.style.top = (r.bottom + 12 + popHeight <= innerHeight)
         ? (r.bottom + 12) + "px" : Math.max(12, r.top - popHeight - 12) + "px";
@@ -227,9 +186,7 @@
 
     function advance() {
       if (index >= steps.length - 1) {
-        var go = continuation();
         cleanup(true);
-        if (go) location.href = go;
         return;
       }
       index += 1;

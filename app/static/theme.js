@@ -28,7 +28,11 @@
       button.setAttribute("aria-label", dark ? "Включить светлую тему" : "Включить тёмную тему");
       button.setAttribute("title", dark ? "Светлая тема" : "Тёмная тема");
       var icon = button.querySelector("[data-theme-icon]");
-      if (icon) icon.textContent = dark ? "☀" : "☾";
+      if (icon) {
+        icon.textContent = "";
+        icon.classList.toggle("theme-sun-icon", dark);
+        icon.classList.toggle("theme-moon-icon", !dark);
+      }
       var label = button.querySelector("[data-theme-label]");
       if (label) label.textContent = dark ? "Светлая тема" : "Тёмная тема";
     });

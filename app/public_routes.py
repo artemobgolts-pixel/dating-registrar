@@ -301,6 +301,19 @@ def parse_capacity(value) -> int:
     return result
 
 
+def parse_pay_split(value) -> int:
+    """Единые варианты оплаты для основного и гостевого редакторов."""
+    if value in (None, ""):
+        return 0
+    try:
+        result = int(value)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "Неизвестный вариант оплаты")
+    if result not in (0, 1, 2, 3):
+        raise HTTPException(400, "Неизвестный вариант оплаты")
+    return result
+
+
 def ensure_category_editable(conn, cat) -> None:
     """Состав и карточки опроса фиксируются после дедлайна/результата."""
     state = _category_voting_state(conn, cat["id"])
@@ -1442,7 +1455,7 @@ def public_propose(token: str, request: Request, bg: BackgroundTasks,
                    name: str = Form(...), place: str = Form(""),
                    starts_at: str = Form(""), ends_at: str = Form(""),
                    links: str = Form(""), comment: str = Form(""),
-                   pay: str | None = Form(None),
+                   pay: str = Form("0"),
                    capacity: str = Form("1"),
                    photos: list[UploadFile] = File(default=[], alias="images"),
                    video: UploadFile | None = File(None),
@@ -1462,6 +1475,7 @@ def public_propose(token: str, request: Request, bg: BackgroundTasks,
     validate_candidate_start(cat, starts)
     link_list = parse_links(links)
     capacity_value = parse_capacity(capacity)
+    pay_value = parse_pay_split(pay)
 
     moderated = bool(cat["moderate_proposals"])
     date_id = insert_date(conn, name=name, place=place, starts=starts, ends=ends,
@@ -1469,7 +1483,7 @@ def public_propose(token: str, request: Request, bg: BackgroundTasks,
                           owner_id=cat["owner_id"],   # предложение принадлежит владельцу категории
                           proposed_by=user["id"],     # но автор — гость (для уведомления о публикации)
                           draft=1 if moderated else 0,
-                          pay_split=1 if pay else 0, place_url=place_url,
+                          pay_split=pay_value, place_url=place_url,
                           capacity=capacity_value)
     conn.execute(
         "INSERT INTO date_categories(date_id, category_id, position) VALUES(?,?,?)",
@@ -1511,7 +1525,7 @@ def public_propose_edit(token: str, date_id: int, request: Request, bg: Backgrou
                         keep_order: str = Form(""),
                         remove_image: list[int] = Form(default=[]),
                         remove_video: list[int] = Form(default=[]),
-                        pay: str | None = Form(None),
+                        pay: str = Form("0"),
                         capacity: str = Form("1"),
                         photos: list[UploadFile] = File(default=[], alias="images"),
                         video: UploadFile | None = File(None),
@@ -1544,6 +1558,7 @@ def public_propose_edit(token: str, date_id: int, request: Request, bg: Backgrou
         validate_candidate_start(linked_cat, starts)
     link_list = parse_links(links)
     capacity_value = parse_capacity(capacity)
+    pay_value = parse_pay_split(pay)
 
     # Проверяем capacity до записи новых файлов на диск. При отказе (например,
     # лимит ниже уже набранного) редактор не оставит осиротевшие фото/видео.
@@ -1559,7 +1574,7 @@ def public_propose_edit(token: str, date_id: int, request: Request, bg: Backgrou
         changed_labels.append("место")
     if starts != d["starts_at"] or ends != d["ends_at"]:
         changed_labels.append("дата или время")
-    if (1 if pay else 0) != int(d["pay_split"] or 0):
+    if pay_value != int(d["pay_split"] or 0):
         changed_labels.append("условия оплаты")
     if capacity_value != int(d["capacity"] or 1):
         changed_labels.append("количество участников")
@@ -1617,7 +1632,7 @@ def public_propose_edit(token: str, date_id: int, request: Request, bg: Backgrou
     conn.execute(
         "UPDATE dates SET name=?, place=?, place_url=?, starts_at=?, ends_at=?, "
         "comment=?, pay_split=? WHERE id=?",
-        (name, place, place_url, starts, ends, comment, 1 if pay else 0, date_id))
+        (name, place, place_url, starts, ends, comment, pay_value, date_id))
     save_links(conn, date_id, link_list)
     voting_events.queue_date_changed(conn, date_id, changed_labels)
     conn.commit()

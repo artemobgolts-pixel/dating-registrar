@@ -2367,12 +2367,13 @@ with TestClient(main.app, follow_redirects=False) as cl:
     # который auth.js подставляет лениво (в dialog — только после открытия).
     assert "data-tg-widget" in lp and 'data-bot=' in lp
     assert "/auth/consent" not in lp
-    # VPN-плашка не является гейтом и ведёт на текущий рекламный URL
-    assert "Telegram не открывается?" in lp
-    assert "Для входа через Telegram может понадобиться VPN." in lp
-    assert "Подключить VPN" in lp and 'rel="noopener sponsored"' in lp
-    # надпись про подключение уведомлений в профиле
-    assert "уведомления" in lp.lower()
+    # Короткая VPN-подсказка не является гейтом; отдельная рекламная
+    # плашка и старый поясняющий текст удалены.
+    assert "Чтобы войти через Telegram, включите" in lp
+    assert ">VPN</a>" in lp and 'rel="noopener sponsored"' in lp
+    assert "Telegram не открывается?" not in lp
+    assert "Подключить VPN" not in lp
+    assert "Вход через Telegram, Google, Discord или Яндекс." not in lp
     # страница входа несёт footer-ссылки на юр-документы
     assert 'href="/terms"' in lp and 'href="/about"' in lp
     # домен ведёт сразу на вход/регистрацию (декоративный лендинг убран)
@@ -2380,7 +2381,7 @@ with TestClient(main.app, follow_redirects=False) as cl:
     assert root.status_code == 307 and root.headers["location"] == "/login"
     # cookie-баннер убран — его нет ни на входе, ни на гостевой
     assert "cookie-bar" not in lp
-step("1.8: /terms и /privacy доступны; согласие пассивное; VPN-плашка; / → /login")
+step("1.8: /terms и /privacy доступны; согласие пассивное; VPN-подсказка; / → /login")
 
 
 # ---------- 1.10: страница «О проекте», поддержка, проекты автора ----------
@@ -2929,8 +2930,14 @@ with TestClient(main.app, follow_redirects=False) as cui2:
     # #2: на главной больше НЕТ блока счётчиков/статистики
     dash = cui2.get("/admin/").text
     assert "dcount-row" not in dash and "броней сейчас" not in dash
+    assert ">Создать свидание</a>" in dash and "+ Создать свидание" not in dash
     # #12: мобильная короткая подпись кнопки «Ссылка» на главной
     assert "lbl-short" in dash
+    # Профиль: тема управляется только кнопкой в шапке, а настройка следа
+    # находится внутри основной анкеты (на телефоне её скрывает CSS).
+    profile = cui2.get("/admin/profile").text
+    assert "theme-pick" not in profile
+    assert "cursor-effects-toggle" in profile and 'name="cursor_effects"' in profile
     # #2: счётчики переехали на вкладку «Свидания» — пилюли на всех трёх вкладках
     cui2.post("/admin/dates/new", data={"csrf": uc2, "name": "Акт", "categories": str(cc["id"])})
     dpage = cui2.get("/admin/dates?view=active").text
@@ -2942,11 +2949,38 @@ with TestClient(main.app, follow_redirects=False) as cui2:
     ed = cui2.get(f"/admin/categories/{cc['id']}").text
     assert "link-off" in ed and "Отключить ссылку" in ed
     assert "Описание (необязательно)" in ed
+    assert re.search(r'id="ogWarn"[^>]*hidden', ed)
+    assert 'data-tour="category-description"' in ed
+
+    # Гостевая ссылка: актуальный редактор-виджет, кнопка без плюса,
+    # и все варианты оплаты действительно сохраняются сервером.
+    cat_token = db_one("SELECT link_token FROM categories WHERE id=?", (cc["id"],))["link_token"]
+    public_page = cui2.get(f"/c/{cat_token}").text
+    assert "date-widget-dialog" in public_page
+    assert '<span class="plus"' not in public_page
+    assert "Голосование пока не открыто" not in public_page
+    assert all(f'name="pay" value="{v}"' in public_page for v in range(4))
+    proposed = cui2.post(
+        f"/c/{cat_token}/propose",
+        data={"name": "Гостевой модификатор", "pay": "2", "capacity": "3"},
+    )
+    assert proposed.status_code == 200, proposed.text
+    modifier_date = db_one(
+        "SELECT pay_split, capacity FROM dates WHERE id=?",
+        (proposed.json()["id"],),
+    )
+    assert modifier_date["pay_split"] == 2 and modifier_date["capacity"] == 3
+
     cui2.post(f"/admin/categories/{cc['id']}/toggle", data={"csrf": uc2})   # выключаем ссылку
     ed2 = cui2.get(f"/admin/categories/{cc['id']}").text
     assert "link-on" in ed2 and "Включить ссылку" in ed2                    # теперь зелёная «Включить»
-    # #10: в списке категорий ⋯-меню идёт ПЕРЕД стрелкой (menu-wrap раньше cat-arrow)
+    # В списке — одна полноширинная кнопка создания, без старого поля и
+    # без служебных плашек о необходимости настроить голосование.
     cats = cui2.get("/admin/categories").text
+    assert ">Создать категорию</button>" in cats
+    assert "Название новой категории" not in cats
+    assert "настрой голосование" not in cats.lower()
+    # #10: ⋯-меню идёт ПЕРЕД стрелкой (menu-wrap раньше cat-arrow)
     assert cats.index("menu-wrap") < cats.index("cat-arrow")
 
     # #4 авто-heal: свидание с категорией, но застрявшее is_draft=1 (легаси-баг),
@@ -2978,8 +3012,17 @@ with TestClient(main.app, follow_redirects=False) as ctour:
     # сам файл тура отдаётся статикой с версией
     m = re.search(r'src="(/static/tour\.js[^"]*)"', dash)
     assert m, "ссылка на tour.js есть"
-    assert ctour.get(m.group(1)).status_code == 200
-step("новое: обучающий тур подключён на главной, tour.js отдаётся статикой")
+    tour_response = ctour.get(m.group(1))
+    assert tour_response.status_code == 200
+    tour_source = tour_response.text
+    # Отдельных обучений списков больше нет; редактор свидания содержит только
+    # карточку, модификаторы и публикацию.
+    assert '"dates-list": [' not in tour_source
+    assert '"categories-list": [' not in tour_source
+    assert "Фото и видео" not in tour_source
+    assert "Когда и где" not in tour_source
+    assert "Сохрани результат" not in tour_source
+step("новое: туры остались только в редакторах; лишние шаги свидания удалены")
 
 
 print(f"\nВсе проверки пройдены: {OK} блоков ✔")

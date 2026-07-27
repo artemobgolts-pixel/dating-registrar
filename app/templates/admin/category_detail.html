@@ -8,21 +8,23 @@
 </div>
 
 <div class="card">
-  <form method="post" action="/admin/categories/{{ cat['id'] }}/rename" data-tour="category-description"
+  <form method="post" action="/admin/categories/{{ cat['id'] }}/rename"
         enctype="multipart/form-data" style="display:grid;gap:10px">
     <input type="hidden" name="csrf" value="{{ csrf }}">
-    <input name="name" value="{{ cat['name'] }}" required maxlength="200">
-    <label class="field-label">Описание (необязательно)</label>
-    <div class="toolbar" id="catDescToolbar" data-target="catDescInput">
-      <button type="button" class="b" data-wrap="**|**" title="Жирный">Ж</button>
-      <button type="button" class="i" data-wrap="*|*" title="Курсив">К</button>
-      <button type="button" class="u" data-wrap="__|__" title="Подчёркнутый">П</button>
-      <button type="button" class="s" data-wrap="~~|~~" title="Зачёркнутый">З</button>
-      <button type="button" data-wrap="[|](https://)" title="Ссылка">🔗</button>
+    <div class="category-description-fields" data-tour="category-description">
+      <input name="name" value="{{ cat['name'] }}" required maxlength="200">
+      <label class="field-label">Описание (необязательно)</label>
+      <div class="toolbar" id="catDescToolbar" data-target="catDescInput">
+        <button type="button" class="b" data-wrap="**|**" title="Жирный">Ж</button>
+        <button type="button" class="i" data-wrap="*|*" title="Курсив">К</button>
+        <button type="button" class="u" data-wrap="__|__" title="Подчёркнутый">П</button>
+        <button type="button" class="s" data-wrap="~~|~~" title="Зачёркнутый">З</button>
+        <button type="button" data-wrap="[|](https://)" title="Ссылка">🔗</button>
+      </div>
+      <div class="rich-ed" id="catDescEditable" contenteditable="true"
+           role="textbox" aria-multiline="true" data-placeholder="Пара слов под заголовком категории…"></div>
+      <textarea name="description" id="catDescInput" maxlength="1000" hidden>{{ cat['description'] or '' }}</textarea>
     </div>
-    <div class="rich-ed" id="catDescEditable" contenteditable="true"
-         role="textbox" aria-multiline="true" data-placeholder="Пара слов под заголовком категории…"></div>
-    <textarea name="description" id="catDescInput" maxlength="1000" hidden>{{ cat['description'] or '' }}</textarea>
 
     <label style="margin-top:4px">Превью ссылки — кликай прямо по нему и меняй</label>
     {# Редактируемое превью: клик по картинке открывает выбор своей; клик по
@@ -82,9 +84,7 @@
       <b>Голосование</b>
       <div class="muted tiny">Настройки действуют только внутри этой категории.</div>
     </div>
-    {% if voting_state.status == 'unconfigured' %}
-      <span class="badge amber">Нужно настроить</span>
-    {% elif voting_state.status == 'open' and can_change_composition %}
+    {% if voting_state.status == 'open' and can_change_composition %}
       <span class="badge rose">Идёт голосование</span>
     {% elif voting_state.status == 'open' %}
       <span class="badge amber">Дедлайн наступил · считаем результат</span>
@@ -103,8 +103,6 @@
     <span>{{ 'Один вариант' if voting_state.choice_mode == 'single' else 'Несколько вариантов' }}</span>
     {% if voting_state.voting_deadline %}<span>Дедлайн: <b>{{ voting_state.voting_deadline | ts }} МСК</b></span>{% endif %}
   </div>
-  {% else %}
-  <p class="muted" style="margin:12px 0 0">До запуска гости видят варианты, но не могут голосовать. Старые выборы сохраняются{% if voting_state.total_votes %}: сейчас {{ voting_state.total_votes }} {{ voting_state.total_votes | plural('голос', 'голоса', 'голосов') }}{% endif %}.</p>
   {% endif %}
 
   {% if voting_state.status in ('unconfigured', 'open') and can_change_composition %}

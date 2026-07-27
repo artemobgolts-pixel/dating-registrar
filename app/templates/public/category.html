@@ -64,11 +64,10 @@
 </svg>
 
     {# Правый верхний угол: поддержка автора, его проект (VPN) и вход.
-       Порядок как в шапке кабинета — Помощь, VPN, затем «Войти». #}
+      Порядок как в шапке кабинета — Помощь, VPN, затем «Войти». #}
     <div class="corner-actions">
-      <button type="button" class="promo-btn theme-toggle" data-theme-toggle aria-label="Включить тёмную тему">
-        <span class="promo-ic" data-theme-icon aria-hidden="true">☾</span>
-        <span class="promo-lb" data-theme-label>Тёмная тема</span>
+      <button type="button" class="promo-btn theme-toggle icon-only" data-theme-toggle aria-label="Включить тёмную тему">
+        <span class="promo-ic theme-moon-icon" data-theme-icon aria-hidden="true"></span>
       </button>
       {% if SUPPORT_URL %}
       <a class="promo-btn" href="{{ SUPPORT_URL }}" target="_blank" rel="noopener" aria-label="Помощь">
@@ -130,11 +129,9 @@
   </section>
   {% endif %}
 
+  {% if vote_state.status != 'unconfigured' %}
   <section class="vote-summary vote-{{ vote_state.status }}" aria-live="polite">
-    {% if vote_state.status == 'unconfigured' %}
-      <b>Голосование пока не открыто</b>
-      <span>Организатор ещё настраивает правила и дедлайн. Уже сохранённые голоса видны и их можно снять, но новые временно не принимаются.</span>
-    {% elif vote_state.status == 'open' %}
+    {% if vote_state.status == 'open' %}
       <b>Голосование идёт до {{ vote_state.voting_deadline | when }}</b>
       <span>{% if vote_state.choice_mode == 'single' %}Можно выбрать один вариант — новый выбор заменит предыдущий.{% else %}Можно выбрать несколько вариантов.{% endif %} Участники и прогресс видны всем.</span>
     {% elif vote_state.status == 'tie' %}
@@ -148,6 +145,7 @@
       <span>Он выделен ниже. Участники остальных вариантов в нём не участвуют.</span>
     {% endif %}
   </section>
+  {% endif %}
 
   {% macro datecard(d) -%}
   {% set badges %}
@@ -347,7 +345,7 @@
 </div>
 
 {% if vote_state.status in ('unconfigured', 'open') %}<button class="fab" id="fabPropose" aria-label="Создать свидание">
-  <span class="plus" aria-hidden="true">+</span><span class="fab-label">Создать свидание</span>
+  <span class="fab-label">Создать свидание</span>
 </button>{% endif %}
 
 <!-- Вход прямо со страницы подборки (модалка с Telegram Login Widget) -->
@@ -439,91 +437,121 @@
   </form>
 </dialog>
 
-<!-- Предложение / редактирование -->
-<dialog id="propDlg">
-  <h3 class="dlg-head" id="propHead">Предложить свидание</h3>
-  <p class="dlg-sub">Идею увидят все&nbsp;♥</p>
-  <form id="propForm">
-    <div class="field">
-      <label>Название *</label>
-      <input type="text" name="name" maxlength="200" required placeholder="Пикник на крыше">
+<!-- Создание / редактирование в актуальном карточном редакторе, но внутри виджета -->
+<dialog id="propDlg" class="date-widget-dialog">
+  <div class="date-widget-head">
+    <div>
+      <h3 class="dlg-head" id="propHead">Создать свидание</h3>
+      <p class="dlg-sub">Карточка сразу появится в этой подборке&nbsp;♥</p>
     </div>
-    <div class="field">
-      <label>Место</label>
-      <input type="text" name="place" maxlength="300" placeholder="Адрес или название места">
-    </div>
-    <div class="field">
-      <label>Когда</label>
-      <div class="chips">
-        <button type="button" class="chip" data-day="today">Сегодня</button>
-        <button type="button" class="chip" data-day="tomorrow">Завтра</button>
-      </div>
-      <div class="chips">
-        <button type="button" class="chip" data-time="12:00">12:00</button>
-        <button type="button" class="chip" data-time="15:00">15:00</button>
-        <button type="button" class="chip" data-time="19:00">19:00</button>
-        <button type="button" class="chip" data-time="21:00">21:00</button>
-      </div>
-      <input type="datetime-local" name="starts_at" id="propStart">
-      <p class="alt-time">нажми, чтобы выбрать дату и время</p>
-    </div>
-    <details class="endtime" id="propEndWrap">
-      <summary>указать время окончания</summary>
-      <div class="field">
-        <div class="chips">
-          <button type="button" class="chip" data-dur="1">+1 час</button>
-          <button type="button" class="chip" data-dur="2">+2 часа</button>
-          <button type="button" class="chip" data-dur="3">+3 часа</button>
+    <button type="button" class="date-widget-x" id="propCancel" aria-label="Закрыть">✕</button>
+  </div>
+  <form id="propForm" class="date-widget-form">
+    <div class="date-widget-grid">
+      <section class="date-widget-card" aria-label="Карточка свидания">
+        <div class="date-widget-media">
+          <div class="dropzone" id="propZone">
+            <div class="dz-ico">📷 🎬</div>
+            <div class="dz-hint">Добавить фото или видео</div>
+            <div class="date-widget-media-note">до 5 фото и 1 видео · фото можно менять местами</div>
+            <input type="file" id="propMedia" accept="image/*,video/mp4,video/webm" multiple>
+            <div class="ptiles" id="propTiles"></div>
+            <div class="ptiles" id="propVidTiles"></div>
+          </div>
+          <input type="file" name="images" id="propFiles" accept="image/*" multiple hidden>
+          <input type="file" name="video" id="propVideo" accept="video/mp4,video/webm" hidden>
+          <div class="vid-cur" id="propVidCur" hidden>
+            <span>🎬 <span id="propVidName">Текущее видео</span></span>
+            <button type="button" id="propVidRm" aria-label="Удалить видео" title="Удалить видео">✕</button>
+          </div>
+          <p class="vid-hint" id="propVidHint" hidden>✕ — удалить это видео при сохранении</p>
         </div>
-        <input type="datetime-local" name="ends_at" id="propEnd">
-      </div>
-    </details>
-    <div class="field">
-      <label>Ссылки (каждая с новой строки)</label>
-      <textarea name="links" placeholder="https://..."></textarea>
+
+        <div class="date-widget-body">
+          <div class="field date-widget-title">
+            <label>Название *</label>
+            <input type="text" name="name" maxlength="200" required placeholder="Пикник на крыше">
+          </div>
+          <div class="field">
+            <label>Место</label>
+            <input type="text" name="place" maxlength="300" placeholder="Адрес, название или ссылка на карты">
+          </div>
+          <div class="field date-widget-when">
+            <label>Когда</label>
+            <div class="chips">
+              <button type="button" class="chip" data-day="today">Сегодня</button>
+              <button type="button" class="chip" data-day="tomorrow">Завтра</button>
+              <button type="button" class="chip" data-time="12:00">12:00</button>
+              <button type="button" class="chip" data-time="15:00">15:00</button>
+              <button type="button" class="chip" data-time="19:00">19:00</button>
+              <button type="button" class="chip" data-time="21:00">21:00</button>
+            </div>
+            <input type="datetime-local" name="starts_at" id="propStart">
+          </div>
+          <details class="endtime" id="propEndWrap">
+            <summary>Добавить время окончания</summary>
+            <div class="field">
+              <div class="chips">
+                <button type="button" class="chip" data-dur="1">+1 час</button>
+                <button type="button" class="chip" data-dur="2">+2 часа</button>
+                <button type="button" class="chip" data-dur="3">+3 часа</button>
+              </div>
+              <input type="datetime-local" name="ends_at" id="propEnd">
+            </div>
+          </details>
+          <div class="field">
+            <label>Описание <span class="muted">— выдели текст, чтобы оформить</span></label>
+            <div class="toolbar" id="propDescToolbar">
+              <button type="button" class="b" data-wrap="**|**" title="Жирный">Ж</button>
+              <button type="button" class="i" data-wrap="*|*" title="Курсив">К</button>
+              <button type="button" class="u" data-wrap="__|__" title="Подчёркнутый">П</button>
+              <button type="button" class="s" data-wrap="~~|~~" title="Зачёркнутый">З</button>
+              <button type="button" data-wrap="[|](https://)" title="Ссылка">🔗</button>
+            </div>
+            <div class="rich-ed" id="propDescEditable" contenteditable="true"
+                 role="textbox" aria-multiline="true"
+                 data-placeholder="Почему это будет здорово ♥"></div>
+            <textarea name="comment" id="propComment" maxlength="2000" hidden></textarea>
+          </div>
+          <div class="field">
+            <label>Ссылки <span class="muted">— каждая с новой строки</span></label>
+            <textarea name="links" placeholder="https://..."></textarea>
+          </div>
+        </div>
+      </section>
+
+      <aside class="date-widget-side">
+        <section class="date-widget-section">
+          <h4><span>1</span> Модификаторы</h4>
+          <div class="field">
+            <label>Оплата</label>
+            <div class="widget-pay-pick" role="radiogroup" aria-label="Оплата">
+              <label class="widget-pay-opt pay-any"><input type="radio" name="pay" value="0" checked> Не важно</label>
+              <label class="widget-pay-opt"><input type="radio" name="pay" value="1">💸 50/50</label>
+              <label class="widget-pay-opt"><input type="radio" name="pay" value="2">👌 Я плачу</label>
+              <label class="widget-pay-opt"><input type="radio" name="pay" value="3">🫵 Ты платишь</label>
+            </div>
+          </div>
+          <div class="field date-widget-capacity">
+            <label for="propCapacity">Количество участников</label>
+            <div class="date-widget-capacity-row">
+              <input type="number" name="capacity" id="propCapacity" value="1"
+                     min="1" max="100" step="1" inputmode="numeric" required>
+              <span>чел.</span>
+            </div>
+            <p class="alt-time">Автор не считается. 1 — обычное свидание, 2 и больше — групповое.</p>
+          </div>
+        </section>
+        <section class="date-widget-section date-widget-context">
+          <h4><span>2</span> Публикация</h4>
+          <p>Свидание добавится в категорию «{{ cat.name }}». Если включена модерация, сначала его увидит организатор.</p>
+        </section>
+      </aside>
     </div>
-    <div class="field">
-      <label>Комментарий <span class="muted" style="font-weight:400">— выдели слово и нажми Ж / К / П / З</span></label>
-      <div class="toolbar" id="propDescToolbar">
-        <button type="button" class="b" data-wrap="**|**" title="Жирный">Ж</button>
-        <button type="button" class="i" data-wrap="*|*" title="Курсив">К</button>
-        <button type="button" class="u" data-wrap="__|__" title="Подчёркнутый">П</button>
-        <button type="button" class="s" data-wrap="~~|~~" title="Зачёркнутый">З</button>
-        <button type="button" data-wrap="[|](https://)" title="Ссылка">🔗</button>
-      </div>
-      <div class="rich-ed" id="propDescEditable" contenteditable="true"
-           role="textbox" aria-multiline="true"
-           data-placeholder="Почему это будет здорово ♥"></div>
-      <textarea name="comment" id="propComment" maxlength="2000" hidden></textarea>
-    </div>
-    <div class="field">
-      <label>Фото и видео (до 5 фото и 1 видео) — перетащи, чтобы поменять местами</label>
-      <div class="dropzone" id="propZone">
-        <div class="dz-ico">📷🎬</div>
-        <div class="dz-hint">нажми или перетащи фото и видео сюда</div>
-        <input type="file" id="propMedia" accept="image/*,video/mp4,video/webm" multiple>
-        <div class="ptiles" id="propTiles"></div>
-        <div class="ptiles" id="propVidTiles"></div>
-      </div>
-      <!-- скрытые инпуты сабмита: mediaUploader раскладывает файлы по MIME -->
-      <input type="file" name="images" id="propFiles" accept="image/*" multiple hidden>
-      <input type="file" name="video" id="propVideo" accept="video/mp4,video/webm" hidden>
-      <div class="vid-cur" id="propVidCur" hidden>
-        <span>🎬 <span id="propVidName">Текущее видео</span></span>
-        <button type="button" id="propVidRm" aria-label="Удалить видео" title="Удалить видео">✕</button>
-      </div>
-      <p class="vid-hint" id="propVidHint" hidden>✕ — удалить это видео при сохранении</p>
-    </div>
-    <div class="field">
-      <label for="propCapacity">Сколько участников нужно</label>
-      <input type="number" name="capacity" id="propCapacity" value="1" min="1" max="100" required>
-      <p class="alt-time">Автор не считается. 1 — обычное свидание, 2 и больше — групповое.</p>
-    </div>
-    <label class="chk-line"><input type="checkbox" name="pay" value="1" id="propPay"> 💸 оплата 50/50</label>
     <div class="upbar" id="propBar" hidden><i></i></div>
-    <div class="dlg-actions">
-      <button type="button" class="btn ghost" id="propCancel">Отмена</button>
-      <button type="submit" class="btn book" id="propSubmit">Предложить 💡</button>
+    <div class="dlg-actions date-widget-actions">
+      <button type="button" class="btn ghost" id="propCancelBottom">Отмена</button>
+      <button type="submit" class="btn book" id="propSubmit">Создать свидание</button>
     </div>
   </form>
 </dialog>

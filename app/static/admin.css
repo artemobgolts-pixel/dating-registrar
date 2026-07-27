@@ -102,6 +102,21 @@ nav { display: flex; gap: 6px; flex-wrap: wrap; }
   box-shadow: 0 5px 14px rgba(150, 70, 85, .32), inset 0 1px 0 rgba(255, 255, 255, .35);
 }
 .bell-ic { font-size: 19px; line-height: 1; }
+.bell [data-theme-icon],
+.login-theme [data-theme-icon] {
+  width: 22px; height: 22px; display: inline-grid; place-items: center;
+  line-height: 1; color: currentColor;
+}
+.theme-moon-icon::before {
+  content: ""; width: 21px; height: 21px; background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M20.3 15.4A8.7 8.7 0 0 1 8.6 3.7a8.7 8.7 0 1 0 11.7 11.7Z'/%3E%3C/svg%3E") center/contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M20.3 15.4A8.7 8.7 0 0 1 8.6 3.7a8.7 8.7 0 1 0 11.7 11.7Z'/%3E%3C/svg%3E") center/contain no-repeat;
+}
+.theme-sun-icon::before {
+  content: ""; width: 22px; height: 22px; background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10Zm-1-7h2v4h-2V0Zm0 20h2v4h-2v-4ZM0 11h4v2H0v-2Zm20 0h4v2h-4v-2ZM3.51 4.93l1.42-1.42 2.83 2.83-1.42 1.42-2.83-2.83Zm12.73 12.73 1.42-1.42 2.83 2.83-1.42 1.42-2.83-2.83ZM4.93 20.49l-1.42-1.42 2.83-2.83 1.42 1.42-2.83 2.83ZM17.66 7.76l-1.42-1.42 2.83-2.83 1.42 1.42-2.83 2.83Z'/%3E%3C/svg%3E") center/contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10Zm-1-7h2v4h-2V0Zm0 20h2v4h-2v-4ZM0 11h4v2H0v-2Zm20 0h4v2h-4v-2ZM3.51 4.93l1.42-1.42 2.83 2.83-1.42 1.42-2.83-2.83Zm12.73 12.73 1.42-1.42 2.83 2.83-1.42 1.42-2.83-2.83ZM4.93 20.49l-1.42-1.42 2.83-2.83 1.42 1.42-2.83 2.83ZM17.66 7.76l-1.42-1.42 2.83-2.83 1.42 1.42-2.83 2.83Z'/%3E%3C/svg%3E") center/contain no-repeat;
+}
 .bell-ic.tg-ic { color: #229ED9; display: inline-flex; }
 .bell-ic.tg-ic svg { display: block; }
 /* кнопки-ссылки «Помощь»/«VPN» рядом с колокольчиком: капсула-пилюля
@@ -701,11 +716,15 @@ label.chk {
   display: flex; justify-content: center; margin: 6px 0 4px; min-height: 46px;
   /* светлая подложка под кросс-доменным iframe виджета: на тёмной ОС браузер
      красит фон iframe чёрным до его отрисовки — отсюда «чёрный прямоугольник». */
-  background: #fff; border-radius: 12px;
+  background: transparent;
 }
 #tg-widget-wrap iframe { margin: 0 auto !important; color-scheme: light; border-radius: 12px; }
 
 .login-note { color: var(--muted); font-size: 13.5px; margin: 14px 0 0; line-height: 1.5; }
+.login-vpn-note {
+  margin: -4px 0 15px; color: var(--muted); font-size: 13.5px;
+}
+.login-vpn-note a { color: var(--rose-2); font-weight: 700; }
 
 .err {
   background: #fdeeee;
@@ -746,7 +765,7 @@ label.chk {
 .tg-widget-wrap { display: none; color-scheme: light; }
 .tg-widget-wrap:not([hidden]) {
   display: flex; justify-content: center; min-height: 46px; margin: 2px 0 4px;
-  background: #fff; border-radius: 12px;
+  background: transparent;
 }
 .tg-widget-wrap iframe { margin: 0 auto !important; color-scheme: light; border-radius: 12px; }
 .oauth-sep {
@@ -1624,12 +1643,25 @@ input, textarea, select {
 .quick .btn .lbl-short { display: none; }
 .quick .btn .lbl-full { display: inline; }
 
-.share-grid { display: grid; grid-template-columns: 1fr auto; gap: 20px; align-items: start; }
+.category-create-row { margin-bottom: 16px; }
+.category-create-btn {
+  display: flex; width: 100%; min-height: 48px;
+  align-items: center; justify-content: center;
+  border-radius: 14px; font-size: 16px; font-weight: 600;
+}
+
+.share-grid {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, .82fr);
+  gap: 24px; align-items: stretch;
+}
 @media (max-width: 640px) { .share-grid { grid-template-columns: 1fr; } }
-/* QR-колонка прижата к верху (как текст слева), без растягивания по высоте строки */
-.share-qr-col { display: flex; flex-direction: column; align-items: center; gap: 10px; justify-content: flex-start; align-self: start; }
+/* На ПК QR занимает полноценную зону и центрируется в ней. */
+.share-qr-col {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  justify-content: center; align-self: stretch; min-width: 0;
+}
 .share-qr {
-  width: 240px; max-width: 100%;
+  width: min(320px, 100%);
   aspect-ratio: 1 / 1;          /* всегда квадрат: высота = ширине, без пустоты снизу */
   flex: none;
   background: #fff; border: 1px solid var(--line); border-radius: 16px;
@@ -1744,6 +1776,9 @@ input, textarea, select {
 /* «шапка» карточки: имя слева тянется/обрезается, хвост (⋯ + стрелка) фиксирован
    справа и НЕ переносится на новую строку при длинном названии */
 .cat-card .bar { display: flex; align-items: center; gap: 10px; flex-wrap: nowrap; }
+/* ⋯ позиционируется от всей карточки, а не от строки под мобильной обложкой. */
+.cat-card .bar { position: static; }
+.cat-card .cat-body { position: static; }
 .cat-card .bar > div:first-child { flex: 1; min-width: 0; }
 .cat-card .cat-name {
   font-weight: 600; font-size: 16px; color: var(--ink);
@@ -1776,6 +1811,7 @@ input, textarea, select {
   /* специфичность 0,2,0 — ровно как у `.qr-actions .qr-share { display:none }`
      на ПК, иначе (0,1,0) не перебила бы её и «Поделиться» осталась бы скрыта */
   .qr-actions .qr-share { display: inline-flex; }
+  .share-qr-col { justify-content: flex-start; min-height: 0; }
 }
 
 /* мини-превью ссылки «как увидит она при отправке» — карточка мессенджера:
@@ -1851,6 +1887,7 @@ input, textarea, select {
 /* подпись поля и зона выбора картинки превью (drag-drop как у свиданий) */
 .field-label { display: block; font-weight: 600; color: var(--ink); font-size: 14px; margin-top: 4px; }
 .field-label .muted { font-weight: 400; }
+.category-description-fields { display: grid; gap: 10px; }
 .og-zone { margin-top: 2px; }
 .og-zone .dz-ico { font-size: 20px; }
 /* кнопка «Сохранить» в редакторе категории — заметная, не во всю ширину */
@@ -1896,6 +1933,7 @@ input, textarea, select {
   background: #fff7ed; border: 1px solid #f3dcb4; border-radius: 12px;
   font-size: 12.8px; color: #8a5a1a; line-height: 1.45;
 }
+.og-warn[hidden] { display: none; }
 .og-warn-ic { flex: none; font-size: 14px; line-height: 1.4; }
 .og-warn-text { flex: 1; min-width: 0; }
 .og-warn-text b { color: #6b440f; }
@@ -2065,6 +2103,10 @@ input, textarea, select {
 }
 .autosave-note.saved { color: #1d8a4e; }
 .autosave-note.err { color: #b3261e; }
+.cursor-effects-toggle { margin: 18px 0 0; }
+@media (max-width: 720px) {
+  .cursor-effects-toggle { display: none; }
+}
 
 /* ---------- профиль: кликабельная аватарка по центру ---------- */
 .avatar-field {
@@ -2391,26 +2433,20 @@ input, textarea, select {
 /* Слой реального РАЗМЫТИЯ фона: размывает всю страницу, а вырез clip-path
    (задаёт tour.js по геометрии цели) оставляет саму цель чёткой и без блюра —
    так размытие не задевает подсвечиваемый элемент. Лёгкое затемнение здесь же. */
-.tour-blur {
-  position: fixed; inset: 0; z-index: 300;
-  background: rgba(40, 28, 32, .28);
-  -webkit-backdrop-filter: blur(5px);
-  backdrop-filter: blur(5px);
-  pointer-events: none;
-}
-/* Рамка вокруг цели: только светлый кант + розовая обводка (без огромной тени —
-   затемнение и блюр теперь даёт .tour-blur с вырезом). */
+.tour-blur { display: none; }
+/* Цельная тень вместо сложного clip-path: мобильные GPU больше не рисуют
+   диагональный светлый шов через экран. */
 .tour-spot {
   position: fixed; border-radius: 14px; z-index: 301;
-  box-shadow: 0 0 0 2px var(--rose), 0 0 0 5px rgba(255, 255, 255, .5);
+  box-shadow: 0 0 0 9999px rgba(35, 25, 30, .62),
+              0 0 0 2px var(--rose), 0 0 0 5px rgba(255, 255, 255, .34);
   transition: top .2s ease, left .2s ease, width .2s ease, height .2s ease;
   pointer-events: none;
 }
 /* без поддержки backdrop-filter — фолбэк на прежнее приглушение тенью */
 @supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
-  .tour-blur { background: transparent; }
-  .tour-spot { box-shadow: 0 0 0 9999px rgba(40, 28, 32, .42),
-    0 0 0 2px var(--rose), 0 0 0 5px rgba(255, 255, 255, .5); }
+  .tour-spot { box-shadow: 0 0 0 9999px rgba(35, 25, 30, .62),
+    0 0 0 2px var(--rose), 0 0 0 5px rgba(255, 255, 255, .34); }
 }
 /* На время тура прокрутка страницы заблокирована, чтобы цель не «уезжала»
    из-под подсветки (жест листания больше не ломает шаги). */
@@ -2532,6 +2568,7 @@ html[data-theme="dark"] .btn,
 html[data-theme="dark"] input,
 html[data-theme="dark"] textarea,
 html[data-theme="dark"] select,
+html[data-theme="dark"] .rich-ed,
 html[data-theme="dark"] .toolbar button,
 html[data-theme="dark"] .toggle,
 html[data-theme="dark"] .chip-cat,
@@ -2544,6 +2581,8 @@ html[data-theme="dark"] .pay-opt {
 html[data-theme="dark"] input,
 html[data-theme="dark"] textarea,
 html[data-theme="dark"] select { color-scheme: dark; }
+html[data-theme="dark"] input::placeholder,
+html[data-theme="dark"] textarea::placeholder { color: #998b92; opacity: 1; }
 html[data-theme="dark"] .btn.primary,
 html[data-theme="dark"] .toolbar button.active,
 html[data-theme="dark"] .chip-cat:has(input:checked),
@@ -2569,10 +2608,15 @@ html[data-theme="dark"] .badge { background: #342c32; }
 html[data-theme="dark"] .badge.rose { background: #432c35; }
 html[data-theme="dark"] .badge.amber { background: #413724; color: #dec17c; }
 html[data-theme="dark"] .thumb img,
+html[data-theme="dark"] .avatar-pick .avatar-ph,
 html[data-theme="dark"] .profile-avatar-ph,
 html[data-theme="dark"] .cfeed-ava-ph,
 html[data-theme="dark"] .og-img,
+html[data-theme="dark"] .cat-thumb,
 html[data-theme="dark"] .cat-cover { background-color: #2d272c; }
+html[data-theme="dark"] .avatar-pick .avatar-img,
+html[data-theme="dark"] .avatar-pick .avatar-ph { border-color: var(--line); }
+html[data-theme="dark"] .avatar-pick .avatar-cam { border-color: #251f24; }
 html[data-theme="dark"] tr.drag-row.dragging { background: #3b2931; }
 
 html[data-theme="dark"] .login-card {
@@ -2591,6 +2635,16 @@ html[data-theme="dark"] .login-vpn {
   background: rgba(42, 33, 40, .82);
   border-color: var(--line);
   color: var(--ink);
+}
+html[data-theme="dark"] .og-preview {
+  background: rgba(31, 25, 30, .94);
+  border-color: var(--line);
+}
+html[data-theme="dark"] .og-preview .og-text {
+  background: linear-gradient(180deg, rgba(39,31,37,.96), rgba(32,26,31,.96));
+}
+html[data-theme="dark"] .og-preview .og-img {
+  filter: brightness(.78) saturate(.9);
 }
 /* Telegram iframe намеренно остаётся в светлой схеме: иначе сам виджет рисует
    непрозрачную чёрную подложку. */
@@ -2634,6 +2688,19 @@ html[data-theme="dark"] .drow-act .btn,
 html[data-theme="dark"] .drow-act .more {
   background: rgba(47, 37, 44, .82);
   border-color: var(--line);
+}
+html[data-theme="dark"] .logout-mini,
+html[data-theme="dark"] .login-theme {
+  background: rgba(45, 35, 42, .78);
+  border-color: var(--line);
+  color: var(--rose-2);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.07);
+}
+html[data-theme="dark"] .cat-card .cat-tail .more,
+html[data-theme="dark"] .cat-card:hover .cat-tail .more,
+html[data-theme="dark"] .cat-card .cat-tail .more:hover,
+html[data-theme="dark"] .cat-card .cat-tail .more[aria-expanded="true"] {
+  background: rgba(55, 43, 51, .96);
 }
 html[data-theme="dark"] .dcard.nocover .card-menu .more { background: rgba(47,37,44,.9); }
 html[data-theme="dark"] .og-warn { background: #3d3122; border-color: #655437; color: #e0c189; }

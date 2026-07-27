@@ -4,10 +4,10 @@
 {% block content %}
 <h1>Категории</h1>
 
-<form method="post" action="/admin/categories/create" class="card" data-tour="category-create" style="display:flex;gap:10px;align-items:center">
+<form method="post" action="/admin/categories/create" class="category-create-row" data-tour="category-create">
   <input type="hidden" name="csrf" value="{{ csrf }}">
-  <input name="name" required maxlength="200" placeholder="Название новой категории" style="flex:1">
-  <button class="btn primary">Создать</button>
+  <input type="hidden" name="name" value="Новая категория">
+  <button class="btn primary category-create-btn">Создать категорию</button>
 </form>
 
 <div data-tour="categories-collection">
@@ -22,8 +22,7 @@
       <div>
         <span class="cat-name">{{ c['name'] }}</span>
         <span class="badge">{{ c['dcount'] }} {{ c['dcount'] | plural('свидание', 'свидания', 'свиданий') }}</span>
-        {% if c['voting_status'] == 'unconfigured' %}<span class="badge amber">настрой голосование</span>
-        {% elif c['voting_status'] == 'open' %}<span class="badge rose">голосование идёт</span>
+        {% if c['voting_status'] == 'open' %}<span class="badge rose">голосование идёт</span>
         {% elif c['voting_status'] == 'tie' %}<span class="badge amber">ничья</span>
         {% elif c['voting_status'] == 'resolved' %}<span class="badge rose">есть победитель</span>
         {% elif c['voting_status'] == 'no_winner' %}<span class="badge">никто не выбрал</span>{% endif %}

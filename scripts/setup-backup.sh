@@ -103,10 +103,10 @@ RCLONE_REMOTE="$REMOTE_NAME:$S3_BUCKET" DATA_DIR="$PROJECT_DIR/data" \
   bash "$PROJECT_DIR/scripts/backup.sh"
 
 # 6) cron-подсказка
-CRON_LINE="17 4 * * * cd $PROJECT_DIR && RCLONE_REMOTE=$REMOTE_NAME:$S3_BUCKET DATA_DIR=$PROJECT_DIR/data ./scripts/backup.sh >> /var/log/date4you-backup.log 2>&1"
+CRON_LINE="0 21 * * * cd $PROJECT_DIR && RCLONE_REMOTE=$REMOTE_NAME:$S3_BUCKET DATA_DIR=$PROJECT_DIR/data ./scripts/backup.sh >> /var/log/date4you-backup.log 2>&1"
 echo
 echo "✓ Настройка завершена."
-echo "  Чтобы бэкап шёл ежедневно в 04:17 — добавь в crontab (crontab -e) строку:"
+echo "  Чтобы бэкап шёл ежедневно в 00:00 МСК (21:00 UTC) — добавь в crontab (crontab -e) строку:"
 echo
 echo "    $CRON_LINE"
 echo

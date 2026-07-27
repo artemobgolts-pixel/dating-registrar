@@ -94,6 +94,17 @@
   input, select { font:inherit; padding:6px 9px; border:1px solid var(--line);
                   border-radius:8px; }
   .bar { display:flex; gap:10px; align-items:center; margin-bottom:16px; flex-wrap:wrap; }
+  [data-theme-icon] { width:20px; height:20px; display:inline-grid; place-items:center; line-height:1; }
+  .theme-moon-icon::before {
+    content:""; width:19px; height:19px; background:currentColor;
+    -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M20.3 15.4A8.7 8.7 0 0 1 8.6 3.7a8.7 8.7 0 1 0 11.7 11.7Z'/%3E%3C/svg%3E") center/contain no-repeat;
+    mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M20.3 15.4A8.7 8.7 0 0 1 8.6 3.7a8.7 8.7 0 1 0 11.7 11.7Z'/%3E%3C/svg%3E") center/contain no-repeat;
+  }
+  .theme-sun-icon::before {
+    content:""; width:20px; height:20px; background:currentColor;
+    -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10Zm-1-7h2v4h-2V0Zm0 20h2v4h-2v-4ZM0 11h4v2H0v-2Zm20 0h4v2h-4v-2ZM3.51 4.93l1.42-1.42 2.83 2.83-1.42 1.42-2.83-2.83Zm12.73 12.73 1.42-1.42 2.83 2.83-1.42 1.42-2.83-2.83ZM4.93 20.49l-1.42-1.42 2.83-2.83 1.42 1.42-2.83 2.83ZM17.66 7.76l-1.42-1.42 2.83-2.83 1.42 1.42-2.83 2.83Z'/%3E%3C/svg%3E") center/contain no-repeat;
+    mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10Zm-1-7h2v4h-2V0Zm0 20h2v4h-2v-4ZM0 11h4v2H0v-2Zm20 0h4v2h-4v-2ZM3.51 4.93l1.42-1.42 2.83 2.83-1.42 1.42-2.83-2.83Zm12.73 12.73 1.42-1.42 2.83 2.83-1.42 1.42-2.83-2.83ZM4.93 20.49l-1.42-1.42 2.83-2.83 1.42 1.42-2.83 2.83ZM17.66 7.76l-1.42-1.42 2.83-2.83 1.42 1.42-2.83 2.83Z'/%3E%3C/svg%3E") center/contain no-repeat;
+  }
 
   html[data-theme="dark"] {
     --bg:#171418; --line:#3b3138; --ink:#eee5ea; --muted:#aa9da4;
@@ -144,7 +155,7 @@
     <a href="/admin/" class="muted"><span class="ic" aria-hidden="true">↩</span>в кабинет</a>
   </nav>
   <button type="button" class="btn small" data-theme-toggle aria-label="Включить тёмную тему">
-    <span data-theme-icon aria-hidden="true">☾</span>
+    <span class="theme-moon-icon" data-theme-icon aria-hidden="true"></span>
   </button>
   <form method="post" action="/admin/logout">
     <input type="hidden" name="csrf" value="{{ csrf }}">
