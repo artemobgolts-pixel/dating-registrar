@@ -288,7 +288,7 @@ def og_collage_name(filenames: list[str]) -> str | None:
         return None
     # Версия входит в ключ: при изменении фирменного оформления старый кэш
     # автоматически перестаёт использоваться.
-    h = hashlib.sha256(("brand-v4\n" + "\n".join(files)).encode()).hexdigest()[:24]
+    h = hashlib.sha256(("brand-v5\n" + "\n".join(files)).encode()).hexdigest()[:24]
     return f"og_{h}.webp"
 
 
@@ -345,8 +345,8 @@ def build_og_collage(filenames: list[str]) -> str | None:
     draw.text((center[0] + 3, center[1] + 5), "date4you", font=brand_font,
               anchor="mm", fill=(35, 18, 25, 92))
     draw.text(center, "date4you", font=brand_font, anchor="mm",
-              fill=(231, 93, 123, 255), stroke_width=1,
-              stroke_fill=(110, 27, 49, 225))
+              fill=(244, 170, 188, 255), stroke_width=1,
+              stroke_fill=(122, 45, 67, 210))
     canvas = Image.alpha_composite(canvas.convert("RGBA"), overlay).convert("RGB")
 
     tmp = out.with_suffix(".tmp.webp")
