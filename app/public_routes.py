@@ -668,7 +668,7 @@ def public_category(token: str, request: Request, conn=Depends(get_db)):
 
 
 @router.get("/c/{token}/owner-avatar")
-def public_owner_avatar(token: str, conn=Depends(get_db)):
+def public_owner_avatar(token: str, w: int | None = None, conn=Depends(get_db)):
     """Аватар владельца категории — для шапки гостевой страницы. Без логина:
     гость (в т.ч. анонимный) должен видеть фото автора. Отдаём только по активной
     ссылке и только аватар владельца этой категории (чужой файл не утечёт)."""
@@ -681,15 +681,17 @@ def public_owner_avatar(token: str, conn=Depends(get_db)):
     fn = row["avatar_path"] if row else None
     if not fn or not images.SAFE_FILENAME.match(fn):
         raise HTTPException(404)
-    path = images.UPLOAD_DIR / fn
-    if not path.exists():
+    try:
+        path = images.responsive_image(fn, w)
+    except (FileNotFoundError, ValueError):
         raise HTTPException(404)
     return FileResponse(path, media_type="image/webp",
                         headers={"Cache-Control": "private, max-age=3600"})
 
 
 @router.get("/c/{token}/participant-avatar/{user_id}")
-def public_participant_avatar(token: str, user_id: int, conn=Depends(get_db)):
+def public_participant_avatar(token: str, user_id: int, w: int | None = None,
+                              conn=Depends(get_db)):
     """Аватар участника виден только внутри активной гостевой категории.
 
     Идентификаторы/Telegram-контакты в HTML не выводятся; маршрут проверяет,
@@ -714,8 +716,9 @@ def public_participant_avatar(token: str, user_id: int, conn=Depends(get_db)):
     fn = row["avatar_path"] if row else None
     if not fn or not images.SAFE_FILENAME.match(fn):
         raise HTTPException(404)
-    path = images.UPLOAD_DIR / fn
-    if not path.exists():
+    try:
+        path = images.responsive_image(fn, w)
+    except (FileNotFoundError, ValueError):
         raise HTTPException(404)
     return FileResponse(path, media_type="image/webp",
                         headers={"Cache-Control": "private, max-age=3600"})
@@ -755,7 +758,8 @@ def public_og_image(token: str, conn=Depends(get_db)):
 
 
 @router.get("/c/{token}/image/{filename}")
-def public_image(token: str, filename: str, request: Request, conn=Depends(get_db)):
+def public_image(token: str, filename: str, request: Request,
+                 w: int | None = None, conn=Depends(get_db)):
     """Фото отдаются только по активной ссылке категории. Архивные свидания
     показываются с лентой «Архив», поэтому их фото доступны;
     черновики — только их автору."""
@@ -773,8 +777,11 @@ def public_image(token: str, filename: str, request: Request, conn=Depends(get_d
         "AND (d.is_draft=0 OR d.guest_token=?)",
         (filename, cat["id"], guest),
     ).fetchone()
-    path = images.UPLOAD_DIR / filename
-    if not ok or not path.exists():
+    if not ok:
+        raise HTTPException(404)
+    try:
+        path = images.responsive_image(filename, w)
+    except (FileNotFoundError, ValueError):
         raise HTTPException(404)
     # 7 дней, а не год: секретную ссылку можно отключить или перегенерировать,
     # и не хочется, чтобы фото жили в чужих кэшах месяцами после этого
@@ -971,7 +978,8 @@ def _share_act_or_410(conn, token: str):
 
 
 @router.get("/d/{token}/participant-avatar/{user_id}")
-def shared_participant_avatar(token: str, user_id: int, conn=Depends(get_db)):
+def shared_participant_avatar(token: str, user_id: int, w: int | None = None,
+                              conn=Depends(get_db)):
     d, cat = _share_act_or_410(conn, token)
     if not cat:
         raise HTTPException(404)
@@ -988,8 +996,9 @@ def shared_participant_avatar(token: str, user_id: int, conn=Depends(get_db)):
     fn = row["avatar_path"] if row else None
     if not fn or not images.SAFE_FILENAME.match(fn):
         raise HTTPException(404)
-    path = images.UPLOAD_DIR / fn
-    if not path.exists():
+    try:
+        path = images.responsive_image(fn, w)
+    except (FileNotFoundError, ValueError):
         raise HTTPException(404)
     return FileResponse(path, media_type="image/webp",
                         headers={"Cache-Control": "private, max-age=3600"})
@@ -1128,7 +1137,8 @@ def shared_date_suggest(token: str, request: Request, bg: BackgroundTasks,
 
 
 @router.get("/d/{token}/image/{filename}")
-def shared_date_image(token: str, filename: str, conn=Depends(get_db)):
+def shared_date_image(token: str, filename: str, w: int | None = None,
+                      conn=Depends(get_db)):
     """Фото свидания по share-ссылке. Отдаём только фото ЭТОГО свидания —
     чужой файл по прямой ссылке не утечёт."""
     if not images.SAFE_FILENAME.match(filename):
@@ -1139,8 +1149,11 @@ def shared_date_image(token: str, filename: str, conn=Depends(get_db)):
     ok = conn.execute(
         "SELECT 1 FROM date_images WHERE date_id=? AND filename=?",
         (d["id"], filename)).fetchone()
-    path = images.UPLOAD_DIR / filename
-    if not ok or not path.exists():
+    if not ok:
+        raise HTTPException(404)
+    try:
+        path = images.responsive_image(filename, w)
+    except (FileNotFoundError, ValueError):
         raise HTTPException(404)
     return FileResponse(path, media_type="image/webp",
                         headers={"Cache-Control": "private, max-age=604800, immutable"})

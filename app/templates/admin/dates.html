@@ -81,7 +81,11 @@
     </div>
     {% if r['cover'] %}
     <div class="ph g{{ r['id'] % 4 }}">
-      <img src="/admin/uploads/{{ r['cover'] }}" alt="" loading="lazy"
+      <img src="/admin/uploads/{{ r['cover'] }}?w=480"
+        srcset="/admin/uploads/{{ r['cover'] }}?w=480 480w,
+                /admin/uploads/{{ r['cover'] }}?w=960 960w"
+        sizes="(max-width: 560px) calc(100vw - 40px), 280px"
+        alt="" loading="lazy" fetchpriority="low" decoding="async"
         {% if r['cover_focus'] %}style="object-position:{{ r['cover_focus'] }}"{% endif %}>
       <div class="badges">
         {% if r['pay_split'] %}<span class="bdg pay">{{ r['pay_split'] | pay_label }}</span>{% endif %}
@@ -128,7 +132,10 @@
     <a class="drow-link" href="/admin/dates/{{ r['id'] }}/edit" aria-label="Редактировать «{{ r['name'] }}»"></a>
     {% if r['cover'] %}
     <a class="drow-cover g{{ r['id'] % 4 }}" href="/admin/dates/{{ r['id'] }}/edit" aria-label="Редактировать">
-      <img src="/admin/uploads/{{ r['cover'] }}" alt="" loading="lazy"
+      <img src="/admin/uploads/{{ r['cover'] }}?w=480"
+        srcset="/admin/uploads/{{ r['cover'] }}?w=480 480w,
+                /admin/uploads/{{ r['cover'] }}?w=960 960w"
+        sizes="112px" alt="" loading="lazy" fetchpriority="low" decoding="async"
         {% if r['cover_focus'] %}style="object-position:{{ r['cover_focus'] }}"{% endif %}>
     </a>
     {% endif %}

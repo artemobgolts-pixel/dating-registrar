@@ -6,8 +6,11 @@
          aria-label="Открыть «{{ d['name'] }}»">
   {% if d['images'] %}
   <div class="cfeed-ph">
-    <img src="/d/{{ d['share_token'] }}/image/{{ d['images'][0]['filename'] }}" alt=""
-         loading="lazy" decoding="async"
+    <img src="/d/{{ d['share_token'] }}/image/{{ d['images'][0]['filename'] }}?w=480"
+         srcset="/d/{{ d['share_token'] }}/image/{{ d['images'][0]['filename'] }}?w=480 480w,
+                 /d/{{ d['share_token'] }}/image/{{ d['images'][0]['filename'] }}?w=960 960w"
+         sizes="(max-width: 680px) calc(100vw - 72px), 280px" alt=""
+         loading="lazy" fetchpriority="low" decoding="async"
          {% if d['images'][0]['focus'] %}style="object-position:{{ d['images'][0]['focus'] }}"{% endif %}>
   </div>
   {% elif d['videos'] %}
@@ -26,7 +29,8 @@
     <a class="cfeed-owner" href="/u/{{ d['owner_id'] }}" data-stop
        aria-label="Профиль: {{ d['owner_display'] }}">
       {% if d['owner_avatar'] %}
-      <img class="cfeed-ava" src="/u/{{ d['owner_id'] }}/avatar" alt="" width="26" height="26" decoding="async">
+      <img class="cfeed-ava" src="/u/{{ d['owner_id'] }}/avatar?w=480" alt=""
+           width="26" height="26" decoding="async">
       {% else %}
       <span class="cfeed-ava cfeed-ava-ph" aria-hidden="true">🙂</span>
       {% endif %}

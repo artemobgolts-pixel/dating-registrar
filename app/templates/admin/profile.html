@@ -14,7 +14,7 @@
     <div class="field avatar-field">
       <label class="avatar-pick" title="Нажми, чтобы сменить фото">
         {% if user['avatar_path'] %}
-        <img src="/admin/avatar/{{ user['avatar_path'] }}" alt="Аватар"
+        <img src="/admin/avatar/{{ user['avatar_path'] }}?w=480" alt="Аватар"
              width="116" height="116" decoding="async" class="avatar-img">
         {% else %}
         <span class="avatar-ph">🙂</span>
@@ -88,20 +88,20 @@
 </div>
 
 <div class="card profile-support-card" style="max-width:540px">
-  <b>Поддержка</b>
+  <b>Помощь</b>
   <p class="muted" style="margin:8px 0 12px;font-size:13.5px">
     Короткие подсказки по основным разделам. Каждый курс можно повторить.</p>
   <div class="tour-course-actions">
     <button type="button" class="btn small primary" data-tour-start="dashboard">Основы</button>
-    <a class="btn small" href="/admin/dates/new#tour=date-editor">Свидания</a>
+    <a class="btn small primary" href="/admin/dates/new#tour=date-editor">Свидания</a>
     {% if first_category_id %}
-    <a class="btn small" href="/admin/categories/{{ first_category_id }}#tour=category-editor">Категории</a>
+    <a class="btn small primary" href="/admin/categories/{{ first_category_id }}#tour=category-editor">Категории</a>
     {% else %}
-    <a class="btn small" href="/admin/categories">Категории</a>
+    <a class="btn small primary" href="/admin/categories">Категории</a>
     {% endif %}
   </div>
-  <a class="btn profile-support-btn" href="https://t.me/artiwayn"
-     target="_blank" rel="noopener">Поддержка</a>
+  <a class="btn profile-support-btn telegram-support-btn" href="https://t.me/artiwayn"
+     target="_blank" rel="noopener">✈️ Связаться с поддержкой</a>
 </div>
 
 <div class="card" style="max-width:540px">

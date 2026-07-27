@@ -439,11 +439,18 @@ with TestClient(main.app, follow_redirects=False) as c:
     r = c.get(f"/c/{tok}/image/{fn_did}")
     assert r.status_code == 200 and r.headers["content-type"].startswith("image/webp")
     assert "max-age=604800" in r.headers["cache-control"]   # 7 дней, а не год
+    thumb = c.get(f"/c/{tok}/image/{fn_did}?w=480")
+    assert thumb.status_code == 200
+    with Image.open(io.BytesIO(thumb.content)) as thumb_im:
+        assert thumb_im.size == (480, 360)
+    thumb_path = main.images.RESPONSIVE_DIR / f"{Path(fn_did).stem}.w480.webp"
+    assert thumb_path.exists()
+    assert c.get(f"/c/{tok}/image/{fn_did}?w=777").status_code == 404
     assert c.get(f"/uploads/{fn_did}").status_code == 404
-    assert c.get(f"/admin/uploads/{fn_did}").status_code == 200
+    assert c.get(f"/admin/uploads/{fn_did}?w=480").status_code == 200
     anon = TestClient(main.app, follow_redirects=False)
     assert anon.get(f"/admin/uploads/{fn_did}").status_code == 303
-    step("фото доступны только через /c/<токен>/image и /admin/uploads (с сессией)")
+    step("фото защищены; responsive-копия 480 px создаётся лениво и кэшируется")
 
     # ---------- CSP с nonce, без inline-обработчиков ----------
     rr = c.get(f"/c/{tok}")
@@ -708,6 +715,9 @@ with TestClient(main.app, follow_redirects=False) as c:
     # ---------- гость правит своё: фото, keep_order ----------
     main._rates.clear()
     img_old = db_one("SELECT id, filename FROM date_images WHERE date_id=?", (pid,))
+    assert ga.get(f"/c/{tok}/image/{img_old['filename']}?w=480").status_code == 200
+    old_thumb = main.images.RESPONSIVE_DIR / f"{Path(img_old['filename']).stem}.w480.webp"
+    assert old_thumb.exists()
     r = ga.post(f"/c/{tok}/propose/{pid}/edit", data={
         "name": "Кино под пледом", "place": "Дом", "links": "ya.ru",
         "comment": "", "starts_at": "", "ends_at": "",
@@ -715,6 +725,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     }, files=[("images", ("k2.png", png((20, 160, 90)), "image/png"))])
     assert r.status_code == 200, r.text
     assert not (main.images.UPLOAD_DIR / img_old["filename"]).exists()
+    assert not old_thumb.exists()
     imgs = db_all("SELECT id, filename FROM date_images WHERE date_id=?", (pid,))
     assert len(imgs) == 1 and (main.images.UPLOAD_DIR / imgs[0]["filename"]).exists()
     assert db_one("SELECT url FROM date_links WHERE date_id=?", (pid,))["url"] == "https://ya.ru"
@@ -2696,7 +2707,8 @@ with TestClient(main.app, follow_redirects=False) as cnata, \
     # создаём ПУБЛИЧНОЕ свидание (чекбокс отправлен)
     cnata.post("/admin/dates/new", data={
         "csrf": nc, "name": "Пикник на закате", "categories": str(ncat["id"]),
-        "comment": "Плед и вино", "place": "Парк", "is_public": "1"})
+        "comment": "Плед и вино", "place": "Парк", "is_public": "1"},
+        files=[("images", ("public.png", make_png((180, 105, 125)), "image/png"))])
     pub = db_one("SELECT id, is_public, share_token, owner_id FROM dates WHERE name='Пикник на закате'")
     assert pub["is_public"] == 1, "по умолчанию свидание публичное"
 
@@ -2717,6 +2729,7 @@ with TestClient(main.app, follow_redirects=False) as cnata, \
     assert "Секретный ужин" not in feed, "приватное в ленту не попадает"
     assert "Ната-кат" not in feed, "категория в ленте не показывается"
     assert f'/u/{pub["owner_id"]}' in feed, "на карточке есть ссылка на профиль владельца"
+    assert "?w=480 480w" in feed and 'fetchpriority="low"' in feed
     # автор не видит своё свидание в собственной ленте
     assert "Пикник на закате" not in cnata.get("/admin/community").text
 
@@ -2724,6 +2737,7 @@ with TestClient(main.app, follow_redirects=False) as cnata, \
     wid = cgosha.get(f"/admin/community/date/{pub['id']}").text
     assert "Пикник на закате" in wid and "Добавить себе" in wid
     assert f"/d/{pub['share_token']}/add" in wid
+    assert "?w=1600 1600w" in wid and "data-full=" in wid
     # приватное чужое свидание виджетом не открыть
     assert cgosha.get(f"/admin/community/date/{priv['id']}").status_code == 404
 
@@ -2737,6 +2751,25 @@ with TestClient(main.app, follow_redirects=False) as cnata, \
     prof = cgosha.get(f"/u/{pub['owner_id']}").text
     assert "Пикник на закате" in prof and "Секретный ужин" not in prof
     assert "Публичные свидания" in prof
+    assert "?w=480 480w" in prof and 'fetchpriority="high"' in prof
+
+    # Профиль не тянет бесконечную историю одним HTML: 12 карточек на страницу.
+    q = dbm.connect()
+    extra_ids = []
+    for idx in range(12):
+        extra_ids.append(main.public_routes.insert_date(
+            q, name=f"Публичное {idx}", place=None, starts=None, ends=None,
+            comment=None, origin="admin", guest_token=None, owner_id=pub["owner_id"],
+            draft=0, pay_split=0, is_public=1))
+    q.commit()
+    prof_first = cgosha.get(f"/u/{pub['owner_id']}").text
+    prof_second = cgosha.get(f"/u/{pub['owner_id']}?page=2").text
+    assert prof_first.count('class="pub-card"') == 12
+    assert prof_second.count('class="pub-card"') == 1
+    assert "1 / 2" in prof_first and "2 / 2" in prof_second
+    q.executemany("DELETE FROM dates WHERE id=?", [(x,) for x in extra_ids])
+    q.commit()
+    q.close()
 step("новое C2–C5: тумблер публичности, лента комьюнити, виджет+добавить, публичный профиль")
 
 
@@ -2942,7 +2975,8 @@ with TestClient(main.app, follow_redirects=False) as cui2:
     profile = cui2.get("/admin/profile").text
     assert "theme-pick" not in profile
     assert "cursor-effects-toggle" in profile and 'name="cursor_effects"' in profile
-    assert "<b>Поддержка</b>" in profile and "https://t.me/artiwayn" in profile
+    assert "<b>Помощь</b>" in profile and "https://t.me/artiwayn" in profile
+    assert "✈️ Связаться с поддержкой" in profile
     assert "tour-course-actions" in profile
     # #2: счётчики переехали на вкладку «Свидания» — пилюли на всех трёх вкладках
     cui2.post("/admin/dates/new", data={"csrf": uc2, "name": "Акт", "categories": str(cc["id"])})
@@ -2960,6 +2994,7 @@ with TestClient(main.app, follow_redirects=False) as cui2:
     assert re.search(r'id="ogWarn"[^>]*hidden', ed)
     assert 'data-tour="category-description"' in ed
     assert "cat-save" in ed and "Открыть ссылку" in ed
+    assert 'data-tour="category-share-copy"' in ed
     assert 'type="datetime-local"' in ed and "data-picker-only" in ed
 
     # Гостевая ссылка: актуальный редактор-виджет, кнопка без плюса,
@@ -3028,6 +3063,14 @@ with TestClient(main.app, follow_redirects=False) as ctour:
     tour_response = ctour.get(m.group(1))
     assert tour_response.status_code == 200
     tour_source = tour_response.text
+    theme_match = re.search(r'src="(/static/theme\.js[^"]*)"', dash)
+    assert theme_match, "общий скрипт темы подключён"
+    theme_source = ctour.get(theme_match.group(1)).text
+    assert "document.startViewTransition" in theme_source
+    assert "circle(0px at " in theme_source
+    assert "::view-transition-new(root)" in theme_source
+    assert "prefers-reduced-motion: reduce" in theme_source
+    assert "getBoundingClientRect" in theme_source
     # Отдельных обучений списков больше нет; редактор свидания содержит только
     # карточку, модификаторы и публикацию.
     assert '"dates-list": [' not in tour_source
@@ -3039,6 +3082,9 @@ with TestClient(main.app, follow_redirects=False) as ctour:
     assert "Нужен VPN?" in tour_source
     assert "Тогда жми сюда и забирай бесплатный пробный период." in tour_source
     assert 'extra: "#communityFeed .cfeed-card:first-child"' in tour_source
+    assert tour_source.index('sel: \'[data-tour="dashboard-feed"]\'') < \
+        tour_source.index('sel: \'[data-tour="dashboard-share"]\'')
+    assert 'sel: \'[data-tour="category-share-copy"]\'' in tour_source
     assert "document.documentElement.classList.add(\"tour-lock\")" in tour_source
 step("новое: туры остались только в редакторах; лишние шаги свидания удалены")
 

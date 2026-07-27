@@ -77,7 +77,14 @@
           {% for p in photos %}
           <div class="ed-slide" data-kind="image" data-pid="{{ p['id'] }}"
                data-focus="{{ p['focus'] or '50% 50%' }}">
-            <img src="/admin/uploads/{{ p['filename'] }}" alt="" draggable="false"
+            <img src="/admin/uploads/{{ p['filename'] }}?w=960"
+                 srcset="/admin/uploads/{{ p['filename'] }}?w=480 480w,
+                         /admin/uploads/{{ p['filename'] }}?w=960 960w,
+                         /admin/uploads/{{ p['filename'] }}?w=1600 1600w"
+                 sizes="(max-width: 620px) calc(100vw - 40px), 540px"
+                 alt="" draggable="false"
+                 loading="{{ 'eager' if loop.first else 'lazy' }}"
+                 fetchpriority="{{ 'high' if loop.first else 'low' }}" decoding="async"
                  style="object-position:{{ p['focus'] or '50% 50%' }}">
             <button type="button" class="ed-slide-rm" data-rm-saved="{{ p['id'] }}" aria-label="Удалить фото">✕</button>
           </div>

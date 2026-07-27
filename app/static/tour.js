@@ -6,9 +6,9 @@
   var running = null;
   var attempted = {};
   var VERSIONS = {
-    dashboard: 2,
+    dashboard: 3,
     "date-editor": 2,
-    "category-editor": 3
+    "category-editor": 4
   };
   var ROUTES = {
     dashboard: "/admin/#tour=dashboard",
@@ -20,11 +20,11 @@
         text: "Открой редактор, добавь идею, время, место, фотографии и условия." },
       { sel: 'nav.glass-nav a[href="/admin/categories"]', title: "Собери подборку",
         text: "Категория объединяет свидания в одну секретную ссылку и задаёт правила голосования." },
-      { sel: '[data-tour="dashboard-share"]', title: "Ссылка",
-        text: "Делись ссылкой с друзьями." },
       { sel: '[data-tour="dashboard-feed"]', extra: "#communityFeed .cfeed-card:first-child",
         title: "Лента свиданий комьюнити",
         text: "Здесь находятся публичные идеи других людей. Понравившееся свидание можно сохранить себе." },
+      { sel: '[data-tour="dashboard-share"]', title: "Ссылка",
+        text: "Делись ссылкой с друзьями." },
       { sel: '.bell-link[aria-label="VPN"]', title: "Нужен VPN?",
         text: "Тогда жми сюда и забирай бесплатный пробный период." }
     ],
@@ -45,8 +45,8 @@
         text: "Выбери один или несколько вариантов на гостя и задай обязательный срок. После дедлайна система определит победителя." },
       { sel: '[data-tour="category-dates"]', title: "Наполни подборку",
         text: "Создай новое или добавь существующее свидание. Перетаскивание меняет порядок для гостей." },
-      { sel: '[data-tour="category-actions"]', title: "Поделись ссылкой",
-        text: "Скопируй гостевую ссылку, временно отключи её или замени новой." }
+      { sel: '[data-tour="category-share-copy"]', title: "Поделись ссылкой",
+        text: "Скопируй гостевую ссылку и отправь её друзьям." }
     ]
   };
 

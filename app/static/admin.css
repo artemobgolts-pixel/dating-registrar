@@ -828,6 +828,15 @@ span.oauth-ico { display: grid; place-items: center; font-weight: 700; font-size
   display: flex; align-items: center; justify-content: center;
   width: 100%; margin-top: 12px;
 }
+.telegram-support-btn {
+  color: #fff; border-color: transparent;
+  background: linear-gradient(135deg, #32aadc, #168ac1);
+  box-shadow: 0 7px 18px rgba(34, 158, 217, .24);
+}
+.telegram-support-btn:hover {
+  color: #fff; border-color: transparent;
+  background: linear-gradient(135deg, #229ed9, #117eaf);
+}
 .social-row {
   display: flex; align-items: center; gap: 12px;
   padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px;
@@ -1820,8 +1829,8 @@ input, textarea, select {
 @media (max-width: 560px) {
   .cat-card.has-thumb { flex-direction: column; gap: 10px; }
   .cat-card .cat-thumb {
-    width: calc(100% + 8px); align-self: flex-start;
-    margin-top: -6px; margin-right: -8px;
+    width: calc(100% + 20px); align-self: flex-start;
+    margin-top: -10px; margin-right: -20px;
   }
   /* ⋯ уже в правом верхнем углу (см. базовое правило .cat-card .bar > .cat-tail) */
 }
@@ -2625,6 +2634,15 @@ html[data-theme="dark"] .gender-opt:has(input:checked) {
   background: linear-gradient(135deg, var(--rose), #955667);
   border-color: transparent;
   color: #fff;
+}
+html[data-theme="dark"] .telegram-support-btn {
+  background: linear-gradient(135deg, #229ed9, #117eaf);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 7px 20px rgba(17, 126, 175, .3);
+}
+html[data-theme="dark"] .telegram-support-btn:hover {
+  background: linear-gradient(135deg, #32aadc, #168ac1);
 }
 html[data-theme="dark"] .btn.ghost,
 html[data-theme="dark"] .pcard .acts .ak { background: rgba(43, 34, 41, .78); }

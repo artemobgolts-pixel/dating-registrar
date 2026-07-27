@@ -217,10 +217,12 @@
     <div class="cat-share-actions">
     {% if cat['link_enabled'] %}
     <a class="btn ghost" href="/c/{{ cat['link_token'] }}" target="_blank" rel="noopener">👀 Открыть ссылку</a>
-    <button type="button" class="btn ghost" data-copy="{{ BASE_URL }}/c/{{ cat['link_token'] }}">🔗 Скопировать ссылку</button>
+    <button type="button" class="btn ghost" data-tour="category-share-copy"
+            data-copy="{{ BASE_URL }}/c/{{ cat['link_token'] }}">🔗 Скопировать ссылку</button>
     {% else %}
     <button type="button" class="btn ghost" disabled>👀 Ссылка отключена</button>
-    <button type="button" class="btn ghost" disabled>🔗 Скопировать ссылку</button>
+    <button type="button" class="btn ghost" data-tour="category-share-copy"
+            disabled>🔗 Скопировать ссылку</button>
     {% endif %}
     </div>
     <div class="cat-manage-actions">

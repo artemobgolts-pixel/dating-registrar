@@ -309,7 +309,7 @@
     propSlides.replaceChildren();
     const items = [];
     savedPhotos.filter((p) => !removed.has(p.id)).forEach((p) => {
-      items.push({ kind: "image", src: `/c/${TOKEN}/image/${p.filename}`, saved: p.id });
+      items.push({ kind: "image", src: `/c/${TOKEN}/image/${p.filename}?w=960`, saved: p.id });
     });
     up.files().forEach((file, idx) => {
       const src = URL.createObjectURL(file);
@@ -542,7 +542,9 @@
     const img = e.target.closest(".gallery img");
     if (!img) return;
     const imgs = [...img.closest(".gallery").querySelectorAll("img")];
-    lbList = imgs.map((x) => x.src);
+    // Карточка использует уменьшенную responsive-копию, а оригинал скачивается
+    // только после явного открытия полноэкранного просмотра.
+    lbList = imgs.map((x) => x.dataset.full || x.src);
     lb.classList.add("open");
     lbShow(imgs.indexOf(img));
   });

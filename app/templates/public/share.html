@@ -122,8 +122,14 @@
         {% if d.is_winner %}<div class="winner-ribbon">Победитель ♥</div>{% endif %}
         <div class="gallery">
           {% for im in d.images %}
-          <img src="/d/{{ token }}/image/{{ im['filename'] }}" alt=""
-               loading="{{ 'eager' if loop.first else 'lazy' }}" decoding="async"
+          <img src="/d/{{ token }}/image/{{ im['filename'] }}?w=960"
+               srcset="/d/{{ token }}/image/{{ im['filename'] }}?w=480 480w,
+                       /d/{{ token }}/image/{{ im['filename'] }}?w=960 960w,
+                       /d/{{ token }}/image/{{ im['filename'] }}?w=1600 1600w"
+               sizes="(max-width: 720px) calc(100vw - 32px), 680px"
+               data-full="/d/{{ token }}/image/{{ im['filename'] }}" alt=""
+               loading="{{ 'eager' if loop.first else 'lazy' }}"
+               fetchpriority="{{ 'high' if loop.first else 'low' }}" decoding="async"
                {% if im['focus'] %}style="object-position:{{ im['focus'] }}"{% endif %}>
           {% endfor %}
           {% for v in d.videos %}
@@ -182,7 +188,7 @@
           </div>
           {% if show_roster and d.participants %}<div class="participants">
             {% for person in d.participants %}<span class="participant{% if person['participation_withdrawn_at'] %} withdrawn{% endif %}">
-              {% if person['avatar_path'] and person['user_id'] %}<img src="/d/{{ token }}/participant-avatar/{{ person['user_id'] }}" alt="" width="26" height="26" loading="lazy">
+              {% if person['avatar_path'] and person['user_id'] %}<img src="/d/{{ token }}/participant-avatar/{{ person['user_id'] }}?w=480" alt="" width="26" height="26" loading="lazy" decoding="async">
               {% else %}<span class="participant-ph">{{ person['name'][:1] | upper }}</span>{% endif %}
               <span>{{ person['name'] }}{% if me and person['guest_token'] == ('u' ~ me['id']) %} · ты{% endif %}</span>
             </span>{% endfor %}

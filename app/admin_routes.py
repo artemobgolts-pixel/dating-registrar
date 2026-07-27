@@ -227,14 +227,15 @@ def profile_avatar_delete(request: Request, conn=Depends(get_db)):
 
 
 @router.get("/avatar/{filename}")
-def profile_avatar(filename: str, request: Request):
+def profile_avatar(filename: str, request: Request, w: int | None = None):
     """Отдаёт аватар текущего пользователя. Гейт: filename должен совпадать с
     его собственным avatar_path — чужой аватар по прямой ссылке не отдаём."""
     if not images.SAFE_FILENAME.match(filename) \
             or filename != request.state.user["avatar_path"]:
         raise HTTPException(404)
-    path = images.UPLOAD_DIR / filename
-    if not path.exists():
+    try:
+        path = images.responsive_image(filename, w)
+    except (FileNotFoundError, ValueError):
         raise HTTPException(404)
     return FileResponse(path, media_type="image/webp",
                         headers={"Cache-Control": "private, max-age=300"})
@@ -384,7 +385,8 @@ def community_widget(did: int, request: Request, conn=Depends(get_db)):
 
 
 @router.get("/uploads/{filename}")
-def admin_image(filename: str, request: Request, conn=Depends(get_db)):
+def admin_image(filename: str, request: Request, w: int | None = None,
+                conn=Depends(get_db)):
     if not images.SAFE_FILENAME.match(filename):
         raise HTTPException(404)
     # файл виден, только если принадлежит владельцу: фото/видео свидания или
@@ -404,12 +406,18 @@ def admin_image(filename: str, request: Request, conn=Depends(get_db)):
             (filename, uid, filename, uid, filename, uid)).fetchone()
     if not owns:
         raise HTTPException(404)
-    path = images.UPLOAD_DIR / filename
-    if not path.exists():
-        raise HTTPException(404)
     ext = filename.rsplit(".", 1)[-1]
     if ext in VIDEO_TYPES:
+        if w is not None:
+            raise HTTPException(404)
+        path = images.UPLOAD_DIR / filename
+        if not path.exists():
+            raise HTTPException(404)
         return ranged_file(path, VIDEO_TYPES[ext], request)
+    try:
+        path = images.responsive_image(filename, w)
+    except (FileNotFoundError, ValueError):
+        raise HTTPException(404)
     return FileResponse(path, media_type="image/webp",
                         headers={"Cache-Control": "private, max-age=3600"})
 
@@ -1871,6 +1879,7 @@ def question_delete(qid: int, request: Request, next: str = Form("/admin/questio
 # (Privacy-пометка про полную ДР — в Политике конфиденциальности.)
 # ---------------------------------------------------------------------------
 user_router = APIRouter(prefix="/u", dependencies=[Depends(current_user)])
+PUBLIC_PROFILE_PAGE = 12
 
 
 @user_router.get("/{user_id}", response_class=HTMLResponse)
@@ -1881,21 +1890,34 @@ def public_profile(user_id: int, request: Request, conn=Depends(get_db)):
     if not u:
         raise HTTPException(404, "Профиль не найден")
     # Публичные активные свидания пользователя — то же, что видно в общей ленте.
-    # Каждое ведёт на свою страницу-шаринг /d/<share_token>.
+    # Не отдаём сразу всю историю: каждая страница содержит максимум 12 карточек
+    # и столько же обложек. Это особенно важно для мобильной сети.
+    total = conn.execute(
+        "SELECT COUNT(*) FROM dates "
+        "WHERE owner_id=? AND is_public=1 AND is_draft=0 AND archived_at IS NULL",
+        (user_id,)).fetchone()[0]
+    pages = max(1, -(-total // PUBLIC_PROFILE_PAGE))
+    try:
+        page = max(1, min(int(request.query_params.get("page", "1")), pages))
+    except ValueError:
+        page = 1
     date_rows = conn.execute(
         "SELECT id, name, share_token, starts_at, ends_at, place FROM dates "
         "WHERE owner_id=? AND is_public=1 AND is_draft=0 AND archived_at IS NULL "
-        "ORDER BY id DESC", (user_id,)).fetchall()
+        "ORDER BY id DESC LIMIT ? OFFSET ?",
+        (user_id, PUBLIC_PROFILE_PAGE, (page - 1) * PUBLIC_PROFILE_PAGE)).fetchall()
     media = public_routes._batch_media(conn, [r["id"] for r in date_rows])
     dates = [public_routes.date_payload_from(r, media) for r in date_rows]
     return templates.TemplateResponse(
         request, "public/profile.html",
-        {"request": request, "u": u, "dates": dates,
+        {"request": request, "u": u, "dates": dates, "total": total,
+         "page": page, "pages": pages,
          "is_me": u["id"] == request.state.user["id"]})
 
 
 @user_router.get("/{user_id}/avatar")
-def public_avatar(user_id: int, request: Request, conn=Depends(get_db)):
+def public_avatar(user_id: int, request: Request, w: int | None = None,
+                  conn=Depends(get_db)):
     """Аватар по id пользователя — для страницы /u/<id>. Гейт логина уже на
     роутере; отдаём только активным пользователям."""
     row = conn.execute(
@@ -1903,8 +1925,9 @@ def public_avatar(user_id: int, request: Request, conn=Depends(get_db)):
     fn = row["avatar_path"] if row else None
     if not fn or not images.SAFE_FILENAME.match(fn):
         raise HTTPException(404)
-    path = images.UPLOAD_DIR / fn
-    if not path.exists():
+    try:
+        path = images.responsive_image(fn, w)
+    except (FileNotFoundError, ValueError):
         raise HTTPException(404)
     return FileResponse(path, media_type="image/webp",
                         headers={"Cache-Control": "private, max-age=300"})

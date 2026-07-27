@@ -5,8 +5,14 @@
   {% if d['images'] or d['videos'] %}
   <div class="cwid-gallery">
     {% for im in d['images'] %}
-    <img src="/d/{{ d['share_token'] }}/image/{{ im['filename'] }}" alt=""
-         loading="{{ 'eager' if loop.first else 'lazy' }}" decoding="async"
+    <img src="/d/{{ d['share_token'] }}/image/{{ im['filename'] }}?w=960"
+         srcset="/d/{{ d['share_token'] }}/image/{{ im['filename'] }}?w=480 480w,
+                 /d/{{ d['share_token'] }}/image/{{ im['filename'] }}?w=960 960w,
+                 /d/{{ d['share_token'] }}/image/{{ im['filename'] }}?w=1600 1600w"
+         sizes="(max-width: 620px) calc(100vw - 36px), 540px"
+         data-full="/d/{{ d['share_token'] }}/image/{{ im['filename'] }}" alt=""
+         loading="{{ 'eager' if loop.first else 'lazy' }}"
+         fetchpriority="{{ 'high' if loop.first else 'low' }}" decoding="async"
          {% if im['focus'] %}style="object-position:{{ im['focus'] }}"{% endif %}>
     {% endfor %}
     {% for v in d['videos'] %}
@@ -18,7 +24,8 @@
     <h3 class="cwid-ttl serif">{{ d['name'] }}</h3>
     <a class="cfeed-owner" href="/u/{{ d['owner_id'] }}">
       {% if d['owner_avatar'] %}
-      <img class="cfeed-ava" src="/u/{{ d['owner_id'] }}/avatar" alt="" width="26" height="26" decoding="async">
+      <img class="cfeed-ava" src="/u/{{ d['owner_id'] }}/avatar?w=480" alt=""
+           width="26" height="26" decoding="async">
       {% else %}
       <span class="cfeed-ava cfeed-ava-ph" aria-hidden="true">🙂</span>
       {% endif %}

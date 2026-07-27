@@ -87,7 +87,8 @@
     {% if owner %}
     <a class="author" href="/u/{{ owner['id'] }}">
       {% if owner['avatar_path'] %}
-      <img class="author-av" src="/c/{{ token }}/owner-avatar" alt="" width="28" height="28" decoding="async">
+      <img class="author-av" src="/c/{{ token }}/owner-avatar?w=480" alt=""
+           width="28" height="28" decoding="async">
       {% else %}<span class="author-av ph" aria-hidden="true">♥</span>{% endif %}
       <span class="author-name">{{ owner['display_name'] or owner['tg_username'] or 'Автор' }}</span>
     </a>
@@ -136,7 +137,7 @@
   </section>
   {% endif %}
 
-  {% macro datecard(d) -%}
+  {% macro datecard(d, priority=false) -%}
   {% set badges %}
     {%- if d.pending %}<span class="badge wait">⏳ ждёт проверки</span>
     {%- elif d.origin == 'guest' and not d.past %}<span class="badge guest">💡 идея гостя</span>{% endif -%}
@@ -151,9 +152,15 @@
       {% if d.is_winner %}<div class="winner-ribbon">Победитель ♥</div>{% elif d.is_tie_leader %}<div class="winner-ribbon tie">Лидер при ничьей</div>{% endif %}
       <div class="gallery">
         {% for im in d.images %}
-        <img src="/c/{{ token }}/image/{{ im['filename'] }}" alt=""
-             loading="{{ 'eager' if loop.first else 'lazy' }}"
-             {% if loop.first %}fetchpriority="high"{% endif %} decoding="async"
+        <img src="/c/{{ token }}/image/{{ im['filename'] }}?w=960"
+             srcset="/c/{{ token }}/image/{{ im['filename'] }}?w=480 480w,
+                     /c/{{ token }}/image/{{ im['filename'] }}?w=960 960w,
+                     /c/{{ token }}/image/{{ im['filename'] }}?w=1600 1600w"
+             sizes="(max-width: 720px) calc(100vw - 32px), 680px"
+             data-full="/c/{{ token }}/image/{{ im['filename'] }}" alt=""
+             loading="{{ 'eager' if priority and loop.first else 'lazy' }}"
+             fetchpriority="{{ 'high' if priority and loop.first else 'low' }}"
+             decoding="async"
              {% if im['focus'] %}style="object-position:{{ im['focus'] }}"{% endif %}>
         {% endfor %}
         {% for v in d.videos %}
@@ -220,7 +227,8 @@
           {% for person in d.participants %}
           <span class="participant{% if person['participation_withdrawn_at'] %} withdrawn{% endif %}">
             {% if person['avatar_path'] and person['user_id'] %}
-            <img src="/c/{{ token }}/participant-avatar/{{ person['user_id'] }}" alt="" width="26" height="26" loading="lazy">
+            <img src="/c/{{ token }}/participant-avatar/{{ person['user_id'] }}?w=480"
+                 alt="" width="26" height="26" loading="lazy" decoding="async">
             {% else %}<span class="participant-ph" aria-hidden="true">{{ person['name'][:1] | upper }}</span>{% endif %}
             <span>{{ person['name'] }}{% if person['guest_token'] == guest %} · ты{% endif %}</span>
             {% if person['participation_withdrawn_at'] %}<small>отказался(-ась)</small>{% endif %}
@@ -304,7 +312,7 @@
 
   {% if regular or past %}
   <section class="cards">
-    {% for d in regular %}{{ datecard(d) }}{% endfor %}
+    {% for d in regular %}{{ datecard(d, loop.first) }}{% endfor %}
   </section>
   {% if past %}
   <details class="archive-fold">

@@ -10,6 +10,7 @@ save_batch() сначала конвертирует и записывает в�
 """
 
 import io
+import logging
 import os
 import re
 import secrets
@@ -29,6 +30,11 @@ except Exception:                      # pragma: no cover
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 UPLOAD_DIR = DATA_DIR / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+# Адаптивные копии для карточек и галерей. Это восстанавливаемый кэш, а не
+# пользовательские данные: оригиналы по-прежнему лежат только в uploads.
+# Версия в имени каталога позволяет безопасно поменять качество/алгоритм позже.
+RESPONSIVE_DIR = DATA_DIR / "responsive-v1"
+RESPONSIVE_DIR.mkdir(parents=True, exist_ok=True)
 # Кэш сгенерированных коллажей-превью ссылок (og:image из фото свиданий).
 # Имя файла = хэш набора исходников, поэтому при смене фото коллаж перегенерится.
 OG_CACHE_DIR = DATA_DIR / "og-cache"
@@ -38,6 +44,9 @@ MAX_BYTES = 10 * 1024 * 1024   # 10 МБ на файл
 MAX_IMAGES = 5                 # до 5 фото на свидание
 MAX_SIDE = 2560                # длинная сторона после сжатия
 MAX_DIM = 8000                 # максимально допустимое разрешение исходника
+RESPONSIVE_WIDTHS = (480, 960, 1600)
+RESPONSIVE_QUALITY = 82
+log = logging.getLogger("images")
 
 # Decompression-bomb-защита: Pillow откажется декодировать монстров
 Image.MAX_IMAGE_PIXELS = MAX_DIM * MAX_DIM
@@ -108,12 +117,75 @@ def save_batch(uploads) -> list[str]:
 
 
 def delete_file(filename: str) -> None:
-    """Удаляет файл фото с диска (тихо, если его уже нет)."""
+    """Удаляет оригинал и его адаптивные копии (тихо, если их уже нет)."""
     p = UPLOAD_DIR / Path(filename).name
     try:
         p.unlink()
     except FileNotFoundError:
         pass
+    if p.suffix.lower() == ".webp":
+        for width in RESPONSIVE_WIDTHS:
+            try:
+                _responsive_path(p.name, width).unlink()
+            except FileNotFoundError:
+                pass
+
+
+def _responsive_path(filename: str, width: int) -> Path:
+    stem = Path(filename).stem
+    return RESPONSIVE_DIR / f"{stem}.w{width}.webp"
+
+
+def responsive_image(filename: str, width: int | None = None) -> Path:
+    """Возвращает оригинал либо WebP-копию нужной ширины.
+
+    Копия создаётся лениво и атомарно при первом запросе. Поэтому старые фото
+    начинают работать без миграции, а параллельные запросы не увидят недописанный
+    файл. Если исходник уже уже запрошенной ширины, повторно его не кодируем.
+    """
+    name = Path(filename).name
+    source = UPLOAD_DIR / name
+    if not source.exists():
+        raise FileNotFoundError(name)
+    if width is None:
+        return source
+    if width not in RESPONSIVE_WIDTHS or source.suffix.lower() != ".webp":
+        raise ValueError("unsupported responsive image width")
+
+    target = _responsive_path(name, width)
+    if target.exists():
+        return target
+
+    tmp = RESPONSIVE_DIR / (
+        f".{target.name}.{os.getpid()}.{secrets.token_urlsafe(5)}.tmp")
+    try:
+        with Image.open(source) as opened:
+            opened.load()
+            image = ImageOps.exif_transpose(opened)
+            if image.width <= width:
+                return source
+            height = max(1, round(image.height * width / image.width))
+            image = image.resize((width, height), Image.Resampling.LANCZOS)
+            if image.mode in ("P", "LA"):
+                image = image.convert("RGBA")
+            elif image.mode not in ("RGB", "RGBA"):
+                image = image.convert("RGB")
+            image.save(tmp, "WEBP", quality=RESPONSIVE_QUALITY, method=4)
+        # os.replace атомарен и безопасен при одновременной генерации одного
+        # размера несколькими воркерами: победит полностью записанный файл.
+        os.replace(tmp, target)
+        return target
+    except (OSError, ValueError) as exc:
+        # Повреждение кэша не должно ломать страницу: оригинал всё ещё можно
+        # отдать. Ошибка останется в журнале для диагностики.
+        log.warning("responsive image fallback for %s (%s): %s",
+                    name, width, exc)
+        return source
+    finally:
+        try:
+            tmp.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def copy_file(filename: str) -> str | None:
@@ -216,7 +288,7 @@ def og_collage_name(filenames: list[str]) -> str | None:
         return None
     # Версия входит в ключ: при изменении фирменного оформления старый кэш
     # автоматически перестаёт использоваться.
-    h = hashlib.sha256(("brand-v1\n" + "\n".join(files)).encode()).hexdigest()[:24]
+    h = hashlib.sha256(("brand-v2\n" + "\n".join(files)).encode()).hexdigest()[:24]
     return f"og_{h}.webp"
 
 
@@ -273,8 +345,8 @@ def build_og_collage(filenames: list[str]) -> str | None:
     draw.text((center[0] + 3, center[1] + 5), "date4you", font=brand_font,
               anchor="mm", fill=(35, 18, 25, 92))
     draw.text(center, "date4you", font=brand_font, anchor="mm",
-              fill=(255, 231, 239, 178), stroke_width=1,
-              stroke_fill=(129, 61, 79, 105))
+              fill=(255, 231, 239, 255), stroke_width=1,
+              stroke_fill=(129, 61, 79, 180))
     canvas = Image.alpha_composite(canvas.convert("RGBA"), overlay).convert("RGB")
 
     tmp = out.with_suffix(".tmp.webp")
