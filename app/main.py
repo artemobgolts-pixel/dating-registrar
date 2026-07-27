@@ -26,6 +26,7 @@ from fastapi.responses import RedirectResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 import admin_routes
 import auth_routes
@@ -36,7 +37,7 @@ import operator_routes
 import public_routes
 import users
 import voting_events
-from config import COOKIE_SECURE, SECRET_KEY, SENTRY_DSN
+from config import COOKIE_SECURE, DOMAIN, SECRET_KEY, SENTRY_DSN
 from web import redir
 
 # Реэкспорты: тестам и консоли удобно обращаться к main.<имя>,
@@ -113,6 +114,12 @@ app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None
 app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY,
                    session_cookie="__Host-admin_s" if COOKIE_SECURE else "admin_s",
                    max_age=60 * 60 * 24 * 30, same_site="lax", https_only=COOKIE_SECURE)
+_domain_host = urlsplit(f"//{DOMAIN}").hostname or DOMAIN.partition(":")[0]
+_trusted_hosts = {_domain_host, "localhost", "127.0.0.1", "testserver"}
+if _domain_host and not _domain_host.startswith("www."):
+    _trusted_hosts.add(f"www.{_domain_host}")
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=sorted(_trusted_hosts),
+                   www_redirect=False)
 
 
 class CachedStatic(StaticFiles):
@@ -146,7 +153,18 @@ async def csp_headers(request: Request, call_next):
     """
     request.state.csp_nonce = secrets.token_urlsafe(16)
     resp = await call_next(request)
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    resp.headers["X-Frame-Options"] = "DENY"
+    resp.headers["Referrer-Policy"] = "no-referrer"
+    resp.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    # Старый браузерный XSS-фильтр сам создавал обходы; современная защита — CSP.
+    resp.headers["X-XSS-Protection"] = "0"
+    if COOKIE_SECURE:
+        resp.headers["Strict-Transport-Security"] = "max-age=31536000"
     if resp.headers.get("content-type", "").startswith("text/html"):
+        # В HTML есть персональные данные и секретные токены гостевых ссылок:
+        # браузер и промежуточные кэши не должны сохранять такие страницы.
+        resp.headers["Cache-Control"] = "no-store"
         # Telegram Login Widget (внешний скрипт + iframe oauth.telegram.org)
         # грузится на странице входа /login И на гостевых ссылках /c/<токен>
         # и /d/<токен> (вход-модалка прямо со страницы подборки/свидания).

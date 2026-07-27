@@ -5,14 +5,10 @@
 
   var running = null;
   var attempted = {};
-  var VERSIONS = {
-    dashboard: 3,
-    "date-editor": 2,
-    "category-editor": 4
-  };
+  var REQUEST_KEY = "d4y_tour_request";
   var ROUTES = {
-    dashboard: "/admin/#tour=dashboard",
-    "date-editor": "/admin/dates/new#tour=date-editor"
+    dashboard: "/admin/",
+    "date-editor": "/admin/dates/new"
   };
   var DEFINITIONS = {
     dashboard: [
@@ -68,7 +64,7 @@
       var value = raw ? JSON.parse(raw) : {};
       if (!value || typeof value !== "object" || Array.isArray(value)) value = {};
       if (localStorage.getItem("d4y_tour_v1")) {
-        value.dashboard = Math.max(value.dashboard || 0, 1);
+        value.dashboard = true;
         localStorage.setItem(storageKey(), JSON.stringify(value));
         localStorage.removeItem("d4y_tour_v1");
       }
@@ -79,7 +75,7 @@
   function markSeen(id) {
     var seen = readSeen();
     if (!seen) { attempted[id] = true; return; }
-    seen[id] = VERSIONS[id] || 1;
+    seen[id] = true;
     try { localStorage.setItem(storageKey(), JSON.stringify(seen)); }
     catch (_) { attempted[id] = true; }
   }
@@ -87,7 +83,7 @@
   function wasSeen(id) {
     var seen = readSeen();
     if (!seen) return !!attempted[id];
-    return (seen[id] || 0) >= (VERSIONS[id] || 1);
+    return !!seen[id];
   }
 
   function forcedId() {
@@ -103,7 +99,10 @@
   window.d4yStartTour = function (id) {
     id = DEFINITIONS[id] ? id : "dashboard";
     if (screenId() !== id) {
-      location.href = ROUTES[id] || "/admin/";
+      try { sessionStorage.setItem(REQUEST_KEY, id); } catch (_) {}
+      var route = ROUTES[id] || "/admin/";
+      if (window.Turbo && window.Turbo.visit) window.Turbo.visit(route);
+      else location.assign(route);
       return;
     }
     start(id, true);
@@ -114,6 +113,10 @@
     if (!force && wasSeen(id)) return;
     var steps = DEFINITIONS[id].filter(function (s) { return document.querySelector(s.sel); });
     if (!steps.length) { markSeen(id); return; }
+    // Считаем обучение показанным сразу после фактического запуска. Поэтому
+    // закрытие страницы или прерванный тур не вызовут повторный автозапуск.
+    // Ручной запуск из профиля по-прежнему передаёт force=true.
+    markSeen(id);
 
     var index = 0;
     var previousFocus = document.activeElement;
@@ -192,10 +195,9 @@
       requestAnimationFrame(function () { requestAnimationFrame(layout); });
     }
 
-    function cleanup(completed) {
+    function cleanup() {
       if (aborting) return;
       aborting = true;
-      if (completed) markSeen(id);
       window.removeEventListener("resize", layout);
       document.removeEventListener("keydown", onKey);
       overlay.removeEventListener("wheel", preventScroll);
@@ -209,7 +211,7 @@
 
     function advance() {
       if (index >= steps.length - 1) {
-        cleanup(true);
+        cleanup();
         return;
       }
       index += 1;
@@ -217,7 +219,7 @@
     }
 
     function onKey(e) {
-      if (e.key === "Escape") { cleanup(true); return; }
+      if (e.key === "Escape") { cleanup(); return; }
       if (["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End"].indexOf(e.key) !== -1 ||
           (e.key === " " && !e.target.closest("button"))) {
         e.preventDefault();
@@ -233,15 +235,15 @@
     function preventScroll(e) { e.preventDefault(); }
 
     nextButton.addEventListener("click", advance);
-    overlay.querySelector(".tour-skip").addEventListener("click", function () { cleanup(true); });
+    overlay.querySelector(".tour-skip").addEventListener("click", cleanup);
     overlay.addEventListener("click", function (e) {
-      if (e.target === overlay || e.target === blur) cleanup(true);
+      if (e.target === overlay || e.target === blur) cleanup();
     });
     overlay.addEventListener("wheel", preventScroll, { passive: false });
     overlay.addEventListener("touchmove", preventScroll, { passive: false });
     document.addEventListener("keydown", onKey);
     window.addEventListener("resize", layout);
-    running = { cancel: function () { cleanup(false); } };
+    running = { cancel: cleanup };
     document.documentElement.classList.add("tour-lock");
     nextButton.focus();
     place();
@@ -250,6 +252,11 @@
   function boot() {
     var id = forcedId();
     if (id) { clearForcedHash(); start(id, true); return; }
+    try {
+      id = sessionStorage.getItem(REQUEST_KEY);
+      if (id) sessionStorage.removeItem(REQUEST_KEY);
+    } catch (_) { id = null; }
+    if (id && id === screenId() && DEFINITIONS[id]) { start(id, true); return; }
     id = screenId();
     if (id) start(id, false);
   }

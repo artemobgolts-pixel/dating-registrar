@@ -1157,8 +1157,35 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert not main.places._host_allowed("localhost")
     # не-картовая ссылка: resolve_name не ходит по ней, имя — фолбэк, ссылка цела
     assert main.places.resolve_name("http://169.254.169.254/latest/meta-data/") is None
+    assert main.places.resolve_name("https://[некорректный-url") is None
     name, link = main.places.process_place("http://internal.local/admin")
     assert name == "Место на карте" and link == "http://internal.local/admin"
+    # Разрешённый домен не может протащить SSRF через HTTP-редирект:
+    # каждый следующий Location проверяется ДО сетевого запроса.
+    real_get = main.places.httpx.get
+    real_public_ip = main.places._resolves_to_public_ip
+    requested = []
+
+    class MapRedirect:
+        status_code = 302
+        headers = {"location": "http://127.0.0.1/private"}
+        text = ""
+
+    try:
+        main.places._resolves_to_public_ip = lambda host: True
+
+        def fake_map_get(url, **kwargs):
+            requested.append((url, kwargs))
+            return MapRedirect()
+
+        main.places.httpx.get = fake_map_get
+        assert main.places.resolve_name("https://yandex.ru/maps/test") is None
+        assert len(requested) == 1
+        assert requested[0][0] == "https://yandex.ru/maps/test"
+        assert requested[0][1]["follow_redirects"] is False
+    finally:
+        main.places.httpx.get = real_get
+        main.places._resolves_to_public_ip = real_public_ip
 
     # видео: загрузка админом, отдача с поддержкой Range
     MP4 = b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 16 + b"\x00" * 64
@@ -2392,6 +2419,16 @@ with TestClient(main.app, follow_redirects=False) as cl:
     assert root.status_code == 307 and root.headers["location"] == "/login"
     # cookie-баннер убран — его нет ни на входе, ни на гостевой
     assert "cookie-bar" not in lp
+    # Защита работает и без внешнего reverse proxy: заголовки ставит приложение.
+    assert terms.headers["x-content-type-options"] == "nosniff"
+    assert terms.headers["x-frame-options"] == "DENY"
+    assert terms.headers["referrer-policy"] == "no-referrer"
+    assert terms.headers["permissions-policy"] == "camera=(), microphone=(), geolocation=()"
+    assert terms.headers["x-xss-protection"] == "0"
+    assert terms.headers["cache-control"] == "no-store"
+    # Внутренние пояснения остаются в исходниках, но не попадают в публичный DOM.
+    assert "<!--" not in lp
+    assert cl.get("/login", headers={"host": "evil.example"}).status_code == 400
 step("1.8: /terms и /privacy доступны; согласие пассивное; VPN-подсказка; / → /login")
 
 
@@ -3063,6 +3100,13 @@ with TestClient(main.app, follow_redirects=False) as ctour:
     tour_response = ctour.get(m.group(1))
     assert tour_response.status_code == 200
     tour_source = tour_response.text
+    # Логотип VPN контентно-версионирован: старый кэшированный 404/битый ответ
+    # больше не переживает деплой.
+    vpn_asset = re.search(r'src="(/static/vpn-logo\.webp\?v=[^"]+)"', dash)
+    assert vpn_asset, "логотип VPN подключён через asset() с хэшем"
+    vpn_response = ctour.get(vpn_asset.group(1))
+    assert vpn_response.status_code == 200
+    assert vpn_response.headers["content-type"].startswith("image/webp")
     theme_match = re.search(r'src="(/static/theme\.js[^"]*)"', dash)
     assert theme_match, "общий скрипт темы подключён"
     theme_source = ctour.get(theme_match.group(1)).text
@@ -3086,6 +3130,13 @@ with TestClient(main.app, follow_redirects=False) as ctour:
         tour_source.index('sel: \'[data-tour="dashboard-share"]\'')
     assert 'sel: \'[data-tour="category-share-copy"]\'' in tour_source
     assert "document.documentElement.classList.add(\"tour-lock\")" in tour_source
+    # Автопоказ любого курса — один раз навсегда, без повторов после смены версии.
+    # Ручной запуск «Основ» переживает Turbo-переход через sessionStorage.
+    assert "var VERSIONS" not in tour_source
+    assert "seen[id] = true" in tour_source
+    assert 'var REQUEST_KEY = "d4y_tour_request"' in tour_source
+    assert "sessionStorage.setItem(REQUEST_KEY, id)" in tour_source
+    assert "start(id, true)" in tour_source
 step("новое: туры остались только в редакторах; лишние шаги свидания удалены")
 
 

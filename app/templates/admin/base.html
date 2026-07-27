@@ -91,7 +91,7 @@
     {% if VPN_URL %}
     <a class="bell bell-link" href="{{ VPN_URL }}" target="_blank" rel="noopener"
        aria-label="VPN">
-      <img class="bell-img" src="/static/vpn-logo.webp" alt="" width="42" height="42" decoding="async">
+      <img class="bell-img" src="{{ asset('vpn-logo.webp') }}" alt="" width="42" height="42" decoding="async">
       <span class="bell-lb">VPN</span>
     </a>
     {% endif %}

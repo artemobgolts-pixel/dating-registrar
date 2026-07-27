@@ -70,7 +70,7 @@
       </button>
       {% if VPN_URL %}
       <a class="promo-btn" href="{{ VPN_URL }}" target="_blank" rel="noopener" aria-label="VPN">
-        <img class="promo-img" src="/static/vpn-logo.webp" alt="" width="42" height="42" decoding="async">
+        <img class="promo-img" src="{{ asset('vpn-logo.webp') }}" alt="" width="42" height="42" decoding="async">
         <span class="promo-lb">VPN</span>
       </a>
       {% endif %}

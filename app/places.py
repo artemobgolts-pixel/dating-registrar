@@ -16,7 +16,7 @@ import ipaddress
 import logging
 import re
 import socket
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 import httpx
 
@@ -68,24 +68,58 @@ def _resolves_to_public_ip(host: str) -> bool:
     return True
 
 
+def _safe_map_url(url: str) -> tuple[bool, str]:
+    """Проверяет URL перед КАЖДЫМ сетевым запросом, включая редиректы."""
+    try:
+        parsed = urlsplit(url)
+        host = parsed.hostname or ""
+    except (TypeError, ValueError):
+        return False, ""
+    if parsed.scheme not in ("http", "https") or not _host_allowed(host):
+        return False, host
+    try:
+        port = parsed.port
+    except ValueError:
+        return False, host
+    if port not in (None, 80, 443):
+        return False, host
+    return _resolves_to_public_ip(host), host
+
+
 def resolve_name(url: str) -> str | None:
     """Возвращает название из <title>, но ТОЛЬКО для доверённых доменов карт."""
-    host = urlsplit(url).hostname or ""
+    safe, host = _safe_map_url(url)
     if not _host_allowed(host):
         log.info("Ссылка не на карты (%s) — название не запрашиваем", host)
         return None
-    if not _resolves_to_public_ip(host):
+    if not safe:
         log.warning("Хост %s резолвится во внутренний адрес — пропускаем", host)
         return None
     try:
-        r = httpx.get(url, follow_redirects=True, timeout=5,
-                      headers={"User-Agent": "Mozilla/5.0 (date4you)"})
-        m = _TITLE.search(r.text[:30000])
-        if not m:
-            return None
-        t = html.unescape(m.group(1)).strip()
-        t = _TAIL.sub("", t).strip(" \u00a0—–|-")
-        return (t[:200] or None)
+        current = url
+        for _ in range(5):
+            safe, host = _safe_map_url(current)
+            if not safe:
+                log.warning("Небезопасная цель редиректа карт (%s) — пропускаем", host)
+                return None
+            r = httpx.get(current, follow_redirects=False, timeout=5,
+                          headers={"User-Agent": "Mozilla/5.0 (date4you)"})
+            if r.status_code in (301, 302, 303, 307, 308):
+                location = r.headers.get("location")
+                if not location:
+                    return None
+                current = urljoin(current, location)
+                continue
+            if r.status_code >= 400:
+                return None
+            m = _TITLE.search(r.text[:30000])
+            if not m:
+                return None
+            t = html.unescape(m.group(1)).strip()
+            t = _TAIL.sub("", t).strip(" \u00a0—–|-")
+            return (t[:200] or None)
+        log.warning("Слишком много редиректов при загрузке названия места")
+        return None
     except Exception as e:
         log.warning("Не удалось получить название места по ссылке: %s", e)
         return None

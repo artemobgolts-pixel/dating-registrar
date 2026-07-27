@@ -1828,11 +1828,13 @@ input, textarea, select {
 .cat-card.has-thumb .cat-body { flex: 1; min-width: 0; }
 @media (max-width: 560px) {
   .cat-card.has-thumb { flex-direction: column; gap: 10px; }
-  .cat-card .cat-thumb {
-    width: calc(100% + 20px); align-self: flex-start;
-    margin-top: -10px; margin-right: -20px;
+  .cat-card .cat-thumb { width: 100%; align-self: stretch; }
+  /* На карточке с фотографией меню стоит в свободной нижней строке справа:
+     превью сохраняет исходные размер и положение, а кнопка не перекрывает кадр. */
+  .cat-card.has-thumb .bar > .cat-tail {
+    top: auto; bottom: 10px; right: 12px;
   }
-  /* ⋯ уже в правом верхнем углу (см. базовое правило .cat-card .bar > .cat-tail) */
+  .cat-card.has-thumb .menu { top: auto; bottom: 42px; }
 }
 
 @media (max-width: 640px) {

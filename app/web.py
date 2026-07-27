@@ -2,11 +2,13 @@
 
 import os
 import hashlib
+import re
 from urllib.parse import quote
 
 from fastapi import Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
+from jinja2.ext import Extension
 
 import db
 from config import BASE_URL, SUPPORT_URL, VPN_URL
@@ -36,7 +38,7 @@ def asset(name: str) -> str:
         return f"/static/{name}?v={cached[1]}"
     try:
         with open(path, "rb") as f:
-            digest = hashlib.sha1(f.read()).hexdigest()[:12]
+            digest = hashlib.sha256(f.read()).hexdigest()[:12]
     except OSError:
         return f"/static/{name}"
     _ASSET_VER[name] = (mtime, digest)
@@ -47,8 +49,18 @@ def _template_globals(request: Request) -> dict:
     return {"csp_nonce": getattr(request.state, "csp_nonce", "")}
 
 
+class StripHtmlComments(Extension):
+    """Не отдаёт внутренние пояснения шаблонов в публичный HTML."""
+
+    _comment = re.compile(r"<!--.*?-->", re.S)
+
+    def preprocess(self, source, name, filename=None):
+        return self._comment.sub("", source)
+
+
 templates = Jinja2Templates(directory="templates",
                             context_processors=[_template_globals])
+templates.env.add_extension(StripHtmlComments)
 templates.env.globals["asset"] = asset
 templates.env.filters["when"] = fmt_when
 templates.env.filters["ts"] = fmt_ts
