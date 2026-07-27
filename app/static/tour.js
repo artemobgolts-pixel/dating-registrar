@@ -6,9 +6,9 @@
   var running = null;
   var attempted = {};
   var VERSIONS = {
-    dashboard: 1,
+    dashboard: 2,
     "date-editor": 2,
-    "category-editor": 2
+    "category-editor": 3
   };
   var ROUTES = {
     dashboard: "/admin/#tour=dashboard",
@@ -16,14 +16,17 @@
   };
   var DEFINITIONS = {
     dashboard: [
-      { sel: '[data-tour="dashboard-feed"]', title: "Лента свиданий комьюнити",
-        text: "Здесь находятся публичные идеи других людей. Понравившееся свидание можно сохранить себе." },
       { sel: '[data-tour="dashboard-create"]', title: "Создай своё свидание",
         text: "Открой редактор, добавь идею, время, место, фотографии и условия." },
       { sel: 'nav.glass-nav a[href="/admin/categories"]', title: "Собери подборку",
         text: "Категория объединяет свидания в одну секретную ссылку и задаёт правила голосования." },
-      { sel: '.bell-link[aria-label="VPN"]', title: "Быстрый доступ к VPN",
-        text: "Ссылка на VPN всегда находится в правой части шапки." }
+      { sel: '[data-tour="dashboard-share"]', title: "Ссылка",
+        text: "Делись ссылкой с друзьями." },
+      { sel: '[data-tour="dashboard-feed"]', extra: "#communityFeed .cfeed-card:first-child",
+        title: "Лента свиданий комьюнити",
+        text: "Здесь находятся публичные идеи других людей. Понравившееся свидание можно сохранить себе." },
+      { sel: '.bell-link[aria-label="VPN"]', title: "Нужен VPN?",
+        text: "Тогда жми сюда и забирай бесплатный пробный период." }
     ],
     "date-editor": [
       { sel: '[data-tour="date-card-editor"]', title: "Карточка — это редактор",
@@ -34,7 +37,7 @@
         text: "Добавь свидание в нужные категории и при желании оставь его в общей ленте." },
     ],
     "category-editor": [
-      { sel: '[data-tour="category-description"]', title: "Название и описание",
+      { sel: '[data-tour="category-description"]', title: "Название и описание", pad: 14,
         text: "Этот текст гости увидят в начале подборки." },
       { sel: '[data-tour="category-preview"]', title: "Превью ссылки",
         text: "Измени картинку и текст прямо здесь — так ссылка будет выглядеть в мессенджере." },
@@ -133,13 +136,28 @@
     var nextButton = overlay.querySelector(".tour-next");
     var aborting = false;
 
+    function stepRect(step, target) {
+      var r = target.getBoundingClientRect();
+      var extra = step.extra && document.querySelector(step.extra);
+      if (!extra) return r;
+      var e = extra.getBoundingClientRect();
+      return {
+        top: Math.min(r.top, e.top),
+        left: Math.min(r.left, e.left),
+        right: Math.max(r.right, e.right),
+        bottom: Math.max(r.bottom, e.bottom),
+        width: Math.max(r.right, e.right) - Math.min(r.left, e.left),
+        height: Math.max(r.bottom, e.bottom) - Math.min(r.top, e.top)
+      };
+    }
+
     function layout() {
       if (!running || aborting) return;
       var step = steps[index];
       var target = document.querySelector(step.sel);
       if (!target) { advance(); return; }
-      var r = target.getBoundingClientRect();
-      var pad = innerWidth <= 720 ? 4 : 8;
+      var r = stepRect(step, target);
+      var pad = typeof step.pad === "number" ? step.pad : (innerWidth <= 720 ? 4 : 8);
       var top = r.top - pad, left = r.left - pad;
       var width = r.width + pad * 2, height = r.height + pad * 2;
       spot.style.cssText = "top:" + top + "px;left:" + left + "px;width:" + width + "px;height:" + height + "px";
@@ -166,8 +184,10 @@
     function place() {
       var target = document.querySelector(steps[index].sel);
       if (!target) { advance(); return; }
+      document.documentElement.classList.remove("tour-lock");
       document.body.classList.remove("tour-lock");
       target.scrollIntoView({ block: "center", behavior: "auto" });
+      document.documentElement.classList.add("tour-lock");
       document.body.classList.add("tour-lock");
       requestAnimationFrame(function () { requestAnimationFrame(layout); });
     }
@@ -178,7 +198,10 @@
       if (completed) markSeen(id);
       window.removeEventListener("resize", layout);
       document.removeEventListener("keydown", onKey);
+      overlay.removeEventListener("wheel", preventScroll);
+      overlay.removeEventListener("touchmove", preventScroll);
       overlay.remove();
+      document.documentElement.classList.remove("tour-lock");
       document.body.classList.remove("tour-lock");
       running = null;
       if (previousFocus && previousFocus.focus) previousFocus.focus();
@@ -195,6 +218,11 @@
 
     function onKey(e) {
       if (e.key === "Escape") { cleanup(true); return; }
+      if (["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End"].indexOf(e.key) !== -1 ||
+          (e.key === " " && !e.target.closest("button"))) {
+        e.preventDefault();
+        return;
+      }
       if (e.key !== "Tab") return;
       var controls = [overlay.querySelector(".tour-skip"), nextButton];
       var at = controls.indexOf(document.activeElement);
@@ -202,14 +230,19 @@
       controls[(at + (e.shiftKey ? 1 : 3)) % 2].focus();
     }
 
+    function preventScroll(e) { e.preventDefault(); }
+
     nextButton.addEventListener("click", advance);
     overlay.querySelector(".tour-skip").addEventListener("click", function () { cleanup(true); });
     overlay.addEventListener("click", function (e) {
       if (e.target === overlay || e.target === blur) cleanup(true);
     });
+    overlay.addEventListener("wheel", preventScroll, { passive: false });
+    overlay.addEventListener("touchmove", preventScroll, { passive: false });
     document.addEventListener("keydown", onKey);
     window.addEventListener("resize", layout);
     running = { cancel: function () { cleanup(false); } };
+    document.documentElement.classList.add("tour-lock");
     nextButton.focus();
     place();
   }

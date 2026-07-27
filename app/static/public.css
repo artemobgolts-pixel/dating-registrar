@@ -396,8 +396,18 @@ html[data-theme="dark"] .theme-float {
 /* Вход во вход-модалке: Telegram Login Widget + OAuth-иконки, гасятся до согласия */
 .login-dlg .login-methods { position: relative; }
 .tg-widget-wrap { display: none; }
-.tg-widget-wrap:not([hidden]) { display: flex; justify-content: center; min-height: 46px; margin: 2px 0 4px; }
-.tg-widget-wrap iframe { margin: 0 auto !important; }
+.tg-widget-wrap:not([hidden]) {
+  display: flex; justify-content: center; min-height: 46px; max-height: 54px;
+  margin: 2px 0 4px; opacity: 1; overflow: hidden;
+  transition: min-height .28s ease, max-height .28s ease, margin .28s ease, opacity .2s ease;
+}
+.tg-widget-wrap iframe { margin: 0 auto !important; transition: opacity .18s ease; }
+.tg-widget-wrap.tg-checking iframe { opacity: 0; }
+.tg-widget-wrap.tg-unavailable {
+  min-height: 0 !important; max-height: 0; margin-block: 0 !important;
+  opacity: 0; pointer-events: none;
+}
+.login-dlg { transition: padding .28s ease; }
 .login-dlg .oauth-sep {
   display: flex; align-items: center; gap: 12px;
   color: var(--muted); font-size: 12.5px; margin: 14px 0;
@@ -948,9 +958,9 @@ details.endtime[open] summary { margin-bottom: 10px; }
 .dlg-actions { display: flex; gap: 10px; margin-top: 18px; }
 .dlg-actions .btn { padding: 12px 14px; }
 
-/* Актуальный редактор свидания внутри гостевого виджета. */
+/* Карточный редактор свидания — та же структура, что в кабинете. */
 .date-widget-dialog {
-  width: min(940px, calc(100vw - 32px));
+  width: min(1000px, calc(100vw - 32px));
   padding: 20px; border-radius: 26px;
 }
 .date-widget-head {
@@ -964,79 +974,204 @@ details.endtime[open] summary { margin-bottom: 10px; }
   background: rgba(255,255,255,.58); color: var(--muted);
   cursor: pointer; font-size: 15px;
 }
-.date-widget-grid {
-  display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(240px, .7fr);
-  gap: 18px; align-items: start;
+.date-widget-dialog .ed-cols {
+  display: grid; grid-template-columns: minmax(0, 460px) minmax(260px, 1fr);
+  gap: 24px; align-items: start;
 }
-.date-widget-card {
-  overflow: hidden; min-width: 0;
-  border: 1px solid rgba(255,255,255,.72); border-radius: 22px;
+.date-widget-dialog .ed-preview-col { min-width: 0; }
+.date-widget-dialog .preview-cap {
+  margin: 0 0 8px; color: var(--ink); font-weight: 700; font-size: 14px;
+}
+.date-widget-dialog .preview-cap span { color: var(--muted); font-size: 12px; font-weight: 400; }
+.date-widget-dialog .pcard {
+  overflow: hidden; position: relative; border-radius: 22px;
+  border: 1px solid rgba(255,255,255,.72);
   background: linear-gradient(150deg, rgba(255,253,251,.7), rgba(255,246,246,.58));
-  box-shadow: 0 16px 40px rgba(120,70,80,.12);
+  box-shadow: 0 18px 46px rgba(150,80,95,.18), inset 0 1px 0 rgba(255,255,255,.8);
 }
-.date-widget-media .dropzone {
-  min-height: 180px; margin: 0; border: 0; border-radius: 0;
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  color: #fff;
-  background:
-    linear-gradient(rgba(55,32,40,.42), rgba(55,32,40,.62)),
-    url("/static/date-default.jpg") center/cover;
+.date-widget-dialog .ed-gallery {
+  position: relative; height: 220px; overflow: hidden; cursor: pointer;
+  background: linear-gradient(135deg, #caa094, #9c6f6a);
 }
-.date-widget-media .dz-hint { color: #fff; font-weight: 700; font-size: 15px; }
-.date-widget-media-note { color: rgba(255,255,255,.8); font-size: 11.5px; margin-top: 3px; }
-.date-widget-media .ptiles { position: relative; z-index: 1; }
-.date-widget-body { padding: 17px 18px 5px; }
-.date-widget-title input {
-  font-family: var(--serif); font-size: 22px; font-weight: 600;
+.date-widget-dialog .ed-slides,
+.date-widget-dialog .ed-slide { position: absolute; inset: 0; }
+.date-widget-dialog .ed-slide[hidden] { display: none; }
+.date-widget-dialog .ed-slide img,
+.date-widget-dialog .ed-slide video {
+  display: block; width: 100%; height: 100%; object-fit: cover;
 }
-.date-widget-when .chips { margin-top: 4px; }
-.date-widget-side { display: grid; gap: 14px; min-width: 0; }
-.date-widget-section {
+.date-widget-dialog .ed-slide-rm {
+  position: absolute; top: 9px; right: 9px; z-index: 4;
+  display: grid; place-items: center; width: 30px; height: 30px;
+  border: 0; border-radius: 50%; background: rgba(30,20,24,.58);
+  color: #fff; cursor: pointer;
+}
+.date-widget-dialog .ed-empty {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+}
+.date-widget-dialog .ed-empty[hidden] { display: none; }
+.date-widget-dialog .ed-empty-logo { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.date-widget-dialog .ed-empty-inner {
+  position: relative; z-index: 2; padding: 11px 14px; border-radius: 13px;
+  background: rgba(30,20,24,.34); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
+}
+.date-widget-dialog .ed-empty-inner .btn { background: rgba(255,255,255,.94); color: var(--rose-2); }
+.date-widget-dialog .ed-nav {
+  position: absolute; top: 50%; z-index: 5; transform: translateY(-50%);
+  display: grid; place-items: center; width: 34px; height: 34px;
+  border: 0; border-radius: 50%; background: rgba(30,20,24,.5);
+  color: #fff; font-size: 21px; cursor: pointer;
+}
+.date-widget-dialog .ed-nav.prev { left: 8px; }
+.date-widget-dialog .ed-nav.next { right: 8px; }
+.date-widget-dialog .ed-nav.as-add {
+  background: rgba(182,95,111,.82); font-size: 22px; font-weight: 300;
+}
+.date-widget-dialog .ed-dots {
+  position: absolute; z-index: 5; bottom: 8px; left: 50%;
+  display: flex; gap: 5px; transform: translateX(-50%);
+}
+.date-widget-dialog .ed-dots i { width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,.5); }
+.date-widget-dialog .ed-dots i.on { background: #fff; }
+.date-widget-dialog .ed-gallery-pay {
+  position: absolute; z-index: 6; top: 10px; left: 10px;
+  padding: 3px 10px; border-radius: 999px; color: #fff; font-size: 11px; font-weight: 700;
+  background: linear-gradient(90deg, #34b36b, #15734a);
+}
+.date-widget-dialog .ed-gallery-pay[hidden] { display: none; }
+.date-widget-dialog .pcard .body { padding: 18px 18px 20px; }
+.date-widget-dialog .pcard .ttl {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin: 0 0 7px; color: var(--ink); font: 600 23px/1.15 var(--serif);
+}
+.date-widget-dialog .pcard .pay {
+  padding: 3px 10px; border-radius: 999px; color: #fff;
+  background: linear-gradient(90deg, #34b36b, #15734a);
+  font: 700 11px/1.3 var(--sans);
+}
+.date-widget-dialog .ed-field {
+  display: inline-block; min-width: 20px; padding: 1px 4px;
+  border-radius: 8px; outline: none; cursor: text;
+}
+.date-widget-dialog .ed-field:hover { background: rgba(182,95,111,.08); }
+.date-widget-dialog .ed-field:focus { background: rgba(182,95,111,.12); box-shadow: 0 0 0 2px rgba(182,95,111,.25); }
+.date-widget-dialog .ed-field:empty::before { content: attr(data-ph); color: var(--muted); opacity: .8; }
+.date-widget-dialog .pmeta { display: grid; gap: 4px; margin-bottom: 12px; color: var(--muted); }
+.date-widget-dialog .ed-place-row,
+.date-widget-dialog .ed-links-row { display: flex; align-items: flex-start; gap: 6px; margin-top: 4px; color: var(--muted); font-size: 12.5px; }
+.date-widget-dialog .ed-links { white-space: pre-line; }
+.date-widget-dialog .ed-desc {
+  display: block; min-height: 24px; margin: 0 0 8px; color: var(--muted); font-size: 14px;
+}
+.date-widget-dialog .ed-desc-toolbar { margin: 4px 0 8px; }
+.date-widget-dialog .ed-when {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  color: var(--ink); font-size: 14px;
+}
+.date-widget-dialog .ed-at { color: var(--muted); font-size: 12.5px; }
+.date-widget-dialog .ed-date,
+.date-widget-dialog .ed-time { display: inline-flex; align-items: center; gap: 1px; font-variant-numeric: tabular-nums; }
+.date-widget-dialog .ed-date span,
+.date-widget-dialog .ed-time span { display: inline-block; }
+.date-widget-dialog .ed-hh,
+.date-widget-dialog .ed-mm,
+.date-widget-dialog .ed-dd,
+.date-widget-dialog .ed-mo,
+.date-widget-dialog .ed-yy {
+  min-width: 20px; padding: 2px 3px; border-radius: 6px; outline: none;
+  background: rgba(182,95,111,.08); text-align: center; cursor: text;
+}
+.date-widget-dialog .ed-yy { min-width: 38px; }
+.date-widget-dialog .ed-dot,
+.date-widget-dialog .ed-colon,
+.date-widget-dialog .ed-dash { color: var(--muted); }
+.date-widget-dialog .ed-dash { padding: 0 4px; }
+.date-widget-dialog .acts { display: flex; gap: 10px; margin-top: 14px; pointer-events: none; }
+.date-widget-dialog .acts button {
+  flex: 1; padding: 10px; border-radius: 12px; font: 600 14px var(--sans);
+}
+.date-widget-dialog .acts .bk { border: 0; color: #fff; background: linear-gradient(135deg, var(--rose), var(--rose-2)); }
+.date-widget-dialog .acts .ak { border: 1px solid var(--line); color: var(--rose-2); background: rgba(255,255,255,.6); }
+.date-widget-dialog .ed-side-col { display: grid; gap: 16px; min-width: 0; }
+.date-widget-dialog .sec {
   padding: 16px; border: 1px solid rgba(255,255,255,.7); border-radius: 19px;
   background: linear-gradient(150deg, rgba(255,253,251,.66), rgba(255,246,246,.5));
   box-shadow: var(--shadow-soft);
 }
-.date-widget-section h4 {
+.date-widget-dialog .sec h2 {
   display: flex; align-items: center; gap: 8px;
   margin: 0 0 14px; color: var(--rose-2); font-family: var(--serif); font-size: 19px;
 }
-.date-widget-section h4 > span {
+.date-widget-dialog .sec h2 > .n {
   display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%;
   background: var(--rose-soft); font: 700 12px/1 sans-serif;
 }
-.widget-pay-pick { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
-.widget-pay-opt {
+.date-widget-dialog .pay-pick { display: flex; flex-wrap: wrap; gap: 7px; }
+.date-widget-dialog .pay-opt {
   display: flex; align-items: center; justify-content: center; min-width: 0;
+  flex: 1 1 0;
   margin: 0; padding: 9px 6px; border: 1px solid var(--line); border-radius: 999px;
   background: rgba(255,255,255,.62); color: var(--ink); font-size: 12.5px;
   text-align: center; cursor: pointer; line-height: 1.2;
 }
-.widget-pay-opt.pay-any { grid-column: 1 / -1; }
-.widget-pay-opt input { position: absolute; opacity: 0; pointer-events: none; }
-.widget-pay-opt:has(input:checked) {
+.date-widget-dialog .pay-opt.pay-any { flex-basis: 100%; }
+.date-widget-dialog .pay-opt input { position: absolute; opacity: 0; pointer-events: none; }
+.date-widget-dialog .pay-opt:has(input:checked) {
   color: #fff; border-color: transparent;
-  background: linear-gradient(135deg, var(--rose), var(--rose-2));
-  box-shadow: 0 4px 12px rgba(150,70,85,.24);
+  background: linear-gradient(135deg, #34b36b, #15734a);
+  box-shadow: 0 4px 12px rgba(21,115,74,.26);
 }
-.date-widget-capacity-row { display: flex; align-items: center; gap: 9px; }
-.date-widget-capacity-row input { width: 90px !important; flex: none; }
-.date-widget-capacity-row span { color: var(--muted); }
+.date-widget-dialog .chips-cat { display: flex; }
+.date-widget-dialog .chip-cat {
+  padding: 9px 13px; border: 1px solid var(--rose); border-radius: 999px;
+  color: var(--rose-2); background: var(--rose-soft); font-size: 13px; font-weight: 600;
+}
+.date-widget-dialog .capacity-field { display: grid; gap: 9px; margin: 16px 0 0; }
+.date-widget-dialog .capacity-stepper {
+  display: grid; grid-template-columns: 46px minmax(58px, 82px) 46px;
+  align-items: stretch; justify-content: center;
+  width: max-content; max-width: 100%; margin: 0 auto;
+  border: 1px solid var(--line); border-radius: 15px; overflow: hidden;
+  background: rgba(255,255,255,.56);
+}
+.date-widget-dialog .capacity-stepper input {
+  width: 100%; min-width: 0; padding: 10px 4px;
+  border: 0; border-inline: 1px solid var(--line); border-radius: 0;
+  background: transparent; text-align: center; font-size: 18px; font-weight: 700;
+  -moz-appearance: textfield;
+}
+.date-widget-dialog .capacity-stepper input::-webkit-inner-spin-button,
+.date-widget-dialog .capacity-stepper input::-webkit-outer-spin-button {
+  margin: 0; -webkit-appearance: none;
+}
+.date-widget-dialog .capacity-step {
+  display: grid; place-items: center; padding: 0; border: 0;
+  background: transparent; color: var(--rose-2); cursor: pointer;
+  font-size: 24px; font-weight: 500; line-height: 1;
+}
+.date-widget-dialog .capacity-step:hover:not(:disabled) { background: var(--rose-soft); }
+.date-widget-dialog .capacity-step:disabled {
+  background: rgba(70,55,62,.08); color: var(--muted);
+  cursor: default; opacity: .42;
+}
 .date-widget-context p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
 .date-widget-actions {
-  justify-content: flex-end; padding-top: 2px;
+  display: flex; justify-content: flex-end; gap: 10px;
+  margin-top: 18px; padding: 12px; border: 1px solid var(--line); border-radius: 17px;
+  background: rgba(255,255,255,.5);
 }
 .date-widget-actions .btn { flex: 0 1 220px; }
-@media (max-width: 760px) {
+@media (max-width: 820px) {
   .date-widget-dialog { padding: 17px; }
-  .date-widget-grid { grid-template-columns: 1fr; }
-  .date-widget-media .dropzone { min-height: 160px; }
+  .date-widget-dialog .ed-cols { grid-template-columns: 1fr; gap: 18px; }
+  .date-widget-dialog .pcard { max-width: 460px; margin: 0 auto; }
   .date-widget-actions .btn { flex: 1; }
 }
 @media (max-width: 420px) {
   .date-widget-dialog { width: calc(100vw - 18px); padding: 14px; }
-  .date-widget-card { border-radius: 18px; }
-  .date-widget-body { padding: 15px 14px 3px; }
-  .date-widget-section { padding: 14px; }
+  .date-widget-dialog .pcard { border-radius: 18px; }
+  .date-widget-dialog .pcard .body { padding: 15px 14px 17px; }
+  .date-widget-dialog .sec { padding: 14px; }
 }
 
 .cal-btns { display: grid; gap: 10px; margin-top: 14px; }
@@ -1614,19 +1749,27 @@ html[data-theme="dark"] .btn.ghost {
   border-color: var(--line);
   color: var(--ink);
 }
-html[data-theme="dark"] .date-widget-card,
-html[data-theme="dark"] .date-widget-section {
+html[data-theme="dark"] .date-widget-dialog .pcard,
+html[data-theme="dark"] .date-widget-dialog .sec,
+html[data-theme="dark"] .date-widget-actions {
   background: linear-gradient(150deg, rgba(45,35,42,.88), rgba(31,25,31,.78));
   border-color: rgba(255,255,255,.11);
   box-shadow: 0 16px 40px rgba(0,0,0,.28);
 }
 html[data-theme="dark"] .date-widget-x,
-html[data-theme="dark"] .widget-pay-opt {
+html[data-theme="dark"] .date-widget-dialog .pay-opt,
+html[data-theme="dark"] .date-widget-dialog .acts .ak {
   background: rgba(42,33,40,.9); border-color: var(--line); color: var(--ink);
 }
-html[data-theme="dark"] .widget-pay-opt:has(input:checked) {
-  background: linear-gradient(135deg, #a75e70, #75404f);
+html[data-theme="dark"] .date-widget-dialog .pay-opt:has(input:checked) {
+  background: linear-gradient(135deg, #34b36b, #15734a);
   border-color: transparent; color: #fff;
+}
+html[data-theme="dark"] .date-widget-dialog .capacity-stepper {
+  background: rgba(38,31,37,.9);
+}
+html[data-theme="dark"] .date-widget-dialog .capacity-step:disabled {
+  background: rgba(16,13,16,.32);
 }
 html[data-theme="dark"] .btn.ghost { color: var(--rose-2); }
 html[data-theme="dark"] .btn.ghost:hover { background: var(--rose-soft); }

@@ -194,30 +194,34 @@
   // Блок «предложить своё свидание» есть только на странице категории. На
   // странице отдельного свидания (шаринг) этих элементов нет — пропускаем.
   if (propDlg && propForm) {
-  const propTiles = $("#propTiles");
-  let editId = null, removed = new Set();
+  const propSlides = $("#propSlides");
+  let editId = null, removed = new Set(), savedPhotos = [];
   let curVid = null, removedVid = false;
+  let propSlide = 0, propObjectUrls = [];
   const MAX_PHOTOS = 5;
+  const photoPreview = document.createElement("div");
+  const videoPreview = document.createElement("div");
 
   const up = UI.uploader({
     zone: $("#propZone"),
     input: $("#propFiles"),
-    preview: propTiles,
+    preview: photoPreview,
     max: MAX_PHOTOS,
-    keptCount: () => propTiles.querySelectorAll(".ptile.kept:not(.removed)").length,
+    keptCount: () => savedPhotos.filter((p) => !removed.has(p.id)).length,
     onError: toast,
+    onChange: renderPropGallery,
     noZoneBind: true,                 // дроп-зону держит общий mediaUploader
   });
-  const propVidTiles = $("#propVidTiles");
   const upv = UI.uploader({
     zone: $("#propZone"),
     input: $("#propVideo"),
-    preview: propVidTiles,
+    preview: videoPreview,
     kind: "video",
     max: 1,
     // если у предложения уже есть видео и его не удалили — слот занят
     keptCount: () => (curVid && !removedVid) ? 1 : 0,
     onError: toast,
+    onChange: renderPropGallery,
     noZoneBind: true,                 // дроп-зону держит общий mediaUploader
   });
   // общий блок «Медиа»: одна зона принимает и фото, и видео
@@ -228,70 +232,192 @@
     video: upv,
     onError: toast,
   });
-  UI.dateChips(propDlg, $("#propStart"), $("#propEnd"));
-  UI.sortable(propTiles, { selector: ".ptile.kept" });
+  if (UI.numberSteppers) UI.numberSteppers(propForm);
+  $("#propAddMedia").addEventListener("click", (e) => {
+    e.stopPropagation();
+    $("#propMedia").click();
+  });
 
-  // редактор комментария с форматированием по выделению (как в Telegram).
-  // Пишет markdown в скрытую textarea name="comment" — сервер рендерит helpers.rich().
+  // Редактирование происходит прямо внутри карточки — как в кабинете.
+  var propTitleEdit = UI.inlineEdit({
+    view: $("#propEdTitle"), field: propForm.querySelector('[name="name"]'),
+  });
+  var propPlaceEdit = UI.inlineEdit({
+    view: $("#propEdPlace"), field: propForm.querySelector('[name="place"]'),
+  });
+  var propLinksEdit = UI.inlineEdit({
+    view: $("#propEdLinks"), field: $("#propLinks"), multiline: true,
+  });
   var propRich = UI.richEditor({
     textarea: $("#propComment"),
     editable: $("#propDescEditable"),
     toolbar: $("#propDescToolbar"),
   });
+  var propTime = UI.timeRange($("#propEdWhen"));
+  $("#propDescEditable").addEventListener("focus", () => {
+    $("#propDescToolbar").hidden = false;
+  });
+  $("#propDescEditable").addEventListener("blur", () => {
+    setTimeout(() => {
+      if (!$("#propDescToolbar").contains(document.activeElement)) {
+        $("#propDescToolbar").hidden = true;
+      }
+    }, 180);
+  });
+  $("#propDescToolbar").addEventListener("mousedown", (e) => e.preventDefault());
 
-  function renderKept(photos) {
-    propTiles.querySelectorAll(".ptile.kept").forEach((t) => t.remove());
-    photos.forEach((p) => {
-      const w = document.createElement("div");
-      w.className = "ptile kept";
-      w.dataset.sort = "1";
-      w.dataset.kid = p.id;
-      w.innerHTML = '<img alt=""><button type="button" class="rm" aria-label="Убрать">✕</button>';
-      w.querySelector("img").src = `/c/${TOKEN}/image/${p.filename}`;
-      w.querySelector(".rm").addEventListener("click", () => {
-        if (removed.has(p.id)) { removed.delete(p.id); w.classList.remove("removed"); w.style.opacity = ""; }
-        else { removed.add(p.id); w.classList.add("removed"); w.style.opacity = ".3"; }
-      });
-      propTiles.insertBefore(w, propTiles.firstChild);
-    });
+  const PAY = { "1": "💸 50/50", "2": "👌 Я плачу", "3": "🫵 Ты платишь" };
+  function syncPropPay() {
+    const selected = propForm.querySelector('input[name="pay"]:checked');
+    const text = PAY[selected ? selected.value : "0"] || "";
+    const onPhoto = text && propSlides.children.length > 0;
+    $("#propPayPhoto").textContent = text;
+    $("#propPayPhoto").hidden = !onPhoto;
+    $("#propPayPill").textContent = text;
+    $("#propPayPill").hidden = !text || onPhoto;
   }
+  propForm.querySelectorAll('input[name="pay"]').forEach((r) => {
+    r.addEventListener("change", syncPropPay);
+  });
+
+  function setPropTime(start, end) {
+    const root = $("#propEdWhen");
+    const parts = (start || "").split("T");
+    const day = (parts[0] || "").split("-");
+    const st = parts[1] || "";
+    const et = ((end || "").split("T")[1] || "");
+    root.querySelector("[data-tr-yy]").textContent = day[0] || "";
+    root.querySelector("[data-tr-mo]").textContent = day[1] || "";
+    root.querySelector("[data-tr-dd]").textContent = day[2] || "";
+    root.querySelector("[data-tr-hh]").textContent = st.slice(0, 2);
+    root.querySelector("[data-tr-mm]").textContent = st.slice(3, 5);
+    root.querySelector("[data-tr-ehh]").textContent = et.slice(0, 2);
+    root.querySelector("[data-tr-emm]").textContent = et.slice(3, 5);
+    if (propTime) propTime.sync();
+  }
+
+  function removeNew(upload, idx) {
+    const files = upload.files();
+    files.splice(idx, 1);
+    upload.clear();
+    if (files.length) upload.addFiles(files);
+  }
+
+  function renderPropGallery() {
+    propObjectUrls.forEach((url) => URL.revokeObjectURL(url));
+    propObjectUrls = [];
+    propSlides.replaceChildren();
+    const items = [];
+    savedPhotos.filter((p) => !removed.has(p.id)).forEach((p) => {
+      items.push({ kind: "image", src: `/c/${TOKEN}/image/${p.filename}`, saved: p.id });
+    });
+    up.files().forEach((file, idx) => {
+      const src = URL.createObjectURL(file);
+      propObjectUrls.push(src);
+      items.push({ kind: "image", src: src, upload: up, idx: idx });
+    });
+    if (curVid && !removedVid) {
+      items.push({ kind: "video", src: `/c/${TOKEN}/video/${curVid.filename}`, savedVideo: true });
+    }
+    upv.files().forEach((file, idx) => {
+      const src = URL.createObjectURL(file);
+      propObjectUrls.push(src);
+      items.push({ kind: "video", src: src, upload: upv, idx: idx });
+    });
+    items.forEach((item, idx) => {
+      const slide = document.createElement("div");
+      slide.className = "ed-slide";
+      if (item.kind === "video") {
+        slide.innerHTML = '<video controls muted playsinline preload="metadata"></video>' +
+          '<button type="button" class="ed-slide-rm" aria-label="Удалить видео">✕</button>';
+        slide.querySelector("video").src = item.src;
+      } else {
+        slide.innerHTML = '<img alt="" draggable="false">' +
+          '<button type="button" class="ed-slide-rm" aria-label="Удалить фото">✕</button>';
+        slide.querySelector("img").src = item.src;
+      }
+      slide.querySelector(".ed-slide-rm").addEventListener("click", (event) => {
+        event.stopPropagation();
+        if (item.saved) {
+          removed.add(item.saved);
+          renderPropGallery();
+        } else if (item.savedVideo) {
+          removedVid = true;
+          renderPropGallery();
+        } else {
+          removeNew(item.upload, item.idx);
+        }
+      });
+      propSlides.appendChild(slide);
+      slide.hidden = idx !== propSlide;
+    });
+    propSlide = Math.min(propSlide, Math.max(0, items.length - 1));
+    [...propSlides.children].forEach((slide, idx) => { slide.hidden = idx !== propSlide; });
+    $("#propEmpty").hidden = items.length > 0;
+    function setEdge(button, canNavigate, direction) {
+      const canAdd = savedPhotos.filter((p) => !removed.has(p.id)).length +
+        up.files().length < MAX_PHOTOS || (!curVid || removedVid) && upv.files().length < 1;
+      button.hidden = !canNavigate && !canAdd;
+      button.classList.toggle("as-add", !canNavigate && canAdd);
+      button.textContent = canNavigate ? (direction === "prev" ? "‹" : "›") : "+";
+    }
+    setEdge($("#propPrev"), propSlide > 0, "prev");
+    setEdge($("#propNext"), propSlide < items.length - 1, "next");
+    const dots = $("#propDots");
+    dots.replaceChildren();
+    if (items.length > 1) {
+      items.forEach((_, idx) => {
+        const dot = document.createElement("i");
+        if (idx === propSlide) dot.className = "on";
+        dots.appendChild(dot);
+      });
+    }
+    syncPropPay();
+  }
+  function movePropSlide(delta) {
+    const count = propSlides.children.length;
+    if (!count) return;
+    propSlide = (propSlide + delta + count) % count;
+    renderPropGallery();
+  }
+  $("#propPrev").addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (e.currentTarget.classList.contains("as-add")) $("#propMedia").click();
+    else movePropSlide(-1);
+  });
+  $("#propNext").addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (e.currentTarget.classList.contains("as-add")) $("#propMedia").click();
+    else movePropSlide(1);
+  });
 
   function openPropose(meta) {
     propForm.reset();
     up.clear();
     removed = new Set();
+    savedPhotos = (meta && meta.photos) ? meta.photos.slice() : [];
     curVid = (meta && meta.videos && meta.videos[0]) || null;
     removedVid = false;
+    propSlide = 0;
     upv.clear();
     var payValue = String((meta && meta.pay) || 0);
     propForm.querySelectorAll('input[name="pay"]').forEach((input) => {
       input.checked = input.value === payValue;
     });
     $("#propCapacity").value = (meta && meta.capacity) || 1;
-    const vc = $("#propVidCur");
-    vc.hidden = !curVid;
-    vc.classList.remove("removed");
-    $("#propVidName").textContent = "Текущее видео";
-    const vh = $("#propVidHint");
-    if (vh) vh.hidden = !curVid;
     editId = meta ? meta.id : null;
-    $("#propHead").textContent = meta ? "Изменить свидание" : "Создать свидание";
-    $("#propSubmit").textContent = meta ? "Сохранить изменения" : "Создать свидание";
-    renderKept(meta ? meta.photos : []);
-    if (meta) {
-      propForm.name.value = meta.name;
-      propForm.place.value = meta.place;
-      propForm.starts_at.value = meta.starts_at;
-      propForm.ends_at.value = meta.ends_at;
-      propForm.links.value = meta.links;
-      propForm.comment.value = meta.comment;
-      if (meta.ends_at) $("#propEndWrap").open = true;
-    } else {
-      $("#propEndWrap").open = false;
-    }
+    $("#propHead").textContent = meta ? "Изменить своё свидание" : "Создать своё свидание";
+    $("#propSubmit").textContent = meta ? "Сохранить изменения" : "Создать своё свидание";
+    propTitleEdit.set(meta ? meta.name : "");
+    propPlaceEdit.set(meta ? meta.place : "");
+    propLinksEdit.set(meta ? meta.links : "");
+    $("#propComment").value = meta ? meta.comment : "";
+    setPropTime(meta ? meta.starts_at : "", meta ? meta.ends_at : "");
     // редактор форматирования переинициализируем из textarea (reset её очистил,
     // а для редактирования мы только что подставили сохранённый текст)
     if (propRich) propRich.fromTextarea();
+    if (UI.numberSteppers) UI.numberSteppers(propForm);
+    renderPropGallery();
     propDlg.showModal();
   }
 
@@ -302,16 +428,6 @@
   });
   $("#propCancel").onclick = () => propDlg.close();
   $("#propCancelBottom").onclick = () => propDlg.close();
-  $("#propVidRm").onclick = () => {
-    removedVid = !removedVid;
-    $("#propVidName").textContent =
-      removedVid ? "Видео удалится после сохранения" : "Текущее видео";
-    const vh = $("#propVidHint");
-    if (vh) vh.textContent = removedVid
-      ? "Передумал(а)? Нажми ✕ ещё раз, чтобы оставить видео"
-      : "✕ — удалить это видео при сохранении";
-    $("#propVidCur").classList.toggle("removed", removedVid);
-  };
 
   propForm.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -320,9 +436,9 @@
     if (editId) {
       url = `/c/${TOKEN}/propose/${editId}/edit`;
       removed.forEach((id) => fd.append("remove_image", id));
-      const keep = [...propTiles.querySelectorAll(".ptile.kept")]
-        .filter((t) => !removed.has(+t.dataset.kid))
-        .map((t) => t.dataset.kid);
+      const keep = savedPhotos
+        .filter((photo) => !removed.has(photo.id))
+        .map((photo) => photo.id);
       fd.append("keep_order", keep.join(","));
       if (removedVid && curVid) fd.append("remove_video", curVid.id);
     }

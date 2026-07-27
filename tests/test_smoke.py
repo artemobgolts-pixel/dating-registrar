@@ -2666,9 +2666,11 @@ with TestClient(main.app, follow_redirects=False) as cown:
     gp = cown.get(f"/c/{uic['link_token']}").text
     card = re.search(r'<article[^>]*class="card[^"]*nophoto[^"]*".*?</article>', gp, re.S).group(0)
     assert "booked-overlay" not in card and "accent" not in card
-    # #10: блок «Текущее видео» с понятной подписью и подсказкой про удаление
-    assert "Текущее видео" in gp and "удалить это видео при сохранении" in gp
-step("#2/#6/#10: карточка без фото без заглушки; профиль без хинта и «Не выбрано»; видео-блок понятен")
+    # Актуальный гостевой редактор использует ту же галерею, что админский:
+    # текущее и новое видео становятся слайдами, без отдельного старого блока.
+    assert 'id="propSlides"' in gp and 'id="propVideo"' in gp
+    assert 'class="pcard editable"' in gp
+step("#2/#6/#10: карточка без фото без заглушки; профиль без хинта; гостевой редактор карточный")
 
 
 # ---------- НОВОЕ: лента комьюнити, публичность, профиль, меню категорий, OAuth ----------
@@ -2750,6 +2752,7 @@ with TestClient(main.app, follow_redirects=False) as cui:
     cats = cui.get("/admin/categories").text
     assert 'class="more"' in cats and "Скопировать ссылку" in cats
     assert "Перегенерировать ссылку" in cats and "Удалить категорию" in cats
+    assert "Отключить ссылку" in cats
     assert "copy-code" not in cats, "строка-ссылка на списке категорий убрана"
 
     # B3: в редакторе категории убраны блоки «Ссылка»/«Предложения»,
@@ -2757,6 +2760,7 @@ with TestClient(main.app, follow_redirects=False) as cui:
     ed = cui.get(f"/admin/categories/{mcat['id']}").text
     assert "Сбросить превью" in ed and 'id="resetPreviewForm"' in ed
     assert "cat-actions" in ed and "Скопировать ссылку" in ed
+    assert "Открыть ссылку" in ed
     assert "Удалить категорию" in ed
 
     # B3: «Сбросить превью» чистит и картинку, и текст превью
@@ -2938,6 +2942,8 @@ with TestClient(main.app, follow_redirects=False) as cui2:
     profile = cui2.get("/admin/profile").text
     assert "theme-pick" not in profile
     assert "cursor-effects-toggle" in profile and 'name="cursor_effects"' in profile
+    assert "<b>Поддержка</b>" in profile and "https://t.me/artiwayn" in profile
+    assert "tour-course-actions" in profile
     # #2: счётчики переехали на вкладку «Свидания» — пилюли на всех трёх вкладках
     cui2.post("/admin/dates/new", data={"csrf": uc2, "name": "Акт", "categories": str(cc["id"])})
     dpage = cui2.get("/admin/dates?view=active").text
@@ -2945,19 +2951,26 @@ with TestClient(main.app, follow_redirects=False) as cui2:
     # #4: под тумблером публичности больше нет пояснительного текста
     nf = cui2.get("/admin/dates/new").text
     assert "видят все пользователи в ленте на главной" not in nf
+    assert 'class="capacity-stepper"' in nf and 'data-step="-1"' in nf
+    assert "Создатель не считается" not in nf and "Лимит применяется" not in nf
     # #9: кнопка ссылки в редакторе категории — красная «Отключить» (link-off)
     ed = cui2.get(f"/admin/categories/{cc['id']}").text
     assert "link-off" in ed and "Отключить ссылку" in ed
     assert "Описание (необязательно)" in ed
     assert re.search(r'id="ogWarn"[^>]*hidden', ed)
     assert 'data-tour="category-description"' in ed
+    assert "cat-save" in ed and "Открыть ссылку" in ed
+    assert 'type="datetime-local"' in ed and "data-picker-only" in ed
 
     # Гостевая ссылка: актуальный редактор-виджет, кнопка без плюса,
     # и все варианты оплаты действительно сохраняются сервером.
     cat_token = db_one("SELECT link_token FROM categories WHERE id=?", (cc["id"],))["link_token"]
     public_page = cui2.get(f"/c/{cat_token}").text
-    assert "date-widget-dialog" in public_page
+    assert "date-widget-dialog" in public_page and 'class="pcard editable"' in public_page
+    assert "Создать своё свидание" in public_page
     assert '<span class="plus"' not in public_page
+    assert "Создатель не считается" not in public_page
+    assert 'class="capacity-stepper"' in public_page
     assert "Голосование пока не открыто" not in public_page
     assert all(f'name="pay" value="{v}"' in public_page for v in range(4))
     proposed = cui2.post(
@@ -3022,6 +3035,11 @@ with TestClient(main.app, follow_redirects=False) as ctour:
     assert "Фото и видео" not in tour_source
     assert "Когда и где" not in tour_source
     assert "Сохрани результат" not in tour_source
+    assert "Делись ссылкой с друзьями." in tour_source
+    assert "Нужен VPN?" in tour_source
+    assert "Тогда жми сюда и забирай бесплатный пробный период." in tour_source
+    assert 'extra: "#communityFeed .cfeed-card:first-child"' in tour_source
+    assert "document.documentElement.classList.add(\"tour-lock\")" in tour_source
 step("новое: туры остались только в редакторах; лишние шаги свидания удалены")
 
 

@@ -17,7 +17,7 @@ import shutil
 import hashlib
 from pathlib import Path
 
-from PIL import Image, ImageOps
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 try:
     # HEIC/HEIF с айфонов: регистрируем декодер, дальше Pillow сам
@@ -214,7 +214,9 @@ def og_collage_name(filenames: list[str]) -> str | None:
     files = [f for f in filenames if f][:8]
     if not files:
         return None
-    h = hashlib.sha256("\n".join(files).encode()).hexdigest()[:24]
+    # Версия входит в ключ: при изменении фирменного оформления старый кэш
+    # автоматически перестаёт использоваться.
+    h = hashlib.sha256(("brand-v1\n" + "\n".join(files)).encode()).hexdigest()[:24]
     return f"og_{h}.webp"
 
 
@@ -257,6 +259,23 @@ def build_og_collage(filenames: list[str]) -> str | None:
         x = (idx % cols) * cell_w
         y = (idx // cols) * cell_h
         canvas.paste(tile, (x, y))
+
+    # Лёгкая фирменная подпись по центру: она остаётся читаемой и на светлых,
+    # и на тёмных кадрах, но не перекрывает сам коллаж плотной плашкой.
+    overlay = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    try:
+        font_path = Path(__file__).parent / "static" / "fonts" / "great-vibes-latin-400-normal.woff2"
+        brand_font = ImageFont.truetype(str(font_path), 150)
+    except (OSError, ValueError):
+        brand_font = ImageFont.load_default()
+    center = (OG_W // 2, OG_H // 2)
+    draw.text((center[0] + 3, center[1] + 5), "date4you", font=brand_font,
+              anchor="mm", fill=(35, 18, 25, 92))
+    draw.text(center, "date4you", font=brand_font, anchor="mm",
+              fill=(255, 231, 239, 178), stroke_width=1,
+              stroke_fill=(129, 61, 79, 105))
+    canvas = Image.alpha_composite(canvas.convert("RGBA"), overlay).convert("RGB")
 
     tmp = out.with_suffix(".tmp.webp")
     canvas.save(tmp, "WEBP", quality=82, method=4)

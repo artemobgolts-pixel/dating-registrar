@@ -769,6 +769,27 @@
   // Каждый сам проверяет наличие своих элементов, поэтому безопасно звать все.
   function initPage() {
     initNav();
+    if (window.UI && UI.numberSteppers) UI.numberSteppers(document);
+    document.querySelectorAll("[data-picker-only]").forEach(function (input) {
+      if (input.dataset.pickerReady) return;
+      input.dataset.pickerReady = "1";
+      input.addEventListener("click", function () {
+        if (typeof input.showPicker === "function") {
+          try { input.showPicker(); } catch (_) {}
+        }
+      });
+      input.addEventListener("keydown", function (event) {
+        if (event.key === "Tab") return;
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          if (typeof input.showPicker === "function") {
+            try { input.showPicker(); } catch (_) {}
+          }
+          return;
+        }
+        event.preventDefault();
+      });
+    });
     initDates();
     initDateForm();
     initCategory();

@@ -170,12 +170,14 @@
       </div>
       <label class="field capacity-field">
         <span>Количество участников</span>
-        <span class="capacity-control">
+        <span class="capacity-stepper" data-number-stepper>
+          <button type="button" class="capacity-step" data-step="-1"
+                  aria-label="Уменьшить количество участников">−</button>
           <input type="number" name="capacity" min="1" max="100" step="1"
                  value="{{ date['capacity'] if date else 1 }}" inputmode="numeric">
-          <span class="capacity-suffix">чел.</span>
+          <button type="button" class="capacity-step" data-step="1"
+                  aria-label="Увеличить количество участников">+</button>
         </span>
-        <small class="muted">Создатель не считается. 1 — обычное свидание, 2 и больше — групповое. Лимит применяется отдельно в каждой категории.</small>
       </label>
     </div>
 

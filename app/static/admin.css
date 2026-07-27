@@ -766,8 +766,19 @@ label.chk {
 .tg-widget-wrap:not([hidden]) {
   display: flex; justify-content: center; min-height: 46px; margin: 2px 0 4px;
   background: transparent;
+  max-height: 54px; opacity: 1; overflow: hidden;
+  transition: min-height .28s ease, max-height .28s ease, margin .28s ease, opacity .2s ease;
 }
-.tg-widget-wrap iframe { margin: 0 auto !important; color-scheme: light; border-radius: 12px; }
+.tg-widget-wrap iframe {
+  margin: 0 auto !important; color-scheme: light; border-radius: 12px;
+  transition: opacity .18s ease;
+}
+.tg-widget-wrap.tg-checking iframe { opacity: 0; }
+.tg-widget-wrap.tg-unavailable {
+  min-height: 0 !important; max-height: 0; margin-block: 0 !important;
+  opacity: 0; pointer-events: none;
+}
+.login-card { transition: padding .28s ease, max-width .28s ease; }
 .oauth-sep {
   display: flex; align-items: center; gap: 12px;
   color: var(--muted); font-size: 12.5px; margin: 14px 0;
@@ -806,6 +817,17 @@ span.oauth-ico { display: grid; place-items: center; font-weight: 700; font-size
 
 /* профиль: список привязок соцсетей */
 .social-links { display: flex; flex-direction: column; gap: 10px; }
+.tour-course-actions {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px;
+}
+.tour-course-actions .btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 100%; min-width: 0; text-align: center;
+}
+.profile-support-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 100%; margin-top: 12px;
+}
 .social-row {
   display: flex; align-items: center; gap: 12px;
   padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px;
@@ -1797,7 +1819,10 @@ input, textarea, select {
 .cat-card.has-thumb .cat-body { flex: 1; min-width: 0; }
 @media (max-width: 560px) {
   .cat-card.has-thumb { flex-direction: column; gap: 10px; }
-  .cat-card .cat-thumb { width: 100%; align-self: stretch; }
+  .cat-card .cat-thumb {
+    width: calc(100% + 8px); align-self: flex-start;
+    margin-top: -6px; margin-right: -8px;
+  }
   /* ⋯ уже в правом верхнем углу (см. базовое правило .cat-card .bar > .cat-tail) */
 }
 
@@ -1890,18 +1915,28 @@ input, textarea, select {
 .category-description-fields { display: grid; gap: 10px; }
 .og-zone { margin-top: 2px; }
 .og-zone .dz-ico { font-size: 20px; }
-/* кнопка «Сохранить» в редакторе категории — заметная, не во всю ширину */
-.cat-save { margin-top: 4px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-.cat-save .btn { font-size: 15px; font-weight: 600; padding: 9px 22px; border-radius: 12px; }
+/* Два действия превью делят всю ширину строки поровну. */
+.cat-save {
+  margin-top: 4px; display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px;
+}
+.cat-save .btn {
+  width: 100%; justify-content: center;
+  font-size: 15px; font-weight: 600; padding: 10px 16px; border-radius: 12px;
+}
 /* нижний ряд действий категории: «Скопировать ссылку» / вкл-выкл / «Удалить» —
    единый вид и размер, деструктив прижат вправо */
-.cat-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.cat-actions { display: grid; gap: 10px; }
 .cat-actions .inline { margin: 0; }
 .cat-actions .btn { font-size: 14.5px; font-weight: 600; padding: 9px 18px; border-radius: 12px; }
+.cat-share-actions,
+.cat-manage-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.cat-share-actions .btn,
+.cat-manage-actions .btn { display: flex; width: 100%; height: 100%; justify-content: center; }
+.cat-manage-actions .inline { min-width: 0; }
 /* #10: «Удалить категорию» — красный фон и тёмный текст (заметный деструктив),
    прижата вправо. */
 .cat-actions .btn.danger {
-  margin-left: auto;
   background: #f2b8b5; border: 1px solid #e59895; color: #3a1210;
 }
 .cat-actions .btn.danger:hover { background: #eda6a2; border-color: #db8783; }
@@ -1915,15 +1950,9 @@ input, textarea, select {
 }
 .btn.link-on:hover { background: #d8f0e3; }
 @media (max-width: 560px) {
-  /* #8: «Скопировать ссылку» — во всю строку; «Вкл/выкл ссылку» и «Удалить» —
-     по половинке во второй строке. Порядок в разметке: copy, toggle-форма,
-     delete-форма (см. category_detail.html). */
-  .cat-actions { flex-direction: row; flex-wrap: wrap; align-items: stretch; gap: 8px; }
-  .cat-actions > [data-copy] { flex: 1 1 100%; width: 100%; }
-  .cat-actions > .inline { flex: 1 1 0; min-width: 0; }
-  .cat-actions .inline .btn { width: 100%; }
-  .cat-actions .btn { width: 100%; margin-left: 0; }
-  .cat-actions .btn.danger { margin-left: 0; }
+  .cat-share-actions,
+  .cat-manage-actions { gap: 8px; }
+  .cat-actions .btn { padding-inline: 8px; font-size: 13px; }
 }
 
 /* закрываемое предупреждение про перегенерацию ссылки */
@@ -2342,7 +2371,7 @@ input, textarea, select {
    ============================================================ */
 .cfeed {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
 }
 .cfeed-card {
@@ -2450,7 +2479,13 @@ input, textarea, select {
 }
 /* На время тура прокрутка страницы заблокирована, чтобы цель не «уезжала»
    из-под подсветки (жест листания больше не ломает шаги). */
-body.tour-lock { overflow: hidden; }
+html.tour-lock,
+body.tour-lock {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+.tour-overlay { touch-action: none; }
+.tour-pop { touch-action: manipulation; }
 /* Поповер тура компактнее по высоте (#5): меньше вертикальные паддинги/отступы,
    чтобы окно не «захватывало» зону под целью и не налезало на соседний контент. */
 .tour-pop {
@@ -2709,10 +2744,40 @@ html[data-theme="dark"] .btn.link-on { background: #243b2d; border-color: #385b4
 
 /* Настройки группового голосования — те же мягкие стеклянные поверхности,
    что и остальной редактор, без отдельной «технической» панели. */
-.capacity-field { display: grid; gap: 7px; margin: 16px 0 0; }
-.capacity-control { display: flex; align-items: center; gap: 8px; }
-.capacity-control input { width: 94px; }
-.capacity-suffix { color: var(--muted); font-size: 14px; }
+.capacity-field { display: grid; gap: 9px; margin: 16px 0 0; }
+.capacity-stepper {
+  display: grid; grid-template-columns: 46px minmax(58px, 82px) 46px;
+  align-items: stretch; justify-content: center;
+  width: max-content; max-width: 100%; margin: 0 auto;
+  border: 1px solid var(--line); border-radius: 15px; overflow: hidden;
+  background: rgba(255,255,255,.56);
+}
+.capacity-stepper input {
+  width: 100%; min-width: 0; padding: 10px 4px;
+  border: 0; border-inline: 1px solid var(--line); border-radius: 0;
+  background: transparent; text-align: center; font-size: 18px; font-weight: 700;
+  -moz-appearance: textfield;
+}
+.capacity-stepper input::-webkit-inner-spin-button,
+.capacity-stepper input::-webkit-outer-spin-button { margin: 0; -webkit-appearance: none; }
+.capacity-step {
+  display: grid; place-items: center; padding: 0; border: 0;
+  background: transparent; color: var(--rose-2); cursor: pointer;
+  font-size: 24px; font-weight: 500; line-height: 1;
+}
+.capacity-step:hover:not(:disabled) { background: var(--rose-soft); }
+.capacity-step:disabled {
+  background: rgba(70,55,62,.08); color: var(--muted);
+  cursor: default; opacity: .42;
+}
+html[data-theme="dark"] .capacity-stepper { background: rgba(38,31,37,.9); }
+html[data-theme="dark"] .capacity-step:disabled { background: rgba(16,13,16,.32); }
+.voting-form [data-picker-only] {
+  cursor: pointer; caret-color: transparent;
+}
+.voting-form [data-picker-only]::-webkit-calendar-picker-indicator {
+  cursor: pointer; opacity: .9;
+}
 .chip-cat.locked { opacity: .66; cursor: not-allowed; }
 .chip-cat.locked input { pointer-events: none; }
 .voting-head { align-items: flex-start; }

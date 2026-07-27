@@ -7,9 +7,61 @@
   "use strict";
 
   // --- 1. Telegram Login Widget ---------------------------------------------
+  function loginSurface(wrap) {
+    return wrap.closest(".login-card, .login-dlg");
+  }
+
+  function setTelegramState(wrap, state) {
+    var surface = loginSurface(wrap);
+    wrap.classList.toggle("tg-checking", state === "checking");
+    wrap.classList.toggle("tg-unavailable", state === "unavailable");
+    if (state === "ready" && wrap._tgRetry) {
+      clearInterval(wrap._tgRetry);
+      wrap._tgRetry = null;
+    }
+    if (surface) {
+      surface.classList.toggle("tg-login-checking", state === "checking");
+      surface.classList.toggle("tg-login-unavailable", state === "unavailable");
+    }
+  }
+
+  function scheduleTelegramRetry(wrap) {
+    if (wrap._tgRetry) return;
+    wrap._tgRetry = setInterval(function () {
+      if (!document.documentElement.contains(wrap)) {
+        clearInterval(wrap._tgRetry);
+        wrap._tgRetry = null;
+        return;
+      }
+      if (wrap.dataset.tgLoading) return;
+      // Повторяем загрузку разрешённого CSP официального скрипта. Отдельный
+      // image/fetch-пробник здесь неприменим: строгая политика страницы
+      // намеренно разрешает telegram.org только в script-src.
+      wrap.replaceChildren();
+      delete wrap.dataset.tgLoaded;
+      delete wrap.dataset.tgLoading;
+      setTelegramState(wrap, "checking");
+      loadLoginWidget(wrap);
+    }, 6000);
+  }
+
+  function verifyLoginWidget(wrap) {
+    setTimeout(function () {
+      if (wrap.querySelector("iframe")) {
+        setTelegramState(wrap, "ready");
+      } else {
+        setTelegramState(wrap, "unavailable");
+        scheduleTelegramRetry(wrap);
+      }
+    }, 1200);
+  }
+
   function loadLoginWidget(wrap) {
-    if (!wrap || wrap.dataset.tgLoaded || !wrap.getAttribute("data-bot")) return;
+    if (!wrap || wrap.dataset.tgLoaded || wrap.dataset.tgLoading ||
+        !wrap.getAttribute("data-bot")) return;
+    wrap.dataset.tgLoading = "1";
     wrap.dataset.tgLoaded = "1";
+    setTelegramState(wrap, "checking");
     var s = document.createElement("script");
     s.async = true;
     s.src = "https://telegram.org/js/telegram-widget.js?22";
@@ -18,7 +70,21 @@
     s.setAttribute("data-radius", "12");
     s.setAttribute("data-auth-url", wrap.getAttribute("data-auth-url") || "/auth/widget");
     s.setAttribute("data-request-access", "write");
+    s.addEventListener("load", function () {
+      delete wrap.dataset.tgLoading;
+      verifyLoginWidget(wrap);
+    });
+    s.addEventListener("error", function () {
+      delete wrap.dataset.tgLoading;
+      setTelegramState(wrap, "unavailable");
+      scheduleTelegramRetry(wrap);
+    });
     wrap.appendChild(s);
+    // В некоторых браузерах заблокированный скрипт не присылает error;
+    // контрольный таймаут всё равно схлопнет поверхность через несколько секунд.
+    setTimeout(function () {
+      if (wrap.classList.contains("tg-checking")) verifyLoginWidget(wrap);
+    }, 4200);
   }
 
   function prepareLoginWidget(wrap) {

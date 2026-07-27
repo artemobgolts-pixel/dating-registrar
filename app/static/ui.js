@@ -1027,7 +1027,56 @@ window.UI = (() => {
     return { sync: sync, onChange: function (fn) { onChange = fn; } };
   }
 
+  /* Числовой степпер «−  число  +». Сам input остаётся обычным number:
+     по клику число можно выделить и ввести вручную. */
+  function numberSteppers(root) {
+    (root || document).querySelectorAll("[data-number-stepper]").forEach(function (box) {
+      if (box.dataset.stepperReady) return;
+      box.dataset.stepperReady = "1";
+      var input = box.querySelector('input[type="number"]');
+      var minus = box.querySelector('[data-step="-1"]');
+      var plus = box.querySelector('[data-step="1"]');
+      if (!input || !minus || !plus) return;
+
+      function bounds() {
+        return {
+          min: parseInt(input.min || "1", 10),
+          max: parseInt(input.max || "100", 10),
+        };
+      }
+      function current(fallback) {
+        var n = parseInt(input.value, 10);
+        return Number.isFinite(n) ? n : fallback;
+      }
+      function sync(clamp) {
+        var b = bounds();
+        var n = current(b.min);
+        if (clamp) {
+          n = Math.max(b.min, Math.min(b.max, n));
+          input.value = String(n);
+        }
+        minus.disabled = n <= b.min;
+        plus.disabled = n >= b.max;
+      }
+      function change(delta) {
+        var b = bounds();
+        var n = Math.max(b.min, Math.min(b.max, current(b.min) + delta));
+        input.value = String(n);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+        sync(true);
+      }
+      minus.addEventListener("click", function () { change(-1); });
+      plus.addEventListener("click", function () { change(1); });
+      input.addEventListener("input", function () { sync(false); });
+      input.addEventListener("blur", function () { sync(true); });
+      input.addEventListener("change", function () { sync(true); });
+      sync(true);
+    });
+  }
+
   return { sortable, burst, uploader, mediaUploader, dateChips, postWithProgress,
            editorPreview, richEditor, cardMenu, renderMarkup, glassTabs,
-           inlineEdit: inlineEdit, timeRange: timeRange };
+           inlineEdit: inlineEdit, timeRange: timeRange,
+           numberSteppers: numberSteppers };
 })();

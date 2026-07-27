@@ -63,22 +63,11 @@
   </filter>
 </svg>
 
-    {# Правый верхний угол: поддержка автора, его проект (VPN) и вход.
-      Порядок как в шапке кабинета — Помощь, VPN, затем «Войти». #}
+    {# Правый верхний угол: тема, VPN и вход. Поддержка теперь в профиле. #}
     <div class="corner-actions">
       <button type="button" class="promo-btn theme-toggle icon-only" data-theme-toggle aria-label="Включить тёмную тему">
         <span class="promo-ic theme-moon-icon" data-theme-icon aria-hidden="true"></span>
       </button>
-      {% if SUPPORT_URL %}
-      <a class="promo-btn" href="{{ SUPPORT_URL }}" target="_blank" rel="noopener" aria-label="Помощь">
-        <span class="promo-ic" aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="19" height="19" fill="currentColor">
-            <path d="M9.78 16.3 9.6 20.1c.36 0 .52-.16.71-.34l1.7-1.63 3.53 2.58c.65.36 1.11.17 1.28-.6l2.32-10.9c.21-.96-.35-1.34-.98-1.1L4.27 12.5c-.94.36-.93.88-.16 1.12l3.7 1.15 8.6-5.42c.4-.27.77-.12.47.15z"/>
-          </svg>
-        </span>
-        <span class="promo-lb">Помощь</span>
-      </a>
-      {% endif %}
       {% if VPN_URL %}
       <a class="promo-btn" href="{{ VPN_URL }}" target="_blank" rel="noopener" aria-label="VPN">
         <img class="promo-img" src="/static/vpn-logo.webp" alt="" width="42" height="42" decoding="async">
@@ -344,8 +333,8 @@
   </footer>
 </div>
 
-{% if vote_state.status in ('unconfigured', 'open') %}<button class="fab" id="fabPropose" aria-label="Создать свидание">
-  <span class="fab-label">Создать свидание</span>
+{% if vote_state.status in ('unconfigured', 'open') %}<button class="fab" id="fabPropose" aria-label="Создать своё свидание">
+  <span class="fab-label">Создать своё свидание</span>
 </button>{% endif %}
 
 <!-- Вход прямо со страницы подборки (модалка с Telegram Login Widget) -->
@@ -437,121 +426,126 @@
   </form>
 </dialog>
 
-<!-- Создание / редактирование в актуальном карточном редакторе, но внутри виджета -->
+<!-- Тот же карточный редактор, что в кабинете, внутри гостевого виджета. -->
 <dialog id="propDlg" class="date-widget-dialog">
   <div class="date-widget-head">
     <div>
-      <h3 class="dlg-head" id="propHead">Создать свидание</h3>
-      <p class="dlg-sub">Карточка сразу появится в этой подборке&nbsp;♥</p>
+      <h3 class="dlg-head" id="propHead">Создать своё свидание</h3>
+      <p class="dlg-sub">Кликай по карточке и меняй её прямо здесь&nbsp;♥</p>
     </div>
     <button type="button" class="date-widget-x" id="propCancel" aria-label="Закрыть">✕</button>
   </div>
   <form id="propForm" class="date-widget-form">
-    <div class="date-widget-grid">
-      <section class="date-widget-card" aria-label="Карточка свидания">
-        <div class="date-widget-media">
-          <div class="dropzone" id="propZone">
-            <div class="dz-ico">📷 🎬</div>
-            <div class="dz-hint">Добавить фото или видео</div>
-            <div class="date-widget-media-note">до 5 фото и 1 видео · фото можно менять местами</div>
-            <input type="file" id="propMedia" accept="image/*,video/mp4,video/webm" multiple>
-            <div class="ptiles" id="propTiles"></div>
-            <div class="ptiles" id="propVidTiles"></div>
-          </div>
-          <input type="file" name="images" id="propFiles" accept="image/*" multiple hidden>
-          <input type="file" name="video" id="propVideo" accept="video/mp4,video/webm" hidden>
-          <div class="vid-cur" id="propVidCur" hidden>
-            <span>🎬 <span id="propVidName">Текущее видео</span></span>
-            <button type="button" id="propVidRm" aria-label="Удалить видео" title="Удалить видео">✕</button>
-          </div>
-          <p class="vid-hint" id="propVidHint" hidden>✕ — удалить это видео при сохранении</p>
-        </div>
+    <input type="hidden" name="name" maxlength="200">
+    <input type="hidden" name="place" maxlength="300">
+    <textarea name="comment" id="propComment" maxlength="2000" hidden></textarea>
+    <textarea name="links" id="propLinks" hidden></textarea>
+    <input type="file" name="images" id="propFiles" accept="image/*" multiple hidden>
+    <input type="file" name="video" id="propVideo" accept="video/mp4,video/webm" hidden>
+    <input type="file" id="propMedia" accept="image/*,video/mp4,video/webm" multiple hidden>
 
-        <div class="date-widget-body">
-          <div class="field date-widget-title">
-            <label>Название *</label>
-            <input type="text" name="name" maxlength="200" required placeholder="Пикник на крыше">
-          </div>
-          <div class="field">
-            <label>Место</label>
-            <input type="text" name="place" maxlength="300" placeholder="Адрес, название или ссылка на карты">
-          </div>
-          <div class="field date-widget-when">
-            <label>Когда</label>
-            <div class="chips">
-              <button type="button" class="chip" data-day="today">Сегодня</button>
-              <button type="button" class="chip" data-day="tomorrow">Завтра</button>
-              <button type="button" class="chip" data-time="12:00">12:00</button>
-              <button type="button" class="chip" data-time="15:00">15:00</button>
-              <button type="button" class="chip" data-time="19:00">19:00</button>
-              <button type="button" class="chip" data-time="21:00">21:00</button>
-            </div>
-            <input type="datetime-local" name="starts_at" id="propStart">
-          </div>
-          <details class="endtime" id="propEndWrap">
-            <summary>Добавить время окончания</summary>
-            <div class="field">
-              <div class="chips">
-                <button type="button" class="chip" data-dur="1">+1 час</button>
-                <button type="button" class="chip" data-dur="2">+2 часа</button>
-                <button type="button" class="chip" data-dur="3">+3 часа</button>
+    <div class="ed-cols">
+      <div class="ed-preview-col">
+        <div class="preview-cap">Твоя карточка <span>— кликай и меняй прямо здесь</span></div>
+        <div class="pcard editable" id="propEdCard">
+          <div class="ed-gallery" id="propZone">
+            <span class="ed-gallery-pay pay" id="propPayPhoto" hidden></span>
+            <div class="ed-slides" id="propSlides"></div>
+            <div class="ed-empty" id="propEmpty">
+              <img class="ed-empty-logo" src="/static/date-default.jpg" alt="" draggable="false">
+              <div class="ed-empty-inner">
+                <button type="button" class="btn small" id="propAddMedia">Добавить фото или видео</button>
               </div>
-              <input type="datetime-local" name="ends_at" id="propEnd">
             </div>
-          </details>
-          <div class="field">
-            <label>Описание <span class="muted">— выдели текст, чтобы оформить</span></label>
-            <div class="toolbar" id="propDescToolbar">
+            <button type="button" class="ed-nav prev" id="propPrev" aria-label="Предыдущее" hidden>‹</button>
+            <button type="button" class="ed-nav next" id="propNext" aria-label="Следующее" hidden>›</button>
+            <div class="ed-dots" id="propDots" aria-hidden="true"></div>
+          </div>
+
+          <div class="body">
+            <h3 class="ttl">
+              <span class="ed-field" id="propEdTitle" data-ph="Название свидания"></span>
+              <span class="pay" id="propPayPill" hidden></span>
+            </h3>
+            <div class="pmeta">
+              <div class="ed-when" id="propEdWhen">
+                <input type="hidden" class="ed-day" data-tr-day>
+                <input type="hidden" name="starts_at" id="propStart" data-tr-start>
+                <input type="hidden" name="ends_at" id="propEnd" data-tr-end>
+                <span class="ed-date" data-tr-datewidget>
+                  <span class="ed-dd" data-tr-dd></span><span class="ed-dot">.</span><span class="ed-mo" data-tr-mo></span><span class="ed-dot">.</span><span class="ed-yy" data-tr-yy></span>
+                </span>
+                <span class="ed-at" aria-hidden="true">в</span>
+                <span class="ed-time">
+                  <span class="ed-hh" data-tr-hh></span><span class="ed-colon">:</span><span class="ed-mm" data-tr-mm></span>
+                  <span class="ed-dash">–</span>
+                  <span class="ed-hh" data-tr-ehh></span><span class="ed-colon">:</span><span class="ed-mm" data-tr-emm></span>
+                </span>
+              </div>
+              <div class="ed-place-row">
+                <span aria-hidden="true">📍</span>
+                <span class="ed-field ed-place" id="propEdPlace" data-ph="Место — адрес или ссылка на карты"></span>
+              </div>
+            </div>
+            <div class="ed-field ed-desc" id="propDescEditable" contenteditable="true"
+                 role="textbox" aria-multiline="true"
+                 data-ph="Детали — расскажи, чем хорошо это свидание"></div>
+            <div class="toolbar ed-desc-toolbar" id="propDescToolbar" hidden>
               <button type="button" class="b" data-wrap="**|**" title="Жирный">Ж</button>
               <button type="button" class="i" data-wrap="*|*" title="Курсив">К</button>
               <button type="button" class="u" data-wrap="__|__" title="Подчёркнутый">П</button>
               <button type="button" class="s" data-wrap="~~|~~" title="Зачёркнутый">З</button>
               <button type="button" data-wrap="[|](https://)" title="Ссылка">🔗</button>
             </div>
-            <div class="rich-ed" id="propDescEditable" contenteditable="true"
-                 role="textbox" aria-multiline="true"
-                 data-placeholder="Почему это будет здорово ♥"></div>
-            <textarea name="comment" id="propComment" maxlength="2000" hidden></textarea>
-          </div>
-          <div class="field">
-            <label>Ссылки <span class="muted">— каждая с новой строки</span></label>
-            <textarea name="links" placeholder="https://..."></textarea>
+            <div class="ed-links-row">
+              <span aria-hidden="true">🔗</span>
+              <span class="ed-field ed-links" id="propEdLinks" data-ph="Ссылки — каждая с новой строки"></span>
+            </div>
+            <div class="acts">
+              <button type="button" class="bk">Выбрать ♥</button>
+              <button type="button" class="ak">Спросить 💬</button>
+            </div>
           </div>
         </div>
-      </section>
+      </div>
 
-      <aside class="date-widget-side">
-        <section class="date-widget-section">
-          <h4><span>1</span> Модификаторы</h4>
+      <aside class="ed-side-col">
+        <section class="sec">
+          <h2><span class="n">1</span> Модификаторы</h2>
           <div class="field">
             <label>Оплата</label>
-            <div class="widget-pay-pick" role="radiogroup" aria-label="Оплата">
-              <label class="widget-pay-opt pay-any"><input type="radio" name="pay" value="0" checked> Не важно</label>
-              <label class="widget-pay-opt"><input type="radio" name="pay" value="1">💸 50/50</label>
-              <label class="widget-pay-opt"><input type="radio" name="pay" value="2">👌 Я плачу</label>
-              <label class="widget-pay-opt"><input type="radio" name="pay" value="3">🫵 Ты платишь</label>
+            <div class="pay-pick" role="radiogroup" aria-label="Оплата">
+              <label class="pay-opt pay-any"><input type="radio" name="pay" value="0" checked> Не важно</label>
+              <label class="pay-opt"><input type="radio" name="pay" value="1">💸 50/50</label>
+              <label class="pay-opt"><input type="radio" name="pay" value="2">👌 Я плачу</label>
+              <label class="pay-opt"><input type="radio" name="pay" value="3">🫵 Ты платишь</label>
             </div>
           </div>
-          <div class="field date-widget-capacity">
-            <label for="propCapacity">Количество участников</label>
-            <div class="date-widget-capacity-row">
+          <label class="field capacity-field">
+            <span>Количество участников</span>
+            <span class="capacity-stepper" data-number-stepper>
+              <button type="button" class="capacity-step" data-step="-1"
+                      aria-label="Уменьшить количество участников">−</button>
               <input type="number" name="capacity" id="propCapacity" value="1"
                      min="1" max="100" step="1" inputmode="numeric" required>
-              <span>чел.</span>
-            </div>
-            <p class="alt-time">Автор не считается. 1 — обычное свидание, 2 и больше — групповое.</p>
-          </div>
+              <button type="button" class="capacity-step" data-step="1"
+                      aria-label="Увеличить количество участников">+</button>
+            </span>
+          </label>
         </section>
-        <section class="date-widget-section date-widget-context">
-          <h4><span>2</span> Публикация</h4>
-          <p>Свидание добавится в категорию «{{ cat.name }}». Если включена модерация, сначала его увидит организатор.</p>
+        <section class="sec date-widget-context">
+          <h2><span class="n">2</span> Категория</h2>
+          <div class="chips-cat">
+            <span class="chip-cat selected">🔗 {{ cat.name }}</span>
+          </div>
+          <p>Свидание добавится в эту подборку. Если включена модерация, сначала его увидит организатор.</p>
         </section>
       </aside>
     </div>
     <div class="upbar" id="propBar" hidden><i></i></div>
-    <div class="dlg-actions date-widget-actions">
+    <div class="savebar date-widget-actions">
       <button type="button" class="btn ghost" id="propCancelBottom">Отмена</button>
-      <button type="submit" class="btn book" id="propSubmit">Создать свидание</button>
+      <button type="submit" class="btn book" id="propSubmit">Создать своё свидание</button>
     </div>
   </form>
 </dialog>
