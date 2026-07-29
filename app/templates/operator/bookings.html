@@ -1,43 +1,103 @@
 {% extends "operator/base.html" %}
 {% block title %}Голоса{% endblock %}
+{% block page_eyebrow %}Активность{% endblock %}
+{% block page_title %}Голоса <span class="count">{{ total }}</span>{% endblock %}
+{% block page_intro %}
+<p class="op-page-intro">Кто и за что голосовал — журнал для поддержки и разбора спорных ситуаций.</p>
+{% endblock %}
+
 {% block content %}
-<h1>Голоса <span class="muted" style="font-size:15px">({{ total }})</span></h1>
-<p class="muted" style="margin-top:-8px">Кто что выбрал по платформе — для разбора спорных ситуаций.</p>
+<div class="toolbar">
+  <form class="search-form" method="get" action="/operator/bookings" role="search">
+    <label class="search-field">
+      <span class="sr-only">Поиск голосов</span>
+      <svg class="op-icon" aria-hidden="true"><use href="#op-i-search"></use></svg>
+      <input type="search" name="q" value="{{ q }}"
+             placeholder="Гость, событие, категория или владелец"
+             autocomplete="off" data-op-search>
+      <span class="search-shortcut" aria-hidden="true">/</span>
+    </label>
+    <button class="btn primary" type="submit">Найти</button>
+    {% if q %}<a class="btn" href="/operator/bookings">Сбросить</a>{% endif %}
+  </form>
+</div>
 
-<form class="bar" method="get" action="/operator/bookings">
-  <input type="search" name="q" value="{{ q }}" placeholder="Гость, событие, категория или владелец"
-         style="min-width:320px">
-  <button class="btn">Найти</button>
-  {% if q %}<a class="btn" href="/operator/bookings">Сбросить</a>{% endif %}
-</form>
-
-<table>
-  <tr><th>Гость</th><th>Событие</th><th>Категория</th><th>Владелец</th><th>Когда</th><th></th></tr>
-  {% for b in rows %}
-  <tr>
-    <td><b>{{ b['guest'] }}</b></td>
-    <td>{{ b['date_name'] }}</td>
-    <td>{{ b['cat_name'] }}</td>
-    <td><a class="link" href="/operator/users/{{ b['owner_id'] }}">{{ b['owner'] or '—' }}</a></td>
-    <td class="muted">{{ b['created_at'][:16].replace('T',' ') }}</td>
-    <td>
-      <form class="inline" method="post" action="/operator/bookings/{{ b['id'] }}/delete"
-            data-confirm="Снять голос «{{ b['guest'] }} → {{ b['date_name'] }}»? Освободится одно место.">
-        <input type="hidden" name="csrf" value="{{ csrf }}">
-        <button class="btn small danger">Снять</button>
-      </form>
-    </td>
-  </tr>
-  {% else %}
-  <tr><td colspan="6" class="muted">Голосов нет</td></tr>
-  {% endfor %}
-</table>
+<section class="panel">
+  <div class="panel__head">
+    <div class="panel__title-wrap">
+      <h2 class="panel__title">{% if q %}Результаты поиска{% else %}Журнал голосов{% endif %}</h2>
+      <span class="panel__hint">
+        {% if q %}По запросу «{{ q }}» найдено: {{ total }}{% else %}Сначала последние действия{% endif %}
+      </span>
+    </div>
+  </div>
+  <div class="table-scroll">
+    <table class="data-table responsive-table">
+      <thead>
+        <tr><th>Участник</th><th>Событие</th><th>Категория</th><th>Владелец</th><th>Когда</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for b in rows %}
+        <tr>
+          <td data-label="Участник">
+            <div class="identity">
+              <span class="identity__avatar" aria-hidden="true">{{ (b['guest'] or '?')[:1] }}</span>
+              <span class="identity__copy">
+                <span class="identity__name">{{ b['guest'] }}</span>
+                <span class="identity__meta">участник голосования</span>
+              </span>
+            </div>
+          </td>
+          <td data-label="Событие"><span class="cell-primary">{{ b['date_name'] }}</span></td>
+          <td data-label="Категория">{{ b['cat_name'] }}</td>
+          <td data-label="Владелец">
+            <a class="link" href="/operator/users/{{ b['owner_id'] }}">{{ b['owner'] or 'Без имени' }}</a>
+          </td>
+          <td data-label="Когда" class="muted">{{ b['created_at'][:16].replace('T',' ') }}</td>
+          <td data-label="Действие" class="action-cell">
+            <form class="inline" method="post" action="/operator/bookings/{{ b['id'] }}/delete"
+                  data-confirm="Снять голос «{{ b['guest'] }} → {{ b['date_name'] }}»? Освободится одно место.">
+              <input type="hidden" name="csrf" value="{{ csrf }}">
+              <button class="btn small danger" type="submit">
+                <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-trash"></use></svg>
+                Снять голос
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr class="empty-row">
+          <td colspan="6">
+            <div class="empty-state">
+              <div>
+                <span class="empty-state__icon"><svg class="op-icon" aria-hidden="true"><use href="#op-i-votes"></use></svg></span>
+                <strong class="empty-state__title">Голосов не найдено</strong>
+                <p>{% if q %}Попробуйте другой запрос.{% else %}Журнал пока пуст.{% endif %}</p>
+              </div>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
 
 {% if pages > 1 %}
-<div class="bar" style="margin-top:16px">
-  {% if page > 1 %}<a class="btn" href="/operator/bookings?q={{ q }}&page={{ page-1 }}">← Назад</a>{% endif %}
-  <span class="muted">Стр. {{ page }} из {{ pages }}</span>
-  {% if page < pages %}<a class="btn" href="/operator/bookings?q={{ q }}&page={{ page+1 }}">Вперёд →</a>{% endif %}
-</div>
+<nav class="pagination" aria-label="Пагинация">
+  {% if page > 1 %}
+  <a class="btn" href="/operator/bookings?q={{ q }}&page={{ page-1 }}">
+    <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-arrow-left"></use></svg>
+    Назад
+  </a>
+  {% else %}<span></span>{% endif %}
+  <span class="pagination__status">Страница {{ page }} из {{ pages }}</span>
+  {% if page < pages %}
+  <a class="btn" href="/operator/bookings?q={{ q }}&page={{ page+1 }}">
+    Вперёд
+    <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-arrow-right"></use></svg>
+  </a>
+  {% else %}<span></span>{% endif %}
+</nav>
 {% endif %}
 {% endblock %}

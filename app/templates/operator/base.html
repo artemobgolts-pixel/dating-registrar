@@ -5,173 +5,259 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <title>{% block title %}Админ{% endblock %} · date4you</title>
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='80' font-size='80'&gt;%E2%9D%A4&lt;/text&gt;&lt;/svg&gt;">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<link rel="manifest" href="/static/manifest.json">
 <meta name="theme-color" content="#b65f6f">
 <script src="{{ asset('theme.js') }}"></script>
-<style nonce="{{ csp_nonce }}">
-  :root { --bg:#f6f4f5; --line:#e2dcde; --ink:#2b2326; --muted:#8a7e82;
-          --accent:#8f4a58; --danger:#b3261e; }
-  * { box-sizing:border-box; }
-  body { margin:0; font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
-         color:var(--ink); background:var(--bg); }
-  header { display:flex; gap:14px; align-items:center; flex-wrap:wrap;
-           padding:12px 20px; background:#fff; border-bottom:1px solid var(--line);
-           position:sticky; top:0; z-index:20; }
-  header .brand { font-weight:700; color:var(--accent); }
-  header nav { display:flex; gap:7px; align-items:center; flex-wrap:wrap; }
-  header nav a {
-    display:inline-flex; align-items:center; gap:6px;
-    color:var(--ink); text-decoration:none; padding:7px 13px;
-    border-radius:999px; font-size:14px;
-    border:1px solid #ece6e8; background:#faf7f8;
-    transition:background .15s, color .15s, transform .15s, box-shadow .2s;
-  }
-  header nav a .ic { font-size:15px; line-height:1; }
-  header nav a:hover { background:#f3eef0; transform:translateY(-1px); }
-  header nav a.on {
-    background:linear-gradient(135deg,#b65f6f,#8f4a58); color:#fff;
-    border-color:transparent; box-shadow:0 5px 13px rgba(150,70,85,.3);
-  }
-  header nav a.muted { color:var(--muted); background:none; border:0; }
-  header form { margin-left:auto; }
-  header form .btn { display:inline-flex; align-items:center; gap:6px; }
-  @media (max-width:720px) {
-    header { flex-wrap:nowrap; justify-content:center; padding:10px 14px; }
-    header form { margin-left:0; }
-    header form .btn .lbx { display:none; }
-    header nav {
-      position:fixed; left:10px; right:10px; bottom:10px; z-index:50;
-      flex-wrap:nowrap; gap:3px; justify-content:space-between;
-      padding:7px 8px; border-radius:24px;
-      background:rgba(255,255,255,.82);
-      -webkit-backdrop-filter:blur(18px) saturate(1.6);
-      backdrop-filter:blur(18px) saturate(1.6);
-      border:1px solid rgba(255,255,255,.7);
-      box-shadow:0 12px 32px rgba(120,70,80,.26);
-      overflow-x:auto; scrollbar-width:none;
-    }
-    header nav::-webkit-scrollbar { display:none; }
-    header nav a {
-      flex:1 0 auto; flex-direction:column; gap:2px;
-      padding:6px 8px; border:0; background:none; border-radius:15px;
-      font-size:9.5px; text-align:center; white-space:nowrap;
-    }
-    header nav a .ic { font-size:18px; }
-    header nav a:hover { transform:none; background:none; }
-    header nav a.on { background:linear-gradient(135deg,#b65f6f,#8f4a58); color:#fff; }
-    header nav a.muted { display:none; }
-    main { padding-bottom:92px; }
-  }
-  main { max-width:1080px; margin:0 auto; padding:22px 20px 60px; }
-  h1 { font-size:22px; margin:0 0 18px; }
-  table { width:100%; border-collapse:collapse; background:#fff;
-          border:1px solid var(--line); border-radius:10px; overflow:hidden; }
-  th, td { text-align:left; padding:9px 12px; border-bottom:1px solid var(--line); }
-  th { background:#faf8f9; font-size:13px; color:var(--muted); font-weight:600; }
-  tr:last-child td { border-bottom:none; }
-  a.link { color:var(--accent); text-decoration:none; }
-  a.link:hover { text-decoration:underline; }
-  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
-           gap:12px; margin-bottom:24px; }
-  .stat { background:#fff; border:1px solid var(--line); border-radius:10px;
-          padding:14px 16px; }
-  .stat .v { font-size:26px; font-weight:700; }
-  .stat .l { color:var(--muted); font-size:13px; }
-  .btn { display:inline-block; padding:6px 12px; border:1px solid var(--line);
-         border-radius:8px; background:#fff; color:var(--ink); cursor:pointer;
-         font-size:14px; text-decoration:none; }
-  .btn.danger { color:var(--danger); border-color:#eec9c6; }
-  .btn.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
-  .btn.small { padding:3px 9px; font-size:13px; }
-  .badge { display:inline-block; padding:1px 8px; border-radius:20px; font-size:12px;
-           background:#eee; }
-  .badge.op { background:#e7d9ee; color:#5b3a78; }
-  .badge.ban { background:#f6d6d3; color:#9a2820; }
-  .muted { color:var(--muted); }
-  .flash { background:#e8f3e8; border:1px solid #bcd9bc; border-radius:8px;
-           padding:10px 14px; margin-bottom:16px; }
-  .flash.err { background:#fbe9e7; border-color:#f0c4bd; }
-  form.inline { display:inline; }
-  input, select { font:inherit; padding:6px 9px; border:1px solid var(--line);
-                  border-radius:8px; }
-  .bar { display:flex; gap:10px; align-items:center; margin-bottom:16px; flex-wrap:wrap; }
-  [data-theme-icon] { width:20px; height:20px; display:inline-grid; place-items:center; line-height:1; }
-  .theme-moon-icon::before {
-    content:""; width:19px; height:19px; background:currentColor;
-    -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M20.3 15.4A8.7 8.7 0 0 1 8.6 3.7a8.7 8.7 0 1 0 11.7 11.7Z'/%3E%3C/svg%3E") center/contain no-repeat;
-    mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M20.3 15.4A8.7 8.7 0 0 1 8.6 3.7a8.7 8.7 0 1 0 11.7 11.7Z'/%3E%3C/svg%3E") center/contain no-repeat;
-  }
-  .theme-sun-icon::before {
-    content:""; width:20px; height:20px; background:currentColor;
-    -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10Zm-1-7h2v4h-2V0Zm0 20h2v4h-2v-4ZM0 11h4v2H0v-2Zm20 0h4v2h-4v-2ZM3.51 4.93l1.42-1.42 2.83 2.83-1.42 1.42-2.83-2.83Zm12.73 12.73 1.42-1.42 2.83 2.83-1.42 1.42-2.83-2.83ZM4.93 20.49l-1.42-1.42 2.83-2.83 1.42 1.42-2.83 2.83ZM17.66 7.76l-1.42-1.42 2.83-2.83 1.42 1.42-2.83 2.83Z'/%3E%3C/svg%3E") center/contain no-repeat;
-    mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10Zm-1-7h2v4h-2V0Zm0 20h2v4h-2v-4ZM0 11h4v2H0v-2Zm20 0h4v2h-4v-2ZM3.51 4.93l1.42-1.42 2.83 2.83-1.42 1.42-2.83-2.83Zm12.73 12.73 1.42-1.42 2.83 2.83-1.42 1.42-2.83-2.83ZM4.93 20.49l-1.42-1.42 2.83-2.83 1.42 1.42-2.83 2.83ZM17.66 7.76l-1.42-1.42 2.83-2.83 1.42 1.42-2.83 2.83Z'/%3E%3C/svg%3E") center/contain no-repeat;
-  }
-
-  html[data-theme="dark"] {
-    --bg:#171418; --line:#3b3138; --ink:#eee5ea; --muted:#aa9da4;
-    --accent:#d58a9b; --danger:#ef8e86;
-  }
-  html[data-theme="dark"] body { background:#171418; }
-  html[data-theme="dark"] header { background:#211b20; }
-  html[data-theme="dark"] header nav a {
-    color:var(--ink); border-color:#493b43; background:#2a2228;
-  }
-  html[data-theme="dark"] header nav a:hover { background:#342a31; }
-  html[data-theme="dark"] header nav a.on { color:#fff; border-color:transparent; }
-  html[data-theme="dark"] header nav a.muted { color:var(--muted); background:none; }
-  html[data-theme="dark"] table,
-  html[data-theme="dark"] .stat,
-  html[data-theme="dark"] .btn { background:#231d22; }
-  html[data-theme="dark"] th { background:#2b2329; }
-  html[data-theme="dark"] input,
-  html[data-theme="dark"] select,
-  html[data-theme="dark"] textarea { background:#211b20; color:var(--ink); }
-  html[data-theme="dark"] .flash { background:#233329; border-color:#385441; }
-  html[data-theme="dark"] .flash.err { background:#3a2426; border-color:#63383b; }
-  html[data-theme="dark"] .badge { background:#342d32; }
-  html[data-theme="dark"] .badge.op { background:#3d3045; color:#d4b7e7; }
-  html[data-theme="dark"] .badge.ban { background:#4a2929; color:#f1a29c; }
-  @media (max-width:720px) {
-    html[data-theme="dark"] header nav {
-      background:rgba(33,27,32,.88); border-color:rgba(255,255,255,.1);
-      box-shadow:0 12px 32px rgba(0,0,0,.38);
-    }
-    html[data-theme="dark"] header nav a { background:none; }
-  }
-</style>
+<link rel="stylesheet" href="{{ asset('operator.css') }}">
+<script src="{{ asset('operator.js') }}" defer></script>
+<script src="{{ asset('ink.js') }}" defer></script>
+{% block head %}{% endblock %}
 </head>
 <body data-csrf="{{ csrf }}"
+      data-user-id="{{ user['id'] if user else '' }}"
       data-ink-interactive="{{ '1' if user and user['cursor_effects'] else '0' }}">
-<header>
-  <span class="brand">⚙ Админ</span>
-  <nav>
-    <a href="/operator/" class="{{ 'on' if active=='dash' else '' }}"><span class="ic" aria-hidden="true">📊</span>Обзор</a>
-    <a href="/operator/review" class="{{ 'on' if active=='review' else '' }}"><span class="ic" aria-hidden="true">🕵</span>На проверке</a>
-    <a href="/operator/users" class="{{ 'on' if active=='users' else '' }}"><span class="ic" aria-hidden="true">👥</span>Пользователи</a>
-    <a href="/operator/categories" class="{{ 'on' if active=='cats' else '' }}"><span class="ic" aria-hidden="true">🔗</span>Категории</a>
-    <a href="/operator/dates" class="{{ 'on' if active=='dates' else '' }}"><span class="ic" aria-hidden="true">💝</span>Встречи</a>
-    <a href="/operator/bookings" class="{{ 'on' if active=='bookings' else '' }}"><span class="ic" aria-hidden="true">📌</span>Голоса</a>
-    <a href="/operator/reports" class="{{ 'on' if active=='reports' else '' }}"><span class="ic" aria-hidden="true">🚩</span>Жалобы</a>
-    <a href="/operator/settings" class="{{ 'on' if active=='settings' else '' }}"><span class="ic" aria-hidden="true">⚙</span>Настройки</a>
-    <a href="/admin/" class="muted"><span class="ic" aria-hidden="true">↩</span>в кабинет</a>
-  </nav>
-  <button type="button" class="btn small" data-theme-toggle aria-label="Включить тёмную тему">
-    <span class="theme-moon-icon" data-theme-icon aria-hidden="true"></span>
-  </button>
-  <form method="post" action="/admin/logout">
-    <input type="hidden" name="csrf" value="{{ csrf }}">
-    <button class="btn small"><span aria-hidden="true">🚪</span><span class="lbx">Выйти</span></button>
-  </form>
-</header>
-<main>
-{% set m = request.query_params.get('msg') %}
-{% if m %}<div class="flash{{ ' err' if m.startswith('⚠') else '' }}">{{ m }}</div>{% endif %}
-{% block content %}{% endblock %}
-</main>
-<script nonce="{{ csp_nonce }}">
-document.addEventListener('submit', function (e) {
-  var msg = e.target.getAttribute('data-confirm');
-  if (msg && !confirm(msg)) e.preventDefault();
-});
-</script>
+<a class="skip-link" href="#operatorContent">К содержимому</a>
+
+<svg class="op-sprite" aria-hidden="true" focusable="false">
+  <symbol id="op-i-heart" viewBox="0 0 24 24">
+    <path d="M20.8 4.7a5.5 5.5 0 0 0-7.8 0L12 5.8l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.8-7.4 1.1-1.1a5.5 5.5 0 0 0-.1-7.8Z"/>
+  </symbol>
+  <symbol id="op-i-dashboard" viewBox="0 0 24 24">
+    <rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="4" rx="2"/>
+    <rect x="14" y="11" width="7" height="10" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/>
+  </symbol>
+  <symbol id="op-i-review" viewBox="0 0 24 24">
+    <path d="M12 3 4.5 6v5.5c0 4.5 3 7.8 7.5 9.5 4.5-1.7 7.5-5 7.5-9.5V6L12 3Z"/>
+    <path d="m9 12 2 2 4-4"/>
+  </symbol>
+  <symbol id="op-i-users" viewBox="0 0 24 24">
+    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+    <path d="M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/>
+  </symbol>
+  <symbol id="op-i-categories" viewBox="0 0 24 24">
+    <path d="M3 7.5h7l2-2h9v13H3v-11Z"/><path d="M3 10h18"/>
+  </symbol>
+  <symbol id="op-i-dates" viewBox="0 0 24 24">
+    <rect x="3" y="5" width="18" height="16" rx="3"/><path d="M16 3v4M8 3v4M3 10h18"/>
+    <path d="M15.7 13.4a2.1 2.1 0 0 0-3 0l-.7.7-.7-.7a2.1 2.1 0 0 0-3 3l.7.7 3 2.7 3-2.7.7-.7a2.1 2.1 0 0 0 0-3Z"/>
+  </symbol>
+  <symbol id="op-i-votes" viewBox="0 0 24 24">
+    <path d="M8 4h11a2 2 0 0 1 2 2v14H8"/><path d="M3 4h1v16H3zM12 9h5M12 13h5M12 17h3"/>
+  </symbol>
+  <symbol id="op-i-reports" viewBox="0 0 24 24">
+    <path d="M5 21V4"/><path d="M5 5h11l-1 4 4 3H5"/>
+  </symbol>
+  <symbol id="op-i-settings" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.6v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/>
+  </symbol>
+  <symbol id="op-i-search" viewBox="0 0 24 24">
+    <circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>
+  </symbol>
+  <symbol id="op-i-arrow-left" viewBox="0 0 24 24">
+    <path d="m15 18-6-6 6-6"/>
+  </symbol>
+  <symbol id="op-i-arrow-right" viewBox="0 0 24 24">
+    <path d="m9 18 6-6-6-6"/>
+  </symbol>
+  <symbol id="op-i-arrow-up-right" viewBox="0 0 24 24">
+    <path d="M7 17 17 7M7 7h10v10"/>
+  </symbol>
+  <symbol id="op-i-menu" viewBox="0 0 24 24">
+    <path d="M4 7h16M4 12h16M4 17h16"/>
+  </symbol>
+  <symbol id="op-i-cabinet" viewBox="0 0 24 24">
+    <path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v10h13V10M9.5 20v-6h5v6"/>
+  </symbol>
+  <symbol id="op-i-logout" viewBox="0 0 24 24">
+    <path d="M10 17l5-5-5-5M15 12H3"/><path d="M14 4h5a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-5"/>
+  </symbol>
+  <symbol id="op-i-edit" viewBox="0 0 24 24">
+    <path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4L16.5 3.5Z"/>
+  </symbol>
+  <symbol id="op-i-trash" viewBox="0 0 24 24">
+    <path d="M3 6h18M8 6V4h8v2M19 6l-1 15H6L5 6M10 10v7M14 10v7"/>
+  </symbol>
+  <symbol id="op-i-archive" viewBox="0 0 24 24">
+    <path d="M3 5h18v4H3zM5 9v11h14V9M9 13h6"/>
+  </symbol>
+  <symbol id="op-i-check" viewBox="0 0 24 24">
+    <path d="m5 12 4 4L19 6"/>
+  </symbol>
+  <symbol id="op-i-ban" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="9"/><path d="m5.6 5.6 12.8 12.8"/>
+  </symbol>
+  <symbol id="op-i-clock" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>
+  </symbol>
+  <symbol id="op-i-inbox" viewBox="0 0 24 24">
+    <path d="M4 4h16v16H4z"/><path d="M4 14h5l2 2h2l2-2h5"/>
+  </symbol>
+  <symbol id="op-i-user-plus" viewBox="0 0 24 24">
+    <path d="M15 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8" cy="7" r="4"/>
+    <path d="M19 8v6M16 11h6"/>
+  </symbol>
+  <symbol id="op-i-alert" viewBox="0 0 24 24">
+    <path d="M12 3 2.8 20h18.4L12 3Z"/><path d="M12 9v5M12 17.5h.01"/>
+  </symbol>
+  <symbol id="op-i-link" viewBox="0 0 24 24">
+    <path d="M10 13a5 5 0 0 0 7.5.5l2-2a5 5 0 0 0-7-7l-1.2 1.2"/><path d="M14 11a5 5 0 0 0-7.5-.5l-2 2a5 5 0 0 0 7 7l1.2-1.2"/>
+  </symbol>
+</svg>
+
+<div class="bg-smoke" id="bg-smoke" aria-hidden="true">
+  <span></span><span></span><span></span>
+</div>
+
+<div class="op-layout">
+  <aside class="op-sidebar" id="operatorSidebar" aria-label="Навигация администратора">
+    <div class="op-sidebar__inner">
+      <a class="op-brand" href="/operator/">
+        <span class="sr-only">⚙ Админ</span>
+        <span class="op-brand__mark">
+          <svg class="op-icon" aria-hidden="true"><use href="#op-i-heart"></use></svg>
+        </span>
+        <span class="op-brand__word">
+          <span class="op-brand__logo">date4you</span>
+          <span class="op-brand__label">центр управления</span>
+        </span>
+      </a>
+
+      <nav class="op-nav" aria-label="Разделы">
+        <span class="op-nav__label">Главное</span>
+        <a href="/operator/" class="{{ 'on' if active=='dash' else '' }}"
+           {% if active=='dash' %}aria-current="page"{% endif %}>
+          <span class="op-nav__icon"><svg class="op-icon" aria-hidden="true"><use href="#op-i-dashboard"></use></svg></span>
+          <span class="op-nav__text">Обзор</span>
+        </a>
+        <a href="/operator/review" class="{{ 'on' if active=='review' else '' }}"
+           {% if active=='review' %}aria-current="page"{% endif %}>
+          <span class="op-nav__icon"><svg class="op-icon" aria-hidden="true"><use href="#op-i-review"></use></svg></span>
+          <span class="op-nav__text">На проверке</span>
+        </a>
+
+        <span class="op-nav__label">Платформа</span>
+        <a href="/operator/users" class="{{ 'on' if active=='users' else '' }}"
+           {% if active=='users' %}aria-current="page"{% endif %}>
+          <span class="op-nav__icon"><svg class="op-icon" aria-hidden="true"><use href="#op-i-users"></use></svg></span>
+          <span class="op-nav__text">Пользователи</span>
+        </a>
+        <a href="/operator/categories" class="{{ 'on' if active=='cats' else '' }}"
+           {% if active=='cats' %}aria-current="page"{% endif %}>
+          <span class="op-nav__icon"><svg class="op-icon" aria-hidden="true"><use href="#op-i-categories"></use></svg></span>
+          <span class="op-nav__text">Категории</span>
+        </a>
+        <a href="/operator/dates" class="{{ 'on' if active=='dates' else '' }}"
+           {% if active=='dates' %}aria-current="page"{% endif %}>
+          <span class="op-nav__icon"><svg class="op-icon" aria-hidden="true"><use href="#op-i-dates"></use></svg></span>
+          <span class="op-nav__text">События</span>
+        </a>
+        <a href="/operator/bookings" class="{{ 'on' if active=='bookings' else '' }}"
+           {% if active=='bookings' %}aria-current="page"{% endif %}>
+          <span class="op-nav__icon"><svg class="op-icon" aria-hidden="true"><use href="#op-i-votes"></use></svg></span>
+          <span class="op-nav__text">Голоса</span>
+        </a>
+
+        <span class="op-nav__label">Контроль</span>
+        <a href="/operator/reports" class="{{ 'on' if active=='reports' else '' }}"
+           {% if active=='reports' %}aria-current="page"{% endif %}>
+          <span class="op-nav__icon"><svg class="op-icon" aria-hidden="true"><use href="#op-i-reports"></use></svg></span>
+          <span class="op-nav__text">Жалобы</span>
+        </a>
+        <a href="/operator/settings" class="{{ 'on' if active=='settings' else '' }}"
+           {% if active=='settings' %}aria-current="page"{% endif %}>
+          <span class="op-nav__icon"><svg class="op-icon" aria-hidden="true"><use href="#op-i-settings"></use></svg></span>
+          <span class="op-nav__text">Настройки</span>
+        </a>
+      </nav>
+
+      <div class="op-sidebar__footer">
+        <div class="op-account">
+          <span class="op-avatar" aria-hidden="true">{{ (user['display_name'] or 'A')[:1] }}</span>
+          <span class="op-account__copy">
+            <span class="op-account__name">{{ user['display_name'] or user['tg_username'] or 'Администратор' }}</span>
+            <span class="op-account__role">Администратор платформы</span>
+          </span>
+        </div>
+        <div class="op-sidebar__actions">
+          <a class="op-cabinet-link" href="/admin/">
+            <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-cabinet"></use></svg>
+            В кабинет
+          </a>
+          <button type="button" class="op-icon-button" data-theme-toggle
+                  aria-label="Включить тёмную тему">
+            <span class="theme-moon-icon" data-theme-icon aria-hidden="true"></span>
+          </button>
+        </div>
+        <div class="op-sidebar__secondary">
+          <form method="post" action="/admin/logout">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <button type="submit" class="op-icon-button">
+              <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-logout"></use></svg>
+              <span>Выйти из аккаунта</span>
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <button type="button" class="op-nav-overlay" data-op-nav-close
+          aria-label="Закрыть меню"></button>
+
+  <div class="op-main">
+    <header class="op-topbar">
+      <div class="op-topbar__left">
+        <button type="button" class="op-menu-button" data-op-nav-toggle
+                aria-controls="operatorSidebar" aria-expanded="false"
+                aria-label="Открыть меню">
+          <svg class="op-icon" aria-hidden="true"><use href="#op-i-menu"></use></svg>
+        </button>
+        <a class="op-mobile-brand" href="/operator/">
+          <span class="op-mobile-brand__logo">date4you</span>
+          <span class="op-mobile-brand__label">админ</span>
+        </a>
+        <div class="op-topbar__context">
+          <span class="op-topbar__dot" aria-hidden="true"></span>
+          <span>Системное управление</span>
+          <span aria-hidden="true">/</span>
+          <strong>{{ user['display_name'] or user['tg_username'] or 'Администратор' }}</strong>
+        </div>
+      </div>
+      <div class="op-topbar__actions">
+        <a class="op-cabinet-link" href="/admin/">
+          <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-cabinet"></use></svg>
+          Кабинет
+        </a>
+        <button type="button" class="op-icon-button" data-theme-toggle
+                aria-label="Включить тёмную тему">
+          <span class="theme-moon-icon" data-theme-icon aria-hidden="true"></span>
+        </button>
+      </div>
+    </header>
+
+    <main class="op-content" id="operatorContent" tabindex="-1">
+      <div class="op-page-head">
+        <div class="op-page-head__copy">
+          <p class="op-eyebrow">{% block page_eyebrow %}Управление платформой{% endblock %}</p>
+          <h1 class="op-page-title">{% block page_title %}Центр управления{% endblock %}</h1>
+          {% block page_intro %}{% endblock %}
+        </div>
+        <div class="op-page-actions">{% block page_actions %}{% endblock %}</div>
+      </div>
+
+      {% set m = request.query_params.get('msg') %}
+      {% if m %}
+      <div class="flash{{ ' err' if m.startswith('⚠') else '' }}" role="{{ 'alert' if m.startswith('⚠') else 'status' }}">
+        <span>{{ m }}</span>
+        <button type="button" class="flash__close" data-flash-close aria-label="Скрыть сообщение">×</button>
+      </div>
+      {% endif %}
+
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</div>
 </body>
 </html>

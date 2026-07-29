@@ -1,57 +1,98 @@
 {% extends "operator/base.html" %}
 {% block title %}Жалобы{% endblock %}
-{% block content %}
-<h1>Жалобы</h1>
+{% block page_eyebrow %}Безопасность{% endblock %}
+{% block page_title %}Жалобы <span class="count">{{ items|length }}</span>{% endblock %}
+{% block page_intro %}
+<p class="op-page-intro">Обращения пользователей о категориях и событиях, требующих внимания.</p>
+{% endblock %}
 
-<div class="bar">
-  {% for s, lbl in [('open','Открытые'),('resolved','Обработанные'),('dismissed','Отклонённые'),('all','Все')] %}
-  <a class="btn small {{ 'primary' if status==s else '' }}" href="/operator/reports?status={{ s }}">{{ lbl }}</a>
-  {% endfor %}
+{% block content %}
+<div class="toolbar">
+  <nav class="segmented" aria-label="Статус жалоб">
+    {% for s, lbl in [('open','Открытые'),('resolved','Обработанные'),('dismissed','Отклонённые'),('all','Все')] %}
+    <a class="{{ 'on' if status==s else '' }}" {% if status==s %}aria-current="page"{% endif %}
+       href="/operator/reports?status={{ s }}">{{ lbl }}</a>
+    {% endfor %}
+  </nav>
 </div>
 
-<table>
-  <tr><th>Объект</th><th>Владелец</th><th>Причина</th><th>Когда</th><th>Статус</th><th>Действия</th></tr>
-  {% for it in items %}
-  {% set r = it.r %}{% set t = it.t %}
-  <tr>
-    <td>
-      {{ 'Категория' if r['target_type']=='category' else 'Событие' }}:
-      <b>{% if t %}{{ t['name'] }}{% else %}<span class="muted">удалён</span>{% endif %}</b>
-    </td>
-    <td class="muted">{{ t['owner'] if t else '—' }}</td>
-    <td>{{ r['reason'] or '—' }}</td>
-    <td class="muted">{{ r['created_at'][:16].replace('T',' ') }}</td>
-    <td>
-      {% if r['status']=='open' %}<span class="badge ban">открыта</span>
-      {% elif r['status']=='resolved' %}<span class="badge">обработана</span>
-      {% else %}<span class="badge">отклонена</span>{% endif %}
-    </td>
-    <td>
-      {% if r['status']=='open' %}
-      <div class="bar" style="margin:0;gap:6px">
-        {% if t %}
-        <form class="inline" method="post" action="/operator/reports/{{ r['id'] }}/takedown"
-              data-confirm="Удалить контент «{{ t['name'] }}» НАВСЕГДА и закрыть жалобу?">
-          <input type="hidden" name="csrf" value="{{ csrf }}">
-          <button class="btn small danger">Удалить контент</button>
-        </form>
-        {% endif %}
-        <form class="inline" method="post" action="/operator/reports/{{ r['id'] }}/resolve">
-          <input type="hidden" name="csrf" value="{{ csrf }}">
-          <input type="hidden" name="action" value="resolved">
-          <button class="btn small">Обработана</button>
-        </form>
-        <form class="inline" method="post" action="/operator/reports/{{ r['id'] }}/resolve">
-          <input type="hidden" name="csrf" value="{{ csrf }}">
-          <input type="hidden" name="action" value="dismiss">
-          <button class="btn small">Отклонить</button>
-        </form>
-      </div>
-      {% else %}<span class="muted">—</span>{% endif %}
-    </td>
-  </tr>
-  {% else %}
-  <tr><td colspan="6" class="muted">Жалоб нет</td></tr>
-  {% endfor %}
-</table>
+<section class="panel">
+  <div class="panel__head">
+    <div class="panel__title-wrap">
+      <h2 class="panel__title">
+        {{ {'open':'Открытые жалобы','resolved':'Обработанные жалобы','dismissed':'Отклонённые жалобы','all':'Все жалобы'}.get(status, 'Жалобы') }}
+      </h2>
+      <span class="panel__hint">В текущем разделе: {{ items|length }}</span>
+    </div>
+  </div>
+  <div class="table-scroll">
+    <table class="data-table responsive-table">
+      <thead>
+        <tr><th>Объект</th><th>Владелец</th><th>Причина</th><th>Когда</th><th>Статус</th><th>Действия</th></tr>
+      </thead>
+      <tbody>
+        {% for it in items %}
+        {% set r = it.r %}{% set t = it.t %}
+        <tr>
+          <td data-label="Объект">
+            <span class="cell-primary">
+              {% if t %}{{ t['name'] }}{% else %}<span class="muted">Контент удалён</span>{% endif %}
+            </span>
+            <span class="cell-secondary">{{ 'Категория' if r['target_type']=='category' else 'Событие' }} · жалоба #{{ r['id'] }}</span>
+          </td>
+          <td data-label="Владелец" class="muted">{{ t['owner'] if t else '—' }}</td>
+          <td data-label="Причина">{{ r['reason'] or 'Причина не указана' }}</td>
+          <td data-label="Когда" class="muted">{{ r['created_at'][:16].replace('T',' ') }}</td>
+          <td data-label="Статус">
+            {% if r['status']=='open' %}<span class="badge danger">открыта</span>
+            {% elif r['status']=='resolved' %}<span class="badge success">обработана</span>
+            {% else %}<span class="badge neutral">отклонена</span>{% endif %}
+          </td>
+          <td data-label="Действия" class="action-cell">
+            {% if r['status']=='open' %}
+            <div class="button-row">
+              <form class="inline" method="post" action="/operator/reports/{{ r['id'] }}/resolve">
+                <input type="hidden" name="csrf" value="{{ csrf }}">
+                <input type="hidden" name="action" value="resolved">
+                <button class="btn small primary" type="submit">
+                  <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-check"></use></svg>
+                  Обработана
+                </button>
+              </form>
+              <form class="inline" method="post" action="/operator/reports/{{ r['id'] }}/resolve">
+                <input type="hidden" name="csrf" value="{{ csrf }}">
+                <input type="hidden" name="action" value="dismiss">
+                <button class="btn small" type="submit">Отклонить</button>
+              </form>
+              {% if t %}
+              <form class="inline" method="post" action="/operator/reports/{{ r['id'] }}/takedown"
+                    data-confirm="Удалить контент «{{ t['name'] }}» НАВСЕГДА и закрыть жалобу?">
+                <input type="hidden" name="csrf" value="{{ csrf }}">
+                <button class="btn small danger" type="submit">
+                  <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-trash"></use></svg>
+                  Удалить контент
+                </button>
+              </form>
+              {% endif %}
+            </div>
+            {% else %}<span class="muted">Действий нет</span>{% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr class="empty-row">
+          <td colspan="6">
+            <div class="empty-state">
+              <div>
+                <span class="empty-state__icon"><svg class="op-icon" aria-hidden="true"><use href="#op-i-inbox"></use></svg></span>
+                <strong class="empty-state__title">Жалоб здесь нет</strong>
+                <p>Всё спокойно — очередь пуста.</p>
+              </div>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
 {% endblock %}

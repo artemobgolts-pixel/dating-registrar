@@ -1,43 +1,187 @@
 {% extends "operator/base.html" %}
 {% block title %}Обзор{% endblock %}
+{% block page_eyebrow %}Центр управления{% endblock %}
+{% block page_title %}Обзор платформы{% endblock %}
+{% block page_intro %}
+<p class="op-page-intro">Главные показатели, очередь модерации и быстрый доступ к ежедневным задачам.</p>
+{% endblock %}
 {% block content %}
-<h1>Обзор платформы</h1>
-
 {% if stats.review_users or stats.review_cats %}
-<div class="flash" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;background:#eef3fb;border-color:#c3d4ee">
-  <span>🕵 На проверке:
-    <b>{{ stats.review_users }}</b> пользователей и <b>{{ stats.review_cats }}</b> категорий.</span>
-  <a class="btn" href="/operator/review" style="margin-left:auto">Открыть очередь</a>
+<div class="attention-card">
+  <span class="attention-card__icon">
+    <svg class="op-icon" aria-hidden="true"><use href="#op-i-review"></use></svg>
+  </span>
+  <div class="attention-card__copy">
+    <strong>На проверке — {{ stats.review_users }} пользователей и {{ stats.review_cats }} категорий</strong>
+    <p>Новые объекты доступны на платформе, но ждут просмотра администратора.</p>
+  </div>
+  <a class="btn primary" href="/operator/review">Открыть очередь</a>
 </div>
 {% endif %}
 
-<div class="cards">
-  <div class="stat"><div class="v">{{ stats.users }}</div><div class="l">пользователей</div></div>
-  <div class="stat"><div class="v">{{ stats.active }}</div><div class="l">активных</div></div>
-  <div class="stat"><div class="v">{{ stats.banned }}</div><div class="l">забанено</div></div>
-  <div class="stat"><div class="v">{{ stats.operators }}</div><div class="l">админов</div></div>
-  <div class="stat"><div class="v">{{ stats.cats }}</div><div class="l"><a class="link" href="/operator/categories">категорий</a></div></div>
-  <div class="stat"><div class="v">{{ stats.dates }}</div><div class="l"><a class="link" href="/operator/dates">событий</a></div></div>
-  <div class="stat"><div class="v">{{ stats.bookings }}</div><div class="l"><a class="link" href="/operator/bookings">голосов</a></div></div>
-  <div class="stat"><div class="v">{{ stats.reports }}</div><div class="l"><a class="link" href="/operator/reports">открытых жалоб</a></div></div>
+<div class="metric-grid">
+  <a class="metric" href="/operator/users">
+    <span class="metric__top">
+      <span class="metric__icon"><svg class="op-icon" aria-hidden="true"><use href="#op-i-users"></use></svg></span>
+      <svg class="op-icon sm metric__arrow" aria-hidden="true"><use href="#op-i-arrow-up-right"></use></svg>
+    </span>
+    <span>
+      <strong class="metric__value">{{ stats.users }}</strong>
+      <span class="metric__label">пользователей</span>
+    </span>
+  </a>
+  <a class="metric success" href="/operator/users">
+    <span class="metric__top">
+      <span class="metric__icon"><svg class="op-icon" aria-hidden="true"><use href="#op-i-check"></use></svg></span>
+      <svg class="op-icon sm metric__arrow" aria-hidden="true"><use href="#op-i-arrow-up-right"></use></svg>
+    </span>
+    <span>
+      <strong class="metric__value">{{ stats.active }}</strong>
+      <span class="metric__label">активных аккаунтов</span>
+    </span>
+  </a>
+  <a class="metric warning" href="/operator/users">
+    <span class="metric__top">
+      <span class="metric__icon"><svg class="op-icon" aria-hidden="true"><use href="#op-i-review"></use></svg></span>
+      <svg class="op-icon sm metric__arrow" aria-hidden="true"><use href="#op-i-arrow-up-right"></use></svg>
+    </span>
+    <span>
+      <strong class="metric__value">{{ stats.operators }}</strong>
+      <span class="metric__label">админов</span>
+    </span>
+  </a>
+  <a class="metric danger" href="/operator/users">
+    <span class="metric__top">
+      <span class="metric__icon"><svg class="op-icon" aria-hidden="true"><use href="#op-i-ban"></use></svg></span>
+      <svg class="op-icon sm metric__arrow" aria-hidden="true"><use href="#op-i-arrow-up-right"></use></svg>
+    </span>
+    <span>
+      <strong class="metric__value">{{ stats.banned }}</strong>
+      <span class="metric__label">заблокировано</span>
+    </span>
+  </a>
+  <a class="metric" href="/operator/categories">
+    <span class="metric__top">
+      <span class="metric__icon"><svg class="op-icon" aria-hidden="true"><use href="#op-i-categories"></use></svg></span>
+      <svg class="op-icon sm metric__arrow" aria-hidden="true"><use href="#op-i-arrow-up-right"></use></svg>
+    </span>
+    <span>
+      <strong class="metric__value">{{ stats.cats }}</strong>
+      <span class="metric__label">категорий</span>
+    </span>
+  </a>
+  <a class="metric info" href="/operator/dates">
+    <span class="metric__top">
+      <span class="metric__icon"><svg class="op-icon" aria-hidden="true"><use href="#op-i-dates"></use></svg></span>
+      <svg class="op-icon sm metric__arrow" aria-hidden="true"><use href="#op-i-arrow-up-right"></use></svg>
+    </span>
+    <span>
+      <strong class="metric__value">{{ stats.dates }}</strong>
+      <span class="metric__label">событий</span>
+    </span>
+  </a>
+  <a class="metric success" href="/operator/bookings">
+    <span class="metric__top">
+      <span class="metric__icon"><svg class="op-icon" aria-hidden="true"><use href="#op-i-votes"></use></svg></span>
+      <svg class="op-icon sm metric__arrow" aria-hidden="true"><use href="#op-i-arrow-up-right"></use></svg>
+    </span>
+    <span>
+      <strong class="metric__value">{{ stats.bookings }}</strong>
+      <span class="metric__label">голосов</span>
+    </span>
+  </a>
+  <a class="metric danger" href="/operator/reports">
+    <span class="metric__top">
+      <span class="metric__icon"><svg class="op-icon" aria-hidden="true"><use href="#op-i-reports"></use></svg></span>
+      <svg class="op-icon sm metric__arrow" aria-hidden="true"><use href="#op-i-arrow-up-right"></use></svg>
+    </span>
+    <span>
+      <strong class="metric__value">{{ stats.reports }}</strong>
+      <span class="metric__label">открытых жалоб</span>
+    </span>
+  </a>
 </div>
 
-<h1 style="font-size:18px">Последние регистрации</h1>
-<table>
-  <tr><th>Имя</th><th>Telegram</th><th>Статус</th><th>Регистрация</th></tr>
-  {% for u in recent %}
-  <tr>
-    <td><a class="link" href="/operator/users/{{ u['id'] }}">{{ u['display_name'] or '—' }}</a></td>
-    <td class="muted">{% if u['tg_username'] %}@{{ u['tg_username'] }}{% else %}id {{ u['telegram_id'] }}{% endif %}</td>
-    <td>
-      {% if not u['is_active'] %}<span class="badge ban">бан</span>
-      {% elif u['is_operator'] %}<span class="badge op">админ</span>
-      {% else %}<span class="badge">активен</span>{% endif %}
-    </td>
-    <td class="muted">{{ u['created_at'][:10] }}</td>
-  </tr>
-  {% else %}
-  <tr><td colspan="4" class="muted">Пока никого</td></tr>
-  {% endfor %}
-</table>
+<div class="dashboard-grid">
+  <section class="panel">
+    <div class="panel__head">
+      <div class="panel__title-wrap">
+        <h2 class="panel__title">Последние регистрации</h2>
+        <span class="panel__hint">Новые пользователи платформы</span>
+      </div>
+      <a class="btn small" href="/operator/users">Все пользователи</a>
+    </div>
+    <div class="table-scroll">
+      <table class="data-table responsive-table">
+        <thead>
+          <tr><th>Пользователь</th><th>Статус</th><th>Регистрация</th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for u in recent %}
+          <tr>
+            <td data-label="Пользователь">
+              <div class="identity">
+                <span class="identity__avatar" aria-hidden="true">{{ (u['display_name'] or u['tg_username'] or '?')[:1] }}</span>
+                <span class="identity__copy">
+                  <a class="identity__name" href="/operator/users/{{ u['id'] }}">{{ u['display_name'] or 'Без имени' }}</a>
+                  <span class="identity__meta">{% if u['tg_username'] %}@{{ u['tg_username'] }}{% else %}Telegram ID {{ u['telegram_id'] }}{% endif %}</span>
+                </span>
+              </div>
+            </td>
+            <td data-label="Статус">
+              {% if not u['is_active'] %}<span class="badge danger">заблокирован</span>
+              {% elif u['is_operator'] %}<span class="badge op">администратор</span>
+              {% else %}<span class="badge success">активен</span>{% endif %}
+            </td>
+            <td data-label="Регистрация" class="muted">{{ u['created_at'][:10] }}</td>
+            <td data-label="Действие" class="action-cell">
+              <a class="btn small" href="/operator/users/{{ u['id'] }}">Открыть</a>
+            </td>
+          </tr>
+          {% else %}
+          <tr class="empty-row">
+            <td colspan="4">
+              <div class="empty-state compact">
+                <div>
+                  <span class="empty-state__icon"><svg class="op-icon" aria-hidden="true"><use href="#op-i-user-plus"></use></svg></span>
+                  <strong class="empty-state__title">Регистраций пока нет</strong>
+                  <p>Новые пользователи появятся здесь.</p>
+                </div>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <aside class="panel">
+    <div class="panel__head">
+      <div class="panel__title-wrap">
+        <h2 class="panel__title">Быстрые действия</h2>
+        <span class="panel__hint">Частые задачи администратора</span>
+      </div>
+    </div>
+    <div class="panel__body">
+      <div class="quick-list">
+        <a class="quick-link" href="/operator/review">
+          <span class="quick-link__icon"><svg class="op-icon" aria-hidden="true"><use href="#op-i-review"></use></svg></span>
+          <span class="quick-link__copy"><strong>Проверить очередь</strong><span>Новые пользователи и категории</span></span>
+          <svg class="op-icon" aria-hidden="true"><use href="#op-i-arrow-right"></use></svg>
+        </a>
+        <a class="quick-link" href="/operator/reports">
+          <span class="quick-link__icon"><svg class="op-icon" aria-hidden="true"><use href="#op-i-reports"></use></svg></span>
+          <span class="quick-link__copy"><strong>Разобрать жалобы</strong><span>{{ stats.reports }} открыто сейчас</span></span>
+          <svg class="op-icon" aria-hidden="true"><use href="#op-i-arrow-right"></use></svg>
+        </a>
+        <a class="quick-link" href="/operator/settings">
+          <span class="quick-link__icon"><svg class="op-icon" aria-hidden="true"><use href="#op-i-settings"></use></svg></span>
+          <span class="quick-link__copy"><strong>Настроить модерацию</strong><span>Правила мягкой проверки</span></span>
+          <svg class="op-icon" aria-hidden="true"><use href="#op-i-arrow-right"></use></svg>
+        </a>
+      </div>
+    </div>
+  </aside>
+</div>
 {% endblock %}

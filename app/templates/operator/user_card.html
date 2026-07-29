@@ -1,84 +1,234 @@
 {% extends "operator/base.html" %}
 {% block title %}{{ u['display_name'] or 'Пользователь' }}{% endblock %}
+{% block page_eyebrow %}Пользователи / Карточка{% endblock %}
+{% block page_title %}Карточка пользователя{% endblock %}
+{% block page_intro %}
+<p class="op-page-intro">Профиль, права доступа, лимиты и контент пользователя.</p>
+{% endblock %}
+{% block page_actions %}
+<a class="btn" href="/operator/users">
+  <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-arrow-left"></use></svg>
+  К списку
+</a>
+{% endblock %}
+
 {% block content %}
-<div class="bar">
-  <a class="btn" href="/operator/users">← К списку</a>
+<section class="panel profile-hero">
+  <span class="profile-hero__avatar" aria-hidden="true">{{ (u['display_name'] or u['tg_username'] or '?')[:1] }}</span>
+  <div class="profile-hero__copy">
+    <h2 class="profile-hero__name">{{ u['display_name'] or 'Без имени' }}</h2>
+    <div class="profile-hero__meta">
+      {% if u['tg_username'] %}<span class="badge info no-dot">@{{ u['tg_username'] }}</span>
+      {% else %}<span class="badge neutral no-dot">Telegram ID {{ u['telegram_id'] }}</span>{% endif %}
+      {% if not u['is_active'] %}<span class="badge danger">заблокирован</span>
+      {% elif u['is_operator'] %}<span class="badge op">администратор</span>
+      {% else %}<span class="badge success">активен</span>{% endif %}
+      {% if u['id'] == user['id'] %}<span class="badge neutral no-dot">это вы</span>{% endif %}
+    </div>
+  </div>
+  <div class="profile-hero__stats" aria-label="Статистика пользователя">
+    <span class="mini-stat"><strong>{{ cats|length }}</strong><span>категорий</span></span>
+    <span class="mini-stat"><strong>{{ dates|length }}</strong><span>событий</span></span>
+  </div>
+</section>
+
+<div class="user-columns">
+  <div class="user-column">
+  <section class="panel">
+    <div class="panel__head">
+      <div class="panel__title-wrap">
+        <h2 class="panel__title">Данные аккаунта</h2>
+        <span class="panel__hint">Системная информация и активность</span>
+      </div>
+    </div>
+    <div class="panel__body">
+      <div class="detail-grid">
+        <div class="detail-item">
+          <span class="detail-item__label">Telegram ID</span>
+          <span class="detail-item__value">{{ u['telegram_id'] }}</span>
+        </div>
+        <div class="detail-item">
+          <span class="detail-item__label">Username</span>
+          <span class="detail-item__value">{% if u['tg_username'] %}@{{ u['tg_username'] }}{% else %}Не указан{% endif %}</span>
+        </div>
+        <div class="detail-item">
+          <span class="detail-item__label">Дата рождения</span>
+          <span class="detail-item__value">{{ u['birth_date'] or 'Не указана' }}</span>
+        </div>
+        <div class="detail-item">
+          <span class="detail-item__label">Пол</span>
+          <span class="detail-item__value">{{ {'m':'Мужской','f':'Женский'}.get(u['gender'], 'Не указан') }}</span>
+        </div>
+        <div class="detail-item">
+          <span class="detail-item__label">Регистрация</span>
+          <span class="detail-item__value">{{ u['created_at'][:16].replace('T',' ') }}</span>
+        </div>
+        <div class="detail-item">
+          <span class="detail-item__label">Последний вход</span>
+          <span class="detail-item__value">{{ (u['last_login_at'] or '—')[:16].replace('T',' ') }}</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel__head">
+      <div class="panel__title-wrap">
+        <h2 class="panel__title">Категории <span class="badge no-dot">{{ cats|length }}</span></h2>
+        <span class="panel__hint">Подборки этого пользователя</span>
+      </div>
+    </div>
+    <div class="table-scroll">
+      <table class="data-table responsive-table">
+        <thead><tr><th>Название</th><th>События</th><th>Ссылка</th><th></th></tr></thead>
+        <tbody>
+          {% for c in cats %}
+          <tr>
+            <td data-label="Категория"><span class="cell-primary">{{ c['name'] }}</span></td>
+            <td data-label="События" class="number-cell">{{ c['n'] }}</td>
+            <td data-label="Ссылка">
+              {% if c['link_enabled'] and c['link_token'] %}<span class="badge success">включена</span>
+              {% else %}<span class="badge neutral">выключена</span>{% endif %}
+            </td>
+            <td data-label="Действие" class="action-cell">
+              <a class="btn small" href="/admin/categories/{{ c['id'] }}">
+                <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-edit"></use></svg>
+                Изменить
+              </a>
+            </td>
+          </tr>
+          {% else %}
+          <tr class="empty-row">
+            <td colspan="4">
+              <div class="empty-state compact">
+                <div>
+                  <span class="empty-state__icon"><svg class="op-icon" aria-hidden="true"><use href="#op-i-categories"></use></svg></span>
+                  <strong class="empty-state__title">Категорий нет</strong>
+                </div>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  </div>
+
+  <div class="user-column">
+  <section class="panel">
+    <div class="panel__head">
+      <div class="panel__title-wrap">
+        <h2 class="panel__title">Управление доступом</h2>
+        <span class="panel__hint">Роль, блокировка и квота событий</span>
+      </div>
+    </div>
+    <div class="panel__body">
+      <div class="action-stack">
+        <div class="action-row">
+          <span class="action-row__copy">
+            <strong>{{ 'Разблокировать аккаунт' if not u['is_active'] else 'Заблокировать аккаунт' }}</strong>
+            <span>{{ 'Вернуть пользователю доступ к платформе.' if not u['is_active'] else 'Пользователь не сможет войти в аккаунт.' }}</span>
+          </span>
+          <form class="inline" method="post" action="/operator/users/{{ u['id'] }}/ban"
+                data-confirm="{{ 'Разблокировать' if not u['is_active'] else 'Заблокировать' }} пользователя?">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <button class="btn {{ '' if not u['is_active'] else 'danger' }}" type="submit"
+                    {% if u['id'] == user['id'] %}disabled title="Нельзя заблокировать себя"{% endif %}>
+              <svg class="op-icon sm" aria-hidden="true"><use href="#{{ 'op-i-check' if not u['is_active'] else 'op-i-ban' }}"></use></svg>
+              {{ 'Разблокировать' if not u['is_active'] else 'Заблокировать' }}
+            </button>
+          </form>
+        </div>
+
+        <div class="action-row">
+          <span class="action-row__copy">
+            <strong>{{ 'Снять роль администратора' if u['is_operator'] else 'Выдать роль администратора' }}</strong>
+            <span>Роль даёт полный доступ к этой панели и данным платформы.</span>
+          </span>
+          <form class="inline" method="post" action="/operator/users/{{ u['id'] }}/operator"
+                data-confirm="Изменить роль администратора?">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <button class="btn" type="submit"
+                    {% if u['id'] == user['id'] %}disabled title="Нельзя снять свою роль"{% endif %}>
+              {{ 'Снять роль' if u['is_operator'] else 'Сделать админом' }}
+            </button>
+          </form>
+        </div>
+
+        <div class="action-row">
+          <span class="action-row__copy">
+            <strong>Квота событий</strong>
+            <span>Максимальное число событий, доступных пользователю.</span>
+          </span>
+          <form class="quota-form" method="post" action="/operator/users/{{ u['id'] }}/quota">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <label class="sr-only" for="userQuota">Квота событий</label>
+            <input id="userQuota" type="number" name="date_limit" value="{{ u['date_limit'] }}"
+                   min="0" max="10000" inputmode="numeric">
+            <button class="btn" type="submit">Сохранить</button>
+          </form>
+        </div>
+      </div>
+
+      <div class="danger-zone">
+        <strong class="danger-zone__title">Опасная зона</strong>
+        <p class="danger-zone__copy">Удаление сотрёт аккаунт, категории, события и медиа без возможности восстановления.</p>
+        <form method="post" action="/operator/users/{{ u['id'] }}/delete"
+              data-confirm="УДАЛИТЬ пользователя и ВСЕ его данные (категории, события, фото)? Необратимо.">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button class="btn danger-solid" type="submit"
+                  {% if u['id'] == user['id'] %}disabled title="Нельзя удалить свой аккаунт здесь"{% endif %}>
+            <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-trash"></use></svg>
+            Удалить пользователя
+          </button>
+        </form>
+      </div>
+    </div>
+  </section>
+  <section class="panel">
+    <div class="panel__head">
+      <div class="panel__title-wrap">
+        <h2 class="panel__title">События <span class="badge no-dot">{{ dates|length }}</span></h2>
+        <span class="panel__hint">Последние 100 событий пользователя</span>
+      </div>
+    </div>
+    <div class="table-scroll">
+      <table class="data-table responsive-table">
+        <thead><tr><th>Название</th><th>Статус</th><th>Источник</th><th></th></tr></thead>
+        <tbody>
+          {% for d in dates %}
+          <tr>
+            <td data-label="Событие"><span class="cell-primary">{{ d['name'] }}</span></td>
+            <td data-label="Статус">
+              {% if d['archived_at'] %}<span class="badge neutral">архив</span>
+              {% elif d['is_draft'] %}<span class="badge warning">неактивно</span>
+              {% else %}<span class="badge success">активно</span>{% endif %}
+            </td>
+            <td data-label="Источник" class="muted">{{ 'Гость' if d['origin']=='guest' else 'Владелец' }}</td>
+            <td data-label="Действие" class="action-cell">
+              <a class="btn small" href="/admin/dates/{{ d['id'] }}/edit">
+                <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-edit"></use></svg>
+                Изменить
+              </a>
+            </td>
+          </tr>
+          {% else %}
+          <tr class="empty-row">
+            <td colspan="4">
+              <div class="empty-state compact">
+                <div>
+                  <span class="empty-state__icon"><svg class="op-icon" aria-hidden="true"><use href="#op-i-dates"></use></svg></span>
+                  <strong class="empty-state__title">Событий нет</strong>
+                </div>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  </div>
 </div>
-
-<h1>
-  {{ u['display_name'] or '—' }}
-  {% if not u['is_active'] %}<span class="badge ban">забанен</span>
-  {% elif u['is_operator'] %}<span class="badge op">админ</span>{% endif %}
-</h1>
-
-<table style="margin-bottom:22px">
-  <tr><th>Telegram ID</th><td>{{ u['telegram_id'] }}</td></tr>
-  <tr><th>Username</th><td>{% if u['tg_username'] %}@{{ u['tg_username'] }}{% else %}—{% endif %}</td></tr>
-  <tr><th>Дата рождения</th><td>{{ u['birth_date'] or '—' }}</td></tr>
-  <tr><th>Пол</th><td>{{ {'m':'Мужской','f':'Женский'}.get(u['gender'], '—') }}</td></tr>
-  <tr><th>Регистрация</th><td>{{ u['created_at'][:16].replace('T',' ') }}</td></tr>
-  <tr><th>Последний вход</th><td>{{ (u['last_login_at'] or '—')[:16].replace('T',' ') }}</td></tr>
-  <tr><th>Квота событий</th><td>{{ u['date_limit'] }}</td></tr>
-</table>
-
-<h1 style="font-size:18px">Действия</h1>
-<div class="bar" style="align-items:flex-end">
-  <form class="inline" method="post" action="/operator/users/{{ u['id'] }}/ban"
-        data-confirm="{{ 'Разбанить' if not u['is_active'] else 'Забанить' }} пользователя?">
-    <input type="hidden" name="csrf" value="{{ csrf }}">
-    <button class="btn {{ '' if not u['is_active'] else 'danger' }}">
-      {{ 'Разбанить' if not u['is_active'] else 'Забанить' }}
-    </button>
-  </form>
-
-  <form class="inline" method="post" action="/operator/users/{{ u['id'] }}/operator"
-        data-confirm="Изменить роль админа?">
-    <input type="hidden" name="csrf" value="{{ csrf }}">
-    <button class="btn">{{ 'Снять админа' if u['is_operator'] else 'Сделать админом' }}</button>
-  </form>
-
-  <form class="inline" method="post" action="/operator/users/{{ u['id'] }}/quota"
-        style="display:flex;gap:6px;align-items:center">
-    <input type="hidden" name="csrf" value="{{ csrf }}">
-    <input type="number" name="date_limit" value="{{ u['date_limit'] }}" min="0" max="10000"
-           style="width:90px">
-    <button class="btn">Квота</button>
-  </form>
-
-  <form class="inline" method="post" action="/operator/users/{{ u['id'] }}/delete"
-        data-confirm="УДАЛИТЬ пользователя и ВСЕ его данные (категории, события, фото)? Необратимо.">
-    <input type="hidden" name="csrf" value="{{ csrf }}">
-    <button class="btn danger">Удалить пользователя</button>
-  </form>
-</div>
-
-<h1 style="font-size:18px;margin-top:28px">Категории ({{ cats|length }})</h1>
-<table>
-  <tr><th>Название</th><th>Событий</th><th>Ссылка</th><th></th></tr>
-  {% for c in cats %}
-  <tr>
-    <td>{{ c['name'] }}</td>
-    <td>{{ c['n'] }}</td>
-    <td>{% if c['link_enabled'] and c['link_token'] %}<span class="badge">вкл</span>{% else %}<span class="muted">выкл</span>{% endif %}</td>
-    <td><a class="btn small" href="/admin/categories/{{ c['id'] }}">Редактировать</a></td>
-  </tr>
-  {% else %}<tr><td colspan="4" class="muted">Нет категорий</td></tr>{% endfor %}
-</table>
-
-<h1 style="font-size:18px;margin-top:24px">События ({{ dates|length }})</h1>
-<table>
-  <tr><th>Название</th><th>Статус</th><th>Источник</th><th></th></tr>
-  {% for d in dates %}
-  <tr>
-    <td>{{ d['name'] }}</td>
-    <td>
-      {% if d['archived_at'] %}<span class="muted">архив</span>
-      {% elif d['is_draft'] %}<span class="badge">неактивно</span>
-      {% else %}<span class="badge">активно</span>{% endif %}
-    </td>
-    <td class="muted">{{ 'гость' if d['origin']=='guest' else 'владелец' }}</td>
-    <td><a class="btn small" href="/admin/dates/{{ d['id'] }}/edit">Редактировать</a></td>
-  </tr>
-  {% else %}<tr><td colspan="4" class="muted">Нет событий</td></tr>{% endfor %}
-</table>
 {% endblock %}

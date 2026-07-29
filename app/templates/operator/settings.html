@@ -1,31 +1,63 @@
 {% extends "operator/base.html" %}
 {% block title %}Настройки{% endblock %}
+{% block page_eyebrow %}Конфигурация{% endblock %}
+{% block page_title %}Настройки модерации{% endblock %}
+{% block page_intro %}
+<p class="op-page-intro">Выберите, какие новые объекты будут попадать в мягкую очередь проверки.</p>
+{% endblock %}
+
 {% block content %}
-<h1>Настройки модерации</h1>
+<div class="info-card settings-panel">
+  <span class="info-card__icon">
+    <svg class="op-icon" aria-hidden="true"><use href="#op-i-review"></use></svg>
+  </span>
+  <div class="info-card__copy">
+    <strong>Мягкая модерация не блокирует публикацию</strong>
+    <p>Новые пользователи и категории работают сразу, а очередь помогает посмотреть их постфактум.</p>
+  </div>
+</div>
 
-<p class="muted" style="margin:-8px 0 18px">
-  Мягкая очередь: при включённой модерации всё продолжает работать сразу, но новые
-  пользователи и категории попадают в раздел <a class="link" href="/operator/review">«На проверке»</a>,
-  чтобы их можно было посмотреть постфактум. По умолчанию модерация выключена.
-</p>
-
-<form method="post" action="/operator/settings" style="display:grid;gap:16px;max-width:560px">
+<form class="panel settings-panel settings-form" method="post" action="/operator/settings">
   <input type="hidden" name="csrf" value="{{ csrf }}">
+  <div class="panel__head">
+    <div class="panel__title-wrap">
+      <h2 class="panel__title">Что проверять</h2>
+      <span class="panel__hint">Изменения применятся к новым объектам после сохранения</span>
+    </div>
+  </div>
+  <div class="panel__body">
+    <div class="form-grid">
+      <label class="switch-card">
+        <span class="switch-card__copy">
+          <strong>Новые пользователи</strong>
+          <span>Каждый новый аккаунт появится в разделе «На проверке».</span>
+        </span>
+        <span class="switch">
+          <input type="checkbox" name="moderate_users" value="1"
+                 {{ 'checked' if moderate_users else '' }}>
+          <span class="switch__track" aria-hidden="true"></span>
+        </span>
+      </label>
 
-  <label style="display:flex;gap:10px;align-items:flex-start">
-    <input type="checkbox" name="moderate_users" value="1" {{ 'checked' if moderate_users else '' }}
-           style="margin-top:3px">
-    <span><b>Модерация пользователей</b><br>
-      <span class="muted">Новые пользователи попадают в очередь на проверку.</span></span>
-  </label>
-
-  <label style="display:flex;gap:10px;align-items:flex-start">
-    <input type="checkbox" name="moderate_categories" value="1" {{ 'checked' if moderate_categories else '' }}
-           style="margin-top:3px">
-    <span><b>Модерация категорий</b><br>
-      <span class="muted">Новые категории попадают в очередь на проверку.</span></span>
-  </label>
-
-  <div><button class="btn primary">Сохранить</button></div>
+      <label class="switch-card">
+        <span class="switch-card__copy">
+          <strong>Новые категории</strong>
+          <span>Каждая новая подборка появится в очереди администратора.</span>
+        </span>
+        <span class="switch">
+          <input type="checkbox" name="moderate_categories" value="1"
+                 {{ 'checked' if moderate_categories else '' }}>
+          <span class="switch__track" aria-hidden="true"></span>
+        </span>
+      </label>
+    </div>
+  </div>
+  <div class="panel__footer">
+    <span class="muted">Текущий режим: мягкая проверка</span>
+    <button class="btn primary" type="submit">
+      <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-check"></use></svg>
+      Сохранить настройки
+    </button>
+  </div>
 </form>
 {% endblock %}

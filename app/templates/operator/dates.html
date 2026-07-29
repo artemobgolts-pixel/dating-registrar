@@ -1,62 +1,128 @@
 {% extends "operator/base.html" %}
-{% block title %}Встречи{% endblock %}
-{% block content %}
-<h1>Встречи <span class="muted" style="font-size:15px">({{ total }})</span></h1>
+{% block title %}События{% endblock %}
+{% block page_eyebrow %}Контент платформы{% endblock %}
+{% block page_title %}События <span class="count">{{ total }}</span>{% endblock %}
+{% block page_intro %}
+<p class="op-page-intro">Все события пользователей: публикация, модерация, голоса, жалобы и архив.</p>
+{% endblock %}
 
-<div class="bar">
-  {% for f, lbl in [('','Все'),('reported','С жалобой'),('draft','На модерации'),('booked','С голосами'),('archived','Архив')] %}
-  <a class="btn small {{ 'primary' if flt==f else '' }}"
-     href="/operator/dates?flt={{ f }}{% if q %}&q={{ q }}{% endif %}">{{ lbl }}</a>
-  {% endfor %}
+{% block content %}
+<div class="toolbar">
+  <nav class="segmented" aria-label="Фильтр событий">
+    {% for f, lbl in [('','Все'),('reported','С жалобой'),('draft','На модерации'),('booked','С голосами'),('archived','Архив')] %}
+    <a class="{{ 'on' if flt==f else '' }}"
+       {% if flt==f %}aria-current="page"{% endif %}
+       href="/operator/dates?flt={{ f }}{% if q %}&q={{ q }}{% endif %}">{{ lbl }}</a>
+    {% endfor %}
+  </nav>
+
+  <form class="search-form" method="get" action="/operator/dates" role="search">
+    <input type="hidden" name="flt" value="{{ flt }}">
+    <label class="search-field">
+      <span class="sr-only">Поиск событий</span>
+      <svg class="op-icon" aria-hidden="true"><use href="#op-i-search"></use></svg>
+      <input type="search" name="q" value="{{ q }}" placeholder="Название или владелец"
+             autocomplete="off" data-op-search>
+      <span class="search-shortcut" aria-hidden="true">/</span>
+    </label>
+    <button class="btn primary" type="submit">Найти</button>
+    {% if q %}<a class="btn" href="/operator/dates?flt={{ flt }}">Сбросить</a>{% endif %}
+  </form>
 </div>
 
-<form class="bar" method="get" action="/operator/dates">
-  <input type="hidden" name="flt" value="{{ flt }}">
-  <input type="search" name="q" value="{{ q }}" placeholder="Название или владелец"
-         style="min-width:280px">
-  <button class="btn">Найти</button>
-  {% if q %}<a class="btn" href="/operator/dates?flt={{ flt }}">Сбросить</a>{% endif %}
-</form>
-
-<table>
-  <tr><th>Название</th><th>Владелец</th><th>Статус</th><th>Голосов</th><th>Жалоб</th><th>Действия</th></tr>
-  {% for d in rows %}
-  <tr>
-    <td><b>{{ d['name'] }}</b>
-      {% if d['origin']=='guest' %}<span class="badge">от гостя</span>{% endif %}</td>
-    <td><a class="link" href="/operator/users/{{ d['owner_id'] }}">{{ d['owner'] or '—' }}</a></td>
-    <td>
-      {% if d['archived_at'] %}<span class="muted">архив</span>
-      {% elif d['is_draft'] %}<span class="badge">на модерации</span>
-      {% else %}<span class="badge">активно</span>{% endif %}
-    </td>
-    <td>{{ d['books'] }}</td>
-    <td>{% if d['reports'] %}<span class="badge ban">{{ d['reports'] }}</span>{% else %}0{% endif %}</td>
-    <td>
-      <div class="bar" style="margin:0;gap:6px">
-        <a class="btn small" href="/admin/dates/{{ d['id'] }}/edit">Редактировать</a>
-        <form class="inline" method="post" action="/operator/dates/{{ d['id'] }}/archive">
-          <input type="hidden" name="csrf" value="{{ csrf }}">
-          <button class="btn small">{{ 'Из архива' if d['archived_at'] else 'В архив' }}</button>
-        </form>
-        <form class="inline" method="post" action="/operator/dates/{{ d['id'] }}/delete"
-              data-confirm="Удалить событие «{{ d['name'] }}» и все его медиа? Необратимо.">
-          <input type="hidden" name="csrf" value="{{ csrf }}">
-          <button class="btn small danger">Удалить</button>
-        </form>
-      </div>
-    </td>
-  </tr>
-  {% else %}
-  <tr><td colspan="6" class="muted">Ничего не найдено</td></tr>
-  {% endfor %}
-</table>
+<section class="panel">
+  <div class="panel__head">
+    <div class="panel__title-wrap">
+      <h2 class="panel__title">
+        {{ {'':'Все события','reported':'События с жалобами','draft':'На модерации','booked':'С голосами','archived':'Архив'}.get(flt, 'Все события') }}
+      </h2>
+      <span class="panel__hint">{% if q %}Поиск по запросу «{{ q }}»{% else %}Найдено записей: {{ total }}{% endif %}</span>
+    </div>
+  </div>
+  <div class="table-scroll">
+    <table class="data-table responsive-table">
+      <thead>
+        <tr><th>Событие</th><th>Владелец</th><th>Статус</th><th>Голоса</th><th>Жалобы</th><th>Действия</th></tr>
+      </thead>
+      <tbody>
+        {% for d in rows %}
+        <tr>
+          <td data-label="Событие">
+            <span class="cell-primary">{{ d['name'] }}</span>
+            <span class="cell-secondary">
+              ID {{ d['id'] }}{% if d['origin']=='guest' %} · предложено гостем{% endif %}
+            </span>
+          </td>
+          <td data-label="Владелец">
+            <a class="link" href="/operator/users/{{ d['owner_id'] }}">{{ d['owner'] or 'Без имени' }}</a>
+          </td>
+          <td data-label="Статус">
+            {% if d['archived_at'] %}<span class="badge neutral">в архиве</span>
+            {% elif d['is_draft'] %}<span class="badge warning">на модерации</span>
+            {% else %}<span class="badge success">активно</span>{% endif %}
+          </td>
+          <td data-label="Голоса" class="number-cell">{{ d['books'] }}</td>
+          <td data-label="Жалобы">
+            {% if d['reports'] %}<span class="badge danger">{{ d['reports'] }}</span>
+            {% else %}<span class="muted">0</span>{% endif %}
+          </td>
+          <td data-label="Действия" class="action-cell">
+            <div class="button-row">
+              <a class="btn small" href="/admin/dates/{{ d['id'] }}/edit">
+                <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-edit"></use></svg>
+                Изменить
+              </a>
+              <form class="inline" method="post" action="/operator/dates/{{ d['id'] }}/archive">
+                <input type="hidden" name="csrf" value="{{ csrf }}">
+                <button class="btn small" type="submit">
+                  <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-archive"></use></svg>
+                  {{ 'Вернуть' if d['archived_at'] else 'В архив' }}
+                </button>
+              </form>
+              <form class="inline" method="post" action="/operator/dates/{{ d['id'] }}/delete"
+                    data-confirm="Удалить событие «{{ d['name'] }}» и все его медиа? Необратимо.">
+                <input type="hidden" name="csrf" value="{{ csrf }}">
+                <button class="btn small danger" type="submit" aria-label="Удалить событие {{ d['name'] }}">
+                  <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-trash"></use></svg>
+                  Удалить
+                </button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr class="empty-row">
+          <td colspan="6">
+            <div class="empty-state">
+              <div>
+                <span class="empty-state__icon"><svg class="op-icon" aria-hidden="true"><use href="#op-i-dates"></use></svg></span>
+                <strong class="empty-state__title">Событий не найдено</strong>
+                <p>Измените фильтр или поисковый запрос.</p>
+              </div>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
 
 {% if pages > 1 %}
-<div class="bar" style="margin-top:16px">
-  {% if page > 1 %}<a class="btn" href="/operator/dates?flt={{ flt }}&q={{ q }}&page={{ page-1 }}">← Назад</a>{% endif %}
-  <span class="muted">Стр. {{ page }} из {{ pages }}</span>
-  {% if page < pages %}<a class="btn" href="/operator/dates?flt={{ flt }}&q={{ q }}&page={{ page+1 }}">Вперёд →</a>{% endif %}
-</div>
+<nav class="pagination" aria-label="Пагинация">
+  {% if page > 1 %}
+  <a class="btn" href="/operator/dates?flt={{ flt }}&q={{ q }}&page={{ page-1 }}">
+    <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-arrow-left"></use></svg>
+    Назад
+  </a>
+  {% else %}<span></span>{% endif %}
+  <span class="pagination__status">Страница {{ page }} из {{ pages }}</span>
+  {% if page < pages %}
+  <a class="btn" href="/operator/dates?flt={{ flt }}&q={{ q }}&page={{ page+1 }}">
+    Вперёд
+    <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-arrow-right"></use></svg>
+  </a>
+  {% else %}<span></span>{% endif %}
+</nav>
 {% endif %}
 {% endblock %}

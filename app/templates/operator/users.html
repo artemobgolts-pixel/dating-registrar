@@ -1,44 +1,104 @@
 {% extends "operator/base.html" %}
 {% block title %}Пользователи{% endblock %}
+{% block page_eyebrow %}Платформа{% endblock %}
+{% block page_title %}Пользователи <span class="count">{{ total }}</span>{% endblock %}
+{% block page_intro %}
+<p class="op-page-intro">Аккаунты, роли, квоты и состояние доступа к платформе.</p>
+{% endblock %}
+
 {% block content %}
-<h1>Пользователи <span class="muted" style="font-size:15px">({{ total }})</span></h1>
+<div class="toolbar">
+  <form class="search-form" method="get" action="/operator/users" role="search">
+    <label class="search-field">
+      <span class="sr-only">Поиск пользователей</span>
+      <svg class="op-icon" aria-hidden="true"><use href="#op-i-search"></use></svg>
+      <input type="search" name="q" value="{{ q }}"
+             placeholder="Имя, @username или Telegram ID"
+             autocomplete="off" data-op-search>
+      <span class="search-shortcut" aria-hidden="true">/</span>
+    </label>
+    <button class="btn primary" type="submit">Найти</button>
+    {% if q %}<a class="btn" href="/operator/users">Сбросить</a>{% endif %}
+  </form>
+</div>
 
-<form class="bar" method="get" action="/operator/users">
-  <input type="search" name="q" value="{{ q }}" placeholder="Имя, @username или telegram_id"
-         style="min-width:280px">
-  <button class="btn">Найти</button>
-  {% if q %}<a class="btn" href="/operator/users">Сбросить</a>{% endif %}
-</form>
-
-<table>
-  <tr>
-    <th>Имя</th><th>Telegram</th><th>Статус</th>
-    <th>Категории</th><th>События</th><th>Квота</th><th></th>
-  </tr>
-  {% for u in rows %}
-  <tr>
-    <td><a class="link" href="/operator/users/{{ u['id'] }}">{{ u['display_name'] or '—' }}</a></td>
-    <td class="muted">{% if u['tg_username'] %}@{{ u['tg_username'] }}{% else %}id {{ u['telegram_id'] }}{% endif %}</td>
-    <td>
-      {% if not u['is_active'] %}<span class="badge ban">бан</span>
-      {% elif u['is_operator'] %}<span class="badge op">админ</span>
-      {% else %}<span class="badge">активен</span>{% endif %}
-    </td>
-    <td>{{ u['n_cats'] }}</td>
-    <td>{{ u['n_dates'] }}</td>
-    <td>{{ u['date_limit'] }}</td>
-    <td><a class="btn small" href="/operator/users/{{ u['id'] }}">Открыть</a></td>
-  </tr>
-  {% else %}
-  <tr><td colspan="7" class="muted">Ничего не найдено</td></tr>
-  {% endfor %}
-</table>
+<section class="panel">
+  <div class="panel__head">
+    <div class="panel__title-wrap">
+      <h2 class="panel__title">{% if q %}Результаты поиска{% else %}Все пользователи{% endif %}</h2>
+      <span class="panel__hint">
+        {% if q %}По запросу «{{ q }}» найдено: {{ total }}{% else %}По дате регистрации, сначала новые{% endif %}
+      </span>
+    </div>
+  </div>
+  <div class="table-scroll">
+    <table class="data-table responsive-table users-table">
+      <thead>
+        <tr>
+          <th>Пользователь</th><th>Статус</th><th>Категории</th>
+          <th>События</th><th>Квота</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in rows %}
+        <tr>
+          <td data-label="Пользователь">
+            <div class="identity">
+              <span class="identity__avatar" aria-hidden="true">{{ (u['display_name'] or u['tg_username'] or '?')[:1] }}</span>
+              <span class="identity__copy">
+                <a class="identity__name" href="/operator/users/{{ u['id'] }}">{{ u['display_name'] or 'Без имени' }}</a>
+                <span class="identity__meta">{% if u['tg_username'] %}@{{ u['tg_username'] }}{% else %}Telegram ID {{ u['telegram_id'] }}{% endif %}</span>
+              </span>
+            </div>
+          </td>
+          <td data-label="Статус">
+            {% if not u['is_active'] %}<span class="badge danger">заблокирован</span>
+            {% elif u['is_operator'] %}<span class="badge op">администратор</span>
+            {% else %}<span class="badge success">активен</span>{% endif %}
+          </td>
+          <td data-label="Категории" class="number-cell">{{ u['n_cats'] }}</td>
+          <td data-label="События" class="number-cell">{{ u['n_dates'] }}</td>
+          <td data-label="Квота" class="number-cell">{{ u['date_limit'] }}</td>
+          <td data-label="Действие" class="action-cell">
+            <a class="btn small" href="/operator/users/{{ u['id'] }}">
+              Открыть
+              <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-arrow-right"></use></svg>
+            </a>
+          </td>
+        </tr>
+        {% else %}
+        <tr class="empty-row">
+          <td colspan="6">
+            <div class="empty-state">
+              <div>
+                <span class="empty-state__icon"><svg class="op-icon" aria-hidden="true"><use href="#op-i-search"></use></svg></span>
+                <strong class="empty-state__title">Ничего не найдено</strong>
+                <p>Попробуйте изменить запрос или сбросить поиск.</p>
+              </div>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
 
 {% if pages > 1 %}
-<div class="bar" style="margin-top:16px">
-  {% if page > 1 %}<a class="btn" href="/operator/users?q={{ q }}&page={{ page-1 }}">← Назад</a>{% endif %}
-  <span class="muted">Стр. {{ page }} из {{ pages }}</span>
-  {% if page < pages %}<a class="btn" href="/operator/users?q={{ q }}&page={{ page+1 }}">Вперёд →</a>{% endif %}
-</div>
+<nav class="pagination" aria-label="Пагинация">
+  {% if page > 1 %}
+  <a class="btn" href="/operator/users?q={{ q }}&page={{ page-1 }}">
+    <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-arrow-left"></use></svg>
+    Назад
+  </a>
+  {% else %}<span></span>{% endif %}
+  <span class="pagination__status">Страница {{ page }} из {{ pages }}</span>
+  {% if page < pages %}
+  <a class="btn" href="/operator/users?q={{ q }}&page={{ page+1 }}">
+    Вперёд
+    <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-arrow-right"></use></svg>
+  </a>
+  {% else %}<span></span>{% endif %}
+</nav>
 {% endif %}
 {% endblock %}
