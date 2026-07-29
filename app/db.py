@@ -9,12 +9,12 @@
        последнему на гостя в категории;
   v5 — questions: + suggest_starts/suggest_ends (гостевые предложения
        времени, которые админ принимает одной кнопкой);
-       bookings: свидание может выбрать только ОДИН человек —
+       bookings: событие может выбрать только ОДИН человек —
        уникальный индекс по date_id с дедупликацией существующих строк;
-  v6 — гость снова выбирает НЕСКОЛЬКО свиданий (bookings пересобрана без
-       UNIQUE(категория, гость)); описание категории; видео у свиданий
+  v6 — гость снова выбирает НЕСКОЛЬКО событий (bookings пересобрана без
+       UNIQUE(категория, гость)); описание категории; видео у событий
        (date_videos); ручной порядок в категории (date_categories.position);
-       модификатор оплаты «50/50» и распознанные ссылки на карты у свиданий.
+       модификатор оплаты «50/50» и распознанные ссылки на карты у событий.
   v7 — date_images.focus: точка фокуса фото (object-position) для обрезки
        в карточке; NULL = центр.
   v8 — dates: дроп мёртвой колонки is_chosen. Историческая, логика брони
@@ -38,13 +38,13 @@
   v14 — categories.og_title/og_desc: редактируемый текст превью секретной ссылки
        (как она выглядит при отправке в мессенджере). NULL = дефолтный текст
        «Тебя ждёт сюрприз ♥ / Открой — внутри кое-что приятное».
-  v15 — categories.og_image: своя картинка превью ссылки (WebP, как фото свиданий).
+  v15 — categories.og_image: своя картинка превью ссылки (WebP, как фото событий).
        NULL = дефолтная /static/og.png.
-  v16 — dates.share_token: стабильная секретная ссылка на ОТДЕЛЬНОЕ свидание
+  v16 — dates.share_token: стабильная секретная ссылка на ОТДЕЛЬНОЕ событие
        (/d/<токен>). По ней другой залогиненный пользователь добавляет копию
-       свидания себе в коллекцию. Уникальный индекс (несколько NULL допустимо);
-       существующие свидания получают токен бэкофиллом.
-  v18 — dates.is_public: свидание попадает в общую ленту комьюнити на главной
+       события себе в коллекцию. Уникальный индекс (несколько NULL допустимо);
+       существующие события получают токен бэкофиллом.
+  v18 — dates.is_public: событие попадает в общую ленту комьюнити на главной
        (по умолчанию 1 = публичное). Приватные (0) видны только владельцу и по
        секретным ссылкам, но не в ленте. Бэкофилл существующих = 1 (дефолт).
   v21 — categories.og_focus: точка фокуса своей картинки превью ссылки «X% Y%»
@@ -52,7 +52,7 @@
        с редактором). NULL = центр.
   v22 — голосование с ручной настройкой категории: режим single/multiple,
        обязательный дедлайн, явный статус и зафиксированный результат;
-       вместимость свидания 1..100 считается отдельно в каждой категории,
+       вместимость события 1..100 считается отдельно в каждой категории,
        глобальная уникальность брони по date_id снята. После результата участник
        может отказаться без удаления голоса. Также: настройка эффекта курсора
        в профиле и отдельный purpose у Telegram-кодов для безопасной привязки.
@@ -62,6 +62,9 @@
         поверх несовместимых голосов, а дедлайн всегда раньше
         старта каждого активного кандидата, в том числе при гонках
         между параллельными запросами.
+  v25 — одноразовая починка легаси-событий, которые оставались черновиками
+        после привязки к категории; составные и частичные индексы для
+        авторизации медиа, голосований, автоархива и непрочитанных вопросов.
 
 Свежая база создаётся сразу по последней схеме. Существующая —
 докатывается миграциями при старте приложения.
@@ -75,7 +78,7 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "app.db"
 
-LATEST_VERSION = 24
+LATEST_VERSION = 25
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -89,7 +92,7 @@ CREATE TABLE IF NOT EXISTS users (
     is_active INTEGER NOT NULL DEFAULT 1,    -- 0 = забанен
     is_operator INTEGER NOT NULL DEFAULT 0,  -- суперадмин (модерация/баны/лимиты)
     is_reviewed INTEGER NOT NULL DEFAULT 1,  -- 0 = новый, ждёт проверки админом (мягкая очередь)
-    date_limit INTEGER NOT NULL DEFAULT 30,  -- квота свиданий; оператор поднимает вручную
+    date_limit INTEGER NOT NULL DEFAULT 30,  -- квота событий; оператор поднимает вручную
     bot_linked INTEGER NOT NULL DEFAULT 0,   -- 1 = запускал бота → можно слать уведомления
     cursor_effects INTEGER NOT NULL DEFAULT 0, -- 1 = декоративные эффекты курсора включены
     created_at TEXT NOT NULL,
@@ -173,7 +176,7 @@ CREATE TABLE IF NOT EXISTS categories (
 
 CREATE TABLE IF NOT EXISTS dates (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,  -- владелец свидания
+    owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,  -- владелец события
     name TEXT NOT NULL,
     place TEXT,
     starts_at TEXT,            -- "YYYY-MM-DDTHH:MM", время МСК
@@ -185,7 +188,7 @@ CREATE TABLE IF NOT EXISTS dates (
     is_draft INTEGER NOT NULL DEFAULT 0,    -- черновик / на модерации: гостям не виден
     pay_split INTEGER NOT NULL DEFAULT 0,   -- бейдж «оплата 50/50»
     place_url TEXT,            -- если «место» вставили ссылкой на карты
-    share_token TEXT,          -- секретная ссылка на это свидание (/d/<токен>) для «добавить себе»
+    share_token TEXT,          -- секретная ссылка на это событие (/d/<токен>) для «добавить себе»
     is_public INTEGER NOT NULL DEFAULT 1,   -- 1 = видно в общей ленте комьюнити
     capacity INTEGER NOT NULL DEFAULT 1 CHECK(capacity BETWEEN 1 AND 100),
     archived_at TEXT,          -- NULL = активно
@@ -214,7 +217,7 @@ CREATE TABLE IF NOT EXISTS date_categories (
     PRIMARY KEY (date_id, category_id)
 );
 
--- Видео свиданий: mp4/webm как есть, отдаются с поддержкой Range
+-- Видео событий: mp4/webm как есть, отдаются с поддержкой Range
 CREATE TABLE IF NOT EXISTS date_videos (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     date_id INTEGER NOT NULL REFERENCES dates(id) ON DELETE CASCADE,
@@ -230,7 +233,7 @@ CREATE TABLE IF NOT EXISTS guests (
     created_at TEXT NOT NULL
 );
 
--- Голоса за свидания. Допустимое число вариантов у участника задаёт
+-- Голоса за события. Допустимое число вариантов у участника задаёт
 -- categories.choice_mode, а dates.capacity ограничивает участников отдельно
 -- в каждой категории (проверяется доменным модулем и триггерами ниже).
 CREATE TABLE IF NOT EXISTS bookings (
@@ -272,24 +275,40 @@ CREATE TABLE IF NOT EXISTS reports (
 );
 
 CREATE INDEX IF NOT EXISTS idx_book_cat ON bookings(category_id);
--- один участник голосует за конкретное свидание в категории только один раз;
+-- один участник голосует за конкретное событие в категории только один раз;
 -- capacity применяется к каждой паре (date_id, category_id) независимо.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_book_vote
     ON bookings(date_id, category_id, guest_token);
 CREATE INDEX IF NOT EXISTS idx_book_guest ON bookings(category_id, guest_token);
+CREATE INDEX IF NOT EXISTS idx_book_cat_user
+    ON bookings(category_id, user_id) WHERE user_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_dc_cat ON date_categories(category_id);
 CREATE INDEX IF NOT EXISTS idx_q_read ON questions(is_read);
 CREATE INDEX IF NOT EXISTS idx_q_date ON questions(date_id);
+CREATE INDEX IF NOT EXISTS idx_q_date_read ON questions(date_id, is_read);
 CREATE INDEX IF NOT EXISTS idx_di_date ON date_images(date_id);
+CREATE INDEX IF NOT EXISTS idx_di_filename_date ON date_images(filename, date_id);
 CREATE INDEX IF NOT EXISTS idx_dl_date ON date_links(date_id);
+CREATE INDEX IF NOT EXISTS idx_dv_filename_date ON date_videos(filename, date_id);
 CREATE INDEX IF NOT EXISTS idx_cat_owner ON categories(owner_id);
+CREATE INDEX IF NOT EXISTS idx_categories_og_image
+    ON categories(og_image, owner_id) WHERE og_image IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_categories_open_deadline
+    ON categories(voting_deadline)
+    WHERE voting_status='open' AND closed_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_dates_owner ON dates(owner_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_dates_share ON dates(share_token);
--- лента комьюнити на главной: свежие публичные активные свидания
+-- лента комьюнити на главной: свежие публичные активные события
 CREATE INDEX IF NOT EXISTS idx_dates_public ON dates(is_public, is_draft, archived_at, id);
+-- Частичный покрывающий индекс: глобальный проход сканирует только активные
+-- события с датой, а с owner_id тот же индекс обслуживает адресный проход.
+CREATE INDEX IF NOT EXISTS idx_dates_autoarchive_active
+    ON dates(owner_id, ends_at, starts_at, archived_at)
+    WHERE archived_at IS NULL
+      AND (starts_at IS NOT NULL OR ends_at IS NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_reports_status ON reports(status, created_at);
 
--- Даже прямые записи в bookings не могут переполнить свидание. SQLite
+-- Даже прямые записи в bookings не могут переполнить событие. SQLite
 -- сериализует пишущие транзакции, поэтому проверка COUNT и INSERT атомарны
 -- относительно другого writer'а.
 CREATE TRIGGER IF NOT EXISTS trg_bookings_capacity_insert
@@ -327,7 +346,7 @@ BEGIN
 END;
 
 -- Нельзя уменьшить capacity ниже уже набранного количества ни в одной из
--- категорий, где используется это свидание.
+-- категорий, где используется это событие.
 CREATE TRIGGER IF NOT EXISTS trg_dates_capacity_update
 BEFORE UPDATE OF capacity ON dates
 WHEN EXISTS (
@@ -352,7 +371,7 @@ BEGIN
 END;
 
 -- Открытое голосование обязано иметь полный конфиг, а его дедлайн должен быть
--- строго раньше старта каждого активного свидания.
+-- строго раньше старта каждого активного события.
 CREATE TRIGGER IF NOT EXISTS trg_categories_voting_config_update
 BEFORE UPDATE OF choice_mode, voting_deadline, voting_status ON categories
 WHEN NEW.voting_status='open' AND (
@@ -416,7 +435,7 @@ BEGIN
 END;
 
 -- Аналогичная защита действует при редактировании времени, публикации и
--- возврате свидания из архива.
+-- возврате события из архива.
 CREATE TRIGGER IF NOT EXISTS trg_dates_open_deadline_update
 BEFORE UPDATE OF starts_at, archived_at, is_draft ON dates
 WHEN NEW.archived_at IS NULL AND NEW.is_draft=0 AND NEW.starts_at IS NOT NULL
@@ -429,7 +448,7 @@ BEGIN
     SELECT RAISE(ABORT, 'candidate_before_deadline');
 END;
 
--- winner_date_id использует RESTRICT, чтобы победившее свидание нельзя было
+-- winner_date_id использует RESTRICT, чтобы победившее событие нельзя было
 -- удалить отдельно. При удалении всего аккаунта сначала удаляем его категории:
 -- затем штатный CASCADE users→dates не упирается в уже снятую ссылку результата.
 CREATE TRIGGER IF NOT EXISTS trg_users_delete_owned_categories
@@ -480,8 +499,8 @@ MIGRATIONS: dict[int, str] = {
     5: """
         ALTER TABLE questions ADD COLUMN suggest_starts TEXT;
         ALTER TABLE questions ADD COLUMN suggest_ends TEXT;
-        -- правило «одно свидание — один человек»: перед уникальным индексом
-        -- убираем возможные дубли, оставляя самую свежую бронь на свидание
+        -- правило «одно событие — один человек»: перед уникальным индексом
+        -- убираем возможные дубли, оставляя самую свежую бронь на событие
         DELETE FROM bookings WHERE id NOT IN (
             SELECT id FROM (
                 SELECT id, ROW_NUMBER() OVER (
@@ -520,8 +539,8 @@ MIGRATIONS: dict[int, str] = {
             guest_token TEXT NOT NULL,
             created_at TEXT NOT NULL
         );
-        -- гость снова может выбрать несколько свиданий: пересобираем bookings
-        -- без UNIQUE(категория, гость). «Одно свидание — один человек» остаётся
+        -- гость снова может выбрать несколько событий: пересобираем bookings
+        -- без UNIQUE(категория, гость). «Одно событие — один человек» остаётся
         -- уникальным индексом по date_id.
         CREATE TABLE bookings_v6(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -697,15 +716,15 @@ MIGRATIONS: dict[int, str] = {
         ALTER TABLE categories ADD COLUMN og_desc TEXT;
     """,
     15: """
-        -- Своя картинка превью ссылки (WebP, как фото свиданий). NULL = дефолт
+        -- Своя картинка превью ссылки (WebP, как фото событий). NULL = дефолт
         -- /static/og.png. Отдаётся публично через /c/<токен>/og-image.
         ALTER TABLE categories ADD COLUMN og_image TEXT;
     """,
     16: """
-        -- Секретная ссылка на ОТДЕЛЬНОЕ свидание (/d/<токен>): по ней другой
-        -- залогиненный пользователь добавляет копию свидания себе в коллекцию.
+        -- Секретная ссылка на ОТДЕЛЬНОЕ событие (/d/<токен>): по ней другой
+        -- залогиненный пользователь добавляет копию события себе в коллекцию.
         -- Бэкофилл уникальных токенов средствами SQLite (16 байт hex), чтобы у
-        -- всех существующих свиданий тоже была ссылка. Уникальный индекс
+        -- всех существующих событий тоже была ссылка. Уникальный индекс
         -- допускает несколько NULL, но после бэкофилла их не остаётся.
         ALTER TABLE dates ADD COLUMN share_token TEXT;
         UPDATE dates SET share_token = lower(hex(randomblob(16))) WHERE share_token IS NULL;
@@ -719,9 +738,9 @@ MIGRATIONS: dict[int, str] = {
         UPDATE categories SET moderate_proposals=0;
     """,
     18: """
-        -- Публичность свидания для общей ленты комьюнити на главной. По умолчанию
-        -- 1 (публичное) — существующие свидания попадают в ленту. Владелец может
-        -- сделать приватным в редакторе свидания (тумблер в блоке «Категории»).
+        -- Публичность события для общей ленты комьюнити на главной. По умолчанию
+        -- 1 (публичное) — существующие события попадают в ленту. Владелец может
+        -- сделать приватным в редакторе события (тумблер в блоке «Категории»).
         ALTER TABLE dates ADD COLUMN is_public INTEGER NOT NULL DEFAULT 1;
         CREATE INDEX IF NOT EXISTS idx_dates_public ON dates(is_public, is_draft, archived_at, id);
     """,
@@ -800,13 +819,13 @@ MIGRATIONS: dict[int, str] = {
         ALTER TABLE categories ADD COLUMN winner_date_id INTEGER
             REFERENCES dates(id) ON DELETE RESTRICT;
 
-        -- capacity одинакова у самого свидания, но счётчик набирается отдельно
-        -- для каждой категории. Старые свидания сохраняют прежний максимум 1.
+        -- capacity одинакова у самого события, но счётчик набирается отдельно
+        -- для каждой категории. Старые события сохраняют прежний максимум 1.
         ALTER TABLE dates ADD COLUMN capacity INTEGER NOT NULL DEFAULT 1
             CHECK(capacity BETWEEN 1 AND 100);
         ALTER TABLE bookings ADD COLUMN participation_withdrawn_at TEXT;
 
-        -- Снимаем глобальную блокировку date_id: одно свидание теперь независимо
+        -- Снимаем глобальную блокировку date_id: одно событие теперь независимо
         -- набирает людей в каждой категории. Повтор одного участника защищён
         -- составным уникальным индексом.
         DROP INDEX IF EXISTS idx_book_date;
@@ -965,6 +984,58 @@ MIGRATIONS: dict[int, str] = {
         BEGIN
             SELECT RAISE(ABORT, 'candidate_before_deadline');
         END;
+    """,
+    25: """
+        -- Исторический repair из GET /admin/dates. Админское событие, уже
+        -- привязанное хотя бы к одной категории, не должно оставаться
+        -- черновиком. Гостевые предложения и архив намеренно не затрагиваем.
+        UPDATE dates SET is_draft=0
+        WHERE is_draft=1
+          AND origin<>'guest'
+          AND archived_at IS NULL
+          AND EXISTS (
+              SELECT 1 FROM date_categories dc WHERE dc.date_id=dates.id
+          )
+          -- Не публикуем строку, которую справедливо отверг бы v24-триггер:
+          -- один некорректный легаси-черновик не должен сорвать весь startup.
+          AND NOT EXISTS (
+              SELECT 1
+              FROM date_categories dc
+              JOIN categories c ON c.id=dc.category_id
+              WHERE dc.date_id=dates.id
+                AND c.voting_status='open'
+                AND dates.starts_at IS NOT NULL
+                AND c.voting_deadline>=dates.starts_at
+          );
+
+        -- Проверка доступа к файлу начинается с имени, а затем соединяется с
+        -- событием; date_id вторым полем делает эти lookup-запросы покрывающими.
+        CREATE INDEX IF NOT EXISTS idx_di_filename_date
+            ON date_images(filename, date_id);
+        CREATE INDEX IF NOT EXISTS idx_dv_filename_date
+            ON date_videos(filename, date_id);
+        CREATE INDEX IF NOT EXISTS idx_categories_og_image
+            ON categories(og_image, owner_id) WHERE og_image IS NOT NULL;
+
+        -- Адресные проверки участия и выборка получателей уведомлений.
+        CREATE INDEX IF NOT EXISTS idx_book_cat_user
+            ON bookings(category_id, user_id) WHERE user_id IS NOT NULL;
+
+        -- Фоновое закрытие читает только открытые и ещё не закрытые опросы,
+        -- отсортированные SQLite по ближайшему дедлайну.
+        CREATE INDEX IF NOT EXISTS idx_categories_open_deadline
+            ON categories(voting_deadline)
+            WHERE voting_status='open' AND closed_at IS NULL;
+
+        -- Частичный покрывающий индекс не содержит архив и события без даты.
+        -- owner_id первым сохраняет быстрый адресный проход для одного аккаунта.
+        CREATE INDEX IF NOT EXISTS idx_dates_autoarchive_active
+            ON dates(owner_id, ends_at, starts_at, archived_at)
+            WHERE archived_at IS NULL
+              AND (starts_at IS NOT NULL OR ends_at IS NOT NULL);
+
+        CREATE INDEX IF NOT EXISTS idx_q_date_read
+            ON questions(date_id, is_read);
     """,
 }
 

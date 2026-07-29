@@ -15,18 +15,36 @@
 		X-Frame-Options DENY
 		Referrer-Policy no-referrer
 		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		X-XSS-Protection "0"
 		# Content-Security-Policy выставляет приложение (per-request nonce)
 		-Server
 	}
 
-	# Статика (css, шрифты, og.png) меняется только при обновлении сайта
-	@static path /static/*
-	header @static Cache-Control "public, max-age=3600"
+	# Публичную статику отдаём напрямую, не занимая воркеры приложения.
+	# ?v=<хэш содержимого> формирует web.asset(), поэтому такая ссылка immutable.
+	@staticVersioned {
+		path /static/*
+		query v=*
+	}
+	@staticUnversioned {
+		path /static/*
+		not query v=*
+	}
+	handle /static/* {
+		root * /srv
 
-	reverse_proxy app:8000 {
-		# Перезаписываем (не дописываем!) реальный IP клиента — лимиты
-		# в приложении читают только этот заголовок, его нельзя подделать
-		header_up X-Real-IP {remote_host}
+		header @staticVersioned Cache-Control "public, max-age=31536000, immutable"
+		header @staticUnversioned Cache-Control "public, max-age=3600, must-revalidate"
+
+		file_server
+	}
+
+	handle {
+		reverse_proxy app:8000 {
+			# Перезаписываем (не дописываем!) реальный IP клиента — лимиты
+			# в приложении читают только этот заголовок, его нельзя подделать
+			header_up X-Real-IP {remote_host}
+		}
 	}
 }
 

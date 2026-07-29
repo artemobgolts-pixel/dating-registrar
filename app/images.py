@@ -16,6 +16,7 @@ import re
 import secrets
 import shutil
 import hashlib
+import subprocess
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps
@@ -35,16 +36,18 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 # Версия в имени каталога позволяет безопасно поменять качество/алгоритм позже.
 RESPONSIVE_DIR = DATA_DIR / "responsive-v1"
 RESPONSIVE_DIR.mkdir(parents=True, exist_ok=True)
-# Кэш сгенерированных коллажей-превью ссылок (og:image из фото свиданий).
+# Кэш сгенерированных коллажей-превью ссылок (og:image из фото событий).
 # Имя файла = хэш набора исходников, поэтому при смене фото коллаж перегенерится.
 OG_CACHE_DIR = DATA_DIR / "og-cache"
 OG_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_BYTES = 10 * 1024 * 1024   # 10 МБ на файл
-MAX_IMAGES = 5                 # до 5 фото на свидание
+MAX_IMAGES = 5                 # до 5 фото на событие
 MAX_SIDE = 2560                # длинная сторона после сжатия
 MAX_DIM = 8000                 # максимально допустимое разрешение исходника
-RESPONSIVE_WIDTHS = (480, 960, 1600)
+# 64/96/128 нужны для маленьких аватаров; 256 — для больших аватаров профиля
+# на Retina. Остальные размеры обслуживают карточки и полноэкранные галереи.
+RESPONSIVE_WIDTHS = (64, 96, 128, 256, 480, 960, 1600)
 RESPONSIVE_QUALITY = 82
 log = logging.getLogger("images")
 
@@ -54,7 +57,14 @@ Image.MAX_IMAGE_PIXELS = MAX_DIM * MAX_DIM
 SAFE_FILENAME = re.compile(r"^[A-Za-z0-9_-]{8,64}\.(webp|mp4|webm)$")
 
 MAX_VIDEO_BYTES = 60 * 1024 * 1024   # 60 МБ на видео
-MAX_VIDEOS = 2                       # до 2 видео на свидание
+MAX_VIDEOS = 2                       # до 2 видео на событие
+# MP4 faststart — безопасный opt-in: ffmpeg не становится обязательной
+# зависимостью контейнера. Если флаг выключен, бинарник отсутствует, remux
+# завершился ошибкой или превысил таймаут, сохраняется проверенный оригинал.
+VIDEO_FASTSTART = os.getenv("VIDEO_FASTSTART", "").strip().lower() in (
+    "1", "true", "yes")
+FFMPEG_BIN = os.getenv("FFMPEG_BIN", "ffmpeg").strip() or "ffmpeg"
+FFMPEG_TIMEOUT = 30
 
 
 def save_upload(upload) -> str:
@@ -96,6 +106,9 @@ def save_upload(upload) -> str:
 
     name = f"{secrets.token_urlsafe(12)}.webp"
     im.save(UPLOAD_DIR / name, "WEBP", quality=85, method=4)
+    # Новые фото сразу получают варианты для карточек и аватаров. Старые фото
+    # по-прежнему обслуживает ленивый fallback в responsive_image().
+    generate_responsive_variants(name, image=im)
     return name
 
 
@@ -136,12 +149,101 @@ def _responsive_path(filename: str, width: int) -> Path:
     return RESPONSIVE_DIR / f"{stem}.w{width}.webp"
 
 
+def _write_responsive_variant(source: Path, filename: str, width: int,
+                              image: Image.Image) -> Path:
+    """Атомарно записывает один вариант либо возвращает исходник.
+
+    Возврат исходника для маленьких изображений намеренный: увеличивать их до
+    запрошенной ширины бессмысленно. Ошибки кэша не должны ломать оригинал.
+    """
+    target = _responsive_path(filename, width)
+    if target.exists():
+        return target
+    if image.width <= width:
+        return source
+
+    tmp = RESPONSIVE_DIR / (
+        f".{target.name}.{os.getpid()}.{secrets.token_urlsafe(5)}.tmp")
+    try:
+        height = max(1, round(image.height * width / image.width))
+        resized = image.resize((width, height), Image.Resampling.LANCZOS)
+        if resized.mode in ("P", "LA"):
+            resized = resized.convert("RGBA")
+        elif resized.mode not in ("RGB", "RGBA"):
+            resized = resized.convert("RGB")
+        resized.save(tmp, "WEBP", quality=RESPONSIVE_QUALITY, method=4)
+        # os.replace атомарен и безопасен при одновременной генерации одного
+        # размера несколькими воркерами: победит полностью записанный файл.
+        os.replace(tmp, target)
+        return target
+    except (OSError, ValueError) as exc:
+        log.warning("responsive image fallback for %s (%s): %s",
+                    filename, width, exc)
+        return source
+    finally:
+        try:
+            tmp.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def generate_responsive_variants(
+        filename: str, widths=RESPONSIVE_WIDTHS,
+        image: Image.Image | None = None) -> dict[int, Path]:
+    """Предгенерирует поддерживаемые WebP-варианты без риска для оригинала.
+
+    ``image`` позволяет save_upload() переиспользовать уже декодированное фото.
+    Функция best-effort: любой сбой оставляет ленивую генерацию при первом
+    запросе, а слишком маленькое фото обслуживается самим оригиналом.
+    """
+    name = Path(filename).name
+    source = UPLOAD_DIR / name
+    if not source.exists() or source.suffix.lower() != ".webp":
+        return {}
+
+    wanted = tuple(dict.fromkeys(
+        int(width) for width in widths if width in RESPONSIVE_WIDTHS))
+    if not wanted:
+        return {}
+    cached = {
+        width: _responsive_path(name, width)
+        for width in wanted
+        if _responsive_path(name, width).exists()
+    }
+    if len(cached) == len(wanted):
+        return cached
+
+    def build(decoded: Image.Image) -> dict[int, Path]:
+        decoded = ImageOps.exif_transpose(decoded)
+        return {
+            width: _write_responsive_variant(source, name, width, decoded)
+            for width in wanted
+        }
+
+    if image is not None:
+        try:
+            return build(image)
+        except (OSError, ValueError) as exc:
+            log.warning("responsive image pre-generation failed for %s: %s",
+                        name, exc)
+            return {}
+
+    try:
+        with Image.open(source) as opened:
+            opened.load()
+            return build(opened)
+    except (OSError, ValueError) as exc:
+        log.warning("responsive image pre-generation failed for %s: %s",
+                    name, exc)
+        return {}
+
+
 def responsive_image(filename: str, width: int | None = None) -> Path:
     """Возвращает оригинал либо WebP-копию нужной ширины.
 
-    Копия создаётся лениво и атомарно при первом запросе. Поэтому старые фото
-    начинают работать без миграции, а параллельные запросы не увидят недописанный
-    файл. Если исходник уже уже запрошенной ширины, повторно его не кодируем.
+    Для новых загрузок копии уже предгенерированы; недостающая копия создаётся
+    лениво и атомарно. Поэтому старые фото работают без миграции, а параллельные
+    запросы не увидят недописанный файл. Узкий исходник не увеличиваем.
     """
     name = Path(filename).name
     source = UPLOAD_DIR / name
@@ -156,47 +258,50 @@ def responsive_image(filename: str, width: int | None = None) -> Path:
     if target.exists():
         return target
 
-    tmp = RESPONSIVE_DIR / (
-        f".{target.name}.{os.getpid()}.{secrets.token_urlsafe(5)}.tmp")
     try:
         with Image.open(source) as opened:
             opened.load()
             image = ImageOps.exif_transpose(opened)
-            if image.width <= width:
-                return source
-            height = max(1, round(image.height * width / image.width))
-            image = image.resize((width, height), Image.Resampling.LANCZOS)
-            if image.mode in ("P", "LA"):
-                image = image.convert("RGBA")
-            elif image.mode not in ("RGB", "RGBA"):
-                image = image.convert("RGB")
-            image.save(tmp, "WEBP", quality=RESPONSIVE_QUALITY, method=4)
-        # os.replace атомарен и безопасен при одновременной генерации одного
-        # размера несколькими воркерами: победит полностью записанный файл.
-        os.replace(tmp, target)
-        return target
+            return _write_responsive_variant(source, name, width, image)
     except (OSError, ValueError) as exc:
         # Повреждение кэша не должно ломать страницу: оригинал всё ещё можно
         # отдать. Ошибка останется в журнале для диагностики.
         log.warning("responsive image fallback for %s (%s): %s",
                     name, width, exc)
         return source
-    finally:
-        try:
-            tmp.unlink()
-        except FileNotFoundError:
-            pass
 
 
 def copy_file(filename: str) -> str | None:
     """Делает физическую копию файла с новым именем (для клонирования
-    свидания). Расширение сохраняем — отдача завязана на него. Возвращает
+    события). Расширение сохраняем — отдача завязана на него. Возвращает
     имя копии или None, если оригинала уже нет на диске."""
     src = UPLOAD_DIR / Path(filename).name
     if not src.exists():
         return None
     name = f"{secrets.token_urlsafe(12)}{src.suffix}"
     shutil.copyfile(src, UPLOAD_DIR / name)
+    if src.suffix.lower() == ".webp":
+        # Уже прогретые варианты можно скопировать без повторного кодирования.
+        # Для легаси-фото недостающие размеры достроятся из нового оригинала.
+        for width in RESPONSIVE_WIDTHS:
+            cached = _responsive_path(src.name, width)
+            if not cached.exists():
+                continue
+            target = _responsive_path(name, width)
+            tmp = RESPONSIVE_DIR / (
+                f".{target.name}.{os.getpid()}.{secrets.token_urlsafe(5)}.tmp")
+            try:
+                shutil.copyfile(cached, tmp)
+                os.replace(tmp, target)
+            except OSError as exc:
+                log.warning("responsive cache copy failed for %s (%s): %s",
+                            src.name, width, exc)
+            finally:
+                try:
+                    tmp.unlink()
+                except FileNotFoundError:
+                    pass
+        generate_responsive_variants(name)
     return name
 
 
@@ -211,6 +316,50 @@ def _sniff_video_ext(head: bytes) -> str | None:
     if head.startswith(b"\x1aE\xdf\xa3"):
         return ".webm"
     return None
+
+
+def _faststart_mp4(path: Path) -> bool:
+    """Best-effort remux MP4 для начала воспроизведения до полной загрузки.
+
+    Обработка запускается только при VIDEO_FASTSTART=1, без shell и с жёстким
+    таймаутом. Неудача не отклоняет пользовательское видео.
+    """
+    if not VIDEO_FASTSTART or path.suffix.lower() != ".mp4":
+        return False
+    ffmpeg = shutil.which(FFMPEG_BIN)
+    if not ffmpeg:
+        log.warning("VIDEO_FASTSTART enabled, but ffmpeg was not found")
+        return False
+
+    tmp = path.with_name(
+        f".{path.stem}.{os.getpid()}.{secrets.token_urlsafe(5)}.faststart.mp4")
+    try:
+        result = subprocess.run(
+            [ffmpeg, "-nostdin", "-hide_banner", "-loglevel", "error",
+             "-i", str(path), "-map", "0", "-c", "copy",
+             "-movflags", "+faststart", "-f", "mp4", str(tmp)],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE, timeout=FFMPEG_TIMEOUT, check=False,
+        )
+        valid_output = False
+        if tmp.exists() and 0 < tmp.stat().st_size <= MAX_VIDEO_BYTES:
+            with tmp.open("rb") as check:
+                valid_output = _sniff_video_ext(check.read(16)) == ".mp4"
+        if result.returncode != 0 or not valid_output:
+            detail = result.stderr.decode("utf-8", "replace")[-500:]
+            log.warning("ffmpeg faststart fallback for %s: %s",
+                        path.name, detail or f"exit {result.returncode}")
+            return False
+        os.replace(tmp, path)
+        return True
+    except (OSError, subprocess.SubprocessError) as exc:
+        log.warning("ffmpeg faststart fallback for %s: %s", path.name, exc)
+        return False
+    finally:
+        try:
+            tmp.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def save_video(upload) -> str:
@@ -239,6 +388,7 @@ def save_video(upload) -> str:
     except ValueError:
         delete_file(name)
         raise
+    _faststart_mp4(path)
     return name
 
 
@@ -261,7 +411,7 @@ def save_videos_batch(uploads) -> list[str]:
 
 # ---------------------------------------------------------------------------
 # Коллаж-превью ссылки (og:image). Когда у категории нет своей картинки, OG
-# собирается сеткой из фото её свиданий: 1 фото — целиком, 2–4 — сетка 2×2,
+# собирается сеткой из фото её событий: 1 фото — целиком, 2–4 — сетка 2×2,
 # 5–8 — сетка 4×2. Размер 1200×630 (стандарт Open Graph). Результат кэшируется
 # на диск по хэшу набора исходников — краулеры мессенджеров не пересобирают.
 # ---------------------------------------------------------------------------
@@ -293,7 +443,7 @@ def og_collage_name(filenames: list[str]) -> str | None:
 
 
 def build_og_collage(filenames: list[str]) -> str | None:
-    """Собирает коллаж из фото свиданий и кэширует на диск. Возвращает путь к
+    """Собирает коллаж из фото событий и кэширует на диск. Возвращает путь к
     готовому файлу (внутри OG_CACHE_DIR) или None, если собрать не из чего.
 
     Битые/пропавшие исходники пропускаем; сетку берём по факту собранных фото.

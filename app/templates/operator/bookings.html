@@ -1,18 +1,18 @@
 {% extends "operator/base.html" %}
-{% block title %}Брони{% endblock %}
+{% block title %}Голоса{% endblock %}
 {% block content %}
-<h1>Брони <span class="muted" style="font-size:15px">({{ total }})</span></h1>
+<h1>Голоса <span class="muted" style="font-size:15px">({{ total }})</span></h1>
 <p class="muted" style="margin-top:-8px">Кто что выбрал по платформе — для разбора спорных ситуаций.</p>
 
 <form class="bar" method="get" action="/operator/bookings">
-  <input type="search" name="q" value="{{ q }}" placeholder="Гость, свидание, категория или владелец"
+  <input type="search" name="q" value="{{ q }}" placeholder="Гость, событие, категория или владелец"
          style="min-width:320px">
   <button class="btn">Найти</button>
   {% if q %}<a class="btn" href="/operator/bookings">Сбросить</a>{% endif %}
 </form>
 
 <table>
-  <tr><th>Гость</th><th>Свидание</th><th>Категория</th><th>Владелец</th><th>Когда</th><th></th></tr>
+  <tr><th>Гость</th><th>Событие</th><th>Категория</th><th>Владелец</th><th>Когда</th><th></th></tr>
   {% for b in rows %}
   <tr>
     <td><b>{{ b['guest'] }}</b></td>
@@ -22,14 +22,14 @@
     <td class="muted">{{ b['created_at'][:16].replace('T',' ') }}</td>
     <td>
       <form class="inline" method="post" action="/operator/bookings/{{ b['id'] }}/delete"
-            data-confirm="Снять бронь «{{ b['guest'] }} → {{ b['date_name'] }}»? Свидание снова станет свободным.">
+            data-confirm="Снять голос «{{ b['guest'] }} → {{ b['date_name'] }}»? Освободится одно место.">
         <input type="hidden" name="csrf" value="{{ csrf }}">
         <button class="btn small danger">Снять</button>
       </form>
     </td>
   </tr>
   {% else %}
-  <tr><td colspan="6" class="muted">Броней нет</td></tr>
+  <tr><td colspan="6" class="muted">Голосов нет</td></tr>
   {% endfor %}
 </table>
 

@@ -958,7 +958,7 @@ details.endtime[open] summary { margin-bottom: 10px; }
 .dlg-actions { display: flex; gap: 10px; margin-top: 18px; }
 .dlg-actions .btn { padding: 12px 14px; }
 
-/* Карточный редактор свидания — та же структура, что в кабинете. */
+/* Карточный редактор события — та же структура, что в кабинете. */
 .date-widget-dialog {
   width: min(1000px, calc(100vw - 32px));
   padding: 20px; border-radius: 26px;
@@ -1261,7 +1261,7 @@ details.endtime[open] summary { margin-bottom: 10px; }
 }
 @media (max-width: 560px) { .lb-prev, .lb-next { display: none; } } /* свайп */
 
-/* --- FAB создания свидания --------------------------------------------------*/
+/* --- FAB создания события --------------------------------------------------*/
 .fab {
   position: fixed; right: 18px; bottom: 20px; z-index: 40;
   min-width: 58px; height: 58px; border-radius: 999px; border: 0;
@@ -1981,6 +1981,10 @@ html[data-theme="dark"] .login-vpn { background: rgba(42, 33, 40, .76); }
 .participant-ph { display: grid; place-items: center; color: #fff; background: linear-gradient(135deg,var(--rose),var(--rose-2)); font-weight: 700; }
 .participant small { color: var(--muted); }
 .participant.withdrawn { opacity: .58; text-decoration: line-through; }
+.participants-more {
+  align-self: center; padding: 4px 3px;
+  color: var(--muted); font-size: 12.5px; white-space: nowrap;
+}
 .vote-empty { margin: 8px 0 0; }
 .winner-ribbon {
   position: absolute; z-index: 5; top: 12px; right: 12px;

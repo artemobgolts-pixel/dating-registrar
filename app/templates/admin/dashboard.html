@@ -5,7 +5,7 @@
 <h1 class="serif">Главная</h1>
 
 <div class="quick" data-tour="dashboard-create">
-  <a class="btn primary" href="/admin/dates/new">Создать свидание</a>
+  <a class="btn primary" href="/admin/dates/new">Создать событие</a>
   {% if share %}
   <button type="button" class="btn ghost" data-copy="{{ share_url }}" data-tour="dashboard-share">🔗 <span class="lbl-full">Скопировать ссылку</span><span class="lbl-short">Ссылка</span></button>
   <a class="btn ghost" href="/c/{{ share['link_token'] }}" target="_blank" rel="noopener">👀 Открыть</a>
@@ -17,7 +17,7 @@
   <div class="share-grid">
     <div>
       <b>🔗 Поделиться</b>
-      <p class="muted" style="margin:6px 0 14px;font-size:13.5px">Отправь эту ссылку — по ней человек откроет твою подборку свиданий.</p>
+      <p class="muted" style="margin:6px 0 14px;font-size:13.5px">Отправь эту ссылку — по ней человек откроет твою подборку событий.</p>
       {% if share_cats | length > 1 %}
       <form method="get" action="/admin/" class="share-pick">
         <label>Категория</label>
@@ -61,15 +61,15 @@
 
 <div class="card cfeed-card-wrap">
   <div class="cfeed-intro" data-tour="dashboard-feed">
-    <b>Свидания комьюнити</b>
-    <p class="muted" style="margin:6px 0 14px;font-size:13.5px">Публичные свидания других людей — листай и добавляй понравившиеся себе в коллекцию.</p>
+    <b>Встречи сообщества</b>
+    <p class="muted" style="margin:6px 0 14px;font-size:13.5px">Публичные события других людей — листай и добавляй понравившиеся себе в коллекцию.</p>
   </div>
   <div class="cfeed" id="communityFeed" data-feed-url="/admin/community"></div>
-  <p class="muted cfeed-empty" id="cfeedEmpty" hidden style="text-align:center;padding:20px 0">Пока пусто — как появятся публичные свидания, они возникнут здесь 🌙</p>
+  <p class="muted cfeed-empty" id="cfeedEmpty" hidden style="text-align:center;padding:20px 0">Пока пусто — как появятся публичные события, они возникнут здесь 🌙</p>
   <p class="muted cfeed-end" id="cfeedEnd" hidden style="text-align:center;padding:14px 0;font-size:13px">Это всё на сейчас ♥</p>
 </div>
 
-<!-- Мини-виджет свидания из ленты -->
+<!-- Мини-виджет события из ленты -->
 <dialog id="communityDlg" class="community-dlg">
   <button type="button" class="dlg-x" id="cwidClose" aria-label="Закрыть">✕</button>
   <div id="cwidBody"></div>
@@ -78,7 +78,7 @@
 {% if user['is_operator'] %}
 <div class="card">
   <b>Данные платформы</b>
-  <p class="muted" style="margin:6px 0 10px;font-size:13.5px">Экспорт и импорт доступны только админам. CSV — таблица свиданий для Excel · JSON — все данные · архив — снимок базы, все фото, видео и export.json одним zip · импорт дозаписывает категории и свидания из export.json.</p>
+  <p class="muted" style="margin:6px 0 10px;font-size:13.5px">Экспорт и импорт доступны только админам. CSV — таблица событий для Excel · JSON — все данные · архив — снимок базы, все фото, видео и export.json одним zip · импорт дозаписывает категории и события из export.json.</p>
   <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
     <a class="btn small" href="/admin/export/csv">Скачать CSV</a>
     <a class="btn small" href="/admin/export/json">Скачать JSON</a>
@@ -86,7 +86,7 @@
   </div>
   <form method="post" action="/admin/import/json" enctype="multipart/form-data"
         style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px"
-        data-confirm="Импортировать данные из файла? Категории и свидания добавятся к твоему аккаунту.">
+        data-confirm="Импортировать данные из файла? Категории и события добавятся к твоему аккаунту.">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <input type="file" name="file" accept="application/json,.json" required>
     <button class="btn small primary">Импортировать JSON</button>

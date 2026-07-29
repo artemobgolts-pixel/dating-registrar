@@ -56,7 +56,7 @@ class VotingDomainTests(unittest.TestCase):
         )
         return int(cur.lastrowid)
 
-    def date(self, *categories: int, name="Свидание", capacity=5,
+    def date(self, *categories: int, name="Событие", capacity=5,
              starts_at=STARTS) -> int:
         cur = self.conn.execute(
             "INSERT INTO dates(owner_id, name, starts_at, capacity, created_at) "
@@ -419,7 +419,7 @@ class VotingMigrationTests(unittest.TestCase):
                 INSERT INTO categories(name, link_token, created_at)
                     VALUES('Старая', 'legacy-token', '2025-01-01T00:00');
                 INSERT INTO dates(name, created_at)
-                    VALUES('Старое свидание', '2025-01-01T00:00');
+                    VALUES('Старое событие', '2025-01-01T00:00');
                 INSERT INTO votes(date_id, category_id, guest_token, created_at)
                     VALUES(1, 1, 'legacy-guest', '2025-01-01T10:00');
                 INSERT INTO questions(date_id, text, created_at)

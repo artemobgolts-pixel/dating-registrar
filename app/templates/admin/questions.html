@@ -17,7 +17,7 @@
     <span class="notif-ic" aria-hidden="true">{{ kind }}</span>
     <div class="notif-meta">
       <div class="notif-who"><b>{{ q['gname'] }}</b>{% if q['answer'] %}<span class="badge rose">отвечено</span>{% elif not q['is_read'] %}<span class="badge amber">новое</span>{% endif %}</div>
-      <div class="notif-sub">к свиданию «<a href="/admin/dates/{{ q['did'] }}/edit">{{ q['date_name'] }}</a>»{% if q['cat_name'] %} · {{ q['cat_name'] }}{% endif %} · {{ q['created_at'] | ts }}</div>
+      <div class="notif-sub">к событию «<a href="/admin/dates/{{ q['did'] }}/edit">{{ q['date_name'] }}</a>»{% if q['cat_name'] %} · {{ q['cat_name'] }}{% endif %} · {{ q['created_at'] | ts }}</div>
     </div>
   </div>
 

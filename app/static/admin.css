@@ -173,7 +173,7 @@ nav a.op-link { color: var(--rose-2); }
 nav a.op-link.on, nav a.on.op-link { color: #fff; }
 
 /* «жидкое стекло» для главной навигации (только ПК): вместо отдельных капсул —
-   единый матовый трек с перетекающим индикатором, как у вкладок свиданий.
+   единый матовый трек с перетекающим индикатором, как у вкладок событий.
    На мобиле .glass-nav превращается в нижний бар (см. медиазапрос) — там этот
    режим отключён. */
 @media (min-width: 721px) {
@@ -408,7 +408,7 @@ label.chk {
   .grid2 { grid-template-columns: 1fr; }
 }
 
-/* строка фильтров над списком свиданий */
+/* строка фильтров над списком событий */
 
 .filters {
   display: flex;
@@ -479,7 +479,7 @@ label.chk {
 
 .stat span { color: var(--muted); font-size: 13px; }
 
-/* счётчики свиданий на главной (активные/неактивные/архив) — как вкладки-пилюли */
+/* счётчики событий на главной (активные/неактивные/архив) — как вкладки-пилюли */
 .dcount-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
 .dcount {
   display: inline-flex; align-items: center; gap: 8px;
@@ -1077,7 +1077,7 @@ table th { color: #8f4a58; }
 /* фото в списках и форме: вертикальные больше не режутся */
 .thumb img { object-fit: contain; background: #f5edef; }
 
-/* перетаскивание свиданий в категории */
+/* перетаскивание событий в категории */
 td.drag-h {
   width: 26px;
   color: #c4b2b8;
@@ -1329,7 +1329,7 @@ input, textarea, select {
   box-shadow: 0 14px 34px rgba(150, 80, 95, .2), inset 0 1px 0 rgba(255, 255, 255, .8);
 }
 /* только «Сохранить» + «Отмена», ровно: Сохранить тянется, Отмена рядом.
-   (Архив/Удалить/Одобрить живут в меню ⋯ на списке свиданий.) */
+   (Архив/Удалить/Одобрить живут в меню ⋯ на списке событий.) */
 .savebar .btn {
   font-size: 15px; font-weight: 600; letter-spacing: .01em;
   padding: 11px 22px; border-radius: 12px; text-align: center;
@@ -1393,7 +1393,7 @@ input, textarea, select {
 }
 
 /* ============================================================
-   РЕДАКТИРУЕМОЕ ПРЕВЬЮ свидания (click-to-edit прямо в карточке)
+   РЕДАКТИРУЕМОЕ ПРЕВЬЮ события (click-to-edit прямо в карточке)
    ============================================================ */
 /* D2: колонка превью — гибкая minmax(0,460px), не жёсткие 460px, чтобы на
    средних экранах не переполнять и не оставлять «дыр». */
@@ -1510,7 +1510,7 @@ input, textarea, select {
 }
 .ed-side-col { display: flex; flex-direction: column; gap: 16px; }
 
-/* ---------- список свиданий: сетка карточек ---------- */
+/* ---------- список событий: сетка карточек ---------- */
 .controls {
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 18px;
 }
@@ -1551,7 +1551,7 @@ input, textarea, select {
   background: linear-gradient(135deg, #caa094, #9c6f6a);
 }
 .dcard .ph img { width: 100%; height: 100%; object-fit: cover; display: block; }
-/* варианты градиента-плейсхолдера — разнообразим по id свидания */
+/* варианты градиента-плейсхолдера — разнообразим по id события */
 .dcard .ph.g0 { background: linear-gradient(135deg, #caa094, #9c6f6a); }
 .dcard .ph.g1 { background: linear-gradient(135deg, #9c8bb0, #6f5f8c); }
 .dcard .ph.g2 { background: linear-gradient(135deg, #cbb38f, #9c8154); }
@@ -1595,7 +1595,7 @@ input, textarea, select {
   max-width: calc(100% - 16px);
 }
 
-/* вся карточка свидания кликабельна → редактор. Растянутый оверлей-ссылка
+/* вся карточка события кликабельна → редактор. Растянутый оверлей-ссылка
    под содержимым; интерактив (заголовок-ссылка, меню ⋯) поднят над ним. */
 .dcard-link { position: absolute; inset: 0; z-index: 1; border-radius: 18px; }
 .dcard .ph, .dcard .b { position: relative; }
@@ -1604,7 +1604,7 @@ input, textarea, select {
 
 /* подвал карточки: подсказка «Редактировать» + меню ⋯ */
 .dcard .foot { display: flex; align-items: center; gap: 7px; position: relative; z-index: 3; margin-top: auto; }
-/* ⋯ меню карточки свидания — в правом верхнем углу самой карточки (не в подвале,
+/* ⋯ меню карточки события — в правом верхнем углу самой карточки (не в подвале,
    где ряд кнопок переполнялся и ⋯ «уезжала» за пределы карточки) */
 .dcard .card-menu { position: absolute; top: 8px; right: 8px; z-index: 5; }
 /* ⋯ очень ненавязчива поверх фото: почти прозрачная, проявляется на hover/фокус/
@@ -1920,7 +1920,7 @@ input, textarea, select {
   box-shadow: 0 0 0 2px rgba(182, 95, 111, .25);
 }
 .og-preview.editable .ed-field:empty::before { content: attr(data-ph); color: var(--muted); opacity: .7; }
-/* подпись поля и зона выбора картинки превью (drag-drop как у свиданий) */
+/* подпись поля и зона выбора картинки превью (drag-drop как у событий) */
 .field-label { display: block; font-weight: 600; color: var(--ink); font-size: 14px; margin-top: 4px; }
 .field-label .muted { font-weight: 400; }
 .category-description-fields { display: grid; gap: 10px; }
@@ -2329,20 +2329,20 @@ input, textarea, select {
   .quick .btn .lbl-full { display: none; }
   .quick .btn .lbl-short { display: inline; }
 
-  /* в редакторе свидания «Сохранить» и «Отмена» — единая высота и вид,
+  /* в редакторе события «Сохранить» и «Отмена» — единая высота и вид,
      Сохранить занимает больше места, обе кнопки аккуратно выровнены */
   .savebar { flex-wrap: nowrap; }
   .savebar .btn { padding: 13px 18px; font-size: 16px; }
   .savebar .btn.primary { flex: 2; min-width: 0; }
   .savebar .btn.ghost { flex: 1; text-align: center; }
 
-  /* форму создания свидания не должно «таскать» по горизонтали:
+  /* форму создания события не должно «таскать» по горизонтали:
      контент клиппим по ширине, элементы не шире контейнера */
   .wrap { overflow-x: clip; }
   .split, .sec, .grid2, form, input, textarea, select { max-width: 100%; }
   .preview-col { max-width: 100%; }
 
-  /* фильтры списка свиданий: на телефоне переносим и не даём «уезжать» вбок */
+  /* фильтры списка событий: на телефоне переносим и не даём «уезжать» вбок */
   .controls .filters { flex-wrap: wrap; width: 100%; }
   .controls .filters select { flex: 1 1 auto; min-width: 0; }
   /* Вкладки Активные/Неактивные/Архив — во всю ширину, вкладки делят её поровну.
@@ -2378,7 +2378,7 @@ input, textarea, select {
 }
 
 /* ============================================================
-   ЛЕНТА СВИДАНИЙ КОМЬЮНИТИ (главная) + мини-виджет свидания
+   ЛЕНТА ВСТРЕЧ СООБЩЕСТВА (главная) + мини-виджет события
    ============================================================ */
 .cfeed {
   display: grid;

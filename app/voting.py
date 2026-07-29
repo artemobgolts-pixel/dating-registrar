@@ -1,4 +1,4 @@
-"""Доменная логика голосования по свиданиям.
+"""Доменная логика голосования по событиям.
 
 Модуль не зависит от FastAPI и не делает ``commit``: роут может атомарно
 сохранить результат вместе с другими изменениями и только затем отправить
@@ -9,7 +9,7 @@
 * строка ``bookings`` — неизменяемый после ``closed_at`` голос (ballot);
 * ``participation_withdrawn_at`` — отказ победившего участника после результата,
   он не удаляет голос и не пересчитывает победителя;
-* ``dates.capacity`` применяется отдельно к каждой паре свидание/категория.
+* ``dates.capacity`` применяется отдельно к каждой паре событие/категория.
 """
 
 from __future__ import annotations
@@ -204,7 +204,7 @@ def _candidate(conn: sqlite3.Connection, category_id: int, date_id: int):
         (date_id, category_id),
     ).fetchone()
     if not row:
-        _fail("date_not_available", "Свидание недоступно в этой категории",
+        _fail("date_not_available", "Событие недоступно в этой категории",
               status_code=404)
     return row
 
@@ -299,7 +299,7 @@ def configure_category(conn: sqlite3.Connection, category_id: int, owner_id: int
               status_code=500, voting_status=status)
 
     # Дедлайн обязан быть строго раньше начала каждого активного датированного
-    # кандидата. Свидания без starts_at ограничение не создают.
+    # кандидата. События без starts_at ограничение не создают.
     for date_row in conn.execute(
         "SELECT d.id, d.name, d.starts_at FROM dates d "
         "JOIN date_categories dc ON dc.date_id=d.id "
@@ -309,12 +309,12 @@ def configure_category(conn: sqlite3.Connection, category_id: int, owner_id: int
         try:
             starts = _parse_moment(date_row["starts_at"], "starts_at")
         except VotingError as exc:
-            _fail("invalid_candidate_start", "У свидания некорректно задано время",
+            _fail("invalid_candidate_start", "У события некорректно задано время",
                   status_code=409, date_id=int(date_row["id"]), cause=exc.code)
         if deadline >= starts:
             _fail(
                 "deadline_not_before_start",
-                "Дедлайн должен быть раньше начала всех свиданий",
+                "Дедлайн должен быть раньше начала всех событий",
                 status_code=400,
                 date_id=int(date_row["id"]),
                 date_name=date_row["name"],
@@ -372,14 +372,14 @@ def _check_candidate_deadline(cat, candidate) -> None:
         deadline = _parse_moment(cat["voting_deadline"], "deadline")
         if deadline >= starts:
             _fail("candidate_before_deadline",
-                  "Это свидание начинается не позже дедлайна голосования",
+                  "Это событие начинается не позже дедлайна голосования",
                   date_id=int(candidate["id"]))
 
 
 def _map_insert_error(exc: sqlite3.IntegrityError) -> None:
     raw = str(exc)
     if "booking_capacity_reached" in raw:
-        _fail("capacity_reached", "На это свидание уже набрался максимум участников")
+        _fail("capacity_reached", "На это событие уже набрался максимум участников")
     if "single_choice_only" in raw:
         _fail("single_choice_only", "В этой категории можно выбрать только один вариант")
     if "voting_closed" in raw:
@@ -422,7 +422,7 @@ def cast_vote(conn: sqlite3.Connection, category_id: int, date_id: int,
     ).fetchone()[0])
     capacity = int(candidate["capacity"])
     if date_votes >= capacity:
-        _fail("capacity_reached", "На это свидание уже набрался максимум участников",
+        _fail("capacity_reached", "На это событие уже набрался максимум участников",
               date_id=date_id, capacity=capacity)
 
     prior = _current_choices(conn, category_id, guest_token)
@@ -561,7 +561,7 @@ def resolve_tie(conn: sqlite3.Connection, category_id: int, owner_id: int,
 def withdraw_participation(conn: sqlite3.Connection, category_id: int,
                            user_id: int, *,
                            now: str | datetime | None = None) -> WithdrawalResult:
-    """Отмечает отказ участника победившего свидания, не меняя его голос."""
+    """Отмечает отказ участника победившего события, не меняя его голос."""
     cat = _lock_category(conn, category_id)
     guest_token = _ensure_not_owner(cat, user_id)
     if cat["voting_status"] != STATUS_RESOLVED or cat["winner_date_id"] is None:
@@ -574,7 +574,7 @@ def withdraw_participation(conn: sqlite3.Connection, category_id: int,
         (category_id, winner_id, user_id, guest_token),
     ).fetchone()
     if not booking:
-        _fail("not_winner_participant", "Ты не участвуешь в победившем свидании",
+        _fail("not_winner_participant", "Ты не участвуешь в победившем событии",
               status_code=403)
     if booking["participation_withdrawn_at"]:
         return WithdrawalResult(category_id, winner_id, int(booking["id"]),
@@ -605,7 +605,7 @@ def set_date_capacity(conn: sqlite3.Connection, date_id: int, owner_id: int,
         "UPDATE dates SET id=id WHERE id=? AND owner_id=?", (date_id, owner_id)
     )
     if cursor.rowcount == 0:
-        _fail("date_not_found", "Свидание не найдено", status_code=404)
+        _fail("date_not_found", "Событие не найдено", status_code=404)
     try:
         conn.execute("UPDATE dates SET capacity=? WHERE id=?", (value, date_id))
     except sqlite3.IntegrityError as exc:

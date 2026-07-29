@@ -9,7 +9,8 @@
  *
  * Самохостинг, без зависимостей и Three.js — под нашу строгую CSP.
  * Нет WebGL2 / float-рендера → тихий выход, остаётся CSS-дым (.bg-smoke).
- * prefers-reduced-motion → один статичный кадр.
+ * prefers-reduced-motion / Save-Data / действительно слабое устройство →
+ * один статичный кадр. На остальных устройствах анимация ограничена 30 FPS.
  */
 (function () {
   "use strict";
@@ -23,6 +24,20 @@
 
   var reduce = window.matchMedia &&
     window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var connection = navigator.connection ||
+    navigator.mozConnection || navigator.webkitConnection;
+  var saveData = !!(connection && connection.saveData);
+  var deviceMemory = Number(navigator.deviceMemory);
+  var hardwareConcurrency = Number(navigator.hardwareConcurrency);
+  // Не считаем устройство слабым по одному лишь небольшому числу ядер:
+  // браузеры могут скрывать/занижать эту метрику. 1 ГБ памяти — уже достаточно
+  // сильный сигнал; для 2 ГБ требуем ещё и не более двух логических процессоров.
+  // Если API метрик нет, фон остаётся анимированным.
+  var veryWeakDevice =
+    (deviceMemory > 0 && deviceMemory <= 1) ||
+    (deviceMemory > 1 && deviceMemory <= 2 &&
+      hardwareConcurrency > 0 && hardwareConcurrency <= 2);
+  var staticBackground = reduce || saveData || veryWeakDevice;
   var darkTheme = document.documentElement.getAttribute("data-theme") === "dark";
 
   // Интерактивная часть — настройка аккаунта. Сам живой фон рисуется всегда,
@@ -598,7 +613,7 @@ void main(){
     activeUntil = (performance.now() - start) / 1000 + CLICK_HOLD;
     play();
   }
-  if (!reduce) {
+  if (!staticBackground) {
     // След и клик-всплеск — только на устройствах с ТОЧНЫМ указателем (мышь/трекпад).
     // На телефоне (pointer: coarse) не вешаем ничего: важно, что тап там порождает
     // ещё и СИНТЕТИЧЕСКИЕ mouse-события — поэтому мало убрать touch-слушатели, нужно
@@ -622,10 +637,22 @@ void main(){
   }
 
   // --- цикл ----------------------------------------------------------------
-  var raf = 0, last = 0, start = performance.now();
+  var TARGET_FRAME_MS = 1000 / 30;
+  // Малый допуск не даёт мониторам с дробной частотой (например, 59.94 Гц)
+  // периодически проваливаться с 30 до 20 FPS из-за долей миллисекунды.
+  var FRAME_EARLY_TOLERANCE_MS = 1;
+  var raf = 0, last = 0, nextFrameAt = 0, start = performance.now();
 
   function render(now) {
     raf = 0;
+    if (nextFrameAt && now + FRAME_EARLY_TOLERANCE_MS < nextFrameAt) {
+      if (!document.hidden) raf = requestAnimationFrame(render);
+      return;
+    }
+    if (!nextFrameAt) nextFrameAt = now;
+    do {
+      nextFrameAt += TARGET_FRAME_MS;
+    } while (nextFrameAt <= now);
     if (!last) last = now;
     var dt = Math.min((now - last) / 1000, 0.022);
     last = now;
@@ -725,7 +752,13 @@ void main(){
     if (!document.hidden) raf = requestAnimationFrame(render);
   }
 
-  function play() { if (!raf && !document.hidden) { last = 0; raf = requestAnimationFrame(render); } }
+  function play() {
+    if (!raf && !document.hidden) {
+      last = 0;
+      nextFrameAt = 0;
+      raf = requestAnimationFrame(render);
+    }
+  }
   function pause() { if (raf) { cancelAnimationFrame(raf); raf = 0; } }
 
   function teardown() {
@@ -786,10 +819,10 @@ void main(){
 
   document.addEventListener("d4y:themechange", function (event) {
     darkTheme = event.detail && event.detail.theme === "dark";
-    if (reduce) drawStatic(); else play();
+    if (staticBackground) drawStatic(); else play();
   });
 
-  if (reduce) {
+  if (staticBackground) {
     drawStatic();
   } else {
     document.addEventListener("visibilitychange", function () {

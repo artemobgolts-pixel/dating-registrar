@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
   <title>{{ d.name }} · date4you</title>
-  <meta property="og:title" content="Свидание: {{ d.name }}">
-  <meta property="og:description" content="Тебе предлагают свидание — открой ♥">
+  <meta property="og:title" content="Событие: {{ d.name }}">
+  <meta property="og:description" content="Тебе предлагают событие — открой ♥">
   <meta property="og:type" content="website">
   <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
   <link rel="manifest" href="/static/manifest.json">
@@ -108,7 +108,7 @@
     {% if vote_state.status == 'open' %}<b>Голосование идёт до {{ vote_state.voting_deadline | when }}</b><span>{% if vote_state.choice_mode == 'single' %}Можно выбрать один вариант.{% else %}Можно выбрать несколько вариантов.{% endif %}</span>
     {% elif vote_state.status == 'tie' %}<b>Ничья</b><span>Организатор вручную выбирает победителя среди лидеров.</span>
     {% elif vote_state.status == 'no_winner' %}<b>Никто не выбрал</b><span>Голосование завершено без победителя.</span>
-    {% else %}<b>Голосование завершено</b><span>{{ 'Это победившее свидание ♥' if d.is_winner else 'Победил другой вариант категории.' }}</span>{% endif %}
+    {% else %}<b>Голосование завершено</b><span>{{ 'Это победившее событие ♥' if d.is_winner else 'Победил другой вариант категории.' }}</span>{% endif %}
   </section>
   {% endif %}
 
@@ -133,8 +133,9 @@
                {% if im['focus'] %}style="object-position:{{ im['focus'] }}"{% endif %}>
           {% endfor %}
           {% for v in d.videos %}
-          <video src="/d/{{ token }}/video/{{ v['filename'] }}" controls playsinline
-                 preload="metadata"></video>
+          <video data-src="/d/{{ token }}/video/{{ v['filename'] }}" controls playsinline
+                 preload="none"
+                 poster="{% if d.images %}/d/{{ token }}/image/{{ d.images[0]['filename'] }}?w=960{% else %}{{ asset('date-default.jpg') }}{% endif %}"></video>
           {% endfor %}
         </div>
       </div>
@@ -188,10 +189,15 @@
           </div>
           {% if show_roster and d.participants %}<div class="participants">
             {% for person in d.participants %}<span class="participant{% if person['participation_withdrawn_at'] %} withdrawn{% endif %}">
-              {% if person['avatar_path'] and person['user_id'] %}<img src="/d/{{ token }}/participant-avatar/{{ person['user_id'] }}?w=480" alt="" width="26" height="26" loading="lazy" decoding="async">
+              {% if person['avatar_path'] and person['user_id'] %}<img src="/d/{{ token }}/participant-avatar/{{ person['user_id'] }}?w=64"
+                   srcset="/d/{{ token }}/participant-avatar/{{ person['user_id'] }}?w=64 64w,
+                           /d/{{ token }}/participant-avatar/{{ person['user_id'] }}?w=96 96w,
+                           /d/{{ token }}/participant-avatar/{{ person['user_id'] }}?w=128 128w"
+                   sizes="26px" alt="" width="26" height="26" loading="lazy" decoding="async">
               {% else %}<span class="participant-ph">{{ person['name'][:1] | upper }}</span>{% endif %}
-              <span>{{ person['name'] }}{% if me and person['guest_token'] == ('u' ~ me['id']) %} · ты{% endif %}</span>
+              <span>{{ person['name'] }}{% if person['is_me'] %} · ты{% endif %}</span>
             </span>{% endfor %}
+            {% if d.participant_hidden_count %}<span class="participants-more">ещё {{ d.participant_hidden_count }}</span>{% endif %}
           </div>{% elif show_roster %}<p class="vote-empty">Пока без голосов.</p>{% endif %}
         </div>
         {% endif %}
@@ -226,15 +232,15 @@
 
   <div class="share-cta">
     {% if is_mine %}
-    <p>Это твоё свидание — оно уже в твоей коллекции.</p>
-    <a class="btn book" href="/admin/dates">К моим свиданиям</a>
+    <p>Это твоё событие — оно уже в твоей коллекции.</p>
+    <a class="btn book" href="/admin/dates">К моим событиям</a>
     {% elif me %}
-    <p>Нравится? Сохрани это свидание к себе — потом добавишь в свои категории.</p>
+    <p>Нравится? Сохрани это событие к себе — потом добавишь в свои категории.</p>
     <form method="post" action="/d/{{ token }}/add">
       <button type="submit" class="btn book">Сохранить к себе ♥</button>
     </form>
     {% else %}
-    <p>Войди, чтобы выбрать это свидание или сохранить к себе.</p>
+    <p>Войди, чтобы выбрать это событие или сохранить к себе.</p>
     <button type="button" class="btn book" data-login-open>Войти</button>
     {% endif %}
   </div>
@@ -248,12 +254,12 @@
   </footer>
 </div>
 
-<!-- Вход прямо со страницы свидания (модалка с Telegram Login Widget) -->
+<!-- Вход прямо со страницы события (модалка с Telegram Login Widget) -->
 <dialog id="loginDlg" class="login-dlg">
   <button type="button" class="dlg-x" id="loginClose" aria-label="Закрыть">✕</button>
   <div class="login-dlg-head">
     <div class="ld-heart" aria-hidden="true">♥</div>
-    <h3 class="dlg-head">Войти, чтобы выбрать свидание</h3>
+    <h3 class="dlg-head">Войти, чтобы выбрать событие</h3>
     <p class="dlg-sub">Вход через Telegram — быстро и без пароля&nbsp;♥</p>
   </div>
   {% set next_url = "/d/" ~ token %}
@@ -299,7 +305,7 @@
   </form>
 </dialog>
 
-<!-- Предложить время для свидания без даты -->
+<!-- Предложить время для события без даты -->
 <dialog id="timeDlg">
   <h3 class="dlg-head">Когда удобно?</h3>
   <p class="dlg-sub">Предложишь время для «<span id="timeTitle"></span>» — организатор увидит&nbsp;♥</p>

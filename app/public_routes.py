@@ -1,7 +1,8 @@
 """Публичная часть: главная, /health и страницы категорий /c/<токен>.
 
-Гости представляются по имени, выбирают свидание (одно свидание — один
-человек), предлагают свои идеи и задают вопросы.
+Участники представляются по имени, голосуют за события, предлагают свои идеи
+и задают вопросы. За одно событие могут проголосовать несколько человек в
+пределах настроенной вместимости.
 """
 
 import json
@@ -30,7 +31,6 @@ from helpers import (_parse, clean_text, fmt_gcal, fmt_when, new_link_token,
                      normalize_period, now_iso, parse_dt_local, parse_links)
 from notify import esc
 from ratelimit import guest_throttle
-from tasks import autoarchive_once
 from web import get_db, redir, templates
 
 router = APIRouter()
@@ -40,7 +40,7 @@ router = APIRouter()
 # Идентичность посетителя гостевой страницы
 # ---------------------------------------------------------------------------
 # Раньше гость представлялся только именем (cookie-токен). Теперь все действия
-# (бронь, вопрос, предложение) требуют входа в аккаунт: аноним только смотрит.
+# (голос, вопрос, предложение) требуют входа в аккаунт: аноним только смотрит.
 # Залогиненному выдаём стабильный guest_token "u<id>" и держим его имя в guests —
 # так весь код, завязанный на guest_token, работает без правок, а владелец видит
 # реальное имя из профиля.
@@ -69,19 +69,127 @@ def viewer_token(user) -> str | None:
     return f"u{user['id']}" if user else None
 
 
-def ensure_guest_name(conn, user) -> tuple[str, str]:
-    """Заводит/обновляет строку guests для залогиненного посетителя (имя из
-    профиля). Возвращает (guest_token, имя). Без commit — вызывающий коммитит
-    вместе со своим действием."""
+def guest_identity(user) -> tuple[str, str]:
+    """Возвращает стабильный токен и имя профиля без записи в БД.
+
+    GET-страницы используют этот чистый вариант, чтобы обычный просмотр не
+    конкурировал с голосами и другими записями за единственный writer-lock
+    SQLite. Строка ``guests`` синхронизируется только вместе с POST-действием.
+    """
     token = viewer_token(user)
     name = ((user["display_name"] or "").strip()
             or (user["tg_username"] or "").strip()
             or f"Человек #{user['id']}")
+    return token, name
+
+
+def ensure_guest_name(conn, user) -> tuple[str, str]:
+    """Заводит/обновляет строку guests для залогиненного посетителя (имя из
+    профиля). Возвращает (guest_token, имя). Без commit — вызывающий коммитит
+    вместе со своим действием."""
+    token, name = guest_identity(user)
     conn.execute(
         "INSERT INTO guests(token, name, created_at) VALUES(?,?,?) "
         "ON CONFLICT(token) DO UPDATE SET name=excluded.name",
         (token, name, now_iso()))
     return token, name
+
+
+def legacy_guest_token(request: Request, user) -> str | None:
+    """Старый непредсказуемый cookie-токен, которым владеет этот браузер.
+
+    Читающий GET может учитывать такой бюллетень как «мой» без переноса строк.
+    Предсказуемые ``u<ID>`` никогда не считаем bearer-доказательством.
+    """
+    legacy = legacy_guests.get_guest(request)
+    stable = viewer_token(user)
+    if not legacy or legacy == stable or re.fullmatch(r"u\d+", legacy):
+        return None
+    return legacy
+
+
+def legacy_vote_date_ids(conn, request: Request, user,
+                         category_id: int) -> tuple[int, ...]:
+    """Варианты старого cookie-бюллетеня до его атомарного POST-переноса."""
+    legacy = legacy_guest_token(request, user)
+    if not legacy:
+        return ()
+    return tuple(
+        int(row["date_id"])
+        for row in conn.execute(
+            "SELECT date_id FROM bookings "
+            "WHERE category_id=? AND guest_token=? AND user_id IS NULL",
+            (category_id, legacy),
+        ).fetchall()
+    )
+
+
+def _legacy_claim_allowed(cat, user) -> bool:
+    """Чистая проверка тех же условий, при которых POST переносит бюллетень."""
+    if not cat or cat["voting_status"] not in {
+            voting.STATUS_UNCONFIGURED, voting.STATUS_OPEN}:
+        return False
+    if int(cat["owner_id"]) == int(user["id"]):
+        return False
+    if cat["voting_status"] == voting.STATUS_OPEN:
+        try:
+            deadline = datetime.fromisoformat(cat["voting_deadline"])
+        except (TypeError, ValueError):
+            return False
+        if deadline <= datetime.now(MSK).replace(tzinfo=None, microsecond=0):
+            return False
+    return True
+
+
+def view_booking_rows(rows, request: Request, user, cat) -> list[dict]:
+    """Read-only представление бюллетеней с виртуальным legacy-переносом.
+
+    Оно повторяет результат ``claim_legacy_votes`` для UI, не меняя SQLite:
+    single с уже существующим account-голосом скрывает старые cookie-строки,
+    а совпавшие варианты в multiple не считаются дважды.
+    """
+    stable = viewer_token(user)
+    result = [
+        {**dict(row), "is_me": bool(stable and row["guest_token"] == stable)}
+        for row in rows
+    ]
+    if not user:
+        return result
+    legacy = legacy_guest_token(request, user)
+    if not legacy or int(cat["owner_id"]) == int(user["id"]):
+        return result
+
+    def eligible(row) -> bool:
+        return row["guest_token"] == legacy and row["user_id"] is None
+    if not _legacy_claim_allowed(cat, user):
+        return result
+
+    stable_dates = {
+        int(row["date_id"]) for row in result
+        if row["guest_token"] == stable
+    }
+    if cat["choice_mode"] == voting.CHOICE_SINGLE and stable_dates:
+        return [row for row in result if not eligible(row)]
+
+    _, profile_name = guest_identity(user)
+    effective = []
+    for row in result:
+        if not eligible(row):
+            effective.append(row)
+            continue
+        date_id = int(row["date_id"])
+        if date_id in stable_dates:
+            continue
+        row.update({
+            "guest_token": stable,
+            "user_id": user["id"],
+            "avatar_path": user["avatar_path"],
+            "name": profile_name,
+            "is_me": True,
+        })
+        stable_dates.add(date_id)
+        effective.append(row)
+    return effective
 
 
 def claim_legacy_votes(conn, request: Request, user, category_id: int) -> int:
@@ -92,32 +200,17 @@ def claim_legacy_votes(conn, request: Request, user, category_id: int) -> int:
     доказательство авторства. Переносим такие бюллетени лишь пока голосование
     можно менять; завершённый результат никогда не пересчитываем.
     """
-    legacy = legacy_guests.get_guest(request)
+    legacy = legacy_guest_token(request, user)
     stable = viewer_token(user)
-    # Идентификаторы аккаунтов всегда имеют предсказуемый формат ``u<ID>``.
-    # После удаления аккаунта user_id обнуляется, но такой бюллетень нельзя
-    # превращать в доступный для присвоения bearer-токен.
-    if not legacy or legacy == stable or re.fullmatch(r"u\d+", legacy):
+    if not legacy:
         return 0
 
     # Сериализуем перенос с голосами, настройкой и закрытием, затем перечитываем.
     if conn.execute("UPDATE categories SET id=id WHERE id=?", (category_id,)).rowcount == 0:
         return 0
     cat = conn.execute("SELECT * FROM categories WHERE id=?", (category_id,)).fetchone()
-    if not cat or cat["voting_status"] not in {
-            voting.STATUS_UNCONFIGURED, voting.STATUS_OPEN}:
+    if not _legacy_claim_allowed(cat, user):
         return 0
-    # Просмотр своей категории не должен превращать старый анонимный бюллетень
-    # в голос владельца и обходить правило «создатель не считается участником».
-    if int(cat["owner_id"]) == int(user["id"]):
-        return 0
-    if cat["voting_status"] == voting.STATUS_OPEN:
-        try:
-            if datetime.fromisoformat(cat["voting_deadline"]) <= \
-                    datetime.now(MSK).replace(tzinfo=None, microsecond=0):
-                return 0
-        except (TypeError, ValueError):
-            return 0
 
     legacy_rows = conn.execute(
         "SELECT id, date_id FROM bookings WHERE category_id=? "
@@ -172,7 +265,7 @@ def active_cat_or_410(conn, token: str):
 
 
 def date_in_category(conn, category_id: int, date_id: int):
-    """Опубликованное активное свидание в категории (для выбора/вопросов/ics)."""
+    """Опубликованное активное событие в категории (для выбора/вопросов/ics)."""
     return conn.execute(
         "SELECT d.* FROM dates d JOIN date_categories dc ON dc.date_id=d.id "
         "WHERE d.id=? AND dc.category_id=? AND d.archived_at IS NULL AND d.is_draft=0",
@@ -181,7 +274,7 @@ def date_in_category(conn, category_id: int, date_id: int):
 
 
 def notify_owner(bg, conn, owner_id: int, text: str) -> None:
-    """Шлёт уведомление владельцу о событии на его свидании (выбор, вопрос,
+    """Шлёт владельцу уведомление о действии с его событием (голос, вопрос,
     предложение...). chat_id резолвим СЕЙЧАС (conn ещё открыт), а сам сетевой
     вызов уводим в фон. Если бот владельцем не подключён — тихо ничего не шлём."""
     chat = notify.owner_chat_id(conn, owner_id)
@@ -191,7 +284,7 @@ def notify_owner(bg, conn, owner_id: int, text: str) -> None:
 
 def notify_user(bg, conn, user_id: int | None, text: str) -> None:
     """Шлёт уведомление произвольному пользователю (автору вопроса/предложения,
-    гостю при снятии брони). Те же правила доставки, что и у владельца:
+    гостю при снятии голоса). Те же правила доставки, что и у владельца:
     бот подключён, активен, не легаси. None/нет бота — тихо пропускаем."""
     if user_id is None:
         return
@@ -221,14 +314,14 @@ def own_proposal_or_403(conn, cat, date_id: int, guest: str | None):
         (date_id, cat["id"]),
     ).fetchone()
     if not d:
-        raise HTTPException(404, "Свидание не найдено")
+        raise HTTPException(404, "Событие не найдено")
     if d["origin"] != "guest" or not guest or d["guest_token"] != guest:
         raise HTTPException(403, "Это не твоё предложение")
     return d
 
 
 def _batch_media(conn, date_ids: list[int]) -> dict:
-    """Разом грузит ссылки/фото/видео для набора свиданий (устраняет N+1 на
+    """Разом грузит ссылки/фото/видео для набора событий (устраняет N+1 на
     странице категории/ленте). Возвращает {'links': {did:[...]}, 'images':..,
     'videos':..} — упорядоченные списки sqlite3.Row на каждый date_id."""
     out = {"links": {}, "images": {}, "videos": {}}
@@ -261,7 +354,7 @@ def date_payload(conn, row) -> dict:
 
 def date_payload_from(row, media: dict) -> dict:
     """Как date_payload, но берёт ссылки/фото/видео из заранее собранного батча
-    (_batch_media) — без запросов на каждое свидание."""
+    (_batch_media) — без запросов на каждое событие."""
     d = dict(row)
     d["links"] = media["links"].get(row["id"], [])
     d["images"] = media["images"].get(row["id"], [])
@@ -272,7 +365,7 @@ def date_payload_from(row, media: dict) -> dict:
 def insert_date(conn, *, name, place, starts, ends, comment, origin, guest_token,
                 owner_id, draft=0, pay_split=0, place_url=None, proposed_by=None,
                 is_public=1, capacity=1) -> int:
-    # Каждое свидание получает стабильную секретную ссылку /d/<share_token>
+    # Каждое событие получает стабильную секретную ссылку /d/<share_token>
     # сразу при создании — через неё им можно поделиться, чтобы другой
     # пользователь добавил копию себе. Генерим здесь, чтобы ВСЕ пути создания
     # (админ, клон, импорт, гостевое предложение) получили токен без правок.
@@ -289,7 +382,7 @@ def insert_date(conn, *, name, place, starts, ends, comment, origin, guest_token
 
 
 def parse_capacity(value) -> int:
-    """Пустое значение означает обычное свидание на одного участника."""
+    """Пустое значение означает обычное событие на одного участника."""
     if value in (None, ""):
         return 1
     try:
@@ -328,13 +421,13 @@ def validate_candidate_start(cat, starts_at: str | None) -> None:
         deadline = datetime.fromisoformat(cat["voting_deadline"])
         starts = datetime.fromisoformat(starts_at)
     except (TypeError, ValueError):
-        raise HTTPException(400, "Некорректная дата голосования или свидания")
+        raise HTTPException(400, "Некорректная дата голосования или события")
     if starts <= deadline:
-        raise HTTPException(400, "Свидание должно начинаться после дедлайна голосования")
+        raise HTTPException(400, "Событие должно начинаться после дедлайна голосования")
 
 
 def next_cat_pos(conn, category_id: int) -> int:
-    """Позиция для нового свидания в категории: в конец списка."""
+    """Позиция для нового события в категории: в конец списка."""
     return conn.execute(
         "SELECT COALESCE(MAX(position), -1) + 1 FROM date_categories WHERE category_id=?",
         (category_id,)).fetchone()[0]
@@ -348,15 +441,15 @@ def save_links(conn, date_id: int, links: list[str]) -> None:
 
 
 def copy_date_media_and_links(conn, src_id: int, new_id: int) -> None:
-    """Переносит на новое свидание ссылки и физические копии фото/видео исходного.
+    """Переносит на новое событие ссылки и физические копии фото/видео исходного.
 
     Фото/видео — отдельные файлы с новыми именами (images.copy_file); фокус кадра
     сохраняем. Битые/пропавшие файлы просто пропускаем. При ошибке удаляем уже
     скопированные файлы и пробрасываем исключение — чтобы не оставлять сирот на
-    диске. Категории/брони/вопросы НЕ трогаем: это решает вызывающий (клон копирует
+    диске. Категории/голоса/вопросы НЕ трогаем: это решает вызывающий (клон копирует
     категории сам, «добавить себе» — нет). Коммит — на вызывающем.
 
-    Используется и клонированием свидания админом, и «добавить себе» по /d/<токен>.
+    Используется и клонированием события админом, и «добавить себе» по /d/<токен>.
     """
     for r in conn.execute(
             "SELECT url, position FROM date_links WHERE date_id=? ORDER BY position, id",
@@ -402,7 +495,7 @@ def add_photos(conn, date_id: int, files: list[UploadFile], existing: int,
     if not files:
         return []
     if existing + len(files) > images.MAX_IMAGES:
-        raise HTTPException(400, f"Максимум {images.MAX_IMAGES} фото у одного свидания")
+        raise HTTPException(400, f"Максимум {images.MAX_IMAGES} фото у одного события")
     try:
         saved = images.save_batch(files)
     except ValueError as e:
@@ -433,6 +526,21 @@ def _clean_focus(raw: str | None) -> str | None:
     return f"{int(m.group(1))}% {int(m.group(2))}%"
 
 
+PUBLIC_ROSTER_LIMIT = 12
+
+
+def _visible_participants(people: list[dict]) -> tuple[list[dict], int]:
+    """Первые участники ростера, но текущий пользователь всегда видит себя."""
+    visible = list(people[:PUBLIC_ROSTER_LIMIT])
+    mine_index = next(
+        (index for index, person in enumerate(people) if person.get("is_me")),
+        None,
+    )
+    if mine_index is not None and mine_index >= PUBLIC_ROSTER_LIMIT:
+        visible[-1:] = [people[mine_index]]
+    return visible, max(0, len(people) - len(visible))
+
+
 def _booking_rows(conn, category_id: int):
     return conn.execute(
         "SELECT b.id, b.date_id, b.guest_token, b.user_id, "
@@ -444,6 +552,64 @@ def _booking_rows(conn, category_id: int):
         "WHERE b.category_id=? ORDER BY b.created_at",
         (category_id,),
     ).fetchall()
+
+
+def _vote_card_updates(conn, category_id: int, date_ids, guest: str) -> list[dict]:
+    """Компактный снимок изменившихся карточек для обновления без reload.
+
+    Возвращаем только затронутые варианты и не более ``PUBLIC_ROSTER_LIMIT``
+    участников на каждый: ответ остаётся маленьким даже у большого события.
+    """
+    ids = sorted({int(date_id) for date_id in date_ids})
+    if not ids:
+        return []
+    ph = ",".join("?" * len(ids))
+    capacities = {
+        int(row["id"]): int(row["capacity"] or 1)
+        for row in conn.execute(
+            f"SELECT id, capacity FROM dates WHERE id IN ({ph})", tuple(ids)
+        ).fetchall()
+    }
+    participants: dict[int, list[dict]] = {date_id: [] for date_id in ids}
+    totals: dict[int, int] = {date_id: 0 for date_id in ids}
+    mine: dict[int, bool] = {date_id: False for date_id in ids}
+    for row in conn.execute(
+            "SELECT b.date_id, b.guest_token, b.user_id, "
+            "b.participation_withdrawn_at, u.avatar_path, "
+            "COALESCE(NULLIF(u.display_name,''), NULLIF(u.tg_username,''), "
+            "         NULLIF(g.name,''), 'Участник') AS name "
+            "FROM bookings b LEFT JOIN guests g ON g.token=b.guest_token "
+            "LEFT JOIN users u ON u.id=b.user_id AND u.is_active=1 "
+            f"WHERE b.category_id=? AND b.date_id IN ({ph}) "
+            "ORDER BY b.date_id, b.created_at, b.id",
+            (category_id, *ids)).fetchall():
+        date_id = int(row["date_id"])
+        totals[date_id] += 1
+        if row["guest_token"] == guest:
+            mine[date_id] = True
+        participants[date_id].append({
+            "name": row["name"],
+            "user_id": row["user_id"],
+            "has_avatar": bool(row["user_id"] and row["avatar_path"]),
+            "is_me": row["guest_token"] == guest,
+            "withdrawn": bool(row["participation_withdrawn_at"]),
+        })
+
+    updates = []
+    for date_id in ids:
+        capacity = capacities.get(date_id, 1)
+        people, hidden_count = _visible_participants(participants[date_id])
+        total = totals[date_id]
+        updates.append({
+            "date_id": date_id,
+            "mine": mine[date_id],
+            "vote_count": total,
+            "capacity": capacity,
+            "is_full": total >= capacity,
+            "participants": people,
+            "hidden_count": hidden_count,
+        })
+    return updates
 
 
 def _voting_http_error(exc: voting.VotingError) -> HTTPException:
@@ -540,31 +706,29 @@ def public_category(token: str, request: Request, conn=Depends(get_db)):
     if not cat or not cat["link_enabled"]:
         return templates.TemplateResponse(request, "public/gone.html", status_code=404)
 
-    autoarchive_once(conn, category_id=cat["id"])  # мгновенный статус «прошло», скан — только по этой категории
-    vote_state = _category_voting_state(conn, cat["id"])
-    # close_category меняет строку категории; шаблону нужен свежий статус.
-    cat = cat_by_token(conn, token)
+    # Архивация и закрытие дедлайнов выполняются фоновыми циклами. Публичный GET
+    # остаётся read-only и не захватывает writer-lock SQLite.
+    vote_state = voting.get_category_state(conn, cat["id"])
 
     # Залогиненный посетитель опознаётся стабильным токеном "u<id>"; аноним —
     # только смотрит (действия в JS ведут на /login). Имя берём из профиля.
     me = viewer(request, conn)
-    new_guest = False
     if me:
-        guest, guest_name = ensure_guest_name(conn, me)
-        claim_legacy_votes(conn, request, me, cat["id"])
-        conn.commit()
+        guest, guest_name = guest_identity(me)
     else:
         guest = None
         guest_name = None
     owner = users.get_user(conn, cat["owner_id"])
 
     bookings: dict[int, list] = {}
-    for b in _booking_rows(conn, cat["id"]):
+    visible_bookings = view_booking_rows(
+        _booking_rows(conn, cat["id"]), request, me, cat)
+    for b in visible_bookings:
         bookings.setdefault(b["date_id"], []).append(b)
 
-    # Разом грузим все свидания категории (активные + мои-черновики и архив),
+    # Разом грузим все события категории (активные + мои-черновики и архив),
     # затем их медиа и мои вопросы одним батчем — иначе был N+1 (3+ запроса на
-    # каждое свидание), из-за чего «первый заход» в большую категорию тормозил.
+    # каждое событие), из-за чего «первый заход» в большую категорию тормозил.
     rows = conn.execute(
         "SELECT d.* FROM dates d JOIN date_categories dc ON dc.date_id=d.id "
         "WHERE dc.category_id=? AND d.archived_at IS NULL "
@@ -580,7 +744,7 @@ def public_category(token: str, request: Request, conn=Depends(get_db)):
     ).fetchall()
     all_ids = [r["id"] for r in rows] + [r["id"] for r in past_rows]
     media = _batch_media(conn, all_ids)
-    # мои вопросы по всем свиданиям сразу (guest фиксирован в рамках запроса)
+    # мои вопросы по всем событиям сразу (guest фиксирован в рамках запроса)
     my_q: dict[int, list] = {}
     if guest and all_ids:
         ph = ",".join("?" * len(all_ids))
@@ -595,13 +759,15 @@ def public_category(token: str, request: Request, conn=Depends(get_db)):
         d["pending"] = bool(d["is_draft"])
         d["past"] = past
         entries = bookings.get(d["id"], [])
-        d["booked_by_me"] = any(e["guest_token"] == guest for e in entries)
-        others = [e["name"] for e in entries if e["guest_token"] != guest]
+        d["booked_by_me"] = any(e["is_me"] for e in entries)
+        others = [e["name"] for e in entries if not e["is_me"]]
         d["booked_others_list"] = others         # инициалы-аватарки в карточке
         d["booked_others"] = ", ".join(others)   # для обновления DOM без reload
         parts = (["ты ♥"] if d["booked_by_me"] else []) + others
         d["booked_label"] = ", ".join(parts)
-        d["participants"] = [dict(e) for e in entries]
+        participant_rows = [dict(e) for e in entries]
+        d["participants"], d["participant_hidden_count"] = \
+            _visible_participants(participant_rows)
         d["vote_count"] = len(entries)
         d["capacity"] = int(d.get("capacity") or 1)
         d["is_full"] = d["vote_count"] >= d["capacity"]
@@ -611,7 +777,7 @@ def public_category(token: str, request: Request, conn=Depends(get_db)):
                          and vote_state.winner_date_id != d["id"])
         d["is_tie_leader"] = (vote_state.status == voting.STATUS_TIE
                               and d["id"] in vote_state.leader_date_ids)
-        mine_entry = next((e for e in entries if e["guest_token"] == guest), None)
+        mine_entry = next((e for e in entries if e["is_me"]), None)
         d["participation_withdrawn"] = bool(
             mine_entry and mine_entry["participation_withdrawn_at"])
         d["my_questions"] = my_q.get(d["id"], [])
@@ -652,7 +818,7 @@ def public_category(token: str, request: Request, conn=Depends(get_db)):
         "owner_name": owner_name,
         "viewer_is_owner": viewer_is_owner,
         "vote_state": vote_state,
-        # есть ли картинка для og:image — своя или авто (первое фото свидания).
+        # есть ли картинка для og:image — своя или авто (первое фото события).
         # Если да, мета-тег ведёт на /c/<токен>/og-image, иначе на /static/og.png.
         "og_available": bool(cat["og_image"]) or any(d.get("images") for d in dates),
         # бот для вход-модалки (Telegram Login Widget). Анониму — кнопка «Войти»
@@ -672,12 +838,11 @@ def public_owner_avatar(token: str, w: int | None = None, conn=Depends(get_db)):
     """Аватар владельца категории — для шапки гостевой страницы. Без логина:
     гость (в т.ч. анонимный) должен видеть фото автора. Отдаём только по активной
     ссылке и только аватар владельца этой категории (чужой файл не утечёт)."""
-    cat = cat_by_token(conn, token)
-    if not cat or not cat["link_enabled"]:
-        raise HTTPException(404)
     row = conn.execute(
-        "SELECT avatar_path FROM users WHERE id=? AND is_active=1",
-        (cat["owner_id"],)).fetchone()
+        "SELECT u.avatar_path FROM categories c "
+        "JOIN users u ON u.id=c.owner_id AND u.is_active=1 "
+        "WHERE c.link_token=? AND c.link_enabled=1",
+        (token,)).fetchone()
     fn = row["avatar_path"] if row else None
     if not fn or not images.SAFE_FILENAME.match(fn):
         raise HTTPException(404)
@@ -697,21 +862,15 @@ def public_participant_avatar(token: str, user_id: int, w: int | None = None,
     Идентификаторы/Telegram-контакты в HTML не выводятся; маршрут проверяет,
     что пользователь действительно голосовал именно в этой категории.
     """
-    cat = cat_by_token(conn, token)
-    if not cat or not cat["link_enabled"]:
-        raise HTTPException(404)
-    if cat["voting_status"] in {
-            voting.STATUS_UNCONFIGURED, voting.STATUS_OPEN}:
-        winner_only = False
-    elif cat["voting_status"] == voting.STATUS_RESOLVED:
-        winner_only = True
-    else:
-        raise HTTPException(404)
     row = conn.execute(
-        "SELECT u.avatar_path FROM users u JOIN bookings b ON b.user_id=u.id "
-        "WHERE u.id=? AND u.is_active=1 AND b.category_id=? "
-        "AND (?=0 OR b.date_id=?) LIMIT 1",
-        (user_id, cat["id"], 1 if winner_only else 0, cat["winner_date_id"]),
+        "SELECT u.avatar_path FROM categories c "
+        "JOIN bookings b ON b.category_id=c.id "
+        "JOIN users u ON u.id=b.user_id AND u.is_active=1 "
+        "WHERE c.link_token=? AND c.link_enabled=1 AND u.id=? "
+        "AND (c.voting_status IN (?,?) "
+        "     OR (c.voting_status=? AND b.date_id=c.winner_date_id)) LIMIT 1",
+        (token, user_id, voting.STATUS_UNCONFIGURED, voting.STATUS_OPEN,
+         voting.STATUS_RESOLVED),
     ).fetchone()
     fn = row["avatar_path"] if row else None
     if not fn or not images.SAFE_FILENAME.match(fn):
@@ -728,7 +887,7 @@ def public_participant_avatar(token: str, user_id: int, w: int | None = None,
 def public_og_image(token: str, conn=Depends(get_db)):
     """Картинка превью ссылки (og:image) — её запрашивают краулеры мессенджеров
     (Telegram, WhatsApp) без cookie, поэтому отдаём публично по активной ссылке.
-    Своя og_image категории в приоритете; иначе — коллаж из фото её свиданий
+    Своя og_image категории в приоритете; иначе — коллаж из фото её событий
     (сетка 2×2 или 4×2); если фото нет — 404 (шаблон укажет /static/og.png)."""
     cat = cat_by_token(conn, token)
     if not cat or not cat["link_enabled"]:
@@ -742,7 +901,7 @@ def public_og_image(token: str, conn=Depends(get_db)):
             raise HTTPException(404)
         return FileResponse(cropped, media_type="image/webp",
                             headers={"Cache-Control": "public, max-age=3600"})
-    # своей картинки нет — собираем коллаж из фото активных свиданий категории
+    # своей картинки нет — собираем коллаж из фото активных событий категории
     rows = conn.execute(
         "SELECT di.filename FROM date_categories dc "
         "JOIN dates d ON d.id=dc.date_id "
@@ -760,22 +919,21 @@ def public_og_image(token: str, conn=Depends(get_db)):
 @router.get("/c/{token}/image/{filename}")
 def public_image(token: str, filename: str, request: Request,
                  w: int | None = None, conn=Depends(get_db)):
-    """Фото отдаются только по активной ссылке категории. Архивные свидания
+    """Фото отдаются только по активной ссылке категории. Архивные события
     показываются с лентой «Архив», поэтому их фото доступны;
     черновики — только их автору."""
     if not images.SAFE_FILENAME.match(filename):
         raise HTTPException(404)
-    cat = cat_by_token(conn, token)
-    if not cat or not cat["link_enabled"]:
-        raise HTTPException(404)
-    guest = viewer_token(viewer(request, conn)) or ""
+    uid = request.session.get("user_id") or 0
     ok = conn.execute(
         "SELECT 1 FROM date_images di "
         "JOIN dates d ON d.id=di.date_id "
         "JOIN date_categories dc ON dc.date_id=d.id "
-        "WHERE di.filename=? AND dc.category_id=? "
-        "AND (d.is_draft=0 OR d.guest_token=?)",
-        (filename, cat["id"], guest),
+        "JOIN categories c ON c.id=dc.category_id "
+        "WHERE c.link_token=? AND c.link_enabled=1 AND di.filename=? "
+        "AND (d.is_draft=0 OR (d.guest_token=('u' || CAST(? AS TEXT)) "
+        "AND EXISTS(SELECT 1 FROM users u WHERE u.id=? AND u.is_active=1)))",
+        (token, filename, uid, uid),
     ).fetchone()
     if not ok:
         raise HTTPException(404)
@@ -835,17 +993,16 @@ def public_video(token: str, filename: str, request: Request, conn=Depends(get_d
     ext = filename.rsplit(".", 1)[-1]
     if ext not in VIDEO_TYPES:
         raise HTTPException(404)
-    cat = cat_by_token(conn, token)
-    if not cat or not cat["link_enabled"]:
-        raise HTTPException(404)
-    guest = viewer_token(viewer(request, conn)) or ""
+    uid = request.session.get("user_id") or 0
     ok = conn.execute(
         "SELECT 1 FROM date_videos dv "
         "JOIN dates d ON d.id=dv.date_id "
         "JOIN date_categories dc ON dc.date_id=d.id "
-        "WHERE dv.filename=? AND dc.category_id=? "
-        "AND (d.is_draft=0 OR d.guest_token=?)",
-        (filename, cat["id"], guest),
+        "JOIN categories c ON c.id=dc.category_id "
+        "WHERE c.link_token=? AND c.link_enabled=1 AND dv.filename=? "
+        "AND (d.is_draft=0 OR (d.guest_token=('u' || CAST(? AS TEXT)) "
+        "AND EXISTS(SELECT 1 FROM users u WHERE u.id=? AND u.is_active=1)))",
+        (token, filename, uid, uid),
     ).fetchone()
     path = images.UPLOAD_DIR / filename
     if not ok or not path.exists():
@@ -854,10 +1011,10 @@ def public_video(token: str, filename: str, request: Request, conn=Depends(get_d
 
 
 # ---------------------------------------------------------------------------
-# Поделиться отдельным свиданием: /d/<share_token>
+# Поделиться отдельным событием: /d/<share_token>
 # ---------------------------------------------------------------------------
-# По стабильной секретной ссылке свидания любой залогиненный пользователь может
-# добавить КОПИЮ свидания себе в коллекцию (новый owner_id = он сам). Так свидание
+# По стабильной секретной ссылке события любой залогиненный пользователь может
+# добавить КОПИЮ события себе в коллекцию (новый owner_id = он сам). Так событие
 # переиспользуется в чужих категориях, не нарушая изоляцию: оригинал и копия —
 # независимые записи разных владельцев. Аноним только смотрит превью (как и на
 # гостевой странице категории), действие требует входа.
@@ -870,7 +1027,7 @@ def date_by_share(conn, token: str):
 def share_action_cat(conn, d):
     """Однозначный контекст голосования по share-ссылке.
 
-    Одно свидание может состоять в нескольких независимых опросах. Без токена
+    Одно событие может состоять в нескольких независимых опросах. Без токена
     категории нельзя угадывать, куда положить голос, поэтому разрешаем его по
     /d только при ровно одной активной категории.
     """
@@ -893,15 +1050,12 @@ def shared_date(token: str, request: Request, conn=Depends(get_db)):
 
     payload = date_payload(conn, d)
     # Гостю (не автору) показываем полноценную карточку с действиями. Контекст
-    # выбора существует только при ровно одной активной категории свидания.
+    # выбора существует только при ровно одной активной категории события.
     act_cat = share_action_cat(conn, d)
-    vote_state = _category_voting_state(conn, act_cat["id"]) if act_cat else None
+    vote_state = voting.get_category_state(conn, act_cat["id"]) if act_cat else None
     guest = guest_name = None
     if me and not is_mine:
-        guest, guest_name = ensure_guest_name(conn, me)
-        if act_cat:
-            claim_legacy_votes(conn, request, me, act_cat["id"])
-        conn.commit()
+        guest, guest_name = guest_identity(me)
 
     payload["pending"] = False
     payload["past"] = bool(d["archived_at"])
@@ -911,6 +1065,7 @@ def shared_date(token: str, request: Request, conn=Depends(get_db)):
     payload["booked_others"] = ""
     payload["my_questions"] = []
     payload["participants"] = []
+    payload["participant_hidden_count"] = 0
     payload["vote_count"] = 0
     payload["capacity"] = int(d["capacity"] or 1)
     payload["is_full"] = False
@@ -918,14 +1073,20 @@ def shared_date(token: str, request: Request, conn=Depends(get_db)):
     payload["is_loser"] = False
     payload["participation_withdrawn"] = False
     if act_cat:
-        entries = _booking_rows(conn, act_cat["id"])
-        mine = [e for e in entries if e["date_id"] == d["id"] and e["guest_token"] == guest]
+        entries = view_booking_rows(
+            _booking_rows(conn, act_cat["id"]), request, me, act_cat)
+        mine = [
+            e for e in entries
+            if e["date_id"] == d["id"] and e["is_me"]
+        ]
         date_entries = [e for e in entries if e["date_id"] == d["id"]]
-        others = [e["name"] for e in date_entries if e["guest_token"] != guest]
+        others = [e["name"] for e in date_entries if not e["is_me"]]
         payload["booked_by_me"] = bool(mine)
         payload["booked_others_list"] = others
         payload["booked_others"] = ", ".join(others)
-        payload["participants"] = [dict(e) for e in date_entries]
+        participant_rows = [dict(e) for e in date_entries]
+        payload["participants"], payload["participant_hidden_count"] = \
+            _visible_participants(participant_rows)
         payload["vote_count"] = len(date_entries)
         payload["is_full"] = payload["vote_count"] >= payload["capacity"]
         payload["is_winner"] = bool(
@@ -969,11 +1130,11 @@ def shared_date(token: str, request: Request, conn=Depends(get_db)):
 
 
 def _share_act_or_410(conn, token: str):
-    """Свидание по share-токену + его категория-контекст для действий.
+    """Событие по share-токену + его категория-контекст для действий.
     410, если ссылки нет; 409-логику (нет категории) обрабатывает вызывающий."""
     d = date_by_share(conn, token)
     if not d:
-        raise HTTPException(404, "Свидание не найдено")
+        raise HTTPException(404, "Событие не найдено")
     return d, share_action_cat(conn, d)
 
 
@@ -1007,13 +1168,13 @@ def shared_participant_avatar(token: str, user_id: int, w: int | None = None,
 @router.post("/d/{token}/book")
 def shared_date_book(token: str, request: Request, bg: BackgroundTasks,
                      conn=Depends(get_db)):
-    """Выбор по share-ссылке в единственной активной категории свидания."""
+    """Выбор по share-ссылке в единственной активной категории события."""
     d, cat = _share_act_or_410(conn, token)
     if not cat:
-        raise HTTPException(400, "Это свидание пока нельзя выбрать")
+        raise HTTPException(400, "Это событие пока нельзя выбрать")
     user = acting_user(request, conn)
     if user["id"] == d["owner_id"]:
-        raise HTTPException(400, "Это твоё свидание")
+        raise HTTPException(400, "Это твоё событие")
     guest, name = ensure_guest_name(conn, user)
     claim_legacy_votes(conn, request, user, cat["id"])
     guest_throttle("book", guest, request)
@@ -1043,9 +1204,12 @@ def shared_date_book(token: str, request: Request, bg: BackgroundTasks,
         f"«{esc(d['name'])}» · {esc(cat['name'])}", f"Кто: {esc(name)}")
     notify_owner(bg, conn, d["owner_id"], card)
     notify_admin(bg, conn, d["owner_id"], card)
+    updates = _vote_card_updates(conn, cat["id"], (d["id"],), guest)
     conn.commit()
     return JSONResponse({"ok": True, "booked": booked, "name": name,
-                         "choices": list(result.current_date_ids)})
+                         "choices": list(result.current_date_ids),
+                         "updates": updates,
+                         "voting_status": cat["voting_status"]})
 
 
 @router.post("/d/{token}/withdraw")
@@ -1053,10 +1217,10 @@ def shared_date_withdraw(token: str, request: Request, bg: BackgroundTasks,
                          conn=Depends(get_db)):
     d, cat = _share_act_or_410(conn, token)
     if not cat:
-        raise HTTPException(409, "У свидания нет однозначного контекста голосования")
+        raise HTTPException(409, "У события нет однозначного контекста голосования")
     state = voting.get_category_state(conn, cat["id"])
     if state.status != voting.STATUS_RESOLVED or state.winner_date_id != d["id"]:
-        raise HTTPException(409, "Отказаться можно только по ссылке победившего свидания")
+        raise HTTPException(409, "Отказаться можно только по ссылке победившего события")
     user = acting_user(request, conn)
     guest, name = ensure_guest_name(conn, user)
     guest_throttle("withdraw", guest, request)
@@ -1077,7 +1241,7 @@ def shared_date_withdraw(token: str, request: Request, bg: BackgroundTasks,
         )
     conn.commit()
     if not result.already_withdrawn:
-        card = notify.card("↩️ Участник отказался от свидания",
+        card = notify.card("↩️ Участник отказался от события",
                            f"«{esc(d['name'])}» · {esc(cat['name'])}",
                            f"Кто: {esc(name)}", "Итог голосования не изменился.")
         notify_admin(bg, conn, cat["owner_id"], card)
@@ -1088,7 +1252,7 @@ def shared_date_withdraw(token: str, request: Request, bg: BackgroundTasks,
 @router.post("/d/{token}/question")
 def shared_date_question(token: str, request: Request, bg: BackgroundTasks,
                          text: str = Form(...), conn=Depends(get_db)):
-    """Вопрос по свиданию с share-ссылки. category_id берём из активной категории
+    """Вопрос по событию с share-ссылки. category_id берём из активной категории
     (колонка nullable — но контекст полезен автору)."""
     d, cat = _share_act_or_410(conn, token)
     user = acting_user(request, conn)
@@ -1112,13 +1276,13 @@ def shared_date_question(token: str, request: Request, bg: BackgroundTasks,
 def shared_date_suggest(token: str, request: Request, bg: BackgroundTasks,
                         starts_at: str = Form(""), ends_at: str = Form(""),
                         conn=Depends(get_db)):
-    """Гость предлагает время для свидания без даты по share-ссылке."""
+    """Гость предлагает время для события без даты по share-ссылке."""
     d, cat = _share_act_or_410(conn, token)
     user = acting_user(request, conn)
     guest, name = ensure_guest_name(conn, user)
     guest_throttle("question", guest, request)
     if d["starts_at"]:
-        raise HTTPException(400, "У этого свидания уже назначено время")
+        raise HTTPException(400, "У этого события уже назначено время")
     starts, ends = normalize_period(parse_dt_local(starts_at), parse_dt_local(ends_at))
     if not starts:
         raise HTTPException(400, "Выбери хотя бы дату и время начала")
@@ -1139,16 +1303,14 @@ def shared_date_suggest(token: str, request: Request, bg: BackgroundTasks,
 @router.get("/d/{token}/image/{filename}")
 def shared_date_image(token: str, filename: str, w: int | None = None,
                       conn=Depends(get_db)):
-    """Фото свидания по share-ссылке. Отдаём только фото ЭТОГО свидания —
+    """Фото события по share-ссылке. Отдаём только фото ЭТОГО события —
     чужой файл по прямой ссылке не утечёт."""
     if not images.SAFE_FILENAME.match(filename):
         raise HTTPException(404)
-    d = date_by_share(conn, token)
-    if not d:
-        raise HTTPException(404)
     ok = conn.execute(
-        "SELECT 1 FROM date_images WHERE date_id=? AND filename=?",
-        (d["id"], filename)).fetchone()
+        "SELECT 1 FROM date_images di JOIN dates d ON d.id=di.date_id "
+        "WHERE d.share_token=? AND di.filename=?",
+        (token, filename)).fetchone()
     if not ok:
         raise HTTPException(404)
     try:
@@ -1161,18 +1323,16 @@ def shared_date_image(token: str, filename: str, w: int | None = None,
 
 @router.get("/d/{token}/video/{filename}")
 def shared_date_video(token: str, filename: str, request: Request, conn=Depends(get_db)):
-    """Видео свидания по share-ссылке — те же правила, что и у фото, + Range."""
+    """Видео события по share-ссылке — те же правила, что и у фото, + Range."""
     if not images.SAFE_FILENAME.match(filename):
         raise HTTPException(404)
     ext = filename.rsplit(".", 1)[-1]
     if ext not in VIDEO_TYPES:
         raise HTTPException(404)
-    d = date_by_share(conn, token)
-    if not d:
-        raise HTTPException(404)
     ok = conn.execute(
-        "SELECT 1 FROM date_videos WHERE date_id=? AND filename=?",
-        (d["id"], filename)).fetchone()
+        "SELECT 1 FROM date_videos dv JOIN dates d ON d.id=dv.date_id "
+        "WHERE d.share_token=? AND dv.filename=?",
+        (token, filename)).fetchone()
     path = images.UPLOAD_DIR / filename
     if not ok or not path.exists():
         raise HTTPException(404)
@@ -1181,26 +1341,26 @@ def shared_date_video(token: str, filename: str, request: Request, conn=Depends(
 
 @router.post("/d/{token}/add")
 def shared_date_add(token: str, request: Request, conn=Depends(get_db)):
-    """Добавить копию свидания себе в коллекцию (нужен вход).
+    """Добавить копию события себе в коллекцию (нужен вход).
 
-    Копия — отдельное активное свидание получателя со СВОИМ свежим share_token
-    (его сгенерит insert_date). Категории/брони/вопросы не переносятся. Файлы
+    Копия — отдельное активное событие получателя со СВОИМ свежим share_token
+    (его сгенерит insert_date). Категории/голоса/вопросы не переносятся. Файлы
     фото/видео — физические копии (новые имена). Свою же ссылку добавлять незачем —
     отбиваем, чтобы не плодить дубли у себя."""
     d = date_by_share(conn, token)
     if not d:
-        raise HTTPException(404, "Свидание не найдено")
+        raise HTTPException(404, "Событие не найдено")
     user = acting_user(request, conn)
     guest_throttle("dadd", viewer_token(user), request)
     if user["id"] == d["owner_id"]:
-        raise HTTPException(400, "Это твоё свидание — оно уже в твоей коллекции")
+        raise HTTPException(400, "Это твоё событие — оно уже в твоей коллекции")
 
-    # квота получателя: активные (не архивные) свидания не должны превышать лимит
+    # квота получателя: активные (не архивные) события не должны превышать лимит
     used = conn.execute(
         "SELECT COUNT(*) FROM dates WHERE owner_id=? AND archived_at IS NULL",
         (user["id"],)).fetchone()[0]
     if used >= user["date_limit"]:
-        raise HTTPException(400, f"Достигнут лимит {user['date_limit']} свиданий — "
+        raise HTTPException(400, f"Достигнут лимит {user['date_limit']} событий — "
                                  "удали или заархивируй лишние и попробуй снова")
 
     new_id = insert_date(
@@ -1220,7 +1380,7 @@ def shared_date_add(token: str, request: Request, conn=Depends(get_db)):
     if request.headers.get("x-requested-with") == "fetch":
         return JSONResponse({"ok": True, "edit_url": edit_url})
     return redir(edit_url,
-                 "Свидание добавлено в твою коллекцию ♥ Привяжи его к своим категориям")
+                 "Событие добавлено в твою коллекцию ♥ Привяжи его к своим категориям")
 
 
 # ---------------------------------------------------------------------------
@@ -1249,21 +1409,21 @@ def public_ics(token: str, date_id: int, conn=Depends(get_db)):
         raise HTTPException(404)
     d = date_in_category(conn, cat["id"], date_id)
     if not d or not d["starts_at"]:
-        raise HTTPException(404, "У этого свидания нет даты")
+        raise HTTPException(404, "У этого события нет даты")
     return _ics_response(conn, d, f"date-{d['id']}-{cat['id']}@{DOMAIN}")
 
 
 @router.get("/d/{token}/ics")
 def shared_ics(token: str, conn=Depends(get_db)):
-    """Календарь для свидания по share-ссылке."""
+    """Календарь для события по share-ссылке."""
     d = date_by_share(conn, token)
     if not d or not d["starts_at"]:
-        raise HTTPException(404, "У этого свидания нет даты")
+        raise HTTPException(404, "У этого события нет даты")
     return _ics_response(conn, d, f"date-{d['id']}-share@{DOMAIN}")
 
 
 def _ics_response(conn, d, uid: str) -> Response:
-    """Собирает .ics-файл для одного свидания (общий код для /c и /d)."""
+    """Собирает .ics-файл для одного события (общий код для /c и /d)."""
     start = _parse(d["starts_at"]).replace(tzinfo=MSK)
     end = (_parse(d["ends_at"]).replace(tzinfo=MSK) if d["ends_at"]
            else start + timedelta(hours=2))
@@ -1293,7 +1453,7 @@ def _ics_response(conn, d, uid: str) -> Response:
     body = "\r\n".join(_ics_fold(l) for l in lines) + "\r\n"
     return Response(body, media_type="text/calendar; charset=utf-8",
                     headers={"Content-Disposition":
-                             f'attachment; filename="date-{d["id"]}.ics"'})
+                             f'attachment; filename="event-{d["id"]}.ics"'})
 
 
 # ---------------------------------------------------------------------------
@@ -1307,6 +1467,7 @@ def public_book(token: str, request: Request, bg: BackgroundTasks,
     cat = active_cat_or_410(conn, token)
     user = acting_user(request, conn)
     guest, name = ensure_guest_name(conn, user)
+    legacy_date_ids = legacy_vote_date_ids(conn, request, user, cat["id"])
     claim_legacy_votes(conn, request, user, cat["id"])
     guest_throttle("book", guest, request)
 
@@ -1325,7 +1486,7 @@ def public_book(token: str, request: Request, bg: BackgroundTasks,
     else:
         d = date_in_category(conn, cat["id"], date_id)
     if not d:
-        raise HTTPException(404, "Свидание не найдено")
+        raise HTTPException(404, "Событие не найдено")
 
     try:
         if mine:
@@ -1349,9 +1510,17 @@ def public_book(token: str, request: Request, bg: BackgroundTasks,
         f"«{esc(d['name'])}» · {esc(cat['name'])}", f"Кто: {esc(name)}")
     notify_owner(bg, conn, cat["owner_id"], card)
     notify_admin(bg, conn, cat["owner_id"], card)
+    affected = {date_id}
+    affected.update(getattr(result, "removed_date_ids", ()))
+    affected.update(legacy_date_ids)
+    if legacy_date_ids:
+        affected.update(result.current_date_ids)
+    updates = _vote_card_updates(conn, cat["id"], affected, guest)
     conn.commit()
     return JSONResponse({"ok": True, "booked": booked, "name": name,
-                         "choices": list(result.current_date_ids)})
+                         "choices": list(result.current_date_ids),
+                         "updates": updates,
+                         "voting_status": cat["voting_status"]})
 
 
 @router.post("/c/{token}/withdraw")
@@ -1369,7 +1538,7 @@ def public_withdraw(token: str, request: Request, bg: BackgroundTasks,
     winner = conn.execute("SELECT name FROM dates WHERE id=?",
                           (result.winner_date_id,)).fetchone()
     voting_events.cancel_user_winner_reminders(conn, cat["id"], user["id"])
-    title = winner["name"] if winner else "Победившее свидание"
+    title = winner["name"] if winner else "Победившее событие"
     if not result.already_withdrawn:
         voting_events.queue_participant_withdrawal(
             conn,
@@ -1382,7 +1551,7 @@ def public_withdraw(token: str, request: Request, bg: BackgroundTasks,
         )
     conn.commit()
     if not result.already_withdrawn:
-        card = notify.card("↩️ Участник отказался от свидания",
+        card = notify.card("↩️ Участник отказался от события",
                            f"«{esc(title)}» · {esc(cat['name'])}",
                            f"Кто: {esc(name)}",
                            "Итог голосования не изменился.")
@@ -1396,7 +1565,7 @@ def public_suggest_time(token: str, request: Request, bg: BackgroundTasks,
                         date_id: int = Form(...),
                         starts_at: str = Form(""), ends_at: str = Form(""),
                         conn=Depends(get_db)):
-    """Гость предлагает время для свидания без даты.
+    """Гость предлагает время для события без даты.
 
     Хранится как обычный вопрос: появляется у админа во «Вопросах»
     с кнопками «Принять/Отказаться», автор видит его (и ответ) под карточкой.
@@ -1408,9 +1577,9 @@ def public_suggest_time(token: str, request: Request, bg: BackgroundTasks,
 
     d = date_in_category(conn, cat["id"], date_id)
     if not d:
-        raise HTTPException(404, "Свидание не найдено")
+        raise HTTPException(404, "Событие не найдено")
     if d["starts_at"]:
-        raise HTTPException(400, "У этого свидания уже назначено время")
+        raise HTTPException(400, "У этого события уже назначено время")
     starts, ends = normalize_period(parse_dt_local(starts_at), parse_dt_local(ends_at))
     if not starts:
         raise HTTPException(400, "Выбери хотя бы дату и время начала")
@@ -1443,7 +1612,7 @@ def public_question(token: str, request: Request, bg: BackgroundTasks,
 
     d = date_in_category(conn, cat["id"], date_id)
     if not d:
-        raise HTTPException(404, "Свидание не найдено")
+        raise HTTPException(404, "Событие не найдено")
     text = clean_text(text, 2000, "Вопрос", required=True)
 
     conn.execute(
@@ -1600,7 +1769,7 @@ def public_propose_edit(token: str, date_id: int, request: Request, bg: Backgrou
     keep_count = len(existing) - len(to_remove)
     new_files = [f for f in photos if f and f.filename]
     if keep_count + len(new_files) > images.MAX_IMAGES:
-        raise HTTPException(400, f"Максимум {images.MAX_IMAGES} фото у одного свидания")
+        raise HTTPException(400, f"Максимум {images.MAX_IMAGES} фото у одного события")
     try:
         saved = images.save_batch(new_files)
     except ValueError as e:
@@ -1733,7 +1902,7 @@ def public_propose_delete(token: str, date_id: int, request: Request, bg: Backgr
 def public_report(token: str, request: Request, bg: BackgroundTasks,
                   target_type: str = Form(...), target_id: int = Form(...),
                   reason: str = Form(""), conn=Depends(get_db)):
-    """Жалоба гостя на свидание или саму категорию. Контент существует и виден
+    """Жалоба гостя на событие или саму категорию. Контент существует и виден
     по этой ссылке — иначе 404 (нельзя слать жалобы на чужой/скрытый id)."""
     cat = active_cat_or_410(conn, token)
     user = acting_user(request, conn)
@@ -1748,7 +1917,7 @@ def public_report(token: str, request: Request, bg: BackgroundTasks,
     else:
         d = date_in_category(conn, cat["id"], target_id)
         if not d:
-            raise HTTPException(404, "Свидание не найдено")
+            raise HTTPException(404, "Событие не найдено")
         label = d["name"]
 
     # Защита от дублей: один гость — одна открытая жалоба на объект.
@@ -1764,7 +1933,7 @@ def public_report(token: str, request: Request, bg: BackgroundTasks,
         conn.commit()
         bg.add_task(notify.notify, notify.card(
             "🚩 Жалоба",
-            f"На {('категорию' if target_type=='category' else 'свидание')}: «{esc(label)}»",
+            f"На {('категорию' if target_type=='category' else 'событие')}: «{esc(label)}»",
             f"Категория: {esc(cat['name'])}",
             f"Причина: {esc(reason or 'без описания')}",
             f"\n{BASE_URL}/operator/reports"))

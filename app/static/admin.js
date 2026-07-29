@@ -50,16 +50,16 @@
     document.addEventListener("turbo:load", function () {
       document.documentElement.classList.remove("turbo-loading");
     });
-    // КЛЮЧЕВОЕ для «реактивации»: любая успешная POST-форма (сохранение свидания,
+    // КЛЮЧЕВОЕ для «реактивации»: любая успешная POST-форма (сохранение события,
     // привязка категории, архив/удаление, правка категории) меняет содержимое
     // СПИСКОВ (Активные/Неактивные/Архив, дашборд). Turbo кэширует снимок каждой
     // посещённой страницы и при возврате (клик по вкладке/назад) показывает
-    // устаревший снимок — из-за этого свидание «оставалось» в Неактивных, пока
+    // устаревший снимок — из-за этого событие «оставалось» в Неактивных, пока
     // не сделаешь жёсткий refresh. Мета `turbo-cache-control: no-cache` спасала
     // не всегда (снимок мог кэшироваться до перехода). Надёжнее: после КАЖДОГО
     // успешного сабмита сбрасываем весь кэш Turbo — навигация станет чуть менее
     // «мгновенной», но списки всегда свежие. Это единственный корректный вариант.
-    // ГЛАВНОЕ для «реактивации» (баг: реактивированное свидание оставалось в
+    // ГЛАВНОЕ для «реактивации» (баг: реактивированное событие оставалось в
     // «Неактивных» до жёсткого refresh). Turbo.cache.clear() выше чистит СНИМКИ
     // страниц; но у списков стоит `turbo-cache-control: no-cache`, а стойкий
     // источник устаревшего вида — ОТДЕЛЬНЫЙ кэш префетча (turbo-prefetch): при
@@ -80,7 +80,7 @@
     if (window.UI && UI.glassTabs) UI.glassTabs(document.querySelector("nav.glass-nav"));
   }
 
-  // --- список свиданий: меню ⋯, стеклянные вкладки, переключатель вида -------
+  // --- список событий: меню ⋯, стеклянные вкладки, переключатель вида -------
   function initDates() {
     if (window.UI && UI.cardMenu) UI.cardMenu(document);
     if (window.UI && UI.glassTabs) UI.glassTabs(document.querySelector(".tabs"));
@@ -115,7 +115,7 @@
     }
   }
 
-  // --- редактор свидания: РЕДАКТИРУЕМОЕ ПРЕВЬЮ (click-to-edit + галерея) ------
+  // --- редактор события: РЕДАКТИРУЕМОЕ ПРЕВЬЮ (click-to-edit + галерея) ------
   // Вся правка идёт прямо по карточке-превью. Видимые поля — contenteditable /
   // кастомные виджеты, значения пишутся в скрытые input формы (name/place/
   // starts_at/ends_at/comment/links/image_focuses) — бэкенд не меняется.
@@ -409,11 +409,11 @@
     layout();
   }
 
-  // --- редактор категории: превью-картинка, предупреждение, порядок свиданий --
+  // --- редактор категории: превью-картинка, предупреждение, порядок событий --
   function initCategory() {
     if (!window.UI) return;
 
-    // WYSIWYG-редактор описания категории — тот же, что у комментария свидания
+    // WYSIWYG-редактор описания категории — тот же, что у комментария события
     var catEditable = document.getElementById("catDescEditable");
     if (catEditable && UI.richEditor && !catEditable.dataset.ready) {
       catEditable.dataset.ready = "1";
@@ -614,7 +614,7 @@
     if (share) {
       share.addEventListener("click", function () {
         var url = share.getAttribute("data-url");
-        var title = share.getAttribute("data-name") || "Подборка свиданий";
+        var title = share.getAttribute("data-name") || "Подборка событий";
         if (navigator.share) {
           navigator.share({ title: title, text: "Тебя ждёт сюрприз ♥", url: url }).catch(function () {});
         } else if (navigator.clipboard) {
@@ -628,7 +628,7 @@
     }
   }
 
-  // --- главная: лента свиданий комьюнити (бесконечный скролл + виджет) --------
+  // --- главная: лента событий комьюнити (бесконечный скролл + виджет) --------
   function initCommunity() {
     var feed = document.getElementById("communityFeed");
     if (!feed || feed.dataset.ready) return;
@@ -684,7 +684,7 @@
       io.observe(sentinel);
     }
 
-    // открыть/закрыть виджет свидания
+    // открыть/закрыть виджет события
     function openWidget(id) {
       if (!dlg || !cwidBody) return;
       cwidBody.innerHTML = '<p class="muted" style="text-align:center;padding:30px">Загружаю…</p>';
@@ -692,9 +692,12 @@
       fetch("/admin/community/date/" + encodeURIComponent(id),
             { credentials: "same-origin", headers: { "X-Requested-With": "fetch" } })
         .then(function (r) { return r.ok ? r.text() : Promise.reject(); })
-        .then(function (html) { cwidBody.innerHTML = html; })
+        .then(function (html) {
+          cwidBody.innerHTML = html;
+          if (window.UI && UI.lazyVideos) UI.lazyVideos(cwidBody);
+        })
         .catch(function () {
-          cwidBody.innerHTML = '<p class="muted" style="text-align:center;padding:30px">Не удалось открыть свидание</p>';
+          cwidBody.innerHTML = '<p class="muted" style="text-align:center;padding:30px">Не удалось открыть событие</p>';
         });
     }
     function closeWidget() {
@@ -734,7 +737,7 @@
         .then(function (res) {
           if (res.ok && res.j && res.j.ok) {
             btn.textContent = "Добавлено ♥";
-            toast("Свидание добавлено в твою коллекцию ♥");
+            toast("Событие добавлено в твою коллекцию ♥");
             setTimeout(closeWidget, 900);
           } else {
             btn.disabled = false; btn.textContent = old;
@@ -770,6 +773,7 @@
   function initPage() {
     initNav();
     if (window.UI && UI.numberSteppers) UI.numberSteppers(document);
+    if (window.UI && UI.lazyVideos) UI.lazyVideos(document);
     document.querySelectorAll("[data-picker-only]").forEach(function (input) {
       if (input.dataset.pickerReady) return;
       input.dataset.pickerReady = "1";

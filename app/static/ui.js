@@ -5,8 +5,45 @@ window.UI = (() => {
 
   // Геометрия скользящего индикатора вкладок, сохраняемая МЕЖДУ Turbo-переходами
   // (узлы .tab-ind пересоздаются при подмене <body>, а объект в замыкании живёт).
-  // Ключи: "nav" (главная навигация) и "tabs" (под-вкладки списка свиданий).
+  // Ключи: "nav" (главная навигация) и "tabs" (под-вкладки списка событий).
   const _tabInd = {};
+
+  /* --- Видео: сетевой src только рядом с viewport или по взаимодействию --- */
+  let _videoObserver = null;
+
+  function loadLazyVideo(video) {
+    if (!video || !video.dataset.src || video.getAttribute("src")) return;
+    video.src = video.dataset.src;
+    if (_videoObserver) _videoObserver.unobserve(video);
+  }
+
+  function lazyVideos(root) {
+    root = root || document;
+    const videos = root.matches && root.matches("video[data-src]")
+      ? [root]
+      : [...root.querySelectorAll("video[data-src]")];
+    if (!videos.length) return;
+
+    if (!_videoObserver && "IntersectionObserver" in window) {
+      _videoObserver = new IntersectionObserver((entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) loadLazyVideo(entry.target);
+        });
+      }, { rootMargin: "500px 0px" });
+    }
+
+    videos.forEach((video) => {
+      if (video.dataset.lazyVideoReady) return;
+      video.dataset.lazyVideoReady = "1";
+      // pointerdown срабатывает до стандартной кнопки Play, поэтому первый тап
+      // не теряется даже у видео, которое ещё не дошло до зоны наблюдателя.
+      ["pointerdown", "pointerenter", "touchstart", "focus"].forEach((eventName) => {
+        video.addEventListener(eventName, () => loadLazyVideo(video),
+                               { once: true, passive: true });
+      });
+      if (_videoObserver) _videoObserver.observe(video);
+    });
+  }
 
   // ЕДИНЫЙ обработчик resize для всех таб-строк. Раньше каждый glassTabs() вешал
   // свой window.addEventListener("resize") — а под Turbo glassTabs зовётся на
@@ -281,7 +318,7 @@ window.UI = (() => {
     }
 
     // выбор зоны кадра на новых плитках: клик по фото → object-position в %.
-    // Тот же расчёт, что для сохранённых фото в редакторе свидания.
+    // Тот же расчёт, что для сохранённых фото в редакторе события.
     if (focusable) {
       preview.addEventListener("click", (e) => {
         const tile = e.target.closest(".ptile.new");
@@ -404,7 +441,7 @@ window.UI = (() => {
     });
   }
 
-  /* --- Редактор свидания: тулбар разметки + живой предпросмотр ---------- */
+  /* --- Редактор события: тулбар разметки + живой предпросмотр ---------- */
   /* Делегированно, без инлайнов. renderMarkup повторяет helpers.rich():
      сначала экранируем HTML, затем те же правила в том же порядке —
      ссылки, **жирный**, __подчёркнутый__, ~~зачёркнутый~~, *курсив*. */
@@ -1075,7 +1112,11 @@ window.UI = (() => {
     });
   }
 
-  return { sortable, burst, uploader, mediaUploader, dateChips, postWithProgress,
+  // На публичных страницах ui.js стоит внизу body; в кабинете он defer.
+  // Оба варианта уже имеют DOM, а Turbo-страницы переинициализирует admin.js.
+  lazyVideos(document);
+
+  return { sortable, burst, uploader, mediaUploader, lazyVideos, dateChips, postWithProgress,
            editorPreview, richEditor, cardMenu, renderMarkup, glassTabs,
            inlineEdit: inlineEdit, timeRange: timeRange,
            numberSteppers: numberSteppers };

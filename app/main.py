@@ -84,14 +84,14 @@ async def lifespan(app: FastAPI):
         auth_routes.setup_webhook()
     except Exception:
         log.exception("Ошибка при старте")
-    # Чиним старые свидания, где ссылка на карты осела в поле place
+    # Чиним старые события, где ссылка на карты осела в поле place
     # (показывалась сырым URL и уходила в поиск Яндекса). В отдельном потоке —
     # внутри сетевые запросы к картам, не блокируем событийный цикл.
     async def _repair_places():
         try:
             n = await asyncio.to_thread(places.repair_legacy_places)
             if n:
-                log.info("Починены ссылки-места у старых свиданий: распознано %d", n)
+                log.info("Починены ссылки-места у старых событий: распознано %d", n)
         except Exception:
             log.exception("Ошибка починки ссылок-мест")
     tasks = [asyncio.create_task(notification_outbox_loop()),
@@ -167,7 +167,7 @@ async def csp_headers(request: Request, call_next):
         resp.headers["Cache-Control"] = "no-store"
         # Telegram Login Widget (внешний скрипт + iframe oauth.telegram.org)
         # грузится на странице входа /login И на гостевых ссылках /c/<токен>
-        # и /d/<токен> (вход-модалка прямо со страницы подборки/свидания).
+        # и /d/<токен> (вход-модалка прямо со страницы подборки/события).
         # Послабление CSP — ровно на этих HTML-страницах, не на всём сайте.
         p = request.url.path
         if p == "/login" or p.startswith("/c/") or p.startswith("/d/"):

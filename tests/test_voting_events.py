@@ -105,7 +105,7 @@ class VotingEventTests(unittest.TestCase):
     def test_removal_cancels_reminders_only_in_its_category(self):
         first = self.category("Первая")
         second = self.category("Вторая")
-        date_id = self.date([first, second], "Общее свидание")
+        date_id = self.date([first, second], "Общее событие")
         for category_id in (first, second):
             outbox.enqueue(
                 self.conn, user_id=2, kind="winner_reminder",
@@ -119,7 +119,7 @@ class VotingEventTests(unittest.TestCase):
         )
 
         voting_events.queue_date_removed(
-            self.conn, date_id, "Общее свидание", first, "Первая", "первая",
+            self.conn, date_id, "Общее событие", first, "Первая", "первая",
             now=NOW,
         )
         first_row = self.conn.execute(

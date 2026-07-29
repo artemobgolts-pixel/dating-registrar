@@ -1,10 +1,10 @@
 {% extends "operator/base.html" %}
-{% block title %}Свидания{% endblock %}
+{% block title %}Встречи{% endblock %}
 {% block content %}
-<h1>Свидания <span class="muted" style="font-size:15px">({{ total }})</span></h1>
+<h1>Встречи <span class="muted" style="font-size:15px">({{ total }})</span></h1>
 
 <div class="bar">
-  {% for f, lbl in [('','Все'),('reported','С жалобой'),('draft','На модерации'),('booked','С бронью'),('archived','Архив')] %}
+  {% for f, lbl in [('','Все'),('reported','С жалобой'),('draft','На модерации'),('booked','С голосами'),('archived','Архив')] %}
   <a class="btn small {{ 'primary' if flt==f else '' }}"
      href="/operator/dates?flt={{ f }}{% if q %}&q={{ q }}{% endif %}">{{ lbl }}</a>
   {% endfor %}
@@ -19,7 +19,7 @@
 </form>
 
 <table>
-  <tr><th>Название</th><th>Владелец</th><th>Статус</th><th>Броней</th><th>Жалоб</th><th>Действия</th></tr>
+  <tr><th>Название</th><th>Владелец</th><th>Статус</th><th>Голосов</th><th>Жалоб</th><th>Действия</th></tr>
   {% for d in rows %}
   <tr>
     <td><b>{{ d['name'] }}</b>
@@ -40,7 +40,7 @@
           <button class="btn small">{{ 'Из архива' if d['archived_at'] else 'В архив' }}</button>
         </form>
         <form class="inline" method="post" action="/operator/dates/{{ d['id'] }}/delete"
-              data-confirm="Удалить свидание «{{ d['name'] }}» и все его медиа? Необратимо.">
+              data-confirm="Удалить событие «{{ d['name'] }}» и все его медиа? Необратимо.">
           <input type="hidden" name="csrf" value="{{ csrf }}">
           <button class="btn small danger">Удалить</button>
         </form>

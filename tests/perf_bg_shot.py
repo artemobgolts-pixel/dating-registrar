@@ -18,7 +18,7 @@ HTML = f"""<!doctype html><html><head><meta charset="utf-8">
 <style>{CSS}</style></head>
 <body style="min-height:100vh">{BG}
 <div class="wrap"><h1 class="serif" style="font-size:34px;color:#b65f6f">
-Свидания для тебя ♥</h1></div></body></html>"""
+События для тебя ♥</h1></div></body></html>"""
 
 GL = ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader",
       "--ignore-gpu-blocklist"]

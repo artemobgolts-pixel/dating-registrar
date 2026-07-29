@@ -21,7 +21,7 @@
     <div class="bar" style="margin-bottom:0">
       <div>
         <span class="cat-name">{{ c['name'] }}</span>
-        <span class="badge">{{ c['dcount'] }} {{ c['dcount'] | plural('свидание', 'свидания', 'свиданий') }}</span>
+        <span class="badge">{{ c['dcount'] }} {{ c['dcount'] | plural('событие', 'события', 'событий') }}</span>
         {% if c['voting_status'] == 'open' %}<span class="badge rose">голосование идёт</span>
         {% elif c['voting_status'] == 'tie' %}<span class="badge amber">ничья</span>
         {% elif c['voting_status'] == 'resolved' %}<span class="badge rose">есть победитель</span>
@@ -42,13 +42,13 @@
               <button type="submit">{{ '🔒 Отключить ссылку' if c['link_enabled'] else '🔓 Включить ссылку' }}</button>
             </form>
             <form method="post" action="/admin/categories/{{ c['id'] }}/regenerate"
-                  data-confirm="Сгенерировать новую ссылку? Старая перестанет работать, но все брони и вопросы сохранятся.">
+                  data-confirm="Сгенерировать новую ссылку? Старая перестанет работать, но все голоса и вопросы сохранятся.">
               <input type="hidden" name="csrf" value="{{ csrf }}">
               <button type="submit">↻ Перегенерировать ссылку</button>
             </form>
             <div class="sepa"></div>
             <form method="post" action="/admin/categories/{{ c['id'] }}/delete"
-                  data-confirm="Удалить категорию? Свидания останутся, но брони в этой категории удалятся, а ссылка перестанет работать.">
+                  data-confirm="Удалить категорию? События останутся, но голоса в этой категории удалятся, а ссылка перестанет работать.">
               <input type="hidden" name="csrf" value="{{ csrf }}">
               <button type="submit" class="danger">🗑 Удалить категорию</button>
             </form>

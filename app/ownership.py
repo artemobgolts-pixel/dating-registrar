@@ -24,16 +24,16 @@ def get_owned_category(conn, cid: int, user_id: int):
 
 
 def get_owned_date(conn, did: int, user_id: int):
-    """Свидание did, если оно принадлежит user_id. Иначе 404."""
+    """Событие did, если оно принадлежит user_id. Иначе 404."""
     d = conn.execute(
         "SELECT * FROM dates WHERE id=? AND owner_id=?", (did, user_id)
     ).fetchone()
     if not d:
-        raise HTTPException(404, "Свидание не найдено")
+        raise HTTPException(404, "Событие не найдено")
     return d
 
 
 def owned_date_ids(conn, user_id: int) -> set[int]:
-    """id всех свиданий пользователя — для пакетных проверок (реордер, attach)."""
+    """id всех событий пользователя — для пакетных проверок (реордер, attach)."""
     return {r[0] for r in conn.execute(
         "SELECT id FROM dates WHERE owner_id=?", (user_id,))}

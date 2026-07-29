@@ -10,7 +10,7 @@
 
 <h1 style="font-size:18px">Пользователи ({{ users_q|length }})</h1>
 <table>
-  <tr><th>Имя</th><th>Telegram</th><th>Категории</th><th>Свидания</th><th>Регистрация</th><th></th></tr>
+  <tr><th>Имя</th><th>Telegram</th><th>Категории</th><th>События</th><th>Регистрация</th><th></th></tr>
   {% for u in users_q %}
   <tr>
     <td><a class="link" href="/operator/users/{{ u['id'] }}">{{ u['display_name'] or '—' }}</a></td>
@@ -30,7 +30,7 @@
 
 <h1 style="font-size:18px;margin-top:24px">Категории ({{ cats_q|length }})</h1>
 <table>
-  <tr><th>Название</th><th>Владелец</th><th>Свиданий</th><th>Ссылка</th><th>Создана</th><th></th></tr>
+  <tr><th>Название</th><th>Владелец</th><th>Событий</th><th>Ссылка</th><th>Создана</th><th></th></tr>
   {% for c in cats_q %}
   <tr>
     <td><b>{{ c['name'] }}</b></td>

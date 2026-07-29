@@ -123,7 +123,7 @@ class NotificationOutboxTests(unittest.TestCase):
     def test_unlinked_user_is_deferred_then_resolved_at_delivery_time(self):
         outbox.enqueue(
             self.conn, user_id=1, kind="winner", event_key="event:late-link",
-            text="Вы выбрали свидание", now=NOW,
+            text="Вы выбрали событие", now=NOW,
             expires_at="2030-01-02T10:00:00",
         )
         calls = []
@@ -147,7 +147,7 @@ class NotificationOutboxTests(unittest.TestCase):
             sender=lambda chat_id, text: calls.append((chat_id, text)) or True,
         )
         self.assertEqual(stats.sent, 1)
-        self.assertEqual(calls, [(2002, "Вы выбрали свидание")])
+        self.assertEqual(calls, [(2002, "Вы выбрали событие")])
 
     def test_unlinked_head_does_not_starve_later_due_messages(self):
         self.conn.execute(

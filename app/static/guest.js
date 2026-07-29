@@ -7,7 +7,7 @@
   let MYNAME = document.body.dataset.name || "";
   const AUTH = document.body.dataset.auth === "1";   // залогинен ли посетитель
   // База для действий: на странице категории — /c/<токен>, на странице
-  // отдельного свидания (шаринг) — /d/<токен>. Бэкенд там и там даёт
+  // отдельного события (шаринг) — /d/<токен>. Бэкенд там и там даёт
   // совместимые ручки book/question/suggest_time.
   const ACT = document.body.dataset.actionBase || ("/c/" + TOKEN);
 
@@ -36,7 +36,7 @@
   if (loginDlg) {
     const lc = $("#loginClose");
     // любой триггер входа: угловая кнопка #loginOpen и любой [data-login-open]
-    // (например «Войти» в CTA на странице свидания) открывают ту же модалку
+    // (например «Войти» в CTA на странице события) открывают ту же модалку
     document.addEventListener("click", (e) => {
       if (e.target.closest("#loginOpen, [data-login-open]")) {
         e.preventDefault();
@@ -72,8 +72,9 @@
     return { ok: true, j };
   }
 
-  /* --- выбор свидания: обновляем карточки на месте, без перезагрузки -------*/
+  /* --- выбор события: обновляем карточки на месте, без перезагрузки -------*/
   function setCardState(card, mine) {
+    if (!card) return;
     const btn = card.querySelector(".btn.book");
     if (btn) {
       btn.classList.toggle("on", mine);
@@ -87,15 +88,130 @@
     if (who) who.textContent = mine ? (MYNAME || "ты ♥") : "";
   }
 
+  function renderParticipants(progress, update) {
+    progress.querySelectorAll(".participants, .vote-empty").forEach((el) => el.remove());
+    const people = Array.isArray(update.participants) ? update.participants : [];
+    if (!people.length) {
+      const empty = document.createElement("p");
+      empty.className = "vote-empty";
+      empty.textContent = "Пока без голосов — можно стать первым.";
+      progress.append(empty);
+      return;
+    }
+
+    const roster = document.createElement("div");
+    roster.className = "participants";
+    roster.setAttribute("aria-label", "Участники");
+    people.forEach((person) => {
+      const item = document.createElement("span");
+      item.className = "participant" + (person.withdrawn ? " withdrawn" : "");
+      if (person.is_me) item.dataset.currentUser = "1";
+
+      if (person.has_avatar && person.user_id) {
+        const base = `${ACT}/participant-avatar/${encodeURIComponent(person.user_id)}`;
+        const avatar = document.createElement("img");
+        avatar.src = `${base}?w=64`;
+        avatar.srcset = `${base}?w=64 64w, ${base}?w=96 96w, ${base}?w=128 128w`;
+        avatar.sizes = "26px";
+        avatar.alt = "";
+        avatar.width = 26;
+        avatar.height = 26;
+        avatar.loading = "lazy";
+        avatar.decoding = "async";
+        item.append(avatar);
+      } else {
+        const placeholder = document.createElement("span");
+        placeholder.className = "participant-ph";
+        placeholder.setAttribute("aria-hidden", "true");
+        placeholder.textContent = Array.from((person.name || "У").trim())[0]?.toUpperCase() || "У";
+        item.append(placeholder);
+      }
+
+      const label = document.createElement("span");
+      label.textContent = `${person.name || "Участник"}${person.is_me ? " · ты" : ""}`;
+      item.append(label);
+      if (person.withdrawn) {
+        const note = document.createElement("small");
+        note.textContent = "отказался(-ась)";
+        item.append(note);
+      }
+      roster.append(item);
+    });
+    if (update.hidden_count > 0) {
+      const more = document.createElement("span");
+      more.className = "participants-more";
+      more.textContent = `ещё ${update.hidden_count}`;
+      roster.append(more);
+    }
+    progress.append(roster);
+  }
+
+  function applyVoteUpdate(update, votingStatus) {
+    const card = document.getElementById(`date-${update.date_id}`);
+    if (!card) return;
+    setCardState(card, Boolean(update.mine));
+
+    const count = Number(update.vote_count) || 0;
+    const capacity = Math.max(1, Number(update.capacity) || 1);
+    const full = Boolean(update.is_full);
+    // У legacy-архива под прогрессом могла быть дублирующая строка «было: …».
+    // После снятия старого выбора актуальный ограниченный ростер уже содержит
+    // всю нужную информацию, поэтому не оставляем устаревшую подпись.
+    if (!update.mine) {
+      const pastSummary = card.querySelector(".booked");
+      if (pastSummary) pastSummary.remove();
+    }
+    const progress = card.querySelector(".vote-progress");
+    if (progress) {
+      progress.classList.toggle("full", full);
+      const countLabel = progress.querySelector(".vote-progress-head b");
+      if (countLabel) countLabel.textContent = `${count}/${capacity}`;
+      const track = progress.querySelector(".vote-progress-track");
+      if (track) {
+        track.setAttribute("aria-valuemax", String(capacity));
+        track.setAttribute("aria-valuenow", String(count));
+        const fill = track.querySelector("i");
+        if (fill) fill.style.setProperty(
+          "--vote-width", `${Math.min(100, count * 100 / capacity)}%`);
+      }
+      renderParticipants(progress, update);
+    }
+
+    const button = card.querySelector(".btn.book[data-id]");
+    if (!button) return;
+    delete button.dataset.busy;
+    if (votingStatus === "unconfigured" && !update.mine) {
+      button.remove();
+      return;
+    }
+    button.disabled = !update.mine && full;
+    button.classList.toggle("on", Boolean(update.mine));
+    button.textContent = update.mine
+      ? "Выбрано ♥"
+      : (full ? `Набрано ${count}/${capacity}` : "Выбрать ♥");
+  }
+
+  let voteBusy = false;
   async function doBook(btn) {
+    if (voteBusy) return;
+    voteBusy = true;
+    const wasDisabled = btn.disabled;
+    btn.disabled = true;
+    btn.dataset.busy = "1";
     const fd = new FormData();
     fd.append("date_id", btn.dataset.id);
     const res = await post(`${ACT}/book`, fd);
-    if (!res.ok) return;
+    if (!res.ok) {
+      delete btn.dataset.busy;
+      btn.disabled = wasDisabled;
+      voteBusy = false;
+      return;
+    }
+    MYNAME = res.j.name || MYNAME;
     const card = btn.closest(".card");
-    const id = Number(btn.dataset.id);
+    (res.j.updates || []).forEach(
+      (update) => applyVoteUpdate(update, res.j.voting_status));
     if (res.j.booked) {
-      setCardState(card, true);
       const r = btn.getBoundingClientRect();
       UI.burst(r.left + r.width / 2, r.top + 6);
       const cr = card.getBoundingClientRect();     // второй залп — из сердца карточки
@@ -105,12 +221,10 @@
       card.classList.add("glow");
       toast("Голос учтён ♥");
     } else {
-      setCardState(card, false);
       toast("Голос снят");
     }
-    // Single-режим мог одновременно снять выбор с другой карточки, а общий
-    // прогресс и открытый список участников меняются у всех голосующих.
-    setTimeout(() => location.reload(), 420);
+    delete btn.dataset.busy;
+    voteBusy = false;
   }
   document.querySelectorAll(".btn.book[data-id]").forEach((b) => {
     b.addEventListener("click", () => requireAuth(() => doBook(b)));
@@ -191,8 +305,8 @@
 
   /* --- предложение / редактирование ----------------------------------------*/
   const propDlg = $("#propDlg"), propForm = $("#propForm");
-  // Блок «предложить своё свидание» есть только на странице категории. На
-  // странице отдельного свидания (шаринг) этих элементов нет — пропускаем.
+  // Блок «предложить своё событие» есть только на странице категории. На
+  // странице отдельного события (шаринг) этих элементов нет — пропускаем.
   if (propDlg && propForm) {
   const propSlides = $("#propSlides");
   let editId = null, removed = new Set(), savedPhotos = [];
@@ -406,8 +520,8 @@
     });
     $("#propCapacity").value = (meta && meta.capacity) || 1;
     editId = meta ? meta.id : null;
-    $("#propHead").textContent = meta ? "Изменить своё свидание" : "Создать своё свидание";
-    $("#propSubmit").textContent = meta ? "Сохранить изменения" : "Создать своё свидание";
+    $("#propHead").textContent = meta ? "Изменить своё событие" : "Создать своё событие";
+    $("#propSubmit").textContent = meta ? "Сохранить изменения" : "Создать своё событие";
     propTitleEdit.set(meta ? meta.name : "");
     propPlaceEdit.set(meta ? meta.place : "");
     propLinksEdit.set(meta ? meta.links : "");
@@ -477,7 +591,7 @@
       setTimeout(() => location.reload(), 700);
     });
   });
-  }  /* /if (propDlg) — конец блока «предложить свидание» */
+  }  /* /if (propDlg) — конец блока «предложить событие» */
 
   /* --- календарь -------------------------------------------------------------*/
   const calDlg = $("#calDlg");

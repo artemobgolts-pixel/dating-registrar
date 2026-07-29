@@ -1,4 +1,4 @@
-"""Админка: вход, дашборд, категории, свидания, вопросы, экспорт.
+"""Админка: вход, дашборд, категории, события, вопросы, экспорт.
 
 Доступ — сессия (SessionMiddleware) + CSRF-токен на каждый POST.
 """
@@ -39,7 +39,6 @@ from public_routes import (add_photos, copy_date_media_and_links, insert_date,
                            next_cat_pos, notify_admin, notify_user, parse_capacity, ranged_file,
                            save_links, VIDEO_TYPES)
 from ratelimit import user_throttle
-from tasks import autoarchive_once
 from users import current_user
 from web import get_db, redir, templates
 
@@ -86,7 +85,7 @@ def _require_category_composition_mutable(conn, cat):
     if _category_voting_is_closed(fresh):
         raise HTTPException(
             409,
-            "Голосование уже завершено: состав и порядок свиданий зафиксированы",
+            "Голосование уже завершено: состав и порядок событий зафиксированы",
         )
     return fresh
 
@@ -114,7 +113,7 @@ def _validate_start_after_open_deadlines(conn, category_ids: list[int] | set[int
         if starts <= deadline:
             raise HTTPException(
                 400,
-                f"Начало свидания должно быть позже дедлайна категории «{cat['name']}»",
+                f"Начало события должно быть позже дедлайна категории «{cat['name']}»",
             )
 
 
@@ -124,8 +123,9 @@ def actx(request: Request, conn, **extra) -> dict:
         "request": request,
         "user": user,
         "unread": conn.execute(
-            "SELECT COUNT(*) FROM questions q JOIN dates d ON d.id=q.date_id "
-            "WHERE d.owner_id=? AND q.is_read=0", (user["id"],)).fetchone()[0],
+            "SELECT COUNT(*) FROM questions q WHERE q.is_read=0 "
+            "AND q.date_id IN (SELECT id FROM dates WHERE owner_id=?)",
+            (user["id"],)).fetchone()[0],
         "csrf": request.session.get("csrf", ""),
     }
     ctx.update(extra)
@@ -250,7 +250,6 @@ COMMUNITY_PAGE = 12
 
 @router.get("/", response_class=HTMLResponse)
 def dashboard(request: Request, conn=Depends(get_db)):
-    autoarchive_once(conn, owner_id=request.state.user["id"])
     uid = request.state.user["id"]
     stats = {
         "cats": conn.execute(
@@ -264,13 +263,14 @@ def dashboard(request: Request, conn=Depends(get_db)):
         "archived": conn.execute(
             "SELECT COUNT(*) FROM dates WHERE owner_id=? AND archived_at IS NOT NULL",
             (uid,)).fetchone()[0],
-        # выборы считаем только по активным (не архивным) свиданиям владельца
+        # выборы считаем только по активным (не архивным) событиям владельца
         "bookings": conn.execute(
             "SELECT COUNT(*) FROM bookings b JOIN dates d ON d.id=b.date_id "
             "WHERE d.owner_id=? AND d.archived_at IS NULL", (uid,)).fetchone()[0],
         "unread_q": conn.execute(
-            "SELECT COUNT(*) FROM questions q JOIN dates d ON d.id=q.date_id "
-            "WHERE d.owner_id=? AND q.is_read=0", (uid,)).fetchone()[0],
+            "SELECT COUNT(*) FROM questions q WHERE q.is_read=0 "
+            "AND q.date_id IN (SELECT id FROM dates WHERE owner_id=?)",
+            (uid,)).fetchone()[0],
     }
 
     # Блок «Поделиться»: категории владельца с включённой секретной ссылкой.
@@ -288,7 +288,7 @@ def dashboard(request: Request, conn=Depends(get_db)):
     if share:
         share_url = f"{BASE_URL}/c/{share['link_token']}"
         qr_svg = _qr_svg(share_url)
-        # превью ссылки: своя картинка ИЛИ коллаж из фото активных свиданий
+        # превью ссылки: своя картинка ИЛИ коллаж из фото активных событий
         share_has_og = bool(share["og_image"]) or conn.execute(
             "SELECT 1 FROM date_categories dc JOIN dates d ON d.id=dc.date_id "
             "JOIN date_images di ON di.date_id=d.id "
@@ -316,15 +316,15 @@ def _qr_svg(data: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Лента свиданий-комьюнити (на главной вместо «Последних действий»)
+# Лента событий-комьюнити (на главной вместо «Последних действий»)
 # ---------------------------------------------------------------------------
-# Показываем чужие публичные активные свидания: карточка = фото + название +
+# Показываем чужие публичные активные события: карточка = фото + название +
 # когда/место/комментарий + пилюля владельца (→ его профиль). Категорию и
 # модификатор оплаты НЕ показываем (решение владельца). Бесконечный скролл —
 # keyset-пагинацией по d.id DESC (курсор = id последней карточки).
 
 def _community_cards(conn, viewer_id: int, cursor: int | None):
-    """Возвращает (dates, next_cursor) для ленты. dates — свидания с медиа и
+    """Возвращает (dates, next_cursor) для ленты. dates — события с медиа и
     именем/аватаром владельца. Курсор — id, строго меньше которого берём дальше."""
     where = ("d.is_public=1 AND d.is_draft=0 AND d.archived_at IS NULL "
              "AND d.owner_id<>?")
@@ -365,8 +365,8 @@ def community_feed(request: Request, conn=Depends(get_db)):
 
 @router.get("/community/date/{did}", response_class=HTMLResponse)
 def community_widget(did: int, request: Request, conn=Depends(get_db)):
-    """Мини-виджет одного свидания из ленты (открывается в модалке). Только
-    публичное активное чужое свидание; иначе 404."""
+    """Мини-виджет одного события из ленты (открывается в модалке). Только
+    публичное активное чужое событие; иначе 404."""
     r = conn.execute(
         "SELECT d.*, u.display_name AS owner_name, u.tg_username AS owner_username, "
         "u.avatar_path AS owner_avatar "
@@ -374,7 +374,7 @@ def community_widget(did: int, request: Request, conn=Depends(get_db)):
         "WHERE d.id=? AND d.is_public=1 AND d.is_draft=0 AND d.archived_at IS NULL",
         (did,)).fetchone()
     if not r:
-        raise HTTPException(404, "Свидание не найдено")
+        raise HTTPException(404, "Событие не найдено")
     media = public_routes._batch_media(conn, [did])
     d = public_routes.date_payload_from(r, media)
     d["owner_display"] = (r["owner_name"] or r["owner_username"]
@@ -389,7 +389,7 @@ def admin_image(filename: str, request: Request, w: int | None = None,
                 conn=Depends(get_db)):
     if not images.SAFE_FILENAME.match(filename):
         raise HTTPException(404)
-    # файл виден, только если принадлежит владельцу: фото/видео свидания или
+    # файл виден, только если принадлежит владельцу: фото/видео события или
     # картинка превью его категории. Оператор (правит чужое) видит любой файл.
     uid = request.state.user["id"]
     if request.state.user["is_operator"]:
@@ -453,7 +453,7 @@ def _full_dump(conn, uid: int) -> dict:
         if r["guest_token"]:
             seen_tokens.add(r["guest_token"])
         out_dates.append(d)
-    # гости — только те, кто фигурирует в свиданиях/бронях/вопросах владельца
+    # гости — только те, кто фигурирует в событиях/голосах/вопросах владельца
     for r in conn.execute(
             "SELECT DISTINCT b.guest_token FROM bookings b JOIN dates d ON d.id=b.date_id "
             "WHERE d.owner_id=? AND b.guest_token IS NOT NULL", (uid,)):
@@ -507,7 +507,7 @@ def export_csv(request: Request, conn=Depends(get_db)):
     return Response("\ufeff" + buf.getvalue(),       # BOM — чтобы Excel понял UTF-8
                     media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition":
-                             f'attachment; filename="date4you-dates-{day}.csv"'})
+                             f'attachment; filename="date4you-events-{day}.csv"'})
 
 
 @router.get("/export/archive")
@@ -545,9 +545,9 @@ async def import_json(request: Request, file: UploadFile = File(...),
                       conn=Depends(get_db)):
     """Импорт данных из нашего же export.json — ДОЗАПИСЬЮ к аккаунту оператора.
 
-    Добавляет категории и свидания (с ссылками и привязкой фото/видео по именам
+    Добавляет категории и события (с ссылками и привязкой фото/видео по именам
     файлов) как НОВЫЕ записи. Существующие данные не трогает и не дублирует
-    осознанно — это аддитивный импорт. Брони/вопросы/гостей не переносим:
+    осознанно — это аддитивный импорт. Голоса/вопросы/гостей не переносим:
     это контент получателей, привязанный к их браузерам. Категориям выдаём
     свежие секретные ссылки. Файлы фото/видео должны уже лежать в uploads/
     (например, распакованы из архива) — отсутствующие записи просто пропускаем.
@@ -581,7 +581,7 @@ async def import_json(request: Request, file: UploadFile = File(...),
         if c.get("id") is not None:
             cat_map[c["id"]] = cur.lastrowid
         n_cats += 1
-    # свидания
+    # события
     for d in data["dates"]:
         if not isinstance(d, dict):
             continue
@@ -622,7 +622,7 @@ async def import_json(request: Request, file: UploadFile = File(...),
                     (did, fn, pos))
         n_dates += 1
     conn.commit()
-    return redir("/admin/", f"Импортировано: {n_cats} категорий и {n_dates} свиданий")
+    return redir("/admin/", f"Импортировано: {n_cats} категорий и {n_dates} событий")
 
 
 # ----- Категории -----------------------------------------------------------
@@ -633,7 +633,7 @@ def categories_list(request: Request, conn=Depends(get_db)):
         "SELECT c.*, "
         "(SELECT COUNT(*) FROM date_categories dc WHERE dc.category_id=c.id) AS dcount, "
         # есть ли превью ссылки: своя картинка ИЛИ хотя бы одно фото активного
-        # свидания категории (тогда соберётся коллаж). Для миниатюры в списке.
+        # события категории (тогда соберётся коллаж). Для миниатюры в списке.
         "(c.og_image IS NOT NULL OR EXISTS("
         "  SELECT 1 FROM date_categories dc JOIN dates d ON d.id=dc.date_id "
         "  JOIN date_images di ON di.date_id=d.id "
@@ -695,14 +695,14 @@ def category_detail(cid: int, request: Request, conn=Depends(get_db)):
         "WHERE dc.category_id=? "
         "ORDER BY (d.archived_at IS NOT NULL) ASC, dc.position ASC, d.created_at DESC",
         (cid, cid, cid)).fetchall()
-    # «Прикрепить» — свидания того же владельца, что и категория (для админа,
+    # «Прикрепить» — события того же владельца, что и категория (для админа,
     # правящего чужую категорию, это её владелец, а не сам админ).
     attachable = conn.execute(
         "SELECT id, name FROM dates WHERE owner_id=? AND archived_at IS NULL AND id NOT IN "
         "(SELECT date_id FROM date_categories WHERE category_id=?) ORDER BY created_at DESC",
         (cat["owner_id"], cid)).fetchall()
     # авто-превью ссылки: если своей картинки нет, показываем коллаж из фото
-    # свиданий этой категории (тот же, что уйдёт в og:image). Здесь — только
+    # событий этой категории (тот же, что уйдёт в og:image). Здесь — только
     # флаг наличия; саму картинку отдаёт /admin/categories/{cid}/og-preview.
     auto_og = False
     if not cat["og_image"]:
@@ -770,7 +770,7 @@ def _category_collage_sources(conn, cid: int) -> list[str]:
 
 
 def prewarm_date_collages(did: int) -> None:
-    """Фоновая пере-сборка коллажей для всех категорий свидания. Зовём из
+    """Фоновая пере-сборка коллажей для всех категорий события. Зовём из
     BackgroundTasks после правки фото/категорий — чтобы список «Категории» и
     дашборд открывались по тёплому кэшу (иначе первый заход собирал N коллажей
     синхронно на единственном воркере — отсюда «долгая первая загрузка»)."""
@@ -828,7 +828,7 @@ def category_rename(cid: int, request: Request, name: str = Form(...),
     og_title = clean_text(og_title, 120, "Заголовок превью")
     og_desc = clean_text(og_desc, 200, "Описание превью")
 
-    # картинка превью — опционально; новый файл сжимаем в WebP (как фото свиданий),
+    # картинка превью — опционально; новый файл сжимаем в WebP (как фото событий),
     # старый сносим только после успешной записи
     new_image = None
     if og_image is not None and (og_image.filename or "").strip():
@@ -994,7 +994,7 @@ def category_delete(cid: int, request: Request, bg: BackgroundTasks, conn=Depend
         "🗑 Удалена категория",
         f"«{notify.esc(cat['name'])}»",
         f"Кто: {notify.esc(actor)}"))
-    return redir("/admin/categories", "Категория удалена (свидания остались)")
+    return redir("/admin/categories", "Категория удалена (события остались)")
 
 
 @router.post("/categories/{cid}/attach")
@@ -1002,23 +1002,23 @@ def category_attach(cid: int, request: Request, date_id: int = Form(...),
                     conn=Depends(get_db)):
     cat = _cat_or_404(conn, cid, request.state.user)
     cat = _require_category_composition_mutable(conn, cat)
-    # привязать можно только свидание ТОГО ЖЕ владельца, что и категория, —
+    # привязать можно только событие ТОГО ЖЕ владельца, что и категория, —
     # иначе чужое утечёт в категорию (для админа контекст = владелец категории)
     date_row = get_owned_date(conn, date_id, cat["owner_id"])
     _validate_start_after_open_deadlines(conn, [cid], date_row["starts_at"])
     conn.execute(
         "INSERT OR IGNORE INTO date_categories(date_id, category_id, position) "
         "VALUES(?,?,?)", (date_id, cid, next_cat_pos(conn, cid)))
-    # попав хотя бы в одну категорию, свидание становится активным
+    # попав хотя бы в одну категорию, событие становится активным
     conn.execute("UPDATE dates SET is_draft=0 WHERE id=?", (date_id,))
     conn.commit()
-    return redir(f"/admin/categories/{cid}", "Свидание добавлено в категорию")
+    return redir(f"/admin/categories/{cid}", "Событие добавлено в категорию")
 
 
 @router.post("/categories/{cid}/dates_reorder")
 def category_dates_reorder(cid: int, request: Request, order: str = Form(...),
                            conn=Depends(get_db)):
-    """Drag-and-drop порядок свиданий: order — id через запятую."""
+    """Drag-and-drop порядок событий: order — id через запятую."""
     cat = _cat_or_404(conn, cid, request.state.user)
     cat = _require_category_composition_mutable(conn, cat)
     ids_db = [r[0] for r in conn.execute(
@@ -1060,16 +1060,16 @@ def category_detach(cid: int, request: Request, date_id: int = Form(...),
         ).fetchone()
         if not still_voting:
             voting_events.cancel_deadline_reminder(conn, cid, user_id)
-    # если это была последняя категория свидания — оно становится неактивным
+    # если это была последняя категория события — оно становится неактивным
     still = conn.execute(
         "SELECT 1 FROM date_categories WHERE date_id=? LIMIT 1", (date_id,)).fetchone()
     if not still:
         conn.execute("UPDATE dates SET is_draft=1 WHERE id=?", (date_id,))
     conn.commit()
-    return redir(f"/admin/categories/{cid}", "Свидание убрано из категории")
+    return redir(f"/admin/categories/{cid}", "Событие убрано из категории")
 
 
-# ----- Свидания -------------------------------------------------------------
+# ----- События -------------------------------------------------------------
 
 VIEW_WHERE = {
     "active": "d.archived_at IS NULL AND d.is_draft=0",
@@ -1097,18 +1097,6 @@ def dates_list(request: Request, conn=Depends(get_db)):
     sort = qp.get("sort") if qp.get("sort") in SORT_ORDER else "new"
     flt = qp.get("f") if qp.get("f") in FLT_WHERE else ""
     cat = qp.get("cat", "")
-
-    # Само-исцеление инварианта «активно ⇔ есть категория». Историческая причина
-    # «старое неактивное свидание не достаётся из Неактивных»: у него уже была
-    # привязка в date_categories, но is_draft остался 1 (легаси-баг/недокат).
-    # Приводим к инварианту: НЕархивное свидание владельца с ≥1 категорией и
-    # is_draft=1 → активным. ВАЖНО: не трогаем гостевые предложения (origin='guest')
-    # — они законно ждут модерации на вкладке «Неактивные», их публикует «Одобрить».
-    conn.execute(
-        "UPDATE dates SET is_draft=0 WHERE owner_id=? AND is_draft=1 "
-        "AND origin<>'guest' AND archived_at IS NULL "
-        "AND id IN (SELECT date_id FROM date_categories)", (request.state.user["id"],))
-    conn.commit()
 
     where = VIEW_WHERE[view]
     params: list = [request.state.user["id"]]
@@ -1180,7 +1168,7 @@ def _all_cats(conn, uid: int):
 
 
 def enforce_date_quota(conn, user) -> None:
-    """Отказ, если у пользователя уже date_limit активных (не архивных) свиданий.
+    """Отказ, если у пользователя уже date_limit активных (не архивных) событий.
     Архивные не считаем — это «история», она не растёт бесконтрольно."""
     limit = user["date_limit"]
     used = conn.execute(
@@ -1189,7 +1177,7 @@ def enforce_date_quota(conn, user) -> None:
     if used >= limit:
         contact = f" Напиши в поддержку {SUPPORT_CONTACT}" if SUPPORT_CONTACT \
                   else " Контакт поддержки — на странице «О проекте»."
-        raise HTTPException(400, f"Достигнут лимит {limit} свиданий.{contact}")
+        raise HTTPException(400, f"Достигнут лимит {limit} событий.{contact}")
 
 
 def parse_pay(value) -> int:
@@ -1258,7 +1246,7 @@ def date_create(request: Request, bg: BackgroundTasks,
         _require_category_composition_mutable(conn, cat)
     _validate_start_after_open_deadlines(conn, attach, starts)
     capacity_value = parse_capacity(capacity)
-    # свидание без категорий неактивно автоматически (гости его не видят)
+    # событие без категорий неактивно автоматически (гости его не видят)
     date_id = insert_date(conn, name=name, place=place, starts=starts, ends=ends,
                           comment=comment, origin="admin", guest_token=None,
                           owner_id=uid,
@@ -1286,10 +1274,10 @@ def date_create(request: Request, bg: BackgroundTasks,
     bg.add_task(prewarm_date_collages, date_id)   # тёплый кэш коллажей для списка «Категории»
     actor = request.state.user["display_name"] or request.state.user["tg_username"] or "—"
     notify_admin(bg, conn, uid, notify.card(
-        "🆕 Создано свидание",
+        "🆕 Создано событие",
         f"«{notify.esc(name)}»",
         f"Кто: {notify.esc(actor)}"))
-    return redir("/admin/dates", "Свидание создано")
+    return redir("/admin/dates", "Событие создано")
 
 
 def add_videos(conn, date_id: int, files, existing: int) -> list[str]:
@@ -1298,7 +1286,7 @@ def add_videos(conn, date_id: int, files, existing: int) -> list[str]:
     if not files:
         return []
     if existing + len(files) > images.MAX_VIDEOS:
-        raise HTTPException(400, f"Максимум {images.MAX_VIDEOS} видео у одного свидания")
+        raise HTTPException(400, f"Максимум {images.MAX_VIDEOS} видео у одного события")
     try:
         saved = images.save_videos_batch(files)
     except ValueError as e:
@@ -1310,12 +1298,12 @@ def add_videos(conn, date_id: int, files, existing: int) -> list[str]:
 
 
 def _date_or_404(conn, did: int, user):
-    """Свидание, которым можно управлять. Владелец — только своё; админ
+    """Событие, которым можно управлять. Владелец — только своё; админ
     (is_operator) — любое (пункт «админ правит чужое»)."""
     if user["is_operator"]:
         d = conn.execute("SELECT * FROM dates WHERE id=?", (did,)).fetchone()
         if not d:
-            raise HTTPException(404, "Свидание не найдено")
+            raise HTTPException(404, "Событие не найдено")
         return d
     return get_owned_date(conn, did, user["id"])
 
@@ -1324,7 +1312,7 @@ def _require_date_not_in_closed_vote(conn, did: int, action: str) -> None:
     # Lock the date first: every competing category/vote mutation is a writer,
     # so the category list and deadline checks below remain a stable snapshot.
     if conn.execute("UPDATE dates SET id=id WHERE id=?", (did,)).rowcount == 0:
-        raise HTTPException(404, "Свидание не найдено")
+        raise HTTPException(404, "Событие не найдено")
     for cat in conn.execute(
         "SELECT c.* FROM categories c JOIN date_categories dc ON dc.category_id=c.id "
         "WHERE dc.date_id=?", (did,),
@@ -1364,7 +1352,7 @@ def date_edit_form(did: int, request: Request, conn=Depends(get_db)):
              booked=booked,
              proposer=proposer,
              links_text="\n".join(r["url"] for r in link_rows),
-             # категории показываем владельца свидания (админ может править чужое)
+             # категории показываем владельца события (админ может править чужое)
              cats=cats, checked=checked, locked_cat_ids=locked_cat_ids,
              slots=images.MAX_IMAGES - len(photos)))
 
@@ -1384,7 +1372,7 @@ def date_update(did: int, request: Request, bg: BackgroundTasks, name: str = For
                 conn=Depends(get_db)):
     d = _date_or_404(conn, did, request.state.user)
     # Проверяем расписание, вместимость и категории в той же сериализованной
-    # транзакции, что и запись. После блокировки перечитываем свидание, чтобы
+    # транзакции, что и запись. После блокировки перечитываем событие, чтобы
     # параллельная настройка категории не сделала снимок устаревшим.
     conn.execute("UPDATE dates SET id=id WHERE id=?", (did,))
     d = _date_or_404(conn, did, request.state.user)
@@ -1398,8 +1386,8 @@ def date_update(did: int, request: Request, bg: BackgroundTasks, name: str = For
     pay_value = parse_pay(pay)
     public_value = parse_public(is_public)
 
-    # привязываем только категории владельца свидания (чужие id из формы молча
-    # игнорируем). Для админа, правящего чужое, контекст = владелец свидания.
+    # привязываем только категории владельца события (чужие id из формы молча
+    # игнорируем). Для админа, правящего чужое, контекст = владелец события.
     own_cats = {r[0] for r in conn.execute(
         "SELECT id FROM categories WHERE owner_id=?", (d["owner_id"],))}
     categories = [c for c in categories if c in own_cats]
@@ -1408,7 +1396,7 @@ def date_update(did: int, request: Request, bg: BackgroundTasks, name: str = For
         "SELECT category_id FROM date_categories WHERE date_id=?", (did,))}
 
     # Закрывшаяся категория — зафиксированный снимок: её нельзя ни добавить к
-    # свиданию, ни снять. Остальные категории синхронизируем точечно, не через
+    # событию, ни снять. Остальные категории синхронизируем точечно, не через
     # DELETE/INSERT всех строк, чтобы не затронуть уже установленный порядок.
     for cid in current ^ requested:
         cat = conn.execute("SELECT * FROM categories WHERE id=?", (cid,)).fetchone()
@@ -1434,7 +1422,7 @@ def date_update(did: int, request: Request, bg: BackgroundTasks, name: str = For
         )
     except voting.VotingError as exc:
         _raise_voting_http(exc)
-    # свидание без категорий неактивно автоматически (гости его не видят)
+    # событие без категорий неактивно автоматически (гости его не видят)
     is_draft = 0 if categories else 1
 
     changed_labels: list[str] = []
@@ -1508,17 +1496,17 @@ def date_update(did: int, request: Request, bg: BackgroundTasks, name: str = For
 def date_publish(did: int, request: Request, bg: BackgroundTasks,
                  next: str = Form("/admin/dates"), conn=Depends(get_db)):
     d = _date_or_404(conn, did, request.state.user)
-    _require_date_not_in_closed_vote(conn, did, "изменить состав свиданий")
+    _require_date_not_in_closed_vote(conn, did, "изменить состав событий")
     d = _date_or_404(conn, did, request.state.user)
     # Инвариант: активно ⇔ есть хотя бы одна категория (иначе гости не видят).
-    # Публиковать имеет смысл только свидание с категорией — иначе оно снова
+    # Публиковать имеет смысл только событие с категорией — иначе оно снова
     # «активно» в списке, но невидимо гостям (частая путаница «не публикуется»).
     # Без категории уводим в редактор — там владелец её привяжет и сохранит.
     has_cat = conn.execute(
         "SELECT 1 FROM date_categories WHERE date_id=? LIMIT 1", (did,)).fetchone()
     if not has_cat:
         return redir(f"/admin/dates/{did}/edit",
-                     "⚠ Добавь свидание хотя бы в одну категорию — иначе гости его не увидят")
+                     "⚠ Добавь событие хотя бы в одну категорию — иначе гости его не увидят")
     category_ids = [int(r["category_id"]) for r in conn.execute(
         "SELECT category_id FROM date_categories WHERE date_id=?", (did,)
     )]
@@ -1534,14 +1522,14 @@ def date_publish(did: int, request: Request, bg: BackgroundTasks,
             "✅ Твоё предложение опубликовано",
             f"«{notify.esc(d['name'])}»" + (f" · {notify.esc(cat['name'])}" if cat else ""),
             "Теперь его видят гости ♥"))
-    return redir(next, "Опубликовано — гости теперь видят это свидание")
+    return redir(next, "Опубликовано — гости теперь видят это событие")
 
 
 @router.post("/dates/{did}/archive")
 def date_archive(did: int, request: Request, next: str = Form("/admin/dates"),
                  conn=Depends(get_db)):
     d = _date_or_404(conn, did, request.state.user)
-    _require_date_not_in_closed_vote(conn, did, "перенести свидание в архив")
+    _require_date_not_in_closed_vote(conn, did, "перенести событие в архив")
     d = _date_or_404(conn, did, request.state.user)
     if d["archived_at"]:
         category_ids = [int(r["category_id"]) for r in conn.execute(
@@ -1579,7 +1567,7 @@ def date_archive(did: int, request: Request, next: str = Form("/admin/dates"),
 @router.post("/dates/{did}/delete")
 def date_delete(did: int, request: Request, bg: BackgroundTasks, conn=Depends(get_db)):
     d = _date_or_404(conn, did, request.state.user)
-    _require_date_not_in_closed_vote(conn, did, "удалить свидание")
+    _require_date_not_in_closed_vote(conn, did, "удалить событие")
     affected_by_cat: dict[int, list[int]] = {}
     for cat in conn.execute(
         "SELECT c.* FROM categories c JOIN date_categories dc ON dc.category_id=c.id "
@@ -1609,17 +1597,17 @@ def date_delete(did: int, request: Request, bg: BackgroundTasks, conn=Depends(ge
         images.delete_file(fn)
     actor = request.state.user["display_name"] or request.state.user["tg_username"] or "—"
     notify_admin(bg, conn, d["owner_id"], notify.card(
-        "🗑 Удалено свидание",
+        "🗑 Удалено событие",
         f"«{notify.esc(d['name'])}»",
         f"Кто: {notify.esc(actor)}"))
-    return redir("/admin/dates", "Свидание удалено")
+    return redir("/admin/dates", "Событие удалено")
 
 
 @router.post("/dates/{did}/clone")
 def date_clone(did: int, request: Request, next: str = Form("/admin/dates"),
                conn=Depends(get_db)):
-    """Дубль свидания: копируем запись, ссылки и файлы (с новыми именами на
-    диске). Категории, брони и вопросы НЕ переносим — клон это свежее
+    """Дубль события: копируем запись, ссылки и файлы (с новыми именами на
+    диске). Категории, голоса и вопросы НЕ переносим — клон это свежее
     предложение без категории, поэтому он неактивен (гости не видят дубль),
     пока владелец не добавит его в категорию. Карта (place_url) уже распознана."""
     src = _date_or_404(conn, did, request.state.user)
@@ -1635,13 +1623,13 @@ def date_clone(did: int, request: Request, next: str = Form("/admin/dates"),
     copy_date_media_and_links(conn, did, new_id)
     conn.commit()
     return redir(f"/admin/dates/{new_id}/edit",
-                 "Свидание скопировано — оно неактивно, добавь его в категорию")
+                 "Событие скопировано — оно неактивно, добавь его в категорию")
 
 
 @router.post("/bookings/{bid}/delete")
 def booking_delete(bid: int, request: Request, bg: BackgroundTasks,
                    next: str = Form("/admin/dates"), conn=Depends(get_db)):
-    """Снять чужой выбор со свидания (например, по просьбе гостя)."""
+    """Снять чужой выбор со события (например, по просьбе гостя)."""
     row = conn.execute(
         "SELECT b.id, b.user_id, b.category_id, d.name AS dname, c.name AS cname, "
         "c.link_token, "
@@ -1670,7 +1658,7 @@ def booking_delete(bid: int, request: Request, bg: BackgroundTasks,
             conn, row["category_id"], int(row["user_id"]),
         )
     conn.commit()
-    return redir(next, f"Выбор снят — свидание снова свободно ({row['nm']})")
+    return redir(next, f"Голос снят — освободилось одно место ({row['nm']})")
 
 
 @router.post("/dates/{did}/videos/{vid}/delete")
@@ -1740,7 +1728,8 @@ def date_image_focus(did: int, img_id: int, request: Request, focus: str = Form(
 @router.get("/questions", response_class=HTMLResponse)
 def questions_list(request: Request, conn=Depends(get_db)):
     f = request.query_params.get("f", "unread")
-    where = "d.owner_id=?" + ("" if f == "all" else " AND q.is_read=0")
+    where = ("q.date_id IN (SELECT id FROM dates WHERE owner_id=?)"
+             + ("" if f == "all" else " AND q.is_read=0"))
     rows = conn.execute(
         f"SELECT q.*, d.name AS date_name, d.id AS did, c.name AS cat_name, "
         f"{GNAME_SQL.format(t='q.guest_token')} AS gname "
@@ -1755,8 +1744,8 @@ def questions_list(request: Request, conn=Depends(get_db)):
 
 
 def _owned_question(conn, qid: int, uid: int):
-    """Вопрос вместе с проверкой, что его свидание принадлежит владельцу.
-    Подтягиваем имена свидания/категории для уведомления автору."""
+    """Вопрос вместе с проверкой, что его событие принадлежит владельцу.
+    Подтягиваем имена события/категории для уведомления автору."""
     return conn.execute(
         "SELECT q.*, d.name AS date_name, c.name AS cat_name "
         "FROM questions q JOIN dates d ON d.id=q.date_id "
@@ -1778,15 +1767,15 @@ def _notify_answer(bg, conn, q, answer: str) -> None:
 def question_accept_time(qid: int, request: Request, bg: BackgroundTasks,
                          next: str = Form("/admin/questions"),
                          conn=Depends(get_db)):
-    """Принять предложенное гостем время: применяем его к свиданию."""
+    """Принять предложенное гостем время: применяем его к событию."""
     q = _owned_question(conn, qid, request.state.user["id"])
     if not q or not q["suggest_starts"]:
         raise HTTPException(404, "Это не предложение времени")
     # Сериализуем с настройкой категории и проверяем время по тому же правилу,
-    # что редактор свидания. Так DB-защита превращается в понятную ошибку формы,
+    # что редактор события. Так DB-защита превращается в понятную ошибку формы,
     # а не в необработанный IntegrityError/500.
     if conn.execute("UPDATE dates SET id=id WHERE id=?", (q["date_id"],)).rowcount == 0:
-        raise HTTPException(404, "Свидание не найдено")
+        raise HTTPException(404, "Событие не найдено")
     q = _owned_question(conn, qid, request.state.user["id"])
     if not q or not q["suggest_starts"]:
         raise HTTPException(404, "Это не предложение времени")
@@ -1889,7 +1878,7 @@ def public_profile(user_id: int, request: Request, conn=Depends(get_db)):
         "FROM users WHERE id=? AND is_active=1", (user_id,)).fetchone()
     if not u:
         raise HTTPException(404, "Профиль не найден")
-    # Публичные активные свидания пользователя — то же, что видно в общей ленте.
+    # Публичные активные события пользователя — то же, что видно в общей ленте.
     # Не отдаём сразу всю историю: каждая страница содержит максимум 12 карточек
     # и столько же обложек. Это особенно важно для мобильной сети.
     total = conn.execute(

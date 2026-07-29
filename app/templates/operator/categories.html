@@ -11,7 +11,7 @@
 </form>
 
 <table>
-  <tr><th>Название</th><th>Владелец</th><th>Свиданий</th><th>Ссылка</th><th>Действия</th></tr>
+  <tr><th>Название</th><th>Владелец</th><th>Событий</th><th>Ссылка</th><th>Действия</th></tr>
   {% for c in rows %}
   <tr>
     <td><b>{{ c['name'] }}</b></td>
@@ -30,7 +30,7 @@
           <button class="btn small">{{ 'Выключить' if c['link_enabled'] else 'Включить' }} ссылку</button>
         </form>
         <form class="inline" method="post" action="/operator/categories/{{ c['id'] }}/delete"
-              data-confirm="Удалить категорию «{{ c['name'] }}»? Свидания останутся у владельца.">
+              data-confirm="Удалить категорию «{{ c['name'] }}»? События останутся у владельца.">
           <input type="hidden" name="csrf" value="{{ csrf }}">
           <button class="btn small danger">Удалить</button>
         </form>

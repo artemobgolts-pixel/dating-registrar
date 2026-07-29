@@ -1,4 +1,4 @@
-{# Мини-виджет свидания из ленты комьюнити (внутри модалки на главной).
+{# Мини-виджет события из ленты комьюнити (внутри модалки на главной).
    Категорию и модификатор оплаты не показываем. Кнопка «Добавить себе» шлёт
    fetch на /d/<share_token>/add и отвечает JSON — лента не прерывается. #}
 <div class="cwid">
@@ -16,7 +16,9 @@
          {% if im['focus'] %}style="object-position:{{ im['focus'] }}"{% endif %}>
     {% endfor %}
     {% for v in d['videos'] %}
-    <video src="/d/{{ d['share_token'] }}/video/{{ v['filename'] }}" controls playsinline preload="metadata"></video>
+    <video data-src="/d/{{ d['share_token'] }}/video/{{ v['filename'] }}" controls
+           playsinline preload="none"
+           poster="{% if d['images'] %}/d/{{ d['share_token'] }}/image/{{ d['images'][0]['filename'] }}?w=960{% else %}{{ asset('date-default.jpg') }}{% endif %}"></video>
     {% endfor %}
   </div>
   {% endif %}
@@ -24,8 +26,11 @@
     <h3 class="cwid-ttl serif">{{ d['name'] }}</h3>
     <a class="cfeed-owner" href="/u/{{ d['owner_id'] }}">
       {% if d['owner_avatar'] %}
-      <img class="cfeed-ava" src="/u/{{ d['owner_id'] }}/avatar?w=480" alt=""
-           width="26" height="26" decoding="async">
+      <img class="cfeed-ava" src="/u/{{ d['owner_id'] }}/avatar?w=64"
+           srcset="/u/{{ d['owner_id'] }}/avatar?w=64 64w,
+                   /u/{{ d['owner_id'] }}/avatar?w=96 96w,
+                   /u/{{ d['owner_id'] }}/avatar?w=128 128w"
+           sizes="26px" alt="" width="26" height="26" decoding="async">
       {% else %}
       <span class="cfeed-ava cfeed-ava-ph" aria-hidden="true">🙂</span>
       {% endif %}
@@ -46,7 +51,7 @@
     {% endif %}
     <div class="cwid-actions">
       {% if is_mine %}
-      <a class="btn primary" href="/admin/dates/{{ d['id'] }}/edit">Это твоё свидание — открыть</a>
+      <a class="btn primary" href="/admin/dates/{{ d['id'] }}/edit">Это твоё событие — открыть</a>
       {% else %}
       <button type="button" class="btn primary cwid-add" data-add="/d/{{ d['share_token'] }}/add">Добавить себе ♥</button>
       {% endif %}

@@ -112,7 +112,7 @@ def _consume_auth_flow(request: Request, code: str) -> None:
 
 def _safe_next(raw: str | None) -> str | None:
     """Безопасный возврат после входа: только локальные пути в наши разделы
-    (гостевая ссылка /c/…, share-ссылка свидания /d/… или кабинет /admin…). Чужой/
+    (гостевая ссылка /c/…, share-ссылка события /d/… или кабинет /admin…). Чужой/
     протокол-относительный URL отбрасываем (open redirect)."""
     raw = (raw or "").strip()
     if not raw or raw.startswith("//") or not raw.startswith("/"):

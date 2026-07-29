@@ -14,8 +14,12 @@
     <div class="field avatar-field">
       <label class="avatar-pick" title="Нажми, чтобы сменить фото">
         {% if user['avatar_path'] %}
-        <img src="/admin/avatar/{{ user['avatar_path'] }}?w=480" alt="Аватар"
-             width="116" height="116" decoding="async" class="avatar-img">
+        <img src="/admin/avatar/{{ user['avatar_path'] }}?w=128"
+             srcset="/admin/avatar/{{ user['avatar_path'] }}?w=128 128w,
+                     /admin/avatar/{{ user['avatar_path'] }}?w=256 256w,
+                     /admin/avatar/{{ user['avatar_path'] }}?w=480 480w"
+             sizes="116px" alt="Аватар" width="116" height="116"
+             decoding="async" class="avatar-img">
         {% else %}
         <span class="avatar-ph">🙂</span>
         {% endif %}
@@ -72,12 +76,12 @@
   <b>🔔 Уведомления в Telegram</b>
   {% if user['bot_linked'] %}
   <p class="muted" style="margin:8px 0 0;font-size:13.5px">
-    Бот подключён — приходят уведомления, когда гость выбирает свидание,
+    Бот подключён — приходят уведомления, когда гость выбирает событие,
     задаёт вопрос или предлагает идею.</p>
   {% else %}
   <div class="tg-connect">
     <p class="muted" style="margin:8px 0 12px;font-size:13.5px">
-      Подключи бота, чтобы получать уведомления о выборе свиданий, вопросах
+      Подключи бота, чтобы получать уведомления о выборе событий, вопросах
       и предложениях прямо в Telegram.</p>
     <button type="button" data-tg-connect class="btn primary">Подключить уведомления</button>
     <a data-tg-link href="#" target="_blank" rel="noopener" hidden></a>
@@ -93,7 +97,7 @@
     Короткие подсказки по основным разделам. Каждый курс можно повторить.</p>
   <div class="tour-course-actions">
     <button type="button" class="btn small primary" data-tour-start="dashboard">Основы</button>
-    <a class="btn small primary" href="/admin/dates/new#tour=date-editor">Свидания</a>
+    <a class="btn small primary" href="/admin/dates/new#tour=date-editor">Встречи</a>
     {% if first_category_id %}
     <a class="btn small primary" href="/admin/categories/{{ first_category_id }}#tour=category-editor">Категории</a>
     {% else %}

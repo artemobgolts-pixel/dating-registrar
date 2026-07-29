@@ -6,7 +6,7 @@
 <meta name="robots" content="noindex, nofollow">
 <!-- Turbo: префетч отключён намеренно. Он держит ОТДЕЛЬНЫЙ кэш (наведение на
      ссылку заранее тянет страницу и запоминает её), который Turbo.cache.clear()
-     после мутации НЕ чистит — из-за этого реактивированное свидание оставалось
+     после мутации НЕ чистит — из-за этого реактивированное событие оставалось
      в «Неактивных» до жёсткого refresh (клик отдавал устаревший префетч-снимок).
      Навигация и без префетча мгновенная (Turbo Drive подменяет <body>). -->
 <meta name="turbo-prefetch" content="false">
@@ -80,7 +80,7 @@
   <nav class="glass-nav">
     <a href="/admin/" class="{{ 'on' if active == 'dash' else '' }}"><span class="ic" aria-hidden="true">🏠</span><span class="lb">Главная</span></a>
     <a href="/admin/categories" class="{{ 'on' if active == 'cats' else '' }}"><span class="ic" aria-hidden="true">🔗</span><span class="lb">Категории</span></a>
-    <a href="/admin/dates" class="{{ 'on' if active == 'dates' else '' }}"><span class="ic" aria-hidden="true">💝</span><span class="lb">Свидания</span></a>
+    <a href="/admin/dates" class="{{ 'on' if active == 'dates' else '' }}"><span class="ic" aria-hidden="true">💝</span><span class="lb">Встречи</span></a>
     <a href="/admin/profile" class="{{ 'on' if active == 'profile' else '' }}"><span class="ic" aria-hidden="true">👤</span><span class="lb">{{ user['display_name'] or 'Профиль' }}</span></a>
     {% if user['is_operator'] %}<a href="/operator/" class="op-link"><span class="ic" aria-hidden="true">⚙</span><span class="lb">Админ</span></a>{% endif %}
   </nav>
@@ -111,7 +111,7 @@
 {% if m %}<div class="flash{{ ' err' if m.startswith('⚠') else '' }}">{{ m }}</div>{% endif %}
 {% if user and not user['bot_linked'] %}
 <div class="flash tg-connect">
-  <span class="tg-connect-msg">🔔 Подключи бота, чтобы получать уведомления, когда выберут свидание.</span>
+  <span class="tg-connect-msg">🔔 Подключи бота, чтобы получать уведомления, когда выберут событие.</span>
   <button type="button" data-tg-connect class="btn primary">Подключить бота</button>
   <a data-tg-link href="#" target="_blank" rel="noopener" hidden></a>
   <span data-tg-hint hidden>Нажми <b>Start</b>, затем <b>Подтвердить</b> в боте и вернись сюда.</span>

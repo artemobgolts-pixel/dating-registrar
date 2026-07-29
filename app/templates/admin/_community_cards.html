@@ -1,6 +1,6 @@
 {# Карточки ленты комьюнити (фрагмент для бесконечного скролла). Категорию и
    модификатор оплаты НЕ показываем. Клик по карточке (не по пилюле владельца)
-   открывает мини-виджет свидания. #}
+   открывает мини-виджет события. #}
 {% for d in cards %}
 <article class="cfeed-card" data-widget="{{ d['id'] }}" role="button" tabindex="0"
          aria-label="Открыть «{{ d['name'] }}»">
@@ -29,8 +29,11 @@
     <a class="cfeed-owner" href="/u/{{ d['owner_id'] }}" data-stop
        aria-label="Профиль: {{ d['owner_display'] }}">
       {% if d['owner_avatar'] %}
-      <img class="cfeed-ava" src="/u/{{ d['owner_id'] }}/avatar?w=480" alt=""
-           width="26" height="26" decoding="async">
+      <img class="cfeed-ava" src="/u/{{ d['owner_id'] }}/avatar?w=64"
+           srcset="/u/{{ d['owner_id'] }}/avatar?w=64 64w,
+                   /u/{{ d['owner_id'] }}/avatar?w=96 96w,
+                   /u/{{ d['owner_id'] }}/avatar?w=128 128w"
+           sizes="26px" alt="" width="26" height="26" loading="lazy" decoding="async">
       {% else %}
       <span class="cfeed-ava cfeed-ava-ph" aria-hidden="true">🙂</span>
       {% endif %}

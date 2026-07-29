@@ -15,7 +15,7 @@
   {% set r = it.r %}{% set t = it.t %}
   <tr>
     <td>
-      {{ 'Категория' if r['target_type']=='category' else 'Свидание' }}:
+      {{ 'Категория' if r['target_type']=='category' else 'Событие' }}:
       <b>{% if t %}{{ t['name'] }}{% else %}<span class="muted">удалён</span>{% endif %}</b>
     </td>
     <td class="muted">{{ t['owner'] if t else '—' }}</td>

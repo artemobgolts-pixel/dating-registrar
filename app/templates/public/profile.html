@@ -49,8 +49,12 @@
 <main class="prof">
   <a class="back" href="/admin/">← в кабинет</a>
   {% if u['avatar_path'] %}
-    <img class="ava" src="/u/{{ u['id'] }}/avatar?w=480" alt="Фото профиля"
-         width="132" height="132" decoding="async">
+    <img class="ava" src="/u/{{ u['id'] }}/avatar?w=256"
+         srcset="/u/{{ u['id'] }}/avatar?w=128 128w,
+                 /u/{{ u['id'] }}/avatar?w=256 256w,
+                 /u/{{ u['id'] }}/avatar?w=480 480w"
+         sizes="132px" alt="Фото профиля" width="132" height="132"
+         decoding="async">
   {% else %}
     <div class="ava-ph" aria-hidden="true">🙂</div>
   {% endif %}
@@ -66,7 +70,7 @@
 </main>
 
 <section class="pub-dates">
-  <h2>Публичные свидания{% if total %} · {{ total }}{% endif %}</h2>
+  <h2>Публичные встречи{% if total %} · {{ total }}{% endif %}</h2>
   {% if dates %}
   <div class="pub-grid">
     {% for d in dates %}
@@ -92,14 +96,14 @@
     {% endfor %}
   </div>
   {% if pages > 1 %}
-  <nav class="pub-pager" aria-label="Страницы публичных свиданий">
+  <nav class="pub-pager" aria-label="Страницы публичных встреч">
     {% if page > 1 %}<a class="btn ghost" href="?page={{ page - 1 }}">← Новее</a>{% endif %}
     <span class="pub-page">{{ page }} / {{ pages }}</span>
     {% if page < pages %}<a class="btn ghost" href="?page={{ page + 1 }}">Ещё →</a>{% endif %}
   </nav>
   {% endif %}
   {% else %}
-  <p class="pub-empty">Пока нет публичных свиданий{% if is_me %} — создай и включи «показывать в ленте»{% endif %}.</p>
+  <p class="pub-empty">Пока нет публичных встреч{% if is_me %} — создай событие и включи «показывать в ленте»{% endif %}.</p>
   {% endif %}
 </section>
 </body>

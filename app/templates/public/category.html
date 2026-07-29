@@ -87,8 +87,11 @@
     {% if owner %}
     <a class="author" href="/u/{{ owner['id'] }}">
       {% if owner['avatar_path'] %}
-      <img class="author-av" src="/c/{{ token }}/owner-avatar?w=480" alt=""
-           width="28" height="28" decoding="async">
+      <img class="author-av" src="/c/{{ token }}/owner-avatar?w=64"
+           srcset="/c/{{ token }}/owner-avatar?w=64 64w,
+                   /c/{{ token }}/owner-avatar?w=96 96w,
+                   /c/{{ token }}/owner-avatar?w=128 128w"
+           sizes="28px" alt="" width="28" height="28" decoding="async">
       {% else %}<span class="author-av ph" aria-hidden="true">♥</span>{% endif %}
       <span class="author-name">{{ owner['display_name'] or owner['tg_username'] or 'Автор' }}</span>
     </a>
@@ -110,7 +113,7 @@
     <div class="notify-cta-icon" aria-hidden="true">🔔</div>
     <div class="notify-cta-copy">
       <b>Подключите уведомления в Telegram</b>
-      <span>Пришлём результат голосования, важные изменения и напоминания о победившем свидании.</span>
+      <span>Пришлём результат голосования, важные изменения и напоминания о победившем событии.</span>
       <span data-tg-hint hidden>Нажмите <b>Start</b>, затем <b>Подтвердить</b> в боте и вернитесь сюда.</span>
       <span data-tg-error class="err" hidden></span>
     </div>
@@ -164,8 +167,9 @@
              {% if im['focus'] %}style="object-position:{{ im['focus'] }}"{% endif %}>
         {% endfor %}
         {% for v in d.videos %}
-        <video src="/c/{{ token }}/video/{{ v['filename'] }}" controls playsinline
-               preload="metadata"></video>
+        <video data-src="/c/{{ token }}/video/{{ v['filename'] }}" controls playsinline
+               preload="none"
+               poster="{% if d.images %}/c/{{ token }}/image/{{ d.images[0]['filename'] }}?w=960{% else %}{{ asset('date-default.jpg') }}{% endif %}"></video>
         {% endfor %}
       </div>
     </div>
@@ -180,7 +184,7 @@
         {% endif %}
       </div>
       {# компактная плашка статуса для карточек без фото (большого оверлея нет):
-         архив всегда помечаем «Было», активные — только когда есть бронь #}
+         архив всегда помечаем «Было», активные — только когда есть голос #}
       {% if not d.images and not d.videos and d.is_winner %}<div class="winner-ribbon inflow">Победитель ♥</div>{% endif %}
       <div class="meta">
         {% if d.starts_at %}
@@ -227,13 +231,20 @@
           {% for person in d.participants %}
           <span class="participant{% if person['participation_withdrawn_at'] %} withdrawn{% endif %}">
             {% if person['avatar_path'] and person['user_id'] %}
-            <img src="/c/{{ token }}/participant-avatar/{{ person['user_id'] }}?w=480"
+            <img src="/c/{{ token }}/participant-avatar/{{ person['user_id'] }}?w=64"
+                 srcset="/c/{{ token }}/participant-avatar/{{ person['user_id'] }}?w=64 64w,
+                         /c/{{ token }}/participant-avatar/{{ person['user_id'] }}?w=96 96w,
+                         /c/{{ token }}/participant-avatar/{{ person['user_id'] }}?w=128 128w"
+                 sizes="26px"
                  alt="" width="26" height="26" loading="lazy" decoding="async">
             {% else %}<span class="participant-ph" aria-hidden="true">{{ person['name'][:1] | upper }}</span>{% endif %}
-            <span>{{ person['name'] }}{% if person['guest_token'] == guest %} · ты{% endif %}</span>
+            <span>{{ person['name'] }}{% if person['is_me'] %} · ты{% endif %}</span>
             {% if person['participation_withdrawn_at'] %}<small>отказался(-ась)</small>{% endif %}
           </span>
           {% endfor %}
+          {% if d.participant_hidden_count %}
+          <span class="participants-more">ещё {{ d.participant_hidden_count }}</span>
+          {% endif %}
         </div>
         {% elif show_roster %}<p class="vote-empty">Пока без голосов — можно стать первым.</p>{% endif %}
       </div>
@@ -328,7 +339,7 @@
   {% else %}
   <div class="empty">
     <div class="big">🌷</div>
-    Здесь пока пусто.{% if vote_state.status in ('unconfigured', 'open') %}<br>Предложи первое свидание — кнопка внизу ♥{% endif %}
+    Здесь пока пусто.{% if vote_state.status in ('unconfigured', 'open') %}<br>Предложи первое событие — кнопка внизу ♥{% endif %}
   </div>
   {% endif %}
 
@@ -341,8 +352,8 @@
   </footer>
 </div>
 
-{% if vote_state.status in ('unconfigured', 'open') %}<button class="fab" id="fabPropose" aria-label="Создать своё свидание">
-  <span class="fab-label">Создать своё свидание</span>
+{% if vote_state.status in ('unconfigured', 'open') %}<button class="fab" id="fabPropose" aria-label="Создать своё событие">
+  <span class="fab-label">Создать своё событие</span>
 </button>{% endif %}
 
 <!-- Вход прямо со страницы подборки (модалка с Telegram Login Widget) -->
@@ -350,7 +361,7 @@
   <button type="button" class="dlg-x" id="loginClose" aria-label="Закрыть">✕</button>
   <div class="login-dlg-head">
     <div class="ld-heart" aria-hidden="true">♥</div>
-    <h3 class="dlg-head">Войти, чтобы выбрать свидание</h3>
+    <h3 class="dlg-head">Войти, чтобы выбрать событие</h3>
     <p class="dlg-sub">Вход через Telegram — быстро и без пароля&nbsp;♥</p>
   </div>
   {% set next_url = "/c/" ~ token %}
@@ -396,7 +407,7 @@
   </form>
 </dialog>
 
-<!-- Предложить время для свидания без даты -->
+<!-- Предложить время для события без даты -->
 <dialog id="timeDlg">
   <h3 class="dlg-head">Когда удобно?</h3>
   <p class="dlg-sub">Предложишь время для «<span id="timeTitle"></span>» — организатор увидит&nbsp;♥</p>
@@ -438,7 +449,7 @@
 <dialog id="propDlg" class="date-widget-dialog">
   <div class="date-widget-head">
     <div>
-      <h3 class="dlg-head" id="propHead">Создать своё свидание</h3>
+      <h3 class="dlg-head" id="propHead">Создать своё событие</h3>
       <p class="dlg-sub">Кликай по карточке и меняй её прямо здесь&nbsp;♥</p>
     </div>
     <button type="button" class="date-widget-x" id="propCancel" aria-label="Закрыть">✕</button>
@@ -472,7 +483,7 @@
 
           <div class="body">
             <h3 class="ttl">
-              <span class="ed-field" id="propEdTitle" data-ph="Название свидания"></span>
+              <span class="ed-field" id="propEdTitle" data-ph="Название события"></span>
               <span class="pay" id="propPayPill" hidden></span>
             </h3>
             <div class="pmeta">
@@ -497,7 +508,7 @@
             </div>
             <div class="ed-field ed-desc" id="propDescEditable" contenteditable="true"
                  role="textbox" aria-multiline="true"
-                 data-ph="Детали — расскажи, чем хорошо это свидание"></div>
+                 data-ph="Детали — расскажи, чем хорошо это событие"></div>
             <div class="toolbar ed-desc-toolbar" id="propDescToolbar" hidden>
               <button type="button" class="b" data-wrap="**|**" title="Жирный">Ж</button>
               <button type="button" class="i" data-wrap="*|*" title="Курсив">К</button>
@@ -546,14 +557,14 @@
           <div class="chips-cat">
             <span class="chip-cat selected">🔗 {{ cat.name }}</span>
           </div>
-          <p>Свидание добавится в эту подборку. Если включена модерация, сначала его увидит организатор.</p>
+          <p>Событие добавится в эту подборку. Если включена модерация, сначала его увидит организатор.</p>
         </section>
       </aside>
     </div>
     <div class="upbar" id="propBar" hidden><i></i></div>
     <div class="savebar date-widget-actions">
       <button type="button" class="btn ghost" id="propCancelBottom">Отмена</button>
-      <button type="submit" class="btn book" id="propSubmit">Создать своё свидание</button>
+      <button type="submit" class="btn book" id="propSubmit">Создать своё событие</button>
     </div>
   </form>
 </dialog>

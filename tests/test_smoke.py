@@ -397,7 +397,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert r.status_code == 200 and "пусто" in r.text
     step("пустая категория показывает заглушку")
 
-    # ---------- свидание от админа (+фото) ----------
+    # ---------- событие от админа (+фото) ----------
     r = apost(c, "/admin/dates/new", {
         "name": "Ужин на крыше",
         "place": "Крыша, СПб",
@@ -410,7 +410,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert r.status_code == 303, r.text
     did = db_one("SELECT id FROM dates WHERE name='Ужин на крыше'")["id"]
     configure_voting(cid, "multiple")
-    step("свидание с фото создано из админки")
+    step("событие с фото создано из админки")
 
     # ---------- дружелюбные ошибки админки ----------
     r = apost(c, "/admin/dates/new", {"name": "Перебор"},
@@ -527,9 +527,23 @@ with TestClient(main.app, follow_redirects=False) as c:
 
     # ---------- бронь: toggle и /vote больше нет ----------
     r = ga.post(f"/c/{tok}/book", data={"date_id": did})
-    assert r.json()["booked"] is True
+    vote_json = r.json()
+    assert vote_json["booked"] is True
+    assert vote_json["updates"] == [{
+        "date_id": did, "mine": True, "vote_count": 1, "capacity": 1,
+        "is_full": True,
+        "participants": [{
+            "name": "Аня", "user_id": db_one(
+                "SELECT id FROM users WHERE telegram_id=700101")["id"],
+            "has_avatar": False, "is_me": True, "withdrawn": False,
+        }],
+        "hidden_count": 0,
+    }]
     r = ga.post(f"/c/{tok}/book", data={"date_id": did})
-    assert r.json()["booked"] is False
+    vote_json = r.json()
+    assert vote_json["booked"] is False
+    assert vote_json["updates"][0]["vote_count"] == 0
+    assert vote_json["updates"][0]["participants"] == []
     r = ga.post(f"/c/{tok}/book", data={"date_id": did})
     assert r.json()["booked"] is True
     page = ga.get(f"/c/{tok}").text
@@ -578,14 +592,14 @@ with TestClient(main.app, follow_redirects=False) as c:
     did2 = db_one("SELECT id FROM dates WHERE name='Без даты'")["id"]
     assert ga.get(f"/c/{tok}/ics/{did2}").status_code == 404
     page2 = ga.get(f"/c/{tok}").text
-    assert page2.count("calendar.google.com") == 1  # у свидания без даты gcal нет
+    assert page2.count("calendar.google.com") == 1  # у события без даты gcal нет
     step("ссылка в Google Календарь с верным UTC; .ics работает; без даты — ничего")
 
     # ---------- «Назначить дату»: гость предлагает время ----------
     card2 = re.search(r'id="date-%d".*?</article>' % did2, page2, re.S).group(0)
     assert "предложить дату" in card2 and "chip-suggest" in card2
     card1 = re.search(r'id="date-%d".*?</article>' % did, page2, re.S).group(0)
-    assert "предложить дату" not in card1        # у свидания со временем чипа нет
+    assert "предложить дату" not in card1        # у события со временем чипа нет
     r = ga.post(f"/c/{tok}/suggest_time",
                data={"date_id": did, "starts_at": "2030-08-01T19:00"})
     assert r.status_code == 400 and "уже назначено" in r.json()["detail"]
@@ -598,7 +612,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     page = ga.get(f"/c/{tok}").text
     assert "Предлагаю назначить" in page and "1 августа 2030, 19:00–21:00" in page
     assert "Предлагаю назначить" in c.get("/admin/questions").text
-    step("у свидания без даты — чип «предложить дату»; предложение видно автору и админу")
+    step("у события без даты — чип «предложить дату»; предложение видно автору и админу")
 
     # ---------- админ принимает время одной кнопкой ----------
     qid_s = db_one("SELECT id FROM questions WHERE suggest_starts IS NOT NULL")["id"]
@@ -637,7 +651,7 @@ with TestClient(main.app, follow_redirects=False) as c:
         assert loc.startswith("/admin") and "evil" not in loc, loc
     step("«Принять» назначает время, «Отказаться» — авто-ответ; next не уводит наружу")
 
-    # ---------- одно свидание выбирает только один человек ----------
+    # ---------- событие с вместимостью 1 не принимает второго участника ----------
     g2 = guest_client(700102, tok, "Борис")
     r = g2.post(f"/c/{tok}/book", data={"date_id": did})   # лимит 1 уже занят Аней
     assert r.status_code == 409 and r.json()["detail"]["code"] == "capacity_reached", r.text
@@ -654,8 +668,8 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert "vote-progress" in card2 and "1/1" in card2
     assert "Борис" in card2                                # имя участника видно всем
 
-    # один гость выбирает НЕСКОЛЬКО свиданий (правило «одно свидание — один
-    # человек» при этом сохраняется: на занятое — 409)
+    # один гость выбирает НЕСКОЛЬКО событий; у каждого отдельно действует
+    # настроенная вместимость (для этих легаси-событий — 1)
     r = apost(c, "/admin/dates/new", {"name": "Запасной", "categories": str(cid)})
     assert r.status_code == 303
     did_r = db_one("SELECT id FROM dates WHERE name='Запасной'")["id"]
@@ -710,7 +724,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     r = ga.post(f"/c/{tok}/propose", data={"name": "  "})
     assert r.status_code == 400 and "обязательно" in r.json()["detail"]
     assert db_one("SELECT COUNT(*) AS n FROM dates WHERE name='Спам'")["n"] == 0
-    step("гость предложил свидание; битые пачки фото и пустые имена отклоняются целиком")
+    step("гость предложил событие; битые пачки фото и пустые имена отклоняются целиком")
 
     # ---------- гость правит своё: фото, keep_order ----------
     main._rates.clear()
@@ -775,7 +789,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert "Кино под пледом" not in ga.get(f"/c/{tok}").text
     step("чужому правка запрещена; удаление чистит файлы; роут /choose выпилен")
 
-    # ---------- неактивные: свидание без категории скрыто от гостей ----------
+    # ---------- неактивные: событие без категории скрыто от гостей ----------
     r = apost(c, "/admin/dates/new", {"name": "Сюрприз"})   # без категорий → неактивно
     assert r.status_code == 303
     did4 = db_one("SELECT id FROM dates WHERE name='Сюрприз'")["id"]
@@ -783,7 +797,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert "Сюрприз" not in ga.get(f"/c/{tok}").text
     dpage = c.get("/admin/dates?view=drafts").text
     assert "Сюрприз" in dpage and "неактивно" in dpage
-    # привязка к категории активирует свидание автоматически
+    # привязка к категории активирует событие автоматически
     r = apost(c, f"/admin/categories/{cid}/attach", {"date_id": str(did4)})
     assert r.status_code == 303
     assert db_one("SELECT is_draft FROM dates WHERE id=?", (did4,))["is_draft"] == 0
@@ -823,8 +837,8 @@ with TestClient(main.app, follow_redirects=False) as c:
     step("модерация: предложение и фото видны только автору до публикации")
 
     # ---------- архив виден гостям, брони считаются по активным ----------
-    # блок статистики убран с главной; счётчики свиданий переехали в пилюли
-    # вкладок на странице «Свидания» (Активные/Неактивные/Архив).
+    # блок статистики убран с главной; счётчики событий переехали в пилюли
+    # вкладок на странице «События» (Активные/Неактивные/Архив).
     dash = c.get("/admin/").text
     assert "dcount-row" not in dash and "броней сейчас" not in dash
     dpage = c.get("/admin/dates?view=active").text
@@ -853,8 +867,8 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert "Выбрать ♥" in card and "Выбрано ♥" not in card
     assert db_one("SELECT COUNT(*) FROM bookings b JOIN dates d ON d.id=b.date_id "
                   "WHERE d.archived_at IS NULL")[0] == 1
-    # архив брони НЕ блокирует выбор другого активного свидания тем же гостем:
-    # создаём свежее активное свидание и проверяем, что Аня может его выбрать
+    # архив брони НЕ блокирует выбор другого активного события тем же гостем:
+    # создаём свежее активное событие и проверяем, что Аня может его выбрать
     r = apost(c, "/admin/dates/new", {"name": "Новый вечер", "categories": str(cid)})
     assert r.status_code == 303
     did_new = db_one("SELECT id FROM dates WHERE name='Новый вечер'")["id"]
@@ -863,7 +877,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     apost(c, f"/admin/dates/{did_new}/delete", {})   # прибираем за тестом
     step("архив остаётся на странице, фото видны, голосование и .ics закрыты")
 
-    # ---------- авто-архив срабатывает прямо при открытии страницы ----------
+    # ---------- авто-архив выполняется фоновым проходом ----------
     # Открытое голосование не позволяет через UI добавить вариант, который
     # начинается до дедлайна. Для изолированной проверки миграционного
     # автоархива создаём допустимый вариант и имитируем старую строку в БД.
@@ -882,13 +896,16 @@ with TestClient(main.app, follow_redirects=False) as c:
     _q.commit()
     _q.executescript(dbm.SCHEMA)
     _q.close()
-    page = ga.get(f"/c/{tok}").text     # страница сама вызывает авто-архив
+    # GET остаётся read-only; тот же helper запускается при старте и далее
+    # периодически фоновым циклом приложения.
+    assert main.autoarchive_once() >= 1
+    page = ga.get(f"/c/{tok}").text
     assert "Вчерашний вечер" in page
     card = re.search(r'<article[^>]*>(?:(?!</article>).)*Вчерашний вечер.*?</article>',
                      page, re.S).group(0)
     assert "past" in card and "Выбрать ♥" not in card
     assert db_one("SELECT archived_at FROM dates WHERE name='Вчерашний вечер'")["archived_at"]
-    step("просроченное свидание мгновенно получает статус «в архиве» на гостевой странице")
+    step("фоновый проход переносит просроченное событие в архив; гостевой GET только читает")
 
     # ---------- выключение и перегенерация ссылки ----------
     apost(c, f"/admin/categories/{cid}/toggle", {})
@@ -940,7 +957,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     apost(c, f"/admin/categories/{cid}/detach", {"date_id": str(did3)})
     assert not db_one("SELECT 1 FROM date_categories WHERE date_id=? AND category_id=?",
                       (did3, cid))
-    step("привязка несуществующего свидания — мягкая ошибка, attach/detach работают")
+    step("привязка несуществующего события — мягкая ошибка, attach/detach работают")
 
     # ---------- порядок фото: drag-and-drop endpoint ----------
     r = apost(c, f"/admin/dates/{did}/edit", {
@@ -964,7 +981,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     step("порядок фото сохраняется одним запросом после перетаскивания (обложка — первое)")
 
     # ---------- экспорт ----------
-    # заранее создаём свидание с видео, чтобы проверить экспорт видео
+    # заранее создаём событие с видео, чтобы проверить экспорт видео
     MP4_EXP = b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 16 + b"\x00" * 64
     r = apost(c, "/admin/dates/new", {"name": "Экспорт-видео"},
               files=[("videos", ("ev.mp4", MP4_EXP, "video/mp4"))])
@@ -1083,7 +1100,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     conn.close()
     assert main.autoarchive_once() >= 1
     assert db_one("SELECT archived_at FROM dates WHERE name='Прошлогоднее'")["archived_at"]
-    step("авто-архив переносит просроченные свидания")
+    step("авто-архив переносит просроченные события")
 
     # ---------- удаление категории чистит брони ----------
     assert db_one("SELECT COUNT(*) AS n FROM bookings WHERE category_id=?", (cid,))["n"] >= 1
@@ -1091,7 +1108,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert r.status_code == 303
     assert db_one("SELECT COUNT(*) AS n FROM bookings WHERE category_id=?", (cid,))["n"] == 0
     assert "Ужин на крыше" in c.get("/admin/dates").text
-    step("удаление категории чистит её брони, свидания остаются")
+    step("удаление категории чистит её брони, события остаются")
 
     # ================= фичи v7 =================
     main._rates.clear()
@@ -1109,7 +1126,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     gpage = c.get(f"/c/{vtok}").text
     assert "cat-desc" in gpage and "<u>подчёркнутое</u>" in gpage
 
-    # rich-разметка в комментарии свидания
+    # rich-разметка в комментарии события
     r = apost(c, "/admin/dates/new",
               {"name": "Разметка", "categories": str(vcid),
                "comment": "**жирно** и *тонко* и [сайт](https://example.com)"})
@@ -1137,13 +1154,13 @@ with TestClient(main.app, follow_redirects=False) as c:
     main.places.resolve_name = lambda u: "Кафе «Ромашка»"
     try:
         r = apost(c, "/admin/dates/new",
-                  {"name": "Свидание с местом", "categories": str(vcid),
+                  {"name": "Событие с местом", "categories": str(vcid),
                    "place": "https://yandex.ru/maps/-/CPtbJHmP"})
         assert r.status_code == 303
-        dm = db_one("SELECT place, place_url FROM dates WHERE name='Свидание с местом'")
+        dm = db_one("SELECT place, place_url FROM dates WHERE name='Событие с местом'")
         assert dm["place"] == "Кафе «Ромашка»"
         assert dm["place_url"] == "https://yandex.ru/maps/-/CPtbJHmP"
-        card = re.search(r'<article[^>]*>.*?Свидание с местом.*?</article>',
+        card = re.search(r'<article[^>]*>.*?Событие с местом.*?</article>',
                          c.get(f"/c/{vtok}").text, re.S).group(0)
         assert "Кафе «Ромашка»" in card
         assert 'href="https://yandex.ru/maps/-/CPtbJHmP"' in card
@@ -1205,7 +1222,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert rv.status_code == 206 and len(rv.content) == 4
     assert rv.headers["content-range"].startswith("bytes 0-3/")
 
-    # ---------- клонирование свидания админом ----------
+    # ---------- клонирование события админом ----------
     # исходник: фото + видео + ссылка + категория; клонируем и проверяем дубль
     r = apost(c, "/admin/dates/new",
               {"name": "Оригинал", "categories": str(vcid), "place": "Парк",
@@ -1243,10 +1260,10 @@ with TestClient(main.app, follow_redirects=False) as c:
     # удаление клона не задевает файлы оригинала
     apost(c, f"/admin/dates/{clone['id']}/delete", {})
     assert all((main.images.UPLOAD_DIR / fn).exists() for fn in orig_files)
-    step("клон свидания: дубль-черновик, копии файлов с новыми именами, брони не переносятся")
+    step("клон события: дубль-черновик, копии файлов с новыми именами, брони не переносятся")
 
-    # ---------- поделиться свиданием → добавить себе (/d/<share_token>) ----------
-    # владелец A создаёт активное свидание с фото+видео+ссылкой; у него есть
+    # ---------- поделиться событием → добавить себе (/d/<share_token>) ----------
+    # владелец A создаёт активное событие с фото+видео+ссылкой; у него есть
     # стабильная share-ссылка. Другой пользователь B добавляет копию себе.
     r = apost(c, "/admin/dates/new",
               {"name": "Поделюсь", "categories": str(vcid), "place": "Сад",
@@ -1255,7 +1272,7 @@ with TestClient(main.app, follow_redirects=False) as c:
                      ("videos", ("sv.mp4", MP4, "video/mp4"))])
     assert r.status_code == 303
     shared = db_one("SELECT * FROM dates WHERE name='Поделюсь'")
-    assert shared["share_token"], "у свидания должен быть share_token"
+    assert shared["share_token"], "у события должен быть share_token"
     stok = shared["share_token"]
     a_files = {x["filename"] for x in db_all(
         "SELECT filename FROM date_images WHERE date_id=?", (shared["id"],))}
@@ -1270,7 +1287,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert "data-login-open" in pg.text and 'id="loginDlg"' in pg.text
     assert "Сохранить к себе" not in pg.text
     assert pg.headers.get("x-robots-tag") == "noindex"
-    # фото свидания отдаётся по share-ссылке
+    # фото события отдаётся по share-ссылке
     a_photo = db_one("SELECT filename FROM date_images WHERE date_id=?", (shared["id"],))
     assert anon.get(f"/d/{stok}/image/{a_photo['filename']}").status_code == 200
     # битый токен → 404 (страница «ссылка не действует»)
@@ -1285,7 +1302,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert "Выбрать ♥" in bp.text                     # полноценный гостевой UI
     b_uid = db_one("SELECT id FROM users WHERE telegram_id=?", (700621,))["id"]
 
-    # B может выбрать свидание прямо со страницы шаринга (контекст — категория)
+    # B может выбрать событие прямо со страницы шаринга (контекст — категория)
     rb = cb.post(f"/d/{stok}/book")
     assert rb.status_code == 200 and rb.json()["booked"] is True
     assert db_one("SELECT 1 FROM bookings WHERE date_id=? AND user_id=?",
@@ -1293,10 +1310,10 @@ with TestClient(main.app, follow_redirects=False) as c:
     # повторный тап снимает выбор
     rb = cb.post(f"/d/{stok}/book")
     assert rb.status_code == 200 and rb.json()["booked"] is False
-    # автор своё же свидание выбрать не может
+    # автор своё же событие выбрать не может
     assert c.post(f"/d/{stok}/book").status_code == 400
 
-    # добавляем себе → 303 в редактор нового свидания B
+    # добавляем себе → 303 в редактор нового события B
     r = cb.post(f"/d/{stok}/add")
     assert r.status_code == 303 and "/admin/dates/" in r.headers["location"]
     mine = db_one("SELECT * FROM dates WHERE owner_id=? AND name='Поделюсь'", (b_uid,))
@@ -1316,12 +1333,12 @@ with TestClient(main.app, follow_redirects=False) as c:
         "SELECT filename FROM date_videos WHERE date_id=?", (mine["id"],))}
     assert len(b_files) == 2 and b_files.isdisjoint(a_files)
     assert all((main.images.UPLOAD_DIR / fn).exists() for fn in b_files)
-    # своё же свидание добавить нельзя (отбой)
+    # своё же событие добавить нельзя (отбой)
     assert c.post(f"/d/{stok}/add").status_code == 400
     cb.close()
     anon.close()
     refresh_csrf(c)                                # вернём CSRF владельцу A для след. блоков
-    step("поделиться свиданием: /d/<токен> превью, добавить себе → копия активна, файлы скопированы, категории/брони не переносятся")
+    step("поделиться событием: /d/<токен> превью, добавить себе → копия активна, файлы скопированы, категории/брони не переносятся")
 
     # ---------- категории: ссылка-токен и шапка с «Выйти» ----------
     cats_page = c.get("/admin/categories").text
@@ -1372,13 +1389,13 @@ with TestClient(main.app, follow_redirects=False) as c:
     gpid = r.json()["id"]
     assert db_one("SELECT 1 FROM date_videos WHERE date_id=?", (gpid,))
 
-    # порядок свиданий в категории: перетащили — гость видит новый порядок
+    # порядок событий в категории: перетащили — гость видит новый порядок
     main._rates.clear()
     ids = [r[0] for r in db_all(
         "SELECT date_id FROM date_categories WHERE category_id=?", (vcid,))]
     assert len(ids) >= 3
     # на первое место ставим заведомо видимое (не-черновик, не гостевое предложение)
-    # свидание — иначе гость его не увидит и проверка порядка будет ложной
+    # событие — иначе гость его не увидит и проверка порядка будет ложной
     visible = [i for i in ids if not db_one(
         "SELECT is_draft FROM dates WHERE id=?", (i,))["is_draft"]]
     head = visible[-1]
@@ -1397,23 +1414,23 @@ with TestClient(main.app, follow_redirects=False) as c:
 
     # подчищаем витрину, чтобы не мешать счётчикам пагинации
     apost(c, f"/admin/categories/{vcid}/delete", {})
-    for nm in ("Разметка", "Делим счёт", "Свидание с местом", "С видео",
+    for nm in ("Разметка", "Делим счёт", "Событие с местом", "С видео",
                "Битое видео", "Много видео", "Гостевое видео"):
         row = db_one("SELECT id FROM dates WHERE name=?", (nm,))
         if row:
             apost(c, f"/admin/dates/{row['id']}/delete", {})
     main._rates.clear()
 
-    # ---------- пагинация списка свиданий ----------
+    # ---------- пагинация списка событий ----------
     main._rates.clear()
-    # этот блок про пагинацию, а не квоту: временно снимаем лимит свиданий
+    # этот блок про пагинацию, а не квоту: временно снимаем лимит событий
     _qc = dbm.connect()
     _qc.execute("UPDATE users SET date_limit=999 WHERE telegram_id=555001")
     _qc.commit()
     _qc.close()
     for i in range(1, 32):
         apost(c, "/admin/dates/new", {"name": f"Лист {i:02d}"})
-    # свидания без категории неактивны → живут во вкладке «Неактивные»;
+    # события без категории неактивны → живут во вкладке «Неактивные»;
     # проверяем пагинацию именно там (30 на страницу, старые уезжают дальше)
     p1 = c.get("/admin/dates?view=drafts").text
     assert "Лист 31" in p1 and "Лист 01" not in p1
@@ -1568,13 +1585,13 @@ CREATE TABLE questions (
     created_at TEXT NOT NULL
 );
 INSERT INTO categories(name, link_token, created_at) VALUES('Старая', 'tok123', '2025-01-01T00:00');
-INSERT INTO dates(name, created_at) VALUES('Свидание А', '2025-01-01T00:00');
-INSERT INTO dates(name, created_at) VALUES('Свидание Б', '2025-01-02T00:00');
+INSERT INTO dates(name, created_at) VALUES('Событие А', '2025-01-01T00:00');
+INSERT INTO dates(name, created_at) VALUES('Событие Б', '2025-01-02T00:00');
 -- гость gA голосовал дважды (за А, потом за Б) — в бронь должен попасть свежий голос
 INSERT INTO votes(date_id, category_id, guest_token, created_at) VALUES(1, 1, 'gA', '2025-01-01T10:00');
 INSERT INTO votes(date_id, category_id, guest_token, created_at) VALUES(2, 1, 'gA', '2025-01-03T10:00');
 INSERT INTO votes(date_id, category_id, guest_token, created_at) VALUES(1, 1, 'gB', '2025-01-02T10:00');
--- gC голосует за то же свидание в ту же секунду, что gB: при дедупе v5
+-- gC голосует за то же событие в ту же секунду, что gB: при дедупе v5
 -- должен победить больший id (детерминированный ROW_NUMBER)
 INSERT INTO votes(date_id, category_id, guest_token, created_at) VALUES(1, 1, 'gC', '2025-01-02T10:00');
 INSERT INTO questions(date_id, text, created_at) VALUES(1, 'старый вопрос', '2025-01-01T00:00');
@@ -1605,7 +1622,7 @@ legacy_voting = conn.execute(
     "SELECT choice_mode, voting_deadline, voting_status FROM categories "
     "WHERE name='Старая'").fetchone()
 assert tuple(legacy_voting) == (None, None, "unconfigured")
-assert "owner_id" in dcols                # v9: владелец свидания
+assert "owner_id" in dcols                # v9: владелец события
 # v13: мягкая очередь модерации + per-user поля + таблица настроек
 assert "is_reviewed" in ccols and "is_reviewed" in {r[1] for r in conn.execute("PRAGMA table_info(users)")}
 assert "user_id" in {r[1] for r in conn.execute("PRAGMA table_info(bookings)")}
@@ -1625,7 +1642,7 @@ for t in ("users", "login_codes"):
     ).fetchone(), f"после миграции нет таблицы {t}"
 legacy = conn.execute("SELECT id, is_operator FROM users WHERE telegram_id=0").fetchone()
 assert legacy and legacy["is_operator"] == 1, "нет служебного легаси-владельца"
-# старая категория «Старая» и оба свидания должны принадлежать легаси-владельцу
+# старая категория «Старая» и оба события должны принадлежать легаси-владельцу
 assert conn.execute(
     "SELECT COUNT(*) FROM categories WHERE owner_id IS NULL").fetchone()[0] == 0
 assert conn.execute(
@@ -1664,7 +1681,7 @@ bk_sql = conn.execute(
 assert "UNIQUE" not in bk_sql.upper(), bk_sql
 books = {r["guest_token"]: r["date_id"]
          for r in conn.execute("SELECT guest_token, date_id FROM bookings")}
-# дедуп v5: на свидание 1 претендовали gB и gC (одинаковое время) — остаётся gC
+# дедуп v5: на событие 1 претендовали gB и gC (одинаковое время) — остаётся gC
 assert books == {"gA": 2, "gC": 1}, books
 assert conn.execute("SELECT text FROM questions").fetchone()[0] == "старый вопрос"
 conn.close()
@@ -1695,7 +1712,8 @@ with TestClient(main.app, follow_redirects=False) as cpwa:
     r = cpwa.get("/static/manifest.json")
     assert r.status_code == 200, r.status_code
     man = json.loads(r.content)
-    assert man["name"] and man["start_url"] == "/" and man["display"] == "standalone"
+    assert man["name"] == "date4you — место для ваших встреч"
+    assert man["start_url"] == "/" and man["display"] == "standalone"
     for ic in man["icons"]:
         p = ROOT / ic["src"].lstrip("/")
         assert p.exists(), f"в манифесте указана несуществующая иконка: {ic['src']}"
@@ -1720,9 +1738,9 @@ uB = iso.execute("SELECT id FROM users WHERE telegram_id=1002").fetchone()[0]
 iso.execute("INSERT INTO categories(owner_id, name, link_token, created_at) "
             "VALUES(?, 'Категория Алисы', 'iso-tokA', ?)", (uA, main.now_iso()))
 catA = iso.execute("SELECT id FROM categories WHERE link_token='iso-tokA'").fetchone()[0]
-iso.execute("INSERT INTO dates(owner_id, name, created_at) VALUES(?, 'Свидание Алисы', ?)",
+iso.execute("INSERT INTO dates(owner_id, name, created_at) VALUES(?, 'Событие Алисы', ?)",
             (uA, main.now_iso()))
-dateA = iso.execute("SELECT id FROM dates WHERE name='Свидание Алисы'").fetchone()[0]
+dateA = iso.execute("SELECT id FROM dates WHERE name='Событие Алисы'").fetchone()[0]
 iso.commit()
 
 # владелец достаёт своё
@@ -1769,21 +1787,21 @@ with TestClient(main.app, follow_redirects=False) as ca, \
     assert tg_login(ca, 770001, username="alice").json()["status"] == "ok"
     assert tg_login(cb, 770002, username="bob").json()["status"] == "ok"
 
-    # Алиса заводит категорию и свидание (с фото), привязывает
+    # Алиса заводит категорию и событие (с фото), привязывает
     assert post_as(ca, "/admin/categories/create", {"name": "Алисина"}).status_code == 303
     catA = db_one("SELECT c.id FROM categories c JOIN users u ON u.id=c.owner_id "
                   "WHERE u.telegram_id=770001 AND c.name='Алисина'")[0]
     r = post_as(ca, "/admin/dates/new",
-                {"name": "Свидание Алисы", "categories": catA},
+                {"name": "Событие Алисы", "categories": catA},
                 files={"images": ("a.png", png(), "image/png")})
     assert r.status_code == 303
     dateA = db_one("SELECT d.id FROM dates d JOIN users u ON u.id=d.owner_id "
-                   "WHERE u.telegram_id=770001 AND d.name='Свидание Алисы'")[0]
+                   "WHERE u.telegram_id=770001 AND d.name='Событие Алисы'")[0]
     imgA = db_one("SELECT filename FROM date_images WHERE date_id=?", (dateA,))[0]
 
     # Боб не видит Алисиных данных в своих списках
     assert "Алисина" not in cb.get("/admin/categories").text
-    assert "Свидание Алисы" not in cb.get("/admin/dates").text
+    assert "Событие Алисы" not in cb.get("/admin/dates").text
 
     # GET чужих объектов → 404
     assert cb.get(f"/admin/categories/{catA}").status_code == 404
@@ -1809,10 +1827,10 @@ with TestClient(main.app, follow_redirects=False) as ca, \
         if rr.status_code == 303:                      # flash об ошибке, не успех
             assert "/login" not in rr.headers["location"]
     assert db_one("SELECT name FROM categories WHERE id=?", (catA,))[0] == "Алисина"
-    assert db_one("SELECT name FROM dates WHERE id=?", (dateA,))[0] == "Свидание Алисы"
-    assert not db_one("SELECT 1 FROM dates WHERE name='Свидание Алисы (копия)'")
+    assert db_one("SELECT name FROM dates WHERE id=?", (dateA,))[0] == "Событие Алисы"
+    assert not db_one("SELECT 1 FROM dates WHERE name='Событие Алисы (копия)'")
 
-    # Боб не может привязать чужое свидание в СВОЮ категорию
+    # Боб не может привязать чужое событие в СВОЮ категорию
     assert post_as(cb, "/admin/categories/create", {"name": "Бобова"}).status_code == 303
     catB = db_one("SELECT c.id FROM categories c JOIN users u ON u.id=c.owner_id "
                   "WHERE u.telegram_id=770002")[0]
@@ -1824,7 +1842,7 @@ with TestClient(main.app, follow_redirects=False) as ca, \
     # экспорт — только операторам: Боб (обычный пользователь) получает 404
     rexp = cb.get("/admin/export/json")
     assert rexp.status_code == 404
-    assert "Свидание Алисы" not in rexp.text
+    assert "Событие Алисы" not in rexp.text
 step("изоляция HTTP: Алиса и Боб не видят и не трогают данные друг друга по всем ручкам")
 
 # ---------- операторская админка (поверхность 3) ----------
@@ -1950,7 +1968,7 @@ with TestClient(main.app, follow_redirects=False) as cimp, \
                       cimp.get("/admin/profile").text).group(1)
     payload = {
         "categories": [{"id": 7001, "name": "Импорт-Категория", "link_enabled": 1}],
-        "dates": [{"name": "Импортированное свидание", "place": "Кафе",
+        "dates": [{"name": "Импортированное событие", "place": "Кафе",
                    "comment": "из бэкапа", "categories": [7001],
                    "links": ["https://example.com"], "images": [], "videos": []}],
         "guests": [], "questions": [],
@@ -1963,10 +1981,10 @@ with TestClient(main.app, follow_redirects=False) as cimp, \
     new_cat = db_one("SELECT id FROM categories WHERE name='Импорт-Категория' AND owner_id=?",
                      (imp_owner,))
     assert new_cat, "импортированная категория не создана у оператора"
-    imp_date = db_one("SELECT id FROM dates WHERE name='Импортированное свидание' AND owner_id=?",
+    imp_date = db_one("SELECT id FROM dates WHERE name='Импортированное событие' AND owner_id=?",
                       (imp_owner,))
-    assert imp_date, "импортированное свидание не создано"
-    # свидание привязано к импортированной категории (ремап старого id → новый)
+    assert imp_date, "импортированное событие не создано"
+    # событие привязано к импортированной категории (ремап старого id → новый)
     assert db_one("SELECT 1 FROM date_categories WHERE date_id=? AND category_id=?",
                   (imp_date["id"], new_cat["id"]))
     # ссылка перенесена
@@ -1983,7 +2001,7 @@ with TestClient(main.app, follow_redirects=False) as cimp, \
     r = cuser.post("/admin/import/json", data={"csrf": ucsrf},
                    files=[("file", ("export.json", blob, "application/json"))])
     assert r.status_code in (303, 404)
-    assert not db_one("SELECT 1 FROM dates WHERE owner_id=? AND name='Импортированное свидание'",
+    assert not db_one("SELECT 1 FROM dates WHERE owner_id=? AND name='Импортированное событие'",
                       (uid_plain,)), "не-оператор не должен импортировать данные"
 step("#4: импорт export.json дозаписью к оператору (ремап категорий, ссылки); гейт 404 не-оператору")
 
@@ -2027,16 +2045,16 @@ with TestClient(main.app, follow_redirects=False) as cown, \
         d = dict(data or {}); d["csrf"] = own_csrf
         return cown.post(url, data=d, files=files)
 
-    # владелец заводит категорию (модерация по умолчанию вкл) и публикует свидание
+    # владелец заводит категорию (модерация по умолчанию вкл) и публикует событие
     assert ownpost("/admin/categories/create", {"name": "Жалобная"}).status_code == 303
     rc = db_one("SELECT id, link_token FROM categories WHERE name='Жалобная'")
     rcid, rtok = rc["id"], rc["link_token"]
-    set_moderation(rcid, False)  # выкл, чтобы свидание было видно (модерация — операторская)
+    set_moderation(rcid, False)  # выкл, чтобы событие было видно (модерация — операторская)
     assert ownpost("/admin/dates/new",
                    {"name": "Подозрительное", "categories": str(rcid)}).status_code == 303
     rdid = db_one("SELECT id FROM dates WHERE name='Подозрительное'")[0]
 
-    # гость заходит и жалуется на свидание (жалоба требует входа)
+    # гость заходит и жалуется на событие (жалоба требует входа)
     main._rates.clear()
     assert tg_login(g, 990011, username="reporter").json()["status"] == "ok"
     assert "пожаловаться" in g.get(f"/c/{rtok}").text
@@ -2085,7 +2103,7 @@ with TestClient(main.app, follow_redirects=False) as cown, \
 step("жалобы: гость жалуется (дубль-защита, 404 на скрытый id), оператор видит очередь, takedown/dismiss")
 
 
-# ---------- оператор: обзор категорий и свиданий ----------
+# ---------- оператор: обзор категорий и событий ----------
 with TestClient(main.app, follow_redirects=False) as cown, \
         TestClient(main.app, follow_redirects=False) as cop3:
     assert tg_login(cown, 990002, username="creator").json()["status"] == "ok"
@@ -2120,7 +2138,7 @@ with TestClient(main.app, follow_redirects=False) as cown, \
     op3p(f"/operator/categories/{ovcid}/toggle")
     assert db_one("SELECT link_enabled FROM categories WHERE id=?", (ovcid,))[0] == 1
 
-    # свидания: видны в списке + фильтры
+    # события: видны в списке + фильтры
     assert "Видимое" in cop3.get("/operator/dates").text
     assert "Видимое" in cop3.get("/operator/dates?q=creator").text
     # архив туда-обратно
@@ -2130,21 +2148,21 @@ with TestClient(main.app, follow_redirects=False) as cown, \
     op3p(f"/operator/dates/{ovdid}/archive")
     assert db_one("SELECT archived_at FROM dates WHERE id=?", (ovdid,))[0] is None
 
-    # удаление свидания оператором
+    # удаление события оператором
     assert op3p(f"/operator/dates/{ovdid}/delete").status_code == 303
     assert not db_one("SELECT 1 FROM dates WHERE id=?", (ovdid,))
 
-    # удаление категории НЕ трогает прочие свидания владельца
+    # удаление категории НЕ трогает прочие события владельца
     ownp("/admin/dates/new", {"name": "Уцелевшее"})
     surv = db_one("SELECT id FROM dates WHERE name='Уцелевшее'")[0]
     assert op3p(f"/operator/categories/{ovcid}/delete").status_code == 303
     assert not db_one("SELECT 1 FROM categories WHERE id=?", (ovcid,))
-    assert db_one("SELECT 1 FROM dates WHERE id=?", (surv,))  # свидание цело
+    assert db_one("SELECT 1 FROM dates WHERE id=?", (surv,))  # событие цело
 
     # 404 на несуществующие объекты
     assert op3p("/operator/categories/999999/toggle").status_code in (303, 404)
     assert op3p("/operator/dates/999999/delete").status_code in (303, 404)
-step("оператор: обзор категорий/свиданий, toggle ссылки, архив, удаление; каскад категории щадит свидания")
+step("оператор: обзор категорий/событий, toggle ссылки, архив, удаление; каскад категории щадит события")
 
 
 # ---------- оператор: обзор броней ----------
@@ -2190,7 +2208,7 @@ with TestClient(main.app, follow_redirects=False) as cown, \
 step("оператор: обзор броней (поиск по гостю), снятие брони для разбора спора")
 
 
-# ---------- квота свиданий (1.4) и per-user анти-всплеск (2.4) ----------
+# ---------- квота событий (1.4) и per-user анти-всплеск (2.4) ----------
 with TestClient(main.app, follow_redirects=False) as cq:
     assert tg_login(cq, 990010, username="quotaman").json()["status"] == "ok"
     uid_q = db_one("SELECT id FROM users WHERE telegram_id=990010")[0]
@@ -2231,7 +2249,7 @@ with TestClient(main.app, follow_redirects=False) as cq:
     made = db_one("SELECT COUNT(*) FROM dates WHERE owner_id=? AND name LIKE 'Всплеск %'",
                   (uid_q,))[0]
     assert made == 40, f"ожидалось 40 созданных до лимита, получили {made}"
-step("квота: лимит свиданий отбивает лишнее, архивные не в счёт; per-user анти-всплеск даёт 429")
+step("квота: лимит событий отбивает лишнее, архивные не в счёт; per-user анти-всплеск даёт 429")
 
 
 # ---------- два типа входа: deeplink (bot_linked) vs виджет (без бота) ----------
@@ -2384,7 +2402,7 @@ with TestClient(main.app, follow_redirects=False) as cown, \
         assert not sent, f"при bot_linked=0 уведомлений быть не должно, sent={sent}"
     finally:
         _nf.send_to = _saved
-step("1.5: выбор свидания шлёт уведомление владельцу при bot_linked=1 и молчит при bot_linked=0")
+step("1.5: выбор события шлёт уведомление владельцу при bot_linked=1 и молчит при bot_linked=0")
 
 
 # ---------- 1.8: юридические документы, пассивное согласие, cookie ----------
@@ -2580,7 +2598,7 @@ with TestClient(main.app, follow_redirects=False) as cown, \
 step("#3: ответ на вопрос и публикация предложения уведомляют автора (по user_id/proposed_by)")
 
 
-# ---------- #9: админ редактирует чужие категории и свидания ----------
+# ---------- #9: админ редактирует чужие категории и события ----------
 with TestClient(main.app, follow_redirects=False) as cuser, \
         TestClient(main.app, follow_redirects=False) as cadm:
     assert tg_login(cuser, 992201, username="victim").json()["status"] == "ok"
@@ -2592,23 +2610,23 @@ with TestClient(main.app, follow_redirects=False) as cuser, \
         return cuser.post(url, data=d)
     up("/admin/categories/create", {"name": "Чужая категория"})
     oc = db_one("SELECT id FROM categories WHERE name='Чужая категория'")[0]
-    up("/admin/dates/new", {"name": "Чужое свидание", "categories": str(oc)})
-    odid = db_one("SELECT id FROM dates WHERE name='Чужое свидание'")[0]
+    up("/admin/dates/new", {"name": "Чужое событие", "categories": str(oc)})
+    odid = db_one("SELECT id FROM dates WHERE name='Чужое событие'")[0]
 
     ac = re.search(r'name="csrf" value="([^"]+)"',
                    cadm.get("/admin/profile").text).group(1)
     def ap(url, data=None):
         d = dict(data or {}); d["csrf"] = ac
         return cadm.post(url, data=d)
-    # админ открывает и правит чужую категорию/свидание (обычный кабинет, гейт is_operator)
+    # админ открывает и правит чужую категорию/событие (обычный кабинет, гейт is_operator)
     assert cadm.get(f"/admin/categories/{oc}").status_code == 200
     assert ap(f"/admin/categories/{oc}/rename", {"name": "Переименована админом"}).status_code == 303
     assert db_one("SELECT name FROM categories WHERE id=?", (oc,))[0] == "Переименована админом"
     assert cadm.get(f"/admin/dates/{odid}/edit").status_code == 200
     assert ap(f"/admin/dates/{odid}/edit",
-              {"name": "Свидание правил админ", "categories": str(oc)}).status_code == 303
-    assert db_one("SELECT name FROM dates WHERE id=?", (odid,))[0] == "Свидание правил админ"
-    # владелец свидания не сменился (админ правит в контексте владельца)
+              {"name": "Событие правил админ", "categories": str(oc)}).status_code == 303
+    assert db_one("SELECT name FROM dates WHERE id=?", (odid,))[0] == "Событие правил админ"
+    # владелец события не сменился (админ правит в контексте владельца)
     owner_of = db_one("SELECT u.telegram_id FROM dates d JOIN users u ON u.id=d.owner_id "
                       "WHERE d.id=?", (odid,))[0]
     assert owner_of == 992201
@@ -2621,7 +2639,7 @@ with TestClient(main.app, follow_redirects=False) as cuser, \
     assert tg_login(other, 992202, username="rando2").json()["status"] == "ok"
     assert other.get(f"/admin/categories/{oc}").status_code == 404
     assert other.get(f"/admin/dates/{odid}/edit").status_code == 404
-step("#9: админ правит чужие категории/свидания (владелец не меняется); не-оператор → 404")
+step("#9: админ правит чужие категории/события (владелец не меняется); не-оператор → 404")
 
 
 # ---------- #11: переключатели модерации (мягкая очередь) ----------
@@ -2703,7 +2721,7 @@ with TestClient(main.app, follow_redirects=False) as cown:
     cown.post("/admin/categories/create", data={"csrf": pc, "name": "UI-кат"})
     uic = db_one("SELECT id, link_token FROM categories WHERE name='UI-кат'")
     set_moderation(uic['id'], False)  # выкл (модерация — операторская настройка)
-    # свидание без фото
+    # событие без фото
     cown.post("/admin/dates/new", data={"csrf": pc, "name": "Без картинок",
                                         "categories": str(uic["id"])})
     # #2: в админ-списке у карточки без фото нет блока-плейсхолдера .ph
@@ -2726,7 +2744,7 @@ def _csrf(client, url="/admin/categories"):
     return re.search(r'name="csrf" value="([^"]+)"', client.get(url).text).group(1)
 
 
-# Готовим двух владельцев: Ната (автор публичного свидания) и Гоша (зритель).
+# Готовим двух владельцев: Ната (автор публичного события) и Гоша (зритель).
 main._rates.clear()
 with TestClient(main.app, follow_redirects=False) as cnata, \
         TestClient(main.app, follow_redirects=False) as cgosha:
@@ -2739,35 +2757,35 @@ with TestClient(main.app, follow_redirects=False) as cnata, \
 
     # C2: тумблер публичности есть в редакторе; по умолчанию публичное (checked)
     newform = cnata.get("/admin/dates/new").text
-    assert 'name="is_public"' in newform and "общей ленте свиданий" in newform
+    assert 'name="is_public"' in newform and "общей ленте событий" in newform
 
-    # создаём ПУБЛИЧНОЕ свидание (чекбокс отправлен)
+    # создаём ПУБЛИЧНОЕ событие (чекбокс отправлен)
     cnata.post("/admin/dates/new", data={
         "csrf": nc, "name": "Пикник на закате", "categories": str(ncat["id"]),
         "comment": "Плед и вино", "place": "Парк", "is_public": "1"},
         files=[("images", ("public.png", make_png((180, 105, 125)), "image/png"))])
     pub = db_one("SELECT id, is_public, share_token, owner_id FROM dates WHERE name='Пикник на закате'")
-    assert pub["is_public"] == 1, "по умолчанию свидание публичное"
+    assert pub["is_public"] == 1, "по умолчанию событие публичное"
 
-    # создаём ПРИВАТНОЕ свидание (чекбокс НЕ отправлен) — в ленту не попадёт
+    # создаём ПРИВАТНОЕ событие (чекбокс НЕ отправлен) — в ленту не попадёт
     cnata.post("/admin/dates/new", data={
         "csrf": nc, "name": "Секретный ужин", "categories": str(ncat["id"])})
     priv = db_one("SELECT id, is_public FROM dates WHERE name='Секретный ужин'")
-    assert priv["is_public"] == 0, "без чекбокса свидание приватное"
+    assert priv["is_public"] == 0, "без чекбокса событие приватное"
 
     # C3: у Гоши на главной — лента комьюнити вместо «Последних действий»
     dash = cgosha.get("/admin/").text
-    assert "Свидания комьюнити" in dash and "Последние действия" not in dash
+    assert "Встречи сообщества" in dash and "Последние действия" not in dash
     assert 'id="communityFeed"' in dash
 
     # фрагмент ленты: видно чужое публичное, НЕ видно приватное и своё
     feed = cgosha.get("/admin/community").text
-    assert "Пикник на закате" in feed, "публичное чужое свидание в ленте"
+    assert "Пикник на закате" in feed, "публичное чужое событие в ленте"
     assert "Секретный ужин" not in feed, "приватное в ленту не попадает"
     assert "Ната-кат" not in feed, "категория в ленте не показывается"
     assert f'/u/{pub["owner_id"]}' in feed, "на карточке есть ссылка на профиль владельца"
     assert "?w=480 480w" in feed and 'fetchpriority="low"' in feed
-    # автор не видит своё свидание в собственной ленте
+    # автор не видит своё событие в собственной ленте
     assert "Пикник на закате" not in cnata.get("/admin/community").text
 
     # C4: мини-виджет отдаётся, есть кнопка «Добавить себе»
@@ -2775,7 +2793,7 @@ with TestClient(main.app, follow_redirects=False) as cnata, \
     assert "Пикник на закате" in wid and "Добавить себе" in wid
     assert f"/d/{pub['share_token']}/add" in wid
     assert "?w=1600 1600w" in wid and "data-full=" in wid
-    # приватное чужое свидание виджетом не открыть
+    # приватное чужое событие виджетом не открыть
     assert cgosha.get(f"/admin/community/date/{priv['id']}").status_code == 404
 
     # C4: «Добавить себе» через fetch → JSON, копия появляется у Гоши
@@ -2784,10 +2802,10 @@ with TestClient(main.app, follow_redirects=False) as cnata, \
     assert db_one("SELECT COUNT(*) FROM dates WHERE owner_id=(SELECT id FROM users "
                   "WHERE telegram_id=771002) AND name='Пикник на закате'")[0] == 1
 
-    # C5: публичный профиль Наты перечисляет её публичные свидания (без приватных)
+    # C5: публичный профиль Наты перечисляет её публичные события (без приватных)
     prof = cgosha.get(f"/u/{pub['owner_id']}").text
     assert "Пикник на закате" in prof and "Секретный ужин" not in prof
-    assert "Публичные свидания" in prof
+    assert "Публичные встречи" in prof
     assert "?w=480 480w" in prof and 'fetchpriority="high"' in prof
 
     # Профиль не тянет бесконечную историю одним HTML: 12 карточек на страницу.
@@ -3004,7 +3022,7 @@ with TestClient(main.app, follow_redirects=False) as cui2:
     # #2: на главной больше НЕТ блока счётчиков/статистики
     dash = cui2.get("/admin/").text
     assert "dcount-row" not in dash and "броней сейчас" not in dash
-    assert ">Создать свидание</a>" in dash and "+ Создать свидание" not in dash
+    assert ">Создать событие</a>" in dash and "+ Создать событие" not in dash
     # #12: мобильная короткая подпись кнопки «Ссылка» на главной
     assert "lbl-short" in dash
     # Профиль: тема управляется только кнопкой в шапке, а настройка следа
@@ -3015,7 +3033,7 @@ with TestClient(main.app, follow_redirects=False) as cui2:
     assert "<b>Помощь</b>" in profile and "https://t.me/artiwayn" in profile
     assert "✈️ Связаться с поддержкой" in profile
     assert "tour-course-actions" in profile
-    # #2: счётчики переехали на вкладку «Свидания» — пилюли на всех трёх вкладках
+    # #2: счётчики переехали на вкладку «События» — пилюли на всех трёх вкладках
     cui2.post("/admin/dates/new", data={"csrf": uc2, "name": "Акт", "categories": str(cc["id"])})
     dpage = cui2.get("/admin/dates?view=active").text
     assert re.search(r'view=active[^>]*>Активные\s*<span class="pill">1</span>', dpage)
@@ -3039,7 +3057,7 @@ with TestClient(main.app, follow_redirects=False) as cui2:
     cat_token = db_one("SELECT link_token FROM categories WHERE id=?", (cc["id"],))["link_token"]
     public_page = cui2.get(f"/c/{cat_token}").text
     assert "date-widget-dialog" in public_page and 'class="pcard editable"' in public_page
-    assert "Создать своё свидание" in public_page
+    assert "Создать своё событие" in public_page
     assert '<span class="plus"' not in public_page
     assert "Создатель не считается" not in public_page
     assert 'class="capacity-stepper"' in public_page
@@ -3068,15 +3086,18 @@ with TestClient(main.app, follow_redirects=False) as cui2:
     # #10: ⋯-меню идёт ПЕРЕД стрелкой (menu-wrap раньше cat-arrow)
     assert cats.index("menu-wrap") < cats.index("cat-arrow")
 
-    # #4 авто-heal: свидание с категорией, но застрявшее is_draft=1 (легаси-баг),
-    # при заходе на список «Свидания» приводится к активному.
+    # GET списка событий не чинит данные и не захватывает writer-lock.
+    # Одноразовый repair легаси-строк проверяется отдельно миграционным тестом.
     stuck = db_one("SELECT id FROM dates WHERE name='Акт'")
     conn = dbm.connect()
     conn.execute("UPDATE dates SET is_draft=1 WHERE id=?", (stuck["id"],))  # искусственно «залипло»
     conn.commit(); conn.close()
-    cui2.get("/admin/dates?view=drafts")   # заход на список чинит инвариант
-    assert db_one("SELECT is_draft FROM dates WHERE id=?", (stuck["id"],))[0] == 0
-    # но гостевое предложение с категорией heal НЕ трогает (законно ждёт модерации)
+    cui2.get("/admin/dates?view=drafts")
+    assert db_one("SELECT is_draft FROM dates WHERE id=?", (stuck["id"],))[0] == 1
+    conn = dbm.connect()
+    conn.execute("UPDATE dates SET is_draft=0 WHERE id=?", (stuck["id"],))
+    conn.commit(); conn.close()
+    # Гостевое предложение с категорией тоже остаётся черновиком.
     conn = dbm.connect()
     conn.execute("INSERT INTO dates(owner_id,name,origin,is_draft,created_at) "
                  "VALUES((SELECT id FROM users WHERE telegram_id=773200),'Гостевое','guest',1,'2026-01-01T00:00:00')")
@@ -3085,7 +3106,7 @@ with TestClient(main.app, follow_redirects=False) as cui2:
     conn.commit(); conn.close()
     cui2.get("/admin/dates?view=drafts")
     assert db_one("SELECT is_draft FROM dates WHERE id=?", (gp,))[0] == 1, "гостевое предложение не авто-публикуется"
-step("новое UI: счётчики на вкладке «Свидания», red/green toggle, ⋯ перед стрелкой, авто-heal залипших неактивных (кроме гостевых)")
+step("новое UI: счётчики на вкладке «События», red/green toggle, ⋯ перед стрелкой; GET списка не пишет в БД")
 
 
 # ---------- НОВОЕ: обучающий тур (spotlight) при первом заходе ----------
@@ -3115,7 +3136,7 @@ with TestClient(main.app, follow_redirects=False) as ctour:
     assert "::view-transition-new(root)" in theme_source
     assert "prefers-reduced-motion: reduce" in theme_source
     assert "getBoundingClientRect" in theme_source
-    # Отдельных обучений списков больше нет; редактор свидания содержит только
+    # Отдельных обучений списков больше нет; редактор события содержит только
     # карточку, модификаторы и публикацию.
     assert '"dates-list": [' not in tour_source
     assert '"categories-list": [' not in tour_source
@@ -3137,7 +3158,7 @@ with TestClient(main.app, follow_redirects=False) as ctour:
     assert 'var REQUEST_KEY = "d4y_tour_request"' in tour_source
     assert "sessionStorage.setItem(REQUEST_KEY, id)" in tour_source
     assert "start(id, true)" in tour_source
-step("новое: туры остались только в редакторах; лишние шаги свидания удалены")
+step("новое: туры остались только в редакторах; лишние шаги события удалены")
 
 
 print(f"\nВсе проверки пройдены: {OK} блоков ✔")

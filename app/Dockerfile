@@ -5,7 +5,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir --upgrade pip
+# ffmpeg используется только для быстрого remux MP4 (`+faststart`, без
+# перекодирования). Если конкретный файл не удаётся обработать, приложение
+# безопасно оставляет исходник.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir --upgrade pip
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

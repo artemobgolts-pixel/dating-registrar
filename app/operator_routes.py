@@ -54,7 +54,7 @@ def _require_category_not_frozen(conn, cat) -> None:
 
 
 def _require_date_not_frozen(conn, date_id: int) -> None:
-    # Блокируем writer'ов до чтения состава категорий: иначе свидание могло
+    # Блокируем writer'ов до чтения состава категорий: иначе событие могло
     # попасть в закрывающийся опрос сразу после SELECT.
     conn.execute("UPDATE dates SET id=id WHERE id=?", (date_id,))
     for cat in conn.execute(
@@ -71,7 +71,7 @@ def _validate_date_after_open_deadlines(conn, date_id: int,
     try:
         starts = datetime.fromisoformat(starts_at)
     except (TypeError, ValueError):
-        raise HTTPException(409, "У свидания некорректно задано время")
+        raise HTTPException(409, "У события некорректно задано время")
     for cat in conn.execute(
         "SELECT c.name, c.voting_deadline FROM categories c "
         "JOIN date_categories dc ON dc.category_id=c.id "
@@ -85,12 +85,12 @@ def _validate_date_after_open_deadlines(conn, date_id: int,
         if starts <= deadline:
             raise HTTPException(
                 409,
-                f"Начало свидания должно быть позже дедлайна категории «{cat['name']}»",
+                f"Начало события должно быть позже дедлайна категории «{cat['name']}»",
             )
 
 
 def _queue_date_removal_from_categories(conn, date_id: int) -> set[tuple[int, int]]:
-    """Ставит уведомления всем авторизованным голосовавшим за свидание.
+    """Ставит уведомления всем авторизованным голосовавшим за событие.
 
     Возвращает пары ``(category_id, user_id)``: после фактического удаления
     голосов по ним нужно убрать дедлайн-напоминание, если других голосов в
@@ -337,7 +337,7 @@ def user_delete(uid: int, request: Request, conn=Depends(get_db)):
 # ---------- жалобы (очередь модерации) ----------
 
 def _report_target(conn, r) -> dict:
-    """Подтягивает объект жалобы (свидание/категория) + владельца, если ещё жив."""
+    """Подтягивает объект жалобы (событие/категория) + владельца, если ещё жив."""
     if r["target_type"] == "category":
         row = conn.execute(
             "SELECT c.name, c.owner_id, u.display_name AS owner, c.link_token "
@@ -405,7 +405,7 @@ def report_takedown(rid: int, request: Request, conn=Depends(get_db)):
     else:
         target_cat = _cat_or_404(conn, tid)
         _require_category_not_frozen(conn, target_cat)
-        # Свидания переживают удаление категории, поэтому их медиа трогать
+        # События переживают удаление категории, поэтому их медиа трогать
         # нельзя. Удаляем только собственную картинку превью категории.
         files = [target_cat["og_image"]] if target_cat["og_image"] else []
         _queue_category_removal(conn, target_cat)
@@ -472,7 +472,7 @@ def cat_toggle(cid: int, request: Request, conn=Depends(get_db)):
 
 @router.post("/categories/{cid}/delete")
 def cat_delete(cid: int, request: Request, conn=Depends(get_db)):
-    """Удаляет категорию (связи date_categories — каскадом). Свидания остаются
+    """Удаляет категорию (связи date_categories — каскадом). События остаются
     у владельца, как и в кабинете."""
     cat = _cat_or_404(conn, cid)
     _require_category_not_frozen(conn, cat)
@@ -482,10 +482,10 @@ def cat_delete(cid: int, request: Request, conn=Depends(get_db)):
     if cat["og_image"]:
         images.delete_file(cat["og_image"])
     log.warning("operator %s deleted category %s", request.state.user["id"], cid)
-    return redir("/operator/categories", "Категория удалена (свидания остались)")
+    return redir("/operator/categories", "Категория удалена (события остались)")
 
 
-# ---------- свидания (все, всех пользователей) ----------
+# ---------- события (все, всех пользователей) ----------
 
 @router.get("/dates", response_class=HTMLResponse)
 def dates_list(request: Request, q: str = "", flt: str = "", page: int = 1,
@@ -541,20 +541,20 @@ def date_archive(did: int, request: Request, conn=Depends(get_db)):
     if d["archived_at"]:
         _validate_date_after_open_deadlines(conn, did, d["starts_at"])
         conn.execute("UPDATE dates SET archived_at=NULL WHERE id=?", (did,))
-        msg = "Свидание возвращено из архива"
+        msg = "Событие возвращено из архива"
     else:
         affected = _queue_date_removal_from_categories(conn, did)
         conn.execute("DELETE FROM bookings WHERE date_id=?", (did,))
         _cancel_empty_vote_deadlines(conn, affected)
         conn.execute("UPDATE dates SET archived_at=? WHERE id=?", (now_iso(), did))
-        msg = "Свидание отправлено в архив"
+        msg = "Событие отправлено в архив"
     conn.commit()
     return redir("/operator/dates", msg)
 
 
 @router.post("/dates/{did}/delete")
 def date_delete(did: int, request: Request, conn=Depends(get_db)):
-    """Удаляет свидание со всеми медиа (файлы с диска) и закрывает открытые
+    """Удаляет событие со всеми медиа (файлы с диска) и закрывает открытые
     жалобы на него."""
     _date_or_404(conn, did)
     _require_date_not_frozen(conn, did)
@@ -574,10 +574,10 @@ def date_delete(did: int, request: Request, conn=Depends(get_db)):
         images.delete_file(fn)
     log.warning("operator %s deleted date %s, %d files",
                 request.state.user["id"], did, len(files))
-    return redir("/operator/dates", "Свидание удалено")
+    return redir("/operator/dates", "Событие удалено")
 
 
-# ---------- брони / взаимодействия (обзор для разбора споров) ----------
+# ---------- голоса / взаимодействия (обзор для разбора споров) ----------
 
 @router.get("/bookings", response_class=HTMLResponse)
 def bookings_list(request: Request, q: str = "", page: int = 1, conn=Depends(get_db)):
@@ -610,7 +610,7 @@ def bookings_list(request: Request, q: str = "", page: int = 1, conn=Depends(get
 
 @router.post("/bookings/{bid}/delete")
 def booking_delete(bid: int, request: Request, conn=Depends(get_db)):
-    """Снять бронь для разбора спорной ситуации — свидание снова свободно."""
+    """Снять голос для разбора спорной ситуации и освободить одно место."""
     b = conn.execute(
         "SELECT c.*, b.id AS booking_id, b.user_id AS vote_user_id, "
         "b.category_id AS vote_category_id, d.name AS date_name "
@@ -633,7 +633,7 @@ def booking_delete(bid: int, request: Request, conn=Depends(get_db)):
         )
     conn.commit()
     log.warning("operator %s deleted booking %s", request.state.user["id"], bid)
-    return redir("/operator/bookings", "Бронь снята — свидание снова свободно")
+    return redir("/operator/bookings", "Голос снят — освободилось одно место")
 
 
 # ---------- настройки модерации (глобальные флаги) ----------

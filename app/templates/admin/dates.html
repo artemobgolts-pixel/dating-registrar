@@ -1,13 +1,13 @@
 {% extends "admin/base.html" %}
-{% block title %}Свидания{% endblock %}
+{% block title %}Встречи{% endblock %}
 {# Список меняется после каждой правки (активные/неактивные/архив). Запрещаем
-   Turbo показывать устаревший кэш-снимок — иначе реактивированное свидание
+   Turbo показывать устаревший кэш-снимок — иначе реактивированное событие
    «оставалось» в Неактивных до жёсткой перезагрузки. #}
 {% block head %}<meta name="turbo-cache-control" content="no-cache">{% endblock %}
 {% block content %}
 <div class="bar">
-  <h1 class="serif" style="margin:0">Свидания</h1>
-  <a class="btn primary" href="/admin/dates/new" data-tour="dates-create">+ Новое свидание</a>
+  <h1 class="serif" style="margin:0">Встречи</h1>
+  <a class="btn primary" href="/admin/dates/new" data-tour="dates-create">+ Новое событие</a>
 </div>
 
 <div class="controls">
@@ -21,13 +21,13 @@
     <input type="hidden" name="view" value="{{ view }}">
     <select name="sort" data-autosubmit>
       <option value="new" {{ 'selected' if sort == 'new' }}>Сначала новые</option>
-      <option value="when" {{ 'selected' if sort == 'when' }}>По дате свидания</option>
-      <option value="book" {{ 'selected' if sort == 'book' }}>По броням 💝</option>
+      <option value="when" {{ 'selected' if sort == 'when' }}>По дате события</option>
+      <option value="book" {{ 'selected' if sort == 'book' }}>По голосам 💝</option>
     </select>
     <select name="f" data-autosubmit>
-      <option value="">Все свидания</option>
+      <option value="">Все события</option>
       <option value="guest" {{ 'selected' if flt == 'guest' }}>Только предложенные</option>
-      <option value="booked" {{ 'selected' if flt == 'booked' }}>С бронью 💝</option>
+      <option value="booked" {{ 'selected' if flt == 'booked' }}>С голосами 💝</option>
       <option value="nodate" {{ 'selected' if flt == 'nodate' }}>Без даты</option>
     </select>
     <select name="cat" data-autosubmit>
@@ -73,7 +73,7 @@
         </form>
         <div class="sepa"></div>
         <form method="post" action="/admin/dates/{{ r['id'] }}/delete"
-              data-confirm="Удалить свидание безвозвратно? Фото, брони и вопросы к нему тоже удалятся.">
+              data-confirm="Удалить событие безвозвратно? Фото, голоса и вопросы к нему тоже удалятся.">
           <input type="hidden" name="csrf" value="{{ csrf }}">
           <button type="submit" class="danger">🗑 Удалить</button>
         </form>
@@ -112,13 +112,13 @@
       <div class="meta">
         {% if when_str %}<span class="mrow">📅 {{ when_str }}</span>{% endif %}
         {% if r['place'] %}<span class="mrow">📍 {{ r['place'] | placename }}</span>{% endif %}
-        {% if r['books'] %}<span class="mrow">💝 {{ r['books'] }} {{ r['books'] | plural('бронь', 'брони', 'броней') }}</span>{% endif %}
+        {% if r['books'] %}<span class="mrow">💝 {{ r['books'] }} {{ r['books'] | plural('голос', 'голоса', 'голосов') }}</span>{% endif %}
         {% if not cat and r['cats'] %}<span class="mrow mcats">🔗 {{ r['cats'] }}</span>{% endif %}
       </div>
       <div class="foot">
         <a class="edit-hint" href="/admin/dates/{{ r['id'] }}/edit">Редактировать</a>
         {% if r['share_token'] %}
-        <a class="btn small open-date" href="/d/{{ r['share_token'] }}" target="_blank" rel="noopener" title="Открыть страницу свидания">Открыть</a>
+        <a class="btn small open-date" href="/d/{{ r['share_token'] }}" target="_blank" rel="noopener" title="Открыть страницу события">Открыть</a>
         {% endif %}
       </div>
     </div>
@@ -183,7 +183,7 @@
         </form>
         <div class="sepa"></div>
         <form method="post" action="/admin/dates/{{ r['id'] }}/delete"
-              data-confirm="Удалить свидание безвозвратно? Фото, брони и вопросы к нему тоже удалятся.">
+              data-confirm="Удалить событие безвозвратно? Фото, голоса и вопросы к нему тоже удалятся.">
           <input type="hidden" name="csrf" value="{{ csrf }}">
           <button type="submit" class="danger">🗑 Удалить</button>
         </form>
@@ -208,15 +208,15 @@
   <div class="empty-state">
     {% if view == 'archived' %}
     <div class="big">🗄</div>
-    <p>Архив пуст. Сюда уезжают прошедшие свидания.</p>
+    <p>Архив пуст. Сюда уезжают прошедшие события.</p>
     {% elif view == 'drafts' %}
     <div class="big">📝</div>
-    <p>Неактивных свиданий нет. Сюда попадают свидания без категории и предложения на модерации.</p>
-    <a class="btn primary" href="/admin/dates/new">+ Создать свидание</a>
+    <p>Неактивных событий нет. Сюда попадают события без категории и предложения на модерации.</p>
+    <a class="btn primary" href="/admin/dates/new">+ Создать событие</a>
     {% else %}
     <div class="big">🌷</div>
-    <p>Пока нет ни одного свидания — давай создадим первое.</p>
-    <a class="btn primary" href="/admin/dates/new">+ Создать свидание</a>
+    <p>Пока нет ни одного события — давай создадим первое.</p>
+    <a class="btn primary" href="/admin/dates/new">+ Создать событие</a>
     {% endif %}
   </div>
 </div>

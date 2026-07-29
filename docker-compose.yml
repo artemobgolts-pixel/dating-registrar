@@ -14,6 +14,7 @@ services:
     env_file: .env
     environment:
       - TZ=Europe/Moscow
+      - VIDEO_FASTSTART=${VIDEO_FASTSTART:-true}
     volumes:
       - ./data:/data
     expose:
@@ -36,6 +37,7 @@ services:
       - DOMAIN=${DOMAIN}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./app/static:/srv/static:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:

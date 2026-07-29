@@ -1,19 +1,19 @@
 {% extends "admin/base.html" %}
-{% block title %}{{ 'Редактировать свидание' if date else 'Новое свидание' }}{% endblock %}
+{% block title %}{{ 'Редактировать событие' if date else 'Новое событие' }}{% endblock %}
 {# Форма со server-rendered состоянием (отмеченные категории, фото). Запрещаем
    Turbo кэшировать/превьюить страницу — иначе при входе показывался устаревший
    снимок формы (категории выглядели «сброшенными»). #}
 {% block head %}<meta name="turbo-cache-control" content="no-cache">{% endblock %}
 {% block content %}
-<div class="crumb">Свидания › {{ 'Редактирование' if date else 'Новое' }}</div>
+<div class="crumb">Встречи › {{ 'Редактирование' if date else 'Новое' }}</div>
 <div class="bar">
-  <h1 class="serif" style="margin:0">{{ 'Редактировать свидание' if date else 'Новое свидание' }}</h1>
+  <h1 class="serif" style="margin:0">{{ 'Редактировать событие' if date else 'Новое событие' }}</h1>
   <a class="btn ghost" href="/admin/dates">← К списку</a>
 </div>
 
 {% if date and date['origin'] == 'guest' %}
 <div class="card" style="background:rgba(253,248,241,.8);border-color:#f1e2c8">
-  💡 Это свидание предложил(а) <b>{{ proposer }}</b>.
+  💡 Это событие предложил(а) <b>{{ proposer }}</b>.
   {% if date['is_draft'] %}<br>⏳ Оно ждёт проверки — нажми «Одобрить предложение» ниже, чтобы опубликовать.{% endif %}
 </div>
 {% endif %}
@@ -26,7 +26,7 @@
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
       <span>{{ b['name'] }} <span class="muted">— «{{ b['cat'] }}»</span></span>
       <form class="inline" method="post" action="/admin/bookings/{{ b['bid'] }}/delete"
-            data-confirm="Снять выбор «{{ b['name'] }}»? Свидание снова станет свободным.">
+            data-confirm="Снять выбор «{{ b['name'] }}»? Освободится одно место.">
         <input type="hidden" name="csrf" value="{{ csrf }}">
         <input type="hidden" name="next" value="/admin/dates/{{ date['id'] }}/edit">
         <button class="btn small danger" type="submit">✕ снять</button>
@@ -93,7 +93,9 @@
           {% if date and videos %}
           {% for v in videos %}
           <div class="ed-slide" data-kind="video" data-vid="{{ v['id'] }}">
-            <video src="/admin/uploads/{{ v['filename'] }}" controls preload="metadata" playsinline></video>
+            <video data-src="/admin/uploads/{{ v['filename'] }}" controls preload="none"
+                   playsinline
+                   poster="{% if photos %}/admin/uploads/{{ photos[0]['filename'] }}?w=960{% else %}{{ asset('date-default.jpg') }}{% endif %}"></video>
             <button type="button" class="ed-slide-rm" data-rm-video="{{ v['id'] }}" aria-label="Удалить видео">✕</button>
           </div>
           {% endfor %}
@@ -114,7 +116,7 @@
 
       <div class="body">
         <h3 class="ttl">
-          <span class="ed-field" id="edTitle" data-ph="Название свидания">{{ date['name'] if date else '' }}</span>
+          <span class="ed-field" id="edTitle" data-ph="Название события">{{ date['name'] if date else '' }}</span>
           {# запасное место модификатора — в заголовке, когда фото НЕТ (иначе он
              живёт бейджем на фото, см. .ed-gallery-pay). JS переключает видимость. #}
           <span class="pay" data-preview="pay" {% if not (date and date['pay_split']) or (date and photos) %}hidden{% endif %}>{{ pay_label(date['pay_split']) if date else '' }}</span>
@@ -143,7 +145,7 @@
         </div>
 
         <div class="ed-field ed-desc" id="edDesc" contenteditable="true" role="textbox" aria-multiline="true"
-             data-ph="Детали — расскажи, чем хорошо это свидание (можно выделить текст и отформатировать)">{{ (date['comment'] | rich | safe) if (date and date['comment']) else '' }}</div>
+             data-ph="Детали — расскажи, чем хорошо это событие (можно выделить текст и отформатировать)">{{ (date['comment'] | rich | safe) if (date and date['comment']) else '' }}</div>
         <div class="toolbar ed-desc-toolbar" id="descToolbar" data-target="descInput" hidden>
           <button type="button" class="b" data-wrap="**|**" title="Жирный">Ж</button>
           <button type="button" class="i" data-wrap="*|*" title="Курсив">К</button>
@@ -190,7 +192,7 @@
 
     <div class="sec" data-tour="date-visibility">
       <h2 class="serif"><span class="n">2</span> Категории</h2>
-      <p class="muted" style="margin:0 0 10px;font-size:13px">Пока свидание не добавлено ни в одну категорию, оно неактивно — гости его не видят.</p>
+      <p class="muted" style="margin:0 0 10px;font-size:13px">Пока событие не добавлено ни в одну категорию, оно неактивно — гости его не видят.</p>
       <div class="chips-cat">
         {% for c in cats %}
         <label class="chip-cat{% if c['id'] in locked_cat_ids %} locked{% endif %}"
@@ -212,7 +214,7 @@
         <input type="checkbox" name="is_public" value="1" {% if not date or date['is_public'] %}checked{% endif %}>
         <span class="sw" aria-hidden="true"></span>
         <span class="tcol">
-          <span class="t">Показывать в общей ленте свиданий</span>
+          <span class="t">Показывать в общей ленте событий</span>
         </span>
       </label>
     </div>

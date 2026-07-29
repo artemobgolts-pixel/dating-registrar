@@ -94,7 +94,7 @@ def cancel_category_notifications(conn: sqlite3.Connection, category_id: int,
     total = outbox.cancel(
         conn, event_prefix=f"category:{int(category_id)}:", reason=reason,
     )
-    # Часть уведомлений (изменение/удаление отдельного свидания или голоса)
+    # Часть уведомлений (изменение/удаление отдельного события или голоса)
     # имеет date:/booking:-ключ. При удалении категории их также нужно погасить,
     # иначе пользователь получит уже недействующую гостевую ссылку.
     cat = conn.execute(
@@ -149,7 +149,7 @@ def queue_category_outcome(conn: sqlite3.Connection, state: voting.CategoryState
             f"«{notify.esc(cat['name'])}»",
             f"Лидируют: {names}", "Выбери победителя вручную:", f"\n{admin_url}")
     else:
-        winner_name = notify.esc(winner["name"] if winner else "Свидание")
+        winner_name = notify.esc(winner["name"] if winner else "Событие")
         count = state.vote_counts.get(state.winner_date_id or -1, 0)
         owner_text = notify.card(
             "🏆 Победитель определён",
@@ -174,10 +174,10 @@ def queue_category_outcome(conn: sqlite3.Connection, state: voting.CategoryState
             detail = "Организатор выбирает победителя среди лидеров. Мы пришлём итог."
         elif state.status == voting.STATUS_RESOLVED and chose_winner:
             title = "💝 Ваш вариант победил"
-            detail = "Вы участвуете в победившем свидании."
+            detail = "Вы участвуете в победившем событии."
         elif state.status == voting.STATUS_RESOLVED:
             title = "Голосование завершено"
-            detail = f"Победил вариант «{notify.esc(winner['name'] if winner else 'Свидание')}»."
+            detail = f"Победил вариант «{notify.esc(winner['name'] if winner else 'Событие')}»."
         else:
             title = "Голосование завершено"
             detail = "До дедлайна никто не сделал выбор."
@@ -208,7 +208,7 @@ def queue_category_outcome(conn: sqlite3.Connection, state: voting.CategoryState
                     expires_at = (starts - timedelta(hours=2)
                                   if hours == 24 else starts)
                     text = notify.card(
-                        f"🔔 Свидание через {hours} ч" if hours != 24 else "🔔 Свидание завтра",
+                        f"🔔 Событие через {hours} ч" if hours != 24 else "🔔 Событие завтра",
                         f"«{notify.esc(winner['name'])}»",
                         f"Когда: {fmt_when(winner['starts_at'], winner['ends_at'])} (мск)",
                         f"📍 {notify.esc(winner['place'])}" if winner["place"] else "",
@@ -311,7 +311,7 @@ def queue_date_changed(conn: sqlite3.Connection, date_id: int,
                 continue
             resolved_categories.add(int(row["category_id"]))
         text = notify.card(
-            "✏️ Свидание изменилось",
+            "✏️ Событие изменилось",
             f"«{notify.esc(d['name'])}» · {notify.esc(row['category_name'])}",
             "Изменено: " + notify.esc(", ".join(changed_labels)) + ".",
             f"Когда: {fmt_when(d['starts_at'], d['ends_at'])} (мск)" if d["starts_at"] else "",
@@ -384,7 +384,7 @@ def queue_participant_withdrawal(conn: sqlite3.Connection, *, booking_id: int,
                                  category_name: str, date_name: str,
                                  category_id: int) -> None:
     text = notify.card(
-        "↩️ Участник отказался от свидания",
+        "↩️ Участник отказался от события",
         f"«{notify.esc(date_name)}» · {notify.esc(category_name)}",
         f"Кто: {notify.esc(participant_name)}",
         "Итог голосования не изменился.",
