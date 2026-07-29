@@ -20,6 +20,7 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Resp
 from starlette.background import BackgroundTask
 from urllib.parse import urlencode
 
+import appearance
 import backup
 import db
 import images
@@ -164,6 +165,7 @@ def profile_save(request: Request,
                  birth_date: str = Form(""),
                  gender: str = Form(""),
                  cursor_effects: str | None = Form(None),
+                 admin_skin: str | None = Form(None),
                  avatar: UploadFile | None = File(None),
                  conn=Depends(get_db)):
     """Сохраняет профиль владельца. Аватар — опционально; старый файл сносим
@@ -182,14 +184,18 @@ def profile_save(request: Request,
 
     old_avatar = request.state.user["avatar_path"]
     effects = 1 if cursor_effects is not None else 0
+    skin = appearance.normalize_skin(
+        admin_skin, default=request.state.user["admin_skin"]
+    )
     if new_avatar:
         conn.execute(
             "UPDATE users SET display_name=?, birth_date=?, gender=?, avatar_path=?, "
-            "cursor_effects=? WHERE id=?", (name, bdate, g, new_avatar, effects, uid))
+            "cursor_effects=?, admin_skin=? WHERE id=?",
+            (name, bdate, g, new_avatar, effects, skin, uid))
     else:
         conn.execute(
-            "UPDATE users SET display_name=?, birth_date=?, gender=?, cursor_effects=? "
-            "WHERE id=?", (name, bdate, g, effects, uid))
+            "UPDATE users SET display_name=?, birth_date=?, gender=?, cursor_effects=?, "
+            "admin_skin=? WHERE id=?", (name, bdate, g, effects, skin, uid))
     conn.commit()
     if new_avatar and old_avatar:        # старый аватар — только после коммита
         images.delete_file(old_avatar)
@@ -277,7 +283,8 @@ def dashboard(request: Request, conn=Depends(get_db)):
     # Для выбранной (или первой) рисуем QR прямо на сервере — инлайновый SVG,
     # под CSP не нужен ни внешний скрипт, ни data:-картинка.
     share_cats = conn.execute(
-        "SELECT id, name, link_token, og_title, og_desc, og_image FROM categories "
+        "SELECT id, name, category_skin, link_token, og_title, og_desc, og_image "
+        "FROM categories "
         "WHERE owner_id=? AND link_enabled=1 AND link_token IS NOT NULL "
         "ORDER BY created_at DESC", (uid,)).fetchall()
     sel = request.query_params.get("share")
@@ -381,7 +388,9 @@ def community_widget(did: int, request: Request, conn=Depends(get_db)):
                           or f"Человек #{r['owner_id']}")
     return templates.TemplateResponse(
         request, "admin/_community_widget.html",
-        {"request": request, "d": d, "is_mine": r["owner_id"] == request.state.user["id"]})
+        {"request": request, "d": d,
+         "is_mine": r["owner_id"] == request.state.user["id"],
+         "admin_skin": appearance.normalize_skin(request.state.user["admin_skin"])})
 
 
 @router.get("/uploads/{filename}")
@@ -571,11 +580,15 @@ async def import_json(request: Request, file: UploadFile = File(...),
         if not isinstance(c, dict):
             continue
         name = clean_text(str(c.get("name") or ""), 200, "Название") or "Без названия"
+        category_skin = appearance.normalize_skin(
+            c.get("category_skin"), default=appearance.ROMANTIC
+        )
         token = new_link_token()
         cur = conn.execute(
-            "INSERT INTO categories(owner_id, name, description, link_token, "
-            "link_enabled, moderate_proposals, created_at) VALUES(?,?,?,?,?,?,?)",
-            (uid, name, clean_text(str(c.get("description") or ""), 1000, "Описание"),
+            "INSERT INTO categories(owner_id, name, category_skin, description, link_token, "
+            "link_enabled, moderate_proposals, created_at) VALUES(?,?,?,?,?,?,?,?)",
+            (uid, name, category_skin,
+             clean_text(str(c.get("description") or ""), 1000, "Описание"),
              token, 1 if c.get("link_enabled", 1) else 0,
              1 if c.get("moderate_proposals") else 0, now_iso()))
         if c.get("id") is not None:
@@ -654,9 +667,9 @@ def category_create(request: Request, bg: BackgroundTasks, name: str = Form(...)
     # is_reviewed=0 (ссылка работает сразу, админ просто видит её в очереди).
     reviewed = 0 if app_settings.is_on(conn, app_settings.MODERATE_CATEGORIES) else 1
     cursor = conn.execute(
-        "INSERT INTO categories(owner_id, name, link_token, link_enabled, "
-        "moderate_proposals, is_reviewed, created_at) VALUES(?,?,?,1,0,?,?)",
-        (request.state.user["id"], name, token, reviewed, now_iso()))
+        "INSERT INTO categories(owner_id, name, category_skin, link_token, link_enabled, "
+        "moderate_proposals, is_reviewed, created_at) VALUES(?,?,?,?,1,0,?,?)",
+        (request.state.user["id"], name, appearance.FRIENDS, token, reviewed, now_iso()))
     category_id = int(cursor.lastrowid)
     conn.commit()
     actor = request.state.user["display_name"] or request.state.user["tg_username"] or "—"
@@ -776,12 +789,16 @@ def prewarm_date_collages(did: int) -> None:
     синхронно на единственном воркере — отсюда «долгая первая загрузка»)."""
     conn = db.connect()
     try:
-        cids = [r["category_id"] for r in conn.execute(
-            "SELECT category_id FROM date_categories WHERE date_id=?", (did,))]
-        for cid in cids:
+        categories = conn.execute(
+            "SELECT c.id, c.category_skin FROM categories c "
+            "JOIN date_categories dc ON dc.category_id=c.id WHERE dc.date_id=?",
+            (did,)).fetchall()
+        for category in categories:
+            cid = category["id"]
             files = _category_collage_sources(conn, cid)
             if files:
-                images.build_og_collage(files)     # идемпотентно: строит, если нет в кэше
+                images.build_og_collage(
+                    files, appearance.normalize_skin(category["category_skin"]))
     except Exception:
         log.exception("prewarm_date_collages did=%s", did)
     finally:
@@ -789,7 +806,8 @@ def prewarm_date_collages(did: int) -> None:
 
 
 @router.get("/categories/{cid}/og-preview")
-def category_og_preview(cid: int, request: Request, conn=Depends(get_db)):
+def category_og_preview(cid: int, request: Request, skin: str | None = None,
+                        conn=Depends(get_db)):
     """Коллаж-превью ссылки для редактора категории (когда своей картинки нет).
     Та же сборка, что и публичный og:image, но за owner-гейтом."""
     cat = _cat_or_404(conn, cid, request.state.user)
@@ -809,7 +827,9 @@ def category_og_preview(cid: int, request: Request, conn=Depends(get_db)):
         "WHERE dc.category_id=? AND d.archived_at IS NULL AND d.is_draft=0 "
         "ORDER BY dc.position ASC, di.position ASC, di.id ASC LIMIT 8",
         (cid,)).fetchall()
-    collage = images.build_og_collage([r["filename"] for r in rows])
+    preview_skin = appearance.normalize_skin(skin, default=cat["category_skin"])
+    collage = images.build_og_collage(
+        [r["filename"] for r in rows], preview_skin)
     if not collage:
         raise HTTPException(404)
     return FileResponse(collage, media_type="image/webp",
@@ -820,6 +840,7 @@ def category_og_preview(cid: int, request: Request, conn=Depends(get_db)):
 def category_rename(cid: int, request: Request, name: str = Form(...),
                     description: str = Form(""),
                     og_title: str = Form(""), og_desc: str = Form(""),
+                    category_skin: str | None = Form(None),
                     og_image: UploadFile | None = File(None),
                     conn=Depends(get_db)):
     cat = _cat_or_404(conn, cid, request.state.user)
@@ -827,6 +848,7 @@ def category_rename(cid: int, request: Request, name: str = Form(...),
     description = clean_text(description, 1000, "Описание")
     og_title = clean_text(og_title, 120, "Заголовок превью")
     og_desc = clean_text(og_desc, 200, "Описание превью")
+    skin = appearance.normalize_skin(category_skin, default=cat["category_skin"])
 
     # картинка превью — опционально; новый файл сжимаем в WebP (как фото событий),
     # старый сносим только после успешной записи
@@ -841,12 +863,14 @@ def category_rename(cid: int, request: Request, name: str = Form(...),
     if new_image:
         # новая картинка — фокус к центру (старая точка к ней не относится)
         conn.execute(
-            "UPDATE categories SET name=?, description=?, og_title=?, og_desc=?, og_image=?, og_focus=NULL WHERE id=?",
-            (name, description, og_title, og_desc, new_image, cid))
+            "UPDATE categories SET name=?, description=?, og_title=?, og_desc=?, "
+            "category_skin=?, og_image=?, og_focus=NULL WHERE id=?",
+            (name, description, og_title, og_desc, skin, new_image, cid))
     else:
         conn.execute(
-            "UPDATE categories SET name=?, description=?, og_title=?, og_desc=? WHERE id=?",
-            (name, description, og_title, og_desc, cid))
+            "UPDATE categories SET name=?, description=?, og_title=?, og_desc=?, "
+            "category_skin=? WHERE id=?",
+            (name, description, og_title, og_desc, skin, cid))
     conn.commit()
     if new_image and old_image:          # старую картинку — только после коммита
         images.delete_file(old_image)
@@ -855,7 +879,7 @@ def category_rename(cid: int, request: Request, name: str = Form(...),
 
 @router.post("/categories/{cid}/og_image/delete")
 def category_og_image_delete(cid: int, request: Request, conn=Depends(get_db)):
-    """Убрать свою картинку превью → вернуться к дефолтной /static/og.png."""
+    """Убрать свою картинку превью → вернуться к дефолту выбранного skin."""
     cat = _cat_or_404(conn, cid, request.state.user)
     old = cat["og_image"]
     conn.execute("UPDATE categories SET og_image=NULL WHERE id=?", (cid,))

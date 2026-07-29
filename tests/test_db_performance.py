@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Миграция v25 и планы запросов для горячих SQLite-путей."""
+"""Миграции v25–v26 и планы запросов для горячих SQLite-путей."""
 
 from __future__ import annotations
 
@@ -105,6 +105,11 @@ class DatabasePerformanceMigrationTests(unittest.TestCase):
                 )
                 for index in V25_INDEXES:
                     conn.execute(f"DROP INDEX {index}")
+                # init_db выше создал свежую v26-схему. Для честной эмуляции
+                # старой v24 базы убираем две колонки следующей миграции, иначе
+                # после проверки v25 ALTER TABLE v26 закономерно увидит дубль.
+                conn.execute("ALTER TABLE categories DROP COLUMN category_skin")
+                conn.execute("ALTER TABLE users DROP COLUMN admin_skin")
                 conn.execute("PRAGMA user_version=24")
                 conn.commit()
                 conn.close()

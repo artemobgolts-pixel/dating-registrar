@@ -1,27 +1,44 @@
+{% from "public/_icons.html" import icon %}
+{% set active_skin = category_skin if category_skin is defined else (cat.category_skin if cat.category_skin is defined else 'romantic') %}
 <!doctype html>
-<html lang="ru">
+<html lang="ru" data-skin="{{ active_skin }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
   <title>{{ cat.name }}</title>
-  <meta property="og:title" content="{{ cat['og_title'] or 'Тебя ждёт сюрприз ♥' }}">
-  <meta property="og:description" content="{{ cat['og_desc'] or 'Открой — внутри кое-что приятное' }}">
-  <meta property="og:image" content="{% if og_available %}{{ BASE_URL }}/c/{{ token }}/og-image{% else %}{{ BASE_URL }}/static/og.png{% endif %}">
+  <meta property="og:title" content="{{ cat['og_title'] or ('Собираемся вместе' if active_skin == 'friends' else 'Тебя ждёт сюрприз ♥') }}">
+  <meta property="og:description" content="{{ cat['og_desc'] or ('Открой и выбери удобный вариант' if active_skin == 'friends' else 'Открой — внутри кое-что приятное') }}">
+  <meta property="og:image" content="{% if og_available %}{{ BASE_URL }}/c/{{ token }}/og-image?skin={{ active_skin }}{% else %}{{ BASE_URL }}/static/{{ 'og-friends.jpg' if active_skin == 'friends' else 'og.png' }}{% endif %}">
   <meta property="og:type" content="website">
+  <meta name="theme-color" content="{{ '#554eae' if active_skin == 'friends' else '#b65f6f' }}">
+  <script src="{{ asset('theme.js') }}"></script>
+  {% if active_skin == 'friends' %}
+  <link rel="apple-touch-icon" href="/static/apple-touch-icon-friends.png">
+  <link rel="manifest" href="/static/manifest-friends.json">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22><circle cx=%227%22 cy=%227%22 r=%223%22 fill=%22%234f46a5%22/><circle cx=%2217%22 cy=%227%22 r=%223%22 fill=%22%230f8f8a%22/><circle cx=%227%22 cy=%2217%22 r=%223%22 fill=%22%23d39a32%22/><circle cx=%2217%22 cy=%2217%22 r=%223%22 fill=%22%236b68c9%22/></svg>">
+  {% else %}
   <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
   <link rel="manifest" href="/static/manifest.json">
-  <meta name="theme-color" content="#b65f6f">
-  <script src="{{ asset('theme.js') }}"></script>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>♥</text></svg>">
+  {% endif %}
   <link rel="stylesheet" href="{{ asset('public.css') }}">
 </head>
 <body data-token="{{ token }}" data-name="{{ guest_name or '' }}" data-auth="{{ '1' if me else '' }}"
+      data-skin="{{ active_skin }}"
       data-ink-interactive="{{ '1' if me and me['cursor_effects'] else '0' }}">
 
+{% if active_skin == 'friends' %}
+<div class="bg-gather" aria-hidden="true">
+  <span class="orbit o1"></span><span class="orbit o2"></span>
+  <span class="dot d1"></span><span class="dot d2"></span><span class="dot d3"></span>
+  <span class="spark s1">✦</span><span class="spark s2">✦</span>
+</div>
+{% else %}
 <div class="bg-hearts" aria-hidden="true">
   <span>♥</span><span>♡</span><span>♥</span><span>♡</span><span>♥</span><span>♡</span><span>♥</span>
 </div>
+{% endif %}
 <div class="bg-smoke" aria-hidden="true">
   <svg class="turb" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice">
     <defs>
@@ -82,7 +99,11 @@
 <div class="wrap">
   <header class="hero">
     <h1>{{ cat.name }}</h1>
+    {% if active_skin == 'friends' %}
+    <div class="hero-mark" aria-hidden="true">{{ icon('gather') }}</div>
+    {% else %}
     <div class="hearts" aria-hidden="true"><span>♥</span><span>♥</span><span>♥</span></div>
+    {% endif %}
 
     {% if owner %}
     <a class="author" href="/u/{{ owner['id'] }}">
@@ -92,13 +113,13 @@
                    /c/{{ token }}/owner-avatar?w=96 96w,
                    /c/{{ token }}/owner-avatar?w=128 128w"
            sizes="28px" alt="" width="28" height="28" decoding="async">
-      {% else %}<span class="author-av ph" aria-hidden="true">♥</span>{% endif %}
+      {% else %}<span class="author-av ph" aria-hidden="true">{% if active_skin == 'friends' %}{{ icon('user') }}{% else %}♥{% endif %}</span>{% endif %}
       <span class="author-name">{{ owner['display_name'] or owner['tg_username'] or 'Автор' }}</span>
     </a>
     {% endif %}
 
     <div class="greet" id="greet" {% if not guest_name or viewer_is_owner %}hidden{% endif %}>
-      <span class="g-heart" aria-hidden="true">♥</span>
+      <span class="g-heart" aria-hidden="true">{% if active_skin == 'friends' %}{{ icon('gather') }}{% else %}♥{% endif %}</span>
       <b id="greetName">{{ guest_name or '' }}</b>
     </div>
     {% if cat['description'] %}<p class="cat-desc">{{ cat['description'] | rich }}</p>{% endif %}
@@ -134,7 +155,7 @@
       <b>Никто не выбрал</b>
       <span>До дедлайна не было ни одного голоса, поэтому категория завершена без победителя.</span>
     {% elif vote_state.status == 'resolved' %}
-      <b>Победитель выбран ♥</b>
+      <b>{% if active_skin == 'friends' %}Общий вариант выбран {{ icon('spark') }}{% else %}Победитель выбран ♥{% endif %}</b>
       <span>Он выделен ниже. Участники остальных вариантов в нём не участвуют.</span>
     {% endif %}
   </section>
@@ -150,16 +171,16 @@
            id="date-{{ d.id }}">
     {% if d.images or d.videos %}
     <div class="gal-wrap">
-      {% if not d.past %}<div class="seal"{% if not d.booked_by_me %} hidden{% endif %}>♥</div>{% endif %}
+      {% if not d.past %}<div class="seal"{% if not d.booked_by_me %} hidden{% endif %}>{% if active_skin == 'friends' %}{{ icon('check') }}{% else %}♥{% endif %}</div>{% endif %}
       {% if badges | trim %}<div class="badges">{{ badges }}</div>{% endif %}
-      {% if d.is_winner %}<div class="winner-ribbon">Победитель ♥</div>{% elif d.is_tie_leader %}<div class="winner-ribbon tie">Лидер при ничьей</div>{% endif %}
+      {% if d.is_winner %}<div class="winner-ribbon">{% if active_skin == 'friends' %}{{ icon('spark') }} Общий выбор{% else %}Победитель ♥{% endif %}</div>{% elif d.is_tie_leader %}<div class="winner-ribbon tie">Лидер при ничьей</div>{% endif %}
       <div class="gallery">
         {% for im in d.images %}
         <img src="/c/{{ token }}/image/{{ im['filename'] }}?w=960"
              srcset="/c/{{ token }}/image/{{ im['filename'] }}?w=480 480w,
                      /c/{{ token }}/image/{{ im['filename'] }}?w=960 960w,
                      /c/{{ token }}/image/{{ im['filename'] }}?w=1600 1600w"
-             sizes="(max-width: 720px) calc(100vw - 32px), 680px"
+             sizes="{% if active_skin == 'friends' %}(max-width: 619px) calc(100vw - 32px), 286px{% else %}(max-width: 720px) calc(100vw - 32px), 680px{% endif %}"
              data-full="/c/{{ token }}/image/{{ im['filename'] }}" alt=""
              loading="{{ 'eager' if priority and loop.first else 'lazy' }}"
              fetchpriority="{{ 'high' if priority and loop.first else 'low' }}"
@@ -185,10 +206,10 @@
       </div>
       {# компактная плашка статуса для карточек без фото (большого оверлея нет):
          архив всегда помечаем «Было», активные — только когда есть голос #}
-      {% if not d.images and not d.videos and d.is_winner %}<div class="winner-ribbon inflow">Победитель ♥</div>{% endif %}
+      {% if not d.images and not d.videos and d.is_winner %}<div class="winner-ribbon inflow">{% if active_skin == 'friends' %}{{ icon('spark') }} Общий выбор{% else %}Победитель ♥{% endif %}</div>{% endif %}
       <div class="meta">
         {% if d.starts_at %}
-        <div class="when"><span aria-hidden="true">🕐</span>
+        <div class="when"><span class="meta-icon" aria-hidden="true">{% if active_skin == 'friends' %}{{ icon('clock') }}{% else %}🕐{% endif %}</span>
           <span>{{ d.starts_at | when(d.ends_at) }}</span>
           {% if not d.past and d.gcal %}
           <a href="#" class="cal-link" data-gcal="{{ d.gcal }}"
@@ -198,11 +219,11 @@
         {% elif not d.past and not d.pending %}
         <div class="when">
           <button type="button" class="chip-suggest suggest"
-                  data-id="{{ d.id }}" data-name="{{ d.name }}">📅 предложить дату</button>
+                  data-id="{{ d.id }}" data-name="{{ d.name }}">{% if active_skin == 'friends' %}{{ icon('calendar') }}{% else %}📅{% endif %} предложить дату</button>
         </div>
         {% endif %}
         {% if d.place %}
-        <div class="place"><span aria-hidden="true">📍</span>
+        <div class="place"><span class="meta-icon" aria-hidden="true">{% if active_skin == 'friends' %}{{ icon('pin') }}{% else %}📍{% endif %}</span>
           <span><a href="{{ d.place_url or (d.place | ymaps) }}" target="_blank" rel="noopener">{{ d.place | placename }}</a></span>
         </div>
         {% endif %}
@@ -210,7 +231,7 @@
       {% if d.comment %}<p class="comment">{{ d.comment | rich }}</p>{% endif %}
       {% if d.links %}
       <div class="links">
-        {% for l in d.links %}<a href="{{ l.url }}" target="_blank" rel="noopener">🔗 {{ l.url | host }}</a>{% endfor %}
+        {% for l in d.links %}<a href="{{ l.url }}" target="_blank" rel="noopener">{% if active_skin == 'friends' %}{{ icon('link') }}{% else %}🔗{% endif %} {{ l.url | host }}</a>{% endfor %}
       </div>
       {% endif %}
 
@@ -255,16 +276,20 @@
               and ((vote_state.status == 'resolved' and d.is_winner and not d.participation_withdrawn)
                    or vote_state.status in ('unconfigured', 'open')) %}
         <div class="booked">
-          <span class="avs"><span class="av me">♥</span></span>
+          <span class="avs"><span class="av me">{% if active_skin == 'friends' %}{{ icon('check') }}{% else %}♥{% endif %}</span></span>
           <span class="who">проведено с {{ owner_name }}</span>
         </div>
         {% elif d.booked_label and vote_state.status in ('unconfigured', 'open') %}
         <div class="booked">
           <span class="avs">
-            {% if d.booked_by_me %}<span class="av me">♥</span>{% endif %}
+            {% if d.booked_by_me %}<span class="av me">{% if active_skin == 'friends' %}{{ icon('check') }}{% else %}♥{% endif %}</span>{% endif %}
             {% for nm in d.booked_others_list %}<span class="av">{{ nm[:1] | upper }}</span>{% endfor %}
           </span>
-          <span class="who">было: {{ d.booked_label }}</span>
+          <span class="who">было:
+            {% if active_skin == 'friends' %}
+              {% if d.booked_by_me %}ты{% if d.booked_others %}, {% endif %}{% endif %}{{ d.booked_others }}
+            {% else %}{{ d.booked_label }}{% endif %}
+          </span>
         </div>
         {% endif %}
         {% if vote_state.status == 'unconfigured' and d.booked_by_me
@@ -282,11 +307,11 @@
         <div class="actions">
           {% if vote_state.status == 'open' and not viewer_is_owner %}
             {% if d.booked_by_me %}
-            <button class="btn book on" data-id="{{ d.id }}">Выбрано ♥</button>
+            <button class="btn book on" data-id="{{ d.id }}">{% if active_skin == 'friends' %}{{ icon('check') }} Выбрано{% else %}Выбрано ♥{% endif %}</button>
             {% elif d.is_full %}
             <button class="btn book" data-id="{{ d.id }}" disabled>Набрано {{ d.vote_count }}/{{ d.capacity }}</button>
             {% else %}
-            <button class="btn book" data-id="{{ d.id }}">Выбрать ♥</button>
+            <button class="btn book" data-id="{{ d.id }}">{% if active_skin == 'friends' %}{{ icon('check') }} Выбрать{% else %}Выбрать ♥{% endif %}</button>
             {% endif %}
           {% elif vote_state.status == 'unconfigured' and d.booked_by_me and not viewer_is_owner %}
             <button class="btn book on" data-id="{{ d.id }}">Снять старый выбор</button>
@@ -296,7 +321,7 @@
           {% elif d.is_winner and d.participation_withdrawn %}
           <span class="withdrawn-note">Ты отказался(-ась); результат не пересчитывается.</span>
           {% endif %}
-          <button class="btn ghost ask" data-id="{{ d.id }}" data-name="{{ d.name }}">Спросить 💬</button>
+          <button class="btn ghost ask" data-id="{{ d.id }}" data-name="{{ d.name }}">{% if active_skin == 'friends' %}{{ icon('message') }} Спросить{% else %}Спросить 💬{% endif %}</button>
         </div>
         {% endif %}
         {% if d.editable %}
@@ -338,14 +363,19 @@
   {% endif %}
   {% else %}
   <div class="empty">
-    <div class="big">🌷</div>
-    Здесь пока пусто.{% if vote_state.status in ('unconfigured', 'open') %}<br>Предложи первое событие — кнопка внизу ♥{% endif %}
+    <div class="big">{% if active_skin == 'friends' %}{{ icon('gather') }}{% else %}🌷{% endif %}</div>
+    Здесь пока пусто.{% if vote_state.status in ('unconfigured', 'open') %}<br>Предложи первое событие{% if active_skin == 'romantic' %} — кнопка внизу ♥{% else %} — кнопка внизу.{% endif %}{% endif %}
   </div>
   {% endif %}
 
   <footer>
+    {% if active_skin == 'friends' %}
+    <div class="footer-mark" aria-hidden="true">{{ icon('gather') }}</div>
+    придумано, чтобы встречаться
+    {% else %}
     <div class="hearts">♥ ♥ ♥</div>
     сделано с любовью
+    {% endif %}
     <div class="foot-legal">
       <a href="/about">О проекте</a> · <a href="/terms">Соглашение</a> · <a href="/privacy">Конфиденциальность</a>
     </div>
@@ -360,9 +390,9 @@
 <dialog id="loginDlg" class="login-dlg">
   <button type="button" class="dlg-x" id="loginClose" aria-label="Закрыть">✕</button>
   <div class="login-dlg-head">
-    <div class="ld-heart" aria-hidden="true">♥</div>
+    <div class="ld-heart" aria-hidden="true">{% if active_skin == 'friends' %}{{ icon('gather') }}{% else %}♥{% endif %}</div>
     <h3 class="dlg-head">Войти, чтобы выбрать событие</h3>
-    <p class="dlg-sub">Вход через Telegram — быстро и без пароля&nbsp;♥</p>
+    <p class="dlg-sub">Вход через Telegram — быстро и без пароля{% if active_skin == 'romantic' %}&nbsp;♥{% endif %}</p>
   </div>
   {% set next_url = "/c/" ~ token %}
   {% if bot or oauth %}
@@ -375,7 +405,7 @@
 <!-- Вопрос -->
 <dialog id="askDlg">
   <h3 class="dlg-head">Спросить про «<span id="askTitle"></span>»</h3>
-  <p class="dlg-sub">Увидит только организатор — ответ появится прямо здесь&nbsp;♥</p>
+  <p class="dlg-sub">Увидит только организатор — ответ появится прямо здесь{% if active_skin == 'romantic' %}&nbsp;♥{% endif %}</p>
   <form id="askForm">
     <input type="hidden" name="date_id" id="askDateId">
     <div class="field">
@@ -384,7 +414,7 @@
     </div>
     <div class="dlg-actions">
       <button type="button" class="btn ghost" id="askCancel">Отмена</button>
-      <button type="submit" class="btn book">Отправить 💌</button>
+      <button type="submit" class="btn book">{% if active_skin == 'friends' %}{{ icon('mail') }} Отправить{% else %}Отправить 💌{% endif %}</button>
     </div>
   </form>
 </dialog>
@@ -410,7 +440,7 @@
 <!-- Предложить время для события без даты -->
 <dialog id="timeDlg">
   <h3 class="dlg-head">Когда удобно?</h3>
-  <p class="dlg-sub">Предложишь время для «<span id="timeTitle"></span>» — организатор увидит&nbsp;♥</p>
+  <p class="dlg-sub">Предложишь время для «<span id="timeTitle"></span>» — организатор увидит{% if active_skin == 'romantic' %}&nbsp;♥{% endif %}</p>
   <form id="timeForm">
     <input type="hidden" name="date_id" id="timeDateId">
     <div class="field">
@@ -440,7 +470,7 @@
     </details>
     <div class="dlg-actions">
       <button type="button" class="btn ghost" id="timeCancel">Отмена</button>
-      <button type="submit" class="btn book">Предложить 📅</button>
+      <button type="submit" class="btn book">{% if active_skin == 'friends' %}{{ icon('calendar') }} Предложить{% else %}Предложить 📅{% endif %}</button>
     </div>
   </form>
 </dialog>
@@ -450,7 +480,7 @@
   <div class="date-widget-head">
     <div>
       <h3 class="dlg-head" id="propHead">Создать своё событие</h3>
-      <p class="dlg-sub">Кликай по карточке и меняй её прямо здесь&nbsp;♥</p>
+      <p class="dlg-sub">Кликай по карточке и меняй её прямо здесь{% if active_skin == 'romantic' %}&nbsp;♥{% endif %}</p>
     </div>
     <button type="button" class="date-widget-x" id="propCancel" aria-label="Закрыть">✕</button>
   </div>
@@ -502,7 +532,7 @@
                 </span>
               </div>
               <div class="ed-place-row">
-                <span aria-hidden="true">📍</span>
+                <span aria-hidden="true">{% if active_skin == 'friends' %}{{ icon('pin') }}{% else %}📍{% endif %}</span>
                 <span class="ed-field ed-place" id="propEdPlace" data-ph="Место — адрес или ссылка на карты"></span>
               </div>
             </div>
@@ -514,15 +544,15 @@
               <button type="button" class="i" data-wrap="*|*" title="Курсив">К</button>
               <button type="button" class="u" data-wrap="__|__" title="Подчёркнутый">П</button>
               <button type="button" class="s" data-wrap="~~|~~" title="Зачёркнутый">З</button>
-              <button type="button" data-wrap="[|](https://)" title="Ссылка">🔗</button>
+              <button type="button" data-wrap="[|](https://)" title="Ссылка">{% if active_skin == 'friends' %}{{ icon('link') }}{% else %}🔗{% endif %}</button>
             </div>
             <div class="ed-links-row">
-              <span aria-hidden="true">🔗</span>
+              <span aria-hidden="true">{% if active_skin == 'friends' %}{{ icon('link') }}{% else %}🔗{% endif %}</span>
               <span class="ed-field ed-links" id="propEdLinks" data-ph="Ссылки — каждая с новой строки"></span>
             </div>
             <div class="acts">
-              <button type="button" class="bk">Выбрать ♥</button>
-              <button type="button" class="ak">Спросить 💬</button>
+              <button type="button" class="bk">{% if active_skin == 'friends' %}{{ icon('check') }} Выбрать{% else %}Выбрать ♥{% endif %}</button>
+              <button type="button" class="ak">{% if active_skin == 'friends' %}{{ icon('message') }} Спросить{% else %}Спросить 💬{% endif %}</button>
             </div>
           </div>
         </div>
@@ -555,7 +585,7 @@
         <section class="sec date-widget-context">
           <h2><span class="n">2</span> Категория</h2>
           <div class="chips-cat">
-            <span class="chip-cat selected">🔗 {{ cat.name }}</span>
+            <span class="chip-cat selected">{% if active_skin == 'friends' %}{{ icon('link') }}{% else %}🔗{% endif %} {{ cat.name }}</span>
           </div>
           <p>Событие добавится в эту подборку. Если включена модерация, сначала его увидит организатор.</p>
         </section>

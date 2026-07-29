@@ -35,6 +35,8 @@
     "category-editor": [
       { sel: '[data-tour="category-description"]', title: "Название и описание", pad: 14,
         text: "Этот текст гости увидят в начале подборки." },
+      { sel: '[data-tour="category-skin"]', title: "Оформление страницы", pad: 12,
+        text: "Выбери дружеский или романтический дизайн. Тему увидят все, кто откроет ссылку." },
       { sel: '[data-tour="category-preview"]', title: "Превью ссылки",
         text: "Измени картинку и текст прямо здесь — так ссылка будет выглядеть в мессенджере." },
       { sel: '[data-tour="category-voting"]', title: "Правила голосования",

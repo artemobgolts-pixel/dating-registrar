@@ -22,12 +22,12 @@
     <select name="sort" data-autosubmit>
       <option value="new" {{ 'selected' if sort == 'new' }}>Сначала новые</option>
       <option value="when" {{ 'selected' if sort == 'when' }}>По дате события</option>
-      <option value="book" {{ 'selected' if sort == 'book' }}>По голосам 💝</option>
+      <option value="book" {{ 'selected' if sort == 'book' }}>По голосам{% if user['admin_skin'] == 'romantic' %} 💝{% endif %}</option>
     </select>
     <select name="f" data-autosubmit>
       <option value="">Все события</option>
       <option value="guest" {{ 'selected' if flt == 'guest' }}>Только предложенные</option>
-      <option value="booked" {{ 'selected' if flt == 'booked' }}>С голосами 💝</option>
+      <option value="booked" {{ 'selected' if flt == 'booked' }}>С голосами{% if user['admin_skin'] == 'romantic' %} 💝{% endif %}</option>
       <option value="nodate" {{ 'selected' if flt == 'nodate' }}>Без даты</option>
     </select>
     <select name="cat" data-autosubmit>
@@ -92,7 +92,7 @@
         {% if r['origin'] == 'guest' %}<span class="bdg guest">💡 предложено</span>{% endif %}
         {% if r['is_draft'] %}<span class="bdg draft">{{ 'на модерации' if r['origin'] == 'guest' else 'неактивно' }}</span>{% endif %}
       </div>
-      {% if r['booked_names'] %}<div class="badges book-corner"><span class="bdg book">💝 {{ r['booked_names'] }}</span></div>{% endif %}
+      {% if r['booked_names'] %}<div class="badges book-corner"><span class="bdg book">{{ '◉' if user['admin_skin'] == 'friends' else '💝' }} {{ r['booked_names'] }}</span></div>{% endif %}
     </div>
     {% endif %}
     <div class="b">
@@ -101,7 +101,7 @@
         {% if r['pay_split'] %}<span class="bdg pay">{{ r['pay_split'] | pay_label }}</span>{% endif %}
         {% if r['origin'] == 'guest' %}<span class="bdg guest">💡 предложено</span>{% endif %}
         {% if r['is_draft'] %}<span class="bdg draft">{{ 'на модерации' if r['origin'] == 'guest' else 'неактивно' }}</span>{% endif %}
-        {% if r['booked_names'] %}<span class="bdg book">💝 {{ r['booked_names'] }}</span>{% endif %}
+        {% if r['booked_names'] %}<span class="bdg book">{{ '◉' if user['admin_skin'] == 'friends' else '💝' }} {{ r['booked_names'] }}</span>{% endif %}
       </div>
       {% endif %}
       <h3 class="ttl serif"><a href="/admin/dates/{{ r['id'] }}/edit">{{ r['name'] }}</a></h3>
@@ -112,7 +112,7 @@
       <div class="meta">
         {% if when_str %}<span class="mrow">📅 {{ when_str }}</span>{% endif %}
         {% if r['place'] %}<span class="mrow">📍 {{ r['place'] | placename }}</span>{% endif %}
-        {% if r['books'] %}<span class="mrow">💝 {{ r['books'] }} {{ r['books'] | plural('голос', 'голоса', 'голосов') }}</span>{% endif %}
+        {% if r['books'] %}<span class="mrow">{{ '◉' if user['admin_skin'] == 'friends' else '💝' }} {{ r['books'] }} {{ r['books'] | plural('голос', 'голоса', 'голосов') }}</span>{% endif %}
         {% if not cat and r['cats'] %}<span class="mrow mcats">🔗 {{ r['cats'] }}</span>{% endif %}
       </div>
       <div class="foot">
@@ -151,7 +151,7 @@
       <div class="drow-meta">
         {% if when_str %}<span>{{ when_str }}</span>{% endif %}
         {% if r['cats'] %}<span>{% if when_str %}· {% endif %}{{ r['cats'] }}</span>{% endif %}
-        {% if r['books'] %}<span>{% if when_str or r['cats'] %}· {% endif %}💝 {{ r['booked_names'] }}</span>{% endif %}
+        {% if r['books'] %}<span>{% if when_str or r['cats'] %}· {% endif %}{{ '◉' if user['admin_skin'] == 'friends' else '💝' }} {{ r['booked_names'] }}</span>{% endif %}
       </div>
       {% endif %}
     </div>
@@ -214,7 +214,7 @@
     <p>Неактивных событий нет. Сюда попадают события без категории и предложения на модерации.</p>
     <a class="btn primary" href="/admin/dates/new">+ Создать событие</a>
     {% else %}
-    <div class="big">🌷</div>
+    <div class="big">{% if user['admin_skin'] == 'friends' %}{% with icon='gather' %}{% include "admin/_icon.html" %}{% endwith %}{% else %}🌷{% endif %}</div>
     <p>Пока нет ни одного события — давай создадим первое.</p>
     <a class="btn primary" href="/admin/dates/new">+ Создать событие</a>
     {% endif %}

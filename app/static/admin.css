@@ -1183,6 +1183,11 @@ input, textarea, select {
 @media (prefers-reduced-motion: reduce) {
   .bg-smoke .plume, .bg-smoke span { animation: none !important; }
 }
+html.ink-static .bg-smoke .turb,
+html.ink-static .bg-smoke .plume,
+html.ink-static .bg-smoke span {
+  animation: none !important;
+}
 
 
 /* ============================================================
@@ -1989,6 +1994,12 @@ input, textarea, select {
   color: var(--muted);
 }
 .empty-state .big { font-size: 46px; margin-bottom: 10px; }
+.empty-state .big .admin-icon {
+  width: 46px;
+  height: 46px;
+  margin: 0 auto;
+  color: var(--accent);
+}
 .empty-state p { margin: 0 0 16px; font-size: 15px; }
 .empty-state .btn.primary { font-size: 14.5px; }
 
@@ -2854,4 +2865,499 @@ html[data-theme="dark"] .login-theme { background: rgba(42,33,40,.78); }
   html[data-theme="dark"] .top nav a,
   html[data-theme="dark"] .top nav a:hover { background: none; }
   html[data-theme="dark"] .top nav a.on { color: #fff; }
+}
+
+/* ============================================================
+   ВЫБОР ОФОРМЛЕНИЯ: кабинет пользователя и гостевая категория.
+   Светлая/тёмная схема (data-theme) независима от эмоционального оформления
+   (data-skin). Romantic остаётся прежним авторским видом; friends меняет
+   палитру, геометрию карточек и функциональные иконки.
+   ============================================================ */
+
+.admin-icon {
+  display: block;
+  width: 1em;
+  height: 1em;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.skin-icon-friends { display: none; }
+html[data-skin="friends"] .skin-icon-romantic { display: none; }
+html[data-skin="friends"] .skin-icon-friends {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.skin-setting {
+  min-width: 0;
+  margin: 10px 0 4px;
+  padding: 0;
+  border: 0;
+}
+.profile-skin-setting { margin-top: 20px; }
+.skin-setting legend {
+  padding: 0;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 700;
+}
+.skin-setting-hint {
+  margin: 3px 0 10px;
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+.skin-pick {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.skin-option {
+  position: relative;
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) 20px;
+  gap: 11px;
+  align-items: center;
+  min-width: 0;
+  min-height: 82px;
+  margin: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 17px;
+  background: rgba(255, 255, 255, .58);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.74);
+  cursor: pointer;
+  transition: border-color .18s, background .18s, box-shadow .18s, transform .15s;
+}
+.skin-option:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--line));
+}
+.skin-option > input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.skin-option:has(input:checked) {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--rose-soft) 62%, rgba(255,255,255,.68));
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 17%, transparent),
+              inset 0 1px 0 rgba(255,255,255,.76);
+}
+.skin-option:focus-within {
+  outline: 3px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  outline-offset: 2px;
+}
+.skin-option-preview {
+  position: relative;
+  display: grid;
+  grid-template-columns: 25px 1fr;
+  align-items: center;
+  gap: 7px;
+  width: 72px;
+  height: 58px;
+  padding: 9px 8px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,.76);
+  border-radius: 13px;
+  box-shadow: 0 5px 13px rgba(39,42,68,.12), inset 0 1px 0 rgba(255,255,255,.72);
+}
+.skin-option-preview::after {
+  content: "";
+  position: absolute;
+  width: 46px;
+  height: 46px;
+  right: -23px;
+  bottom: -27px;
+  border-radius: 50%;
+  opacity: .42;
+}
+.skin-option-preview-friends {
+  color: #4455a5;
+  background: linear-gradient(145deg, #fffdf7 12%, #eef4f2 55%, #e5e9f8);
+}
+.skin-option-preview-friends::after { background: #34aaa0; }
+.skin-option-preview-romantic {
+  color: #a55567;
+  background: linear-gradient(145deg, #fffaf9 10%, #f8e8ea 58%, #f3dace);
+}
+.skin-option-preview-romantic::after { background: #d8849a; }
+.skin-option-symbol {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+}
+.skin-option-symbol .admin-icon { width: 25px; height: 25px; stroke-width: 2; }
+.skin-option-lines {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 4px;
+}
+.skin-option-lines i {
+  display: block;
+  height: 3px;
+  border-radius: 99px;
+  background: currentColor;
+  opacity: .5;
+}
+.skin-option-lines i:nth-child(2) { width: 74%; opacity: .33; }
+.skin-option-lines i:nth-child(3) { width: 52%; opacity: .22; }
+.skin-option-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.skin-option-copy strong { font-size: 14px; line-height: 1.25; }
+.skin-option-copy small {
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.3;
+}
+.skin-option-check {
+  display: grid;
+  place-items: center;
+  color: var(--accent);
+  opacity: 0;
+  transform: scale(.72);
+  transition: opacity .16s, transform .18s;
+}
+.skin-option-check .admin-icon { width: 20px; height: 20px; stroke-width: 2.2; }
+.skin-option:has(input:checked) .skin-option-check { opacity: 1; transform: scale(1); }
+
+html[data-theme="dark"] .skin-option {
+  background: rgba(38, 31, 37, .84);
+  border-color: var(--line);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
+}
+html[data-theme="dark"] .skin-option:has(input:checked) {
+  background: var(--rose-soft);
+  border-color: var(--accent);
+  box-shadow: 0 7px 20px rgba(0,0,0,.24);
+}
+
+@media (max-width: 610px) {
+  .skin-pick { grid-template-columns: 1fr; }
+}
+
+/* ---------- дружеский кабинет: тёплая нейтральная основа + indigo/teal/amber */
+html[data-skin="friends"] {
+  --bg: #f5f3ed;
+  --card: #fffdf8;
+  --ink: #252a3d;
+  --muted: #717789;
+  --accent: #4b59a6;
+  --rose: #4b59a6;
+  --rose-2: #34417f;
+  --peach: #dda43a;
+  --rose-soft: #eceffb;
+  --line: #dfe3ed;
+  --friends-teal: #238e89;
+  --friends-amber: #d79a2f;
+}
+html[data-theme="dark"][data-skin="friends"] {
+  --bg: #151923;
+  --card: #202635;
+  --ink: #f0f2f7;
+  --muted: #a9b0c3;
+  --accent: #92a0ff;
+  --rose: #92a0ff;
+  --rose-2: #bdc6ff;
+  --peach: #e5b35d;
+  --rose-soft: #2b3351;
+  --line: #3c455f;
+  --friends-teal: #59c9c1;
+  --friends-amber: #efbd63;
+}
+
+html[data-skin="friends"] body {
+  background:
+    radial-gradient(760px 420px at 4% -8%, rgba(84, 105, 188, .17), transparent 66%),
+    radial-gradient(640px 420px at 102% 28%, rgba(55, 166, 157, .13), transparent 68%),
+    radial-gradient(620px 400px at 38% 108%, rgba(223, 166, 66, .11), transparent 68%),
+    linear-gradient(180deg, #f8f7f2, #f2f3ef 58%, #f4f1e9);
+}
+html[data-theme="dark"][data-skin="friends"] body {
+  background:
+    radial-gradient(760px 420px at 4% -8%, rgba(78, 94, 171, .26), transparent 66%),
+    radial-gradient(640px 420px at 102% 28%, rgba(35, 130, 126, .18), transparent 68%),
+    radial-gradient(620px 400px at 38% 108%, rgba(154, 109, 41, .12), transparent 68%),
+    linear-gradient(180deg, #151923, #191f2c 58%, #171b25);
+}
+html[data-skin="friends"] .top {
+  background: linear-gradient(180deg, rgba(250,250,247,.78), rgba(246,247,244,.61));
+  border-bottom-color: rgba(255,255,255,.72);
+}
+html[data-theme="dark"][data-skin="friends"] .top {
+  background: linear-gradient(180deg, rgba(27,33,47,.9), rgba(23,28,40,.8));
+  border-color: var(--line);
+}
+
+html[data-skin="friends"] .brand,
+html[data-skin="friends"] .brand .d4 {
+  background: linear-gradient(120deg, #34417f, #5364bb 56%, #238e89);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: #34417f;
+}
+html[data-theme="dark"][data-skin="friends"] .brand,
+html[data-theme="dark"][data-skin="friends"] .brand .d4 {
+  background: linear-gradient(120deg, #bdc6ff, #92a0ff 56%, #59c9c1);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+html[data-skin="friends"] h1 {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-weight: 750;
+  font-size: 27px;
+  letter-spacing: -.025em;
+  background: linear-gradient(110deg, var(--rose-2), var(--rose) 62%, var(--friends-teal));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: var(--rose-2);
+}
+html[data-skin="friends"] .serif,
+html[data-skin="friends"] .dcard .ttl {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+html[data-skin="friends"] .dcard .ttl { font-weight: 700; letter-spacing: -.01em; }
+html[data-skin="friends"] table th { color: var(--rose-2); }
+html[data-skin="friends"] .avatar-pick .avatar-img,
+html[data-skin="friends"] .avatar-pick .avatar-ph {
+  border-color: #d9dfef;
+}
+html[data-skin="friends"] .avatar-pick .avatar-ph { background: #edf0f8; }
+html[data-skin="friends"] .avatar-pick .avatar-cam {
+  background: linear-gradient(135deg, #5365bc, #238e89);
+  border-color: #f8f8f4;
+  box-shadow: 0 4px 11px rgba(53,70,139,.28);
+}
+html[data-theme="dark"][data-skin="friends"] .avatar-pick .avatar-img,
+html[data-theme="dark"][data-skin="friends"] .avatar-pick .avatar-ph {
+  border-color: #46516e;
+}
+html[data-theme="dark"][data-skin="friends"] .avatar-pick .avatar-ph { background: #293145; }
+html[data-theme="dark"][data-skin="friends"] .avatar-pick .avatar-cam { border-color: #1b2130; }
+
+html[data-skin="friends"] nav a.on,
+html[data-skin="friends"] .bell.on,
+html[data-skin="friends"] .tabs a.on,
+html[data-skin="friends"] .viewtog a.on,
+html[data-skin="friends"] .theme-pick [data-theme-set][aria-pressed="true"],
+html[data-skin="friends"] .gender-opt:has(input:checked) {
+  background: linear-gradient(135deg, #5365bc, #354483);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 6px 16px rgba(58,70,139,.28);
+}
+html[data-skin="friends"] nav.glass-nav .tab-ind,
+html[data-skin="friends"] .tabs .tab-ind {
+  background: linear-gradient(135deg, #5365bc, #354483);
+  box-shadow: 0 6px 16px rgba(58,70,139,.28), inset 0 1px 0 rgba(255,255,255,.28);
+}
+@media (min-width: 721px) {
+  html[data-skin="friends"] nav.glass-nav a:hover { color: var(--rose-2); }
+  html[data-skin="friends"] nav.glass-nav a.on { background: transparent; box-shadow: none; color: #fff; }
+}
+
+html[data-skin="friends"] .btn.primary,
+html[data-theme="dark"][data-skin="friends"] .btn.primary,
+html[data-skin="friends"] .toolbar button.active {
+  background: linear-gradient(135deg, #5365bc, #354483);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 6px 16px rgba(58,70,139,.25);
+}
+html[data-skin="friends"] .btn.primary:hover {
+  box-shadow: 0 8px 20px rgba(58,70,139,.35);
+}
+html[data-skin="friends"] input:focus-visible,
+html[data-skin="friends"] textarea:focus-visible,
+html[data-skin="friends"] select:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(75,89,166,.16);
+}
+
+html[data-skin="friends"] .card,
+html[data-skin="friends"] .sec,
+html[data-skin="friends"] .notif-card,
+html[data-skin="friends"] .dcard,
+html[data-skin="friends"] .cat-card,
+html[data-skin="friends"] .drow,
+html[data-skin="friends"] .cfeed-card,
+html[data-skin="friends"] .stat {
+  background: linear-gradient(145deg, rgba(255,255,252,.68), rgba(244,248,247,.51));
+  border: 1px solid rgba(255,255,255,.76);
+  border-radius: 20px;
+  box-shadow: 0 16px 38px rgba(53,66,103,.1), inset 0 1px 0 rgba(255,255,255,.84);
+}
+html[data-skin="friends"] .card::after {
+  background: linear-gradient(125deg,
+    rgba(77,96,181,.07),
+    rgba(43,151,144,.055) 52%,
+    rgba(221,164,58,.06));
+  mix-blend-mode: screen;
+}
+html[data-theme="dark"][data-skin="friends"] .card,
+html[data-theme="dark"][data-skin="friends"] .sec,
+html[data-theme="dark"][data-skin="friends"] .notif-card,
+html[data-theme="dark"][data-skin="friends"] .dcard,
+html[data-theme="dark"][data-skin="friends"] .cat-card,
+html[data-theme="dark"][data-skin="friends"] .drow,
+html[data-theme="dark"][data-skin="friends"] .cfeed-card,
+html[data-theme="dark"][data-skin="friends"] .stat {
+  background: linear-gradient(145deg, rgba(35,42,59,.82), rgba(27,34,47,.74));
+  border-color: rgba(255,255,255,.11);
+  box-shadow: 0 16px 38px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.06);
+}
+html[data-theme="dark"][data-skin="friends"] .card::after {
+  background: linear-gradient(125deg,
+    rgba(116,132,224,.075),
+    rgba(72,183,173,.05) 52%,
+    rgba(214,166,81,.045));
+}
+html[data-theme="dark"][data-skin="friends"] .bell,
+html[data-theme="dark"][data-skin="friends"] nav a,
+html[data-theme="dark"][data-skin="friends"] nav.glass-nav,
+html[data-theme="dark"][data-skin="friends"] .tabs,
+html[data-theme="dark"][data-skin="friends"] .dcount,
+html[data-theme="dark"][data-skin="friends"] .viewtog {
+  background: rgba(31,39,56,.8);
+  border-color: rgba(255,255,255,.11);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.07), 0 4px 14px rgba(0,0,0,.25);
+}
+html[data-theme="dark"][data-skin="friends"] input,
+html[data-theme="dark"][data-skin="friends"] textarea,
+html[data-theme="dark"][data-skin="friends"] select,
+html[data-theme="dark"][data-skin="friends"] .rich-ed,
+html[data-theme="dark"][data-skin="friends"] .toolbar button,
+html[data-theme="dark"][data-skin="friends"] .toggle,
+html[data-theme="dark"][data-skin="friends"] .chip-cat,
+html[data-theme="dark"][data-skin="friends"] .gender-opt,
+html[data-theme="dark"][data-skin="friends"] .pay-opt {
+  background: rgba(29,36,51,.91);
+}
+html[data-theme="dark"][data-skin="friends"] .menu,
+html[data-theme="dark"][data-skin="friends"] .cat-menu,
+html[data-theme="dark"][data-skin="friends"] .community-dlg,
+html[data-theme="dark"][data-skin="friends"] .tour-pop {
+  background: #202736;
+}
+html[data-theme="dark"][data-skin="friends"] .og-preview {
+  background: rgba(26,33,47,.95);
+}
+html[data-theme="dark"][data-skin="friends"] .og-preview .og-text {
+  background: linear-gradient(180deg, rgba(34,42,58,.97), rgba(27,34,47,.97));
+}
+
+/* Карточки событий в дружеском скине немного собраннее: изображение остаётся
+   главным, но заголовок и действия становятся менее «открыточными». */
+html[data-skin="friends"] .dcard .ph { border-radius: 19px 19px 7px 7px; }
+html[data-skin="friends"] .dcard .ph.g0 { background: linear-gradient(135deg, #5c6cc0, #354483); }
+html[data-skin="friends"] .dcard .ph.g1 { background: linear-gradient(135deg, #36a69e, #246f7c); }
+html[data-skin="friends"] .dcard .ph.g2 { background: linear-gradient(135deg, #e0ad52, #aa7626); }
+html[data-skin="friends"] .dcard .ph.g3 { background: linear-gradient(135deg, #6978b8, #278a86); }
+html[data-skin="friends"] .dcard:hover,
+html[data-skin="friends"] .cat-card:hover {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  box-shadow: 0 20px 44px rgba(53,66,103,.17), inset 0 1px 0 rgba(255,255,255,.84);
+}
+html[data-skin="friends"] .dcard:hover .ttl a,
+html[data-skin="friends"] .cat-card:hover .cat-name { color: var(--rose-2); }
+html[data-skin="friends"] .bdg.guest { background: rgba(42,126,123,.92); }
+html[data-skin="friends"] .bdg.book { background: rgba(75,89,166,.92); }
+html[data-skin="friends"] .dcard .edit-hint,
+html[data-skin="friends"] .dcard .foot .open-date {
+  color: var(--rose-2);
+  background: rgba(249,250,248,.7);
+}
+html[data-theme="dark"][data-skin="friends"] .dcard .edit-hint,
+html[data-theme="dark"][data-skin="friends"] .dcard .foot .open-date {
+  background: rgba(34,42,59,.82);
+}
+
+html[data-skin="friends"] .badge.rose {
+  background: #e8ebfa;
+  color: #43529d;
+}
+html[data-skin="friends"] .badge.amber {
+  background: #f7edd7;
+  color: #896322;
+}
+html[data-theme="dark"][data-skin="friends"] .badge.rose {
+  background: #30395c;
+  color: #b8c1ff;
+}
+html[data-theme="dark"][data-skin="friends"] .badge.amber {
+  background: #443923;
+  color: #efc675;
+}
+html[data-skin="friends"] .vote-progress { accent-color: var(--friends-teal); }
+html[data-skin="friends"] .voting-winner { background: rgba(75,89,166,.08); }
+html[data-theme="dark"][data-skin="friends"] .voting-winner { background: rgba(146,160,255,.11); }
+html[data-skin="friends"] .choice-opt:has(input:checked) {
+  background: color-mix(in srgb, var(--rose-soft) 74%, rgba(255,255,255,.62));
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--line));
+}
+html[data-theme="dark"][data-skin="friends"] .choice-opt:has(input:checked) {
+  background: #2d3655;
+  border-color: #56638e;
+}
+
+.og-preview[data-preview-skin="friends"] {
+  border-color: rgba(75,89,166,.3);
+  box-shadow: 0 8px 24px rgba(53,66,103,.11);
+}
+.og-preview[data-preview-skin="friends"] .og-host {
+  color: #238e89;
+}
+html[data-theme="dark"] .og-preview[data-preview-skin="friends"] .og-host { color: #59c9c1; }
+
+/* Цветовой аналог для CSS/SVG-фолбэка. WebGL уже получает friends-палитру
+   напрямую из шейдера — полноэкранный filter на canvas ему не нужен. */
+html[data-skin="friends"] .bg-smoke .turb {
+  filter: hue-rotate(218deg) saturate(.88) brightness(1.03);
+}
+html[data-skin="friends"] .bg-smoke span:nth-child(2) {
+  background: radial-gradient(46% 48% at 40% 40%, rgba(76,97,184,.34), transparent 66%);
+}
+html[data-skin="friends"] .bg-smoke span:nth-child(3) {
+  background: radial-gradient(46% 44% at 56% 40%, rgba(45,157,149,.28), transparent 66%);
+}
+html[data-skin="friends"] .bg-smoke span:nth-child(4) {
+  background: radial-gradient(46% 46% at 44% 50%, rgba(221,164,58,.25), transparent 66%);
+}
+html[data-theme="dark"][data-skin="friends"] .bg-smoke span:nth-child(2) {
+  background: radial-gradient(46% 48% at 40% 40%, rgba(70,84,159,.4), transparent 66%);
+}
+html[data-theme="dark"][data-skin="friends"] .bg-smoke span:nth-child(3) {
+  background: radial-gradient(46% 44% at 56% 40%, rgba(38,127,122,.3), transparent 66%);
+}
+html[data-theme="dark"][data-skin="friends"] .bg-smoke span:nth-child(4) {
+  background: radial-gradient(46% 46% at 44% 50%, rgba(142,103,40,.25), transparent 66%);
+}
+
+@media (max-width: 720px) {
+  html[data-skin="friends"] .top nav {
+    background: rgba(249,250,247,.78);
+    box-shadow: 0 12px 34px rgba(53,66,103,.2), inset 0 1px 0 rgba(255,255,255,.86);
+  }
+  html[data-theme="dark"][data-skin="friends"] .top nav {
+    background: rgba(27,33,47,.92);
+    border-color: rgba(255,255,255,.11);
+    box-shadow: 0 12px 34px rgba(0,0,0,.42), inset 0 1px 0 rgba(255,255,255,.07);
+  }
+  html[data-skin="friends"] .top nav.glass-nav .tab-ind {
+    background: linear-gradient(135deg, #5365bc, #354483);
+    box-shadow: 0 4px 12px rgba(58,70,139,.31);
+  }
 }

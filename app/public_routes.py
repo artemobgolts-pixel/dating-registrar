@@ -17,6 +17,7 @@ from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
                                StreamingResponse)
 
 import auth_routes
+import appearance
 import db
 import guests as legacy_guests
 import images
@@ -811,6 +812,7 @@ def public_category(token: str, request: Request, conn=Depends(get_db)):
 
     resp = templates.TemplateResponse(request, "public/category.html", {
         "cat": cat,
+        "category_skin": appearance.normalize_skin(cat["category_skin"]),
         "regular": dates,
         "past": past,
         "guest": guest, "guest_name": guest_name,
@@ -819,7 +821,7 @@ def public_category(token: str, request: Request, conn=Depends(get_db)):
         "viewer_is_owner": viewer_is_owner,
         "vote_state": vote_state,
         # есть ли картинка для og:image — своя или авто (первое фото события).
-        # Если да, мета-тег ведёт на /c/<токен>/og-image, иначе на /static/og.png.
+        # Если да, мета-тег ведёт на /c/<токен>/og-image, иначе на skin-fallback.
         "og_available": bool(cat["og_image"]) or any(d.get("images") for d in dates),
         # бот для вход-модалки (Telegram Login Widget). Анониму — кнопка «Войти»
         # открывает окно с этим виджетом прямо на гостевой.
@@ -888,7 +890,7 @@ def public_og_image(token: str, conn=Depends(get_db)):
     """Картинка превью ссылки (og:image) — её запрашивают краулеры мессенджеров
     (Telegram, WhatsApp) без cookie, поэтому отдаём публично по активной ссылке.
     Своя og_image категории в приоритете; иначе — коллаж из фото её событий
-    (сетка 2×2 или 4×2); если фото нет — 404 (шаблон укажет /static/og.png)."""
+    (сетка 2×2 или 4×2); если фото нет — 404 (шаблон укажет skin-fallback)."""
     cat = cat_by_token(conn, token)
     if not cat or not cat["link_enabled"]:
         raise HTTPException(404)
@@ -909,7 +911,9 @@ def public_og_image(token: str, conn=Depends(get_db)):
         "WHERE dc.category_id=? AND d.archived_at IS NULL AND d.is_draft=0 "
         "ORDER BY dc.position ASC, di.position ASC, di.id ASC LIMIT 8",
         (cat["id"],)).fetchall()
-    collage = images.build_og_collage([r["filename"] for r in rows])
+    collage = images.build_og_collage(
+        [r["filename"] for r in rows],
+        appearance.normalize_skin(cat["category_skin"]))
     if not collage:
         raise HTTPException(404)
     return FileResponse(collage, media_type="image/webp",
@@ -1052,6 +1056,8 @@ def shared_date(token: str, request: Request, conn=Depends(get_db)):
     # Гостю (не автору) показываем полноценную карточку с действиями. Контекст
     # выбора существует только при ровно одной активной категории события.
     act_cat = share_action_cat(conn, d)
+    category_skin = appearance.normalize_skin(
+        act_cat["category_skin"] if act_cat else None)
     vote_state = voting.get_category_state(conn, act_cat["id"]) if act_cat else None
     guest = guest_name = None
     if me and not is_mine:
@@ -1120,6 +1126,7 @@ def shared_date(token: str, request: Request, conn=Depends(get_db)):
                           and not payload["past"] and not bool(d["is_draft"])),
         "can_question": not is_mine,
         "vote_state": vote_state,
+        "category_skin": category_skin,
         "bot": auth_routes.BOT_USERNAME,
         "oauth": auth_routes._oauth_buttons(),
         "widget_state": (auth_routes.issue_widget_state(request)

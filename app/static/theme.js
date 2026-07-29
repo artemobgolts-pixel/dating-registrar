@@ -19,7 +19,26 @@
 
   function updateChrome(theme) {
     var meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute("content", theme === "dark" ? "#211a20" : "#b65f6f");
+    if (!meta) return;
+    var friends = root.dataset.skin === "friends";
+    meta.setAttribute("content", theme === "dark"
+      ? (friends ? "#15182a" : "#211a20")
+      : (friends ? "#554eae" : "#b65f6f"));
+  }
+
+  function syncSkin() {
+    // Turbo заменяет body, но оставляет корневой <html>. Дублируем скин в body
+    // публичных страниц и после перехода переносим его на html, чтобы CSS,
+    // theme-color и постоянный WebGL-canvas получили актуальную палитру.
+    var bodySkin = document.body && document.body.dataset.skin;
+    if (bodySkin !== "friends" && bodySkin !== "romantic") return;
+    var changed = root.dataset.skin !== bodySkin;
+    root.dataset.skin = bodySkin;
+    if (changed) {
+      document.dispatchEvent(new CustomEvent("d4y:skinchange", {
+        detail: { skin: bodySkin }
+      }));
+    }
   }
 
   function updateButtons(theme) {
@@ -163,11 +182,16 @@
   });
 
   document.addEventListener("DOMContentLoaded", function () {
+    syncSkin();
     updateChrome(root.dataset.theme || "light");
     updateButtons(root.dataset.theme || "light");
   });
+  document.addEventListener("d4y:skinchange", function () {
+    updateChrome(root.dataset.theme || "light");
+  });
   // Turbo заменяет body, но не перезапускает этот скрипт.
   document.addEventListener("turbo:load", function () {
+    syncSkin();
     updateChrome(root.dataset.theme || "light");
     updateButtons(root.dataset.theme || "light");
   });

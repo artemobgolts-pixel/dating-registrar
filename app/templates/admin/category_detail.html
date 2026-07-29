@@ -26,7 +26,44 @@
       <textarea name="description" id="catDescInput" maxlength="1000" hidden>{{ cat['description'] or '' }}</textarea>
     </div>
 
-    <label style="margin-top:4px">Превью ссылки — кликай прямо по нему и меняй</label>
+    {% set category_skin = cat['category_skin'] or 'friends' %}
+    <fieldset class="skin-setting category-skin-setting" data-tour="category-skin"
+              aria-describedby="categorySkinHint">
+      <legend>Оформление страницы</legend>
+      <p class="muted skin-setting-hint" id="categorySkinHint">
+        Эту тему увидят люди, которые перейдут по ссылке. Содержание и голоса при смене не изменятся.
+      </p>
+      <div class="skin-pick">
+        <label class="skin-option">
+          <input type="radio" name="category_skin" value="friends"
+                 {% if category_skin == 'friends' %}checked{% endif %}>
+          <span class="skin-option-preview skin-option-preview-friends" aria-hidden="true">
+            <span class="skin-option-symbol">{% with icon='gather' %}{% include "admin/_icon.html" %}{% endwith %}</span>
+            <span class="skin-option-lines"><i></i><i></i><i></i></span>
+          </span>
+          <span class="skin-option-copy">
+            <strong>Дружеский</strong>
+            <small>Для друзей, семьи и общих планов</small>
+          </span>
+          <span class="skin-option-check" aria-hidden="true">{% with icon='check' %}{% include "admin/_icon.html" %}{% endwith %}</span>
+        </label>
+        <label class="skin-option">
+          <input type="radio" name="category_skin" value="romantic"
+                 {% if category_skin == 'romantic' %}checked{% endif %}>
+          <span class="skin-option-preview skin-option-preview-romantic" aria-hidden="true">
+            <span class="skin-option-symbol">{% with icon='heart' %}{% include "admin/_icon.html" %}{% endwith %}</span>
+            <span class="skin-option-lines"><i></i><i></i><i></i></span>
+          </span>
+          <span class="skin-option-copy">
+            <strong>Романтический</strong>
+            <small>Тёплое авторское оформление для двоих</small>
+          </span>
+          <span class="skin-option-check" aria-hidden="true">{% with icon='check' %}{% include "admin/_icon.html" %}{% endwith %}</span>
+        </label>
+      </div>
+    </fieldset>
+
+    <label style="margin-top:4px">Превью ссылки в мессенджере</label>
     {# Редактируемое превью: клик по картинке открывает выбор своей; клик по
        заголовку/описанию — правка на месте (пишет в скрытые og_title/og_desc).
        Отдельных полей больше нет (#12). #}
@@ -37,10 +74,15 @@
     <div class="og-preview editable" id="ogPreview" data-tour="category-preview"
          data-cid="{{ cat['id'] }}"
          data-has-image="{{ '1' if cat['og_image'] else '' }}"
+         data-preview-skin="{{ category_skin }}"
+         data-default-image="{{ '1' if not cat['og_image'] and not auto_og else '0' }}"
+         data-auto-image="{{ '1' if auto_og and not cat['og_image'] else '0' }}"
+         data-friends-src="/static/og-friends.jpg"
+         data-romantic-src="/static/og.png"
          aria-label="так ссылка выглядит при отправке">
       <div class="og-img-wrap" id="ogImgPick" title="Нажми, чтобы выбрать свою картинку">
         <img class="og-img" id="ogPreviewImg" draggable="false"
-             src="{% if cat['og_image'] or auto_og %}/admin/categories/{{ cat['id'] }}/og-preview{% else %}/static/og.png{% endif %}"
+             src="{% if cat['og_image'] or auto_og %}/admin/categories/{{ cat['id'] }}/og-preview?skin={{ category_skin }}{% elif category_skin == 'friends' %}/static/og-friends.jpg{% else %}/static/og.png{% endif %}"
              alt="" style="object-position:{{ cat['og_focus'] or '50% 50%' }}">
         {# постоянная подсказка «сменить картинку» — видна всегда, ярче при наведении #}
         <span class="og-img-badge" aria-hidden="true">🖼 Сменить</span>
@@ -49,8 +91,10 @@
         <span class="og-focus-hint" id="ogFocusHint" aria-hidden="true"{% if not cat['og_image'] %} hidden{% endif %}>↔ двигай, чтобы выбрать кадр</span>
       </div>
       <div class="og-text">
-        <div class="og-title ed-field" id="ogTitleEd" data-ph="✎ Тебя ждёт сюрприз ♥">{{ cat['og_title'] or '' }}</div>
-        <div class="og-desc ed-field" id="ogDescEd" data-ph="✎ Открой — внутри кое-что приятное">{{ cat['og_desc'] or '' }}</div>
+        <div class="og-title ed-field" id="ogTitleEd"
+             data-ph="{{ 'Собираемся вместе' if category_skin == 'friends' else '✎ Тебя ждёт сюрприз ♥' }}">{{ cat['og_title'] or '' }}</div>
+        <div class="og-desc ed-field" id="ogDescEd"
+             data-ph="{{ 'Открой и выбери удобный вариант' if category_skin == 'friends' else '✎ Открой — внутри кое-что приятное' }}">{{ cat['og_desc'] or '' }}</div>
         <div class="og-host">date4you.online</div>
       </div>
     </div>

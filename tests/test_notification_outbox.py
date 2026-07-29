@@ -303,6 +303,11 @@ class NotificationOutboxMigrationTests(unittest.TestCase):
                 db.init_db()
                 conn = sqlite3.connect(path)
                 conn.execute("DROP TABLE notification_outbox")
+                # Свежая фикстура уже содержит поля v26. Убираем их, чтобы
+                # user_version=22 действительно описывал старую схему, а не
+                # просил миграцию повторно добавить существующие колонки.
+                conn.execute("ALTER TABLE categories DROP COLUMN category_skin")
+                conn.execute("ALTER TABLE users DROP COLUMN admin_skin")
                 conn.execute("PRAGMA user_version=22")
                 conn.commit()
                 conn.close()

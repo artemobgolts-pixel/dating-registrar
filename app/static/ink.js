@@ -38,7 +38,22 @@
     (deviceMemory > 1 && deviceMemory <= 2 &&
       hardwareConcurrency > 0 && hardwareConcurrency <= 2);
   var staticBackground = reduce || saveData || veryWeakDevice;
+  // CSS-фолбэк должен замереть по тем же правилам даже при отсутствии WebGL.
+  // Класс ставим до попытки создать контекст, чтобы Save-Data не оставлял
+  // анимированные градиенты, дым, сердечки или орбиты.
+  document.documentElement.classList.toggle("ink-static", staticBackground);
+  if (staticBackground) {
+    host.querySelectorAll("animate, animateTransform").forEach(function (node) {
+      node.remove();
+    });
+  }
   var darkTheme = document.documentElement.getAttribute("data-theme") === "dark";
+  function friendsSkin() {
+    // body нужен для Turbo: он заменяется между публичными страницами, тогда как
+    // <html> и постоянный canvas могут пережить переход.
+    var bodySkin = document.body && document.body.getAttribute("data-skin");
+    return (bodySkin || document.documentElement.getAttribute("data-skin")) === "friends";
+  }
 
   // Интерактивная часть — настройка аккаунта. Сам живой фон рисуется всегда,
   // но движение мыши и клики читаются только при явном серверном разрешении.
@@ -205,7 +220,7 @@ void main(){
 precision highp float;
 in vec2 vUv; out vec4 o;
 uniform sampler2D uDisp; uniform sampler2D uDye; uniform vec2 res; uniform float t;
-uniform float uDark; uniform float uInteractive;
+uniform float uDark; uniform float uFriends; uniform float uInteractive;
 // Кольцевой буфер кликов: каждый клик — центр (xy в uv), возраст(с) и сид формы.
 // Неактивные слоты держат uClickAge < 0 и пропускаются в цикле (тяжёлый fbm не считается).
 #define MAX_CLICKS ${MAX_CLICKS}
@@ -229,6 +244,20 @@ const vec3 LILAC_D = vec3(0.300, 0.220, 0.335);
 const vec3 EMBER_D = vec3(0.730, 0.390, 0.245);
 const vec3 EMBHI_D = vec3(0.845, 0.615, 0.390);
 const vec3 INK_D   = vec3(0.835, 0.665, 0.720);
+// Дружеская экспозиция: ivory + indigo / teal / amber. Геометрия и движение
+// остаются теми же, поэтому оба оформления узнаются как один date4you.
+const vec3 F_BG_L    = vec3(0.965, 0.953, 0.914);
+const vec3 F_ROSE_L  = vec3(0.333, 0.306, 0.682);
+const vec3 F_BERRY_L = vec3(0.220, 0.200, 0.500);
+const vec3 F_PEACH_L = vec3(0.827, 0.604, 0.196);
+const vec3 F_LILAC_L = vec3(0.067, 0.545, 0.525);
+const vec3 F_INK_L   = vec3(0.055, 0.060, 0.125);
+const vec3 F_BG_D    = vec3(0.071, 0.082, 0.137);
+const vec3 F_ROSE_D  = vec3(0.310, 0.285, 0.600);
+const vec3 F_BERRY_D = vec3(0.170, 0.155, 0.370);
+const vec3 F_PEACH_D = vec3(0.480, 0.330, 0.115);
+const vec3 F_LILAC_D = vec3(0.055, 0.330, 0.320);
+const vec3 F_INK_D   = vec3(0.620, 0.610, 0.875);
 float hash(vec2 p){ p = fract(p*vec2(123.34,456.21)); p += dot(p,p+45.32); return fract(p.x*p.y); }
 float noise(vec2 p){
   vec2 i = floor(p), f = fract(p);
@@ -329,6 +358,7 @@ vec3 inkAt(vec3 col, vec2 uv, vec2 dsp, vec2 cc, float age, float sd){
   float dd = smoothstep(0.10, 0.72, dens);          // густота → к центру плотнее
   float a  = smoothstep(0.02, 0.18, dens);          // мягкая, но не размытая кромка
   vec3 inkBase = mix(INK_L, INK_D, uDark);
+  if (uFriends > 0.5) inkBase = mix(F_INK_L, F_INK_D, uDark);
   vec3 inkc = mix(inkBase + vec3(0.14,0.115,0.15), inkBase, dd);
   inkc += (veins - 0.5) * 0.05;                     // лёгкая мраморность в жилах
   return mix(col, inkc, clamp(a * (0.34 + 0.50 * dd), 0.0, 0.86));
@@ -351,6 +381,13 @@ void main(){
   vec3 berry = mix(BERRY_L, BERRY_D, uDark);
   vec3 peach = mix(PEACH_L, PEACH_D, uDark);
   vec3 lilac = mix(LILAC_L, LILAC_D, uDark);
+  if (uFriends > 0.5) {
+    bg = mix(F_BG_L, F_BG_D, uDark);
+    rose = mix(F_ROSE_L, F_ROSE_D, uDark);
+    berry = mix(F_BERRY_L, F_BERRY_D, uDark);
+    peach = mix(F_PEACH_L, F_PEACH_D, uDark);
+    lilac = mix(F_LILAC_L, F_LILAC_D, uDark);
+  }
   vec3 col = bg;
   col = mix(col, lilac, smoothstep(0.42, 1.02, length(r)) * 0.42);
   col = mix(col, rose,  smoothstep(0.52, 1.10, f) * 0.62);
@@ -735,6 +772,7 @@ void main(){
     gl.uniform2f(dp.u.res, canvas.width, canvas.height);
     gl.uniform1f(dp.u.t, nowS);
     gl.uniform1f(dp.u.uDark, darkTheme ? 1.0 : 0.0);
+    gl.uniform1f(dp.u.uFriends, friendsSkin() ? 1.0 : 0.0);
     gl.uniform1f(dp.u.uInteractive, interactive ? 1.0 : 0.0);
     gl.uniform1i(dp.u.uDisp, disp.read.attach(0));
     gl.uniform1i(dp.u.uDye, dye.read.attach(1));
@@ -788,6 +826,7 @@ void main(){
       gl.uniform2f(d.u.res, canvas.width, canvas.height);
       gl.uniform1f(d.u.t, bgTime == null ? 8.0 : bgTime);
       gl.uniform1f(d.u.uDark, darkTheme ? 1.0 : 0.0);
+      gl.uniform1f(d.u.uFriends, friendsSkin() ? 1.0 : 0.0);
       gl.uniform1f(d.u.uInteractive, 1.0);
       gl.uniform1i(d.u.uDisp, disp.read.attach(0));   // disp пустой → фон не смещён
       gl.uniform1i(d.u.uDye, dye.read.attach(1));     // dye пустой → без тёплого следа
@@ -803,11 +842,13 @@ void main(){
 
   function drawStatic() {
     // статичный «красивый» кадр без анимации и без жидкости (uDisp = 0)
+    resize();
     var dpr2 = progs.disp;
     gl.useProgram(dpr2.prog);
     gl.uniform2f(dpr2.u.res, canvas.width, canvas.height);
     gl.uniform1f(dpr2.u.t, 8.0);
     gl.uniform1f(dpr2.u.uDark, darkTheme ? 1.0 : 0.0);
+    gl.uniform1f(dpr2.u.uFriends, friendsSkin() ? 1.0 : 0.0);
     gl.uniform1f(dpr2.u.uInteractive, 0.0);
     gl.uniform1i(dpr2.u.uDisp, disp.read.attach(0));
     gl.uniform1i(dpr2.u.uDye, dye.read.attach(1));   // пустые чернила на статичном кадре
@@ -821,9 +862,23 @@ void main(){
     darkTheme = event.detail && event.detail.theme === "dark";
     if (staticBackground) drawStatic(); else play();
   });
+  document.addEventListener("d4y:skinchange", function () {
+    if (staticBackground) drawStatic(); else play();
+  });
+  document.addEventListener("turbo:load", function () {
+    if (staticBackground) drawStatic(); else play();
+  });
 
   if (staticBackground) {
     drawStatic();
+    var staticResizeRaf = 0;
+    window.addEventListener("resize", function () {
+      if (staticResizeRaf) cancelAnimationFrame(staticResizeRaf);
+      staticResizeRaf = requestAnimationFrame(function () {
+        staticResizeRaf = 0;
+        drawStatic();
+      });
+    }, { passive: true });
   } else {
     document.addEventListener("visibilitychange", function () {
       if (document.hidden) pause(); else play();

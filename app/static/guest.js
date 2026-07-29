@@ -6,6 +6,12 @@
   const TOKEN = document.body.dataset.token;
   let MYNAME = document.body.dataset.name || "";
   const AUTH = document.body.dataset.auth === "1";   // залогинен ли посетитель
+  const FRIENDS = (document.body.dataset.skin ||
+    document.documentElement.dataset.skin) === "friends";
+  const FRIEND_CHECK =
+    '<svg class="ui-icon ui-icon-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+      '<circle cx="12" cy="12" r="9"></circle><path d="m8 12 2.7 2.8L16.6 9"></path>' +
+    '</svg>';
   // База для действий: на странице категории — /c/<токен>, на странице
   // отдельного события (шаринг) — /d/<токен>. Бэкенд там и там даёт
   // совместимые ручки book/question/suggest_time.
@@ -19,6 +25,18 @@
     toastEl.classList.add("show");
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => toastEl.classList.remove("show"), 2600);
+  }
+
+  function setVoteButtonLabel(button, mine, fullLabel) {
+    if (fullLabel) {
+      button.textContent = fullLabel;
+      return;
+    }
+    if (FRIENDS) {
+      button.innerHTML = FRIEND_CHECK + (mine ? " Выбрано" : " Выбрать");
+    } else {
+      button.textContent = mine ? "Выбрано ♥" : "Выбрать ♥";
+    }
   }
 
   /* Вход обязателен для любого действия. Аноним видит окно входа (модалку с
@@ -78,14 +96,14 @@
     const btn = card.querySelector(".btn.book");
     if (btn) {
       btn.classList.toggle("on", mine);
-      btn.textContent = mine ? "Выбрано ♥" : "Выбрать ♥";
+      setVoteButtonLabel(btn, mine);
       btn.title = mine ? "Нажми, чтобы отменить выбор" : "";
     }
     card.classList.toggle("booked-me", mine);
     const seal = card.querySelector(".seal");
-    if (seal) seal.hidden = !mine;                 // восковая печать ♥ (только карточки с фото)
+    if (seal) seal.hidden = !mine;                 // знак выбора (только карточки с фото)
     const who = card.querySelector(".bo-who");     // подпись на оверлее
-    if (who) who.textContent = mine ? (MYNAME || "ты ♥") : "";
+    if (who) who.textContent = mine ? (MYNAME || (FRIENDS ? "ты" : "ты ♥")) : "";
   }
 
   function renderParticipants(progress, update) {
@@ -186,9 +204,10 @@
     }
     button.disabled = !update.mine && full;
     button.classList.toggle("on", Boolean(update.mine));
-    button.textContent = update.mine
-      ? "Выбрано ♥"
-      : (full ? `Набрано ${count}/${capacity}` : "Выбрать ♥");
+    setVoteButtonLabel(
+      button,
+      Boolean(update.mine),
+      !update.mine && full ? `Набрано ${count}/${capacity}` : "");
   }
 
   let voteBusy = false;
@@ -214,12 +233,12 @@
     if (res.j.booked) {
       const r = btn.getBoundingClientRect();
       UI.burst(r.left + r.width / 2, r.top + 6);
-      const cr = card.getBoundingClientRect();     // второй залп — из сердца карточки
+      const cr = card.getBoundingClientRect();     // второй залп — из центра карточки
       setTimeout(() => UI.burst(cr.left + cr.width / 2,
                                 Math.max(70, cr.top + cr.height / 2)), 140);
       card.classList.remove("glow"); void card.offsetWidth;   // перезапуск анимации
       card.classList.add("glow");
-      toast("Голос учтён ♥");
+      toast(FRIENDS ? "Голос учтён" : "Голос учтён ♥");
     } else {
       toast("Голос снят");
     }
@@ -257,7 +276,8 @@
     const res = await post(`${ACT}/question`, new FormData(askForm));
     if (!res.ok) return;
     askDlg.close();
-    toast("Вопрос отправлен 💌 Ответ появится здесь же");
+    toast(FRIENDS ? "Вопрос отправлен — ответ появится здесь же"
+      : "Вопрос отправлен 💌 Ответ появится здесь же");
     setTimeout(() => location.reload(), 1200);
   });
 
@@ -299,7 +319,7 @@
     const res = await post(`${ACT}/suggest_time`, new FormData(timeForm));
     if (!res.ok) return;
     timeDlg.close();
-    toast("Предложение отправлено 📅");
+    toast(FRIENDS ? "Предложение времени отправлено" : "Предложение отправлено 📅");
     setTimeout(() => location.reload(), 1100);
   });
 
@@ -576,8 +596,9 @@
       return;
     }
     propDlg.close();
-    toast(editId ? "Сохранено ♥"
-          : (raw.j.moderated ? "Отправлено! Появится после проверки ⏳" : "Добавлено! Спасибо за идею ♥"));
+    toast(editId ? (FRIENDS ? "Сохранено" : "Сохранено ♥")
+          : (raw.j.moderated ? "Отправлено! Появится после проверки ⏳"
+            : (FRIENDS ? "Добавлено! Спасибо за идею" : "Добавлено! Спасибо за идею ♥")));
     setTimeout(() => location.reload(), 1100);
   });
 

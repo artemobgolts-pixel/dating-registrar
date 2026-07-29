@@ -28,11 +28,12 @@
       {% else %}
       <div class="share-cat">{{ share['name'] }}</div>
       {% endif %}
+      {% set share_friends = share['category_skin'] == 'friends' %}
       <div class="og-preview" aria-label="так ссылка выглядит при отправке">
-        <img class="og-img" src="{% if share_has_og %}/admin/categories/{{ share['id'] }}/og-preview{% else %}/static/og.png{% endif %}" alt="">
+        <img class="og-img" src="{% if share_has_og %}/admin/categories/{{ share['id'] }}/og-preview?skin={{ share['category_skin'] }}{% elif share_friends %}/static/og-friends.jpg{% else %}/static/og.png{% endif %}" alt="">
         <div class="og-text">
-          <div class="og-title">{{ share['og_title'] or 'Тебя ждёт сюрприз ♥' }}</div>
-          <div class="og-desc">{{ share['og_desc'] or 'Открой — внутри кое-что приятное' }}</div>
+          <div class="og-title">{{ share['og_title'] or ('Собираемся вместе' if share_friends else 'Тебя ждёт сюрприз ♥') }}</div>
+          <div class="og-desc">{{ share['og_desc'] or ('Открой и выбери удобный вариант' if share_friends else 'Открой — внутри кое-что приятное') }}</div>
           <div class="og-host">date4you.online</div>
         </div>
       </div>
@@ -43,7 +44,10 @@
       <div class="share-qr" id="shareQr">{{ qr_svg | safe }}</div>
       <div class="qr-actions">
         <a class="btn small qr-dl" id="qrDownload" download="date4you-qr.svg" href="#">Скачать QR-код</a>
-        <button type="button" class="btn primary qr-share" id="qrShare" data-url="{{ share_url }}" data-name="{{ share['name'] }}">Поделиться</button>
+        <button type="button" class="btn primary qr-share" id="qrShare"
+                data-url="{{ share_url }}"
+                data-name="{{ share['name'] }}"
+                data-text="{{ 'Собираемся вместе — выбери удобный вариант' if share_friends else 'Тебя ждёт сюрприз ♥' }}">Поделиться</button>
       </div>
     </div>
   </div>
@@ -66,7 +70,7 @@
   </div>
   <div class="cfeed" id="communityFeed" data-feed-url="/admin/community"></div>
   <p class="muted cfeed-empty" id="cfeedEmpty" hidden style="text-align:center;padding:20px 0">Пока пусто — как появятся публичные события, они возникнут здесь 🌙</p>
-  <p class="muted cfeed-end" id="cfeedEnd" hidden style="text-align:center;padding:14px 0;font-size:13px">Это всё на сейчас ♥</p>
+  <p class="muted cfeed-end" id="cfeedEnd" hidden style="text-align:center;padding:14px 0;font-size:13px">Это всё на сейчас{% if user['admin_skin'] == 'romantic' %} ♥{% endif %}</p>
 </div>
 
 <!-- Мини-виджет события из ленты -->

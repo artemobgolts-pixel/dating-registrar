@@ -1,0 +1,31 @@
+{# Небольшой self-hosted SVG-набор дружеской темы.
+   Иконки наследуют currentColor, поэтому одинаково работают в light/dark. #}
+{% macro icon(name, cls='') -%}
+<svg class="ui-icon ui-icon-{{ name }}{% if cls %} {{ cls }}{% endif %}" viewBox="0 0 24 24"
+     aria-hidden="true" focusable="false">
+  {% if name == 'gather' %}
+  <circle cx="7" cy="7" r="3.15"/><circle cx="17" cy="7" r="3.15"/>
+  <circle cx="7" cy="17" r="3.15"/><circle cx="17" cy="17" r="3.15"/>
+  {% elif name == 'check' %}
+  <circle cx="12" cy="12" r="9"/><path d="m8 12 2.7 2.8L16.6 9"/>
+  {% elif name == 'spark' %}
+  <path d="M12 2.8c.5 5.3 3.9 8.7 9.2 9.2-5.3.5-8.7 3.9-9.2 9.2-.5-5.3-3.9-8.7-9.2-9.2 5.3-.5 8.7-3.9 9.2-9.2Z"/>
+  {% elif name == 'clock' %}
+  <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.4 2"/>
+  {% elif name == 'calendar' %}
+  <rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M7.5 3v4M16.5 3v4M3.5 9.5h17"/>
+  {% elif name == 'pin' %}
+  <path d="M19 10c0 5-7 11-7 11S5 15 5 10a7 7 0 1 1 14 0Z"/><circle cx="12" cy="10" r="2.25"/>
+  {% elif name == 'link' %}
+  <path d="m9.3 14.7 5.4-5.4M7.8 17.2l-1.1 1.1a3.5 3.5 0 0 1-5-5l3.1-3.1a3.5 3.5 0 0 1 5 0M16.2 6.8l1.1-1.1a3.5 3.5 0 0 1 5 5l-3.1 3.1a3.5 3.5 0 0 1-5 0"/>
+  {% elif name == 'message' %}
+  <path d="M20 15.5a3 3 0 0 1-3 3H9l-5 3v-15a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3Z"/>
+  {% elif name == 'mail' %}
+  <rect x="3" y="5" width="18" height="14" rx="3"/><path d="m4 7 8 6 8-6"/>
+  {% elif name == 'plus' %}
+  <path d="M12 5v14M5 12h14"/>
+  {% elif name == 'user' %}
+  <circle cx="12" cy="8" r="4"/><path d="M4.8 21a7.2 7.2 0 0 1 14.4 0"/>
+  {% endif %}
+</svg>
+{%- endmacro %}

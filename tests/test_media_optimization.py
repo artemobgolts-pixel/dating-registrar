@@ -123,6 +123,30 @@ class FaststartTests(unittest.TestCase):
 
 
 class FrontendMediaContractTests(unittest.TestCase):
+    def test_static_background_covers_css_fallback_and_resizes(self):
+        ink = (APP / "static/ink.js").read_text(encoding="utf-8")
+        self.assertIn('classList.toggle("ink-static", staticBackground)', ink)
+        self.assertIn('querySelectorAll("animate, animateTransform")', ink)
+        self.assertIn('window.addEventListener("resize"', ink)
+        draw_static = ink.split("function drawStatic()", 1)[1].split(
+            'document.addEventListener("d4y:themechange"', 1)[0]
+        self.assertIn("resize();", draw_static)
+
+        for filename in ("public.css", "admin.css"):
+            css = (APP / f"static/{filename}").read_text(encoding="utf-8")
+            self.assertIn("html.ink-static .bg-smoke", css, filename)
+
+    def test_friends_cards_advertise_their_narrow_desktop_media_width(self):
+        for filename in ("category.html", "share.html"):
+            template = (
+                APP / f"templates/public/{filename}"
+            ).read_text(encoding="utf-8")
+            self.assertIn(
+                "(max-width: 619px) calc(100vw - 32px), 286px",
+                template,
+                filename,
+            )
+
     def test_vote_ui_updates_cards_without_page_reload(self):
         guest = (APP / "static/guest.js").read_text(encoding="utf-8")
         vote_block = guest.split("async function doBook", 1)[1].split(

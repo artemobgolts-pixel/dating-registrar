@@ -46,9 +46,11 @@ python tests/test_smoke.py
   `{need_name: true}`, фронт открывает диалог). Один участник может отдать только
   один голос за конкретное событие в категории (`UNIQUE` в `bookings`);
   число выбираемых вариантов задаёт режим голосования категории.
-- **Стиль**: «романтический минимализм» — крем `#faf5f2`, роза `#b65f6f`/`#8f4a58`,
-  Cormorant Garamond (self-hosted, Google Fonts не подключать). Анимации уважают
-  `prefers-reduced-motion`.
+- **Оформления** независимы от светлой/тёмной темы: `category_skin` задаёт
+  `friends|romantic` для публичной ссылки категории, `admin_skin` — для кабинета
+  пользователя. `data-skin` и `data-theme` не объединять. Romantic сохраняет
+  прежний кремово-розовый авторский вид; friends использует ivory, индиго, teal,
+  amber и семантические SVG-иконки. Анимации уважают `prefers-reduced-motion`.
 - **CSP без `unsafe-inline` для скриптов.** Любой инлайновый `<script>` обязан нести
   `nonce="{{ csp_nonce }}"`. Атрибуты `onclick`/`onsubmit`/`onchange` запрещены —
   есть `data-confirm`, `data-copy`, `data-autosubmit` (делегирование в `admin/base.html`)

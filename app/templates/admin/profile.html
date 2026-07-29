@@ -51,6 +51,42 @@
       </div>
     </div>
 
+    {% set profile_skin = user['admin_skin'] or 'friends' %}
+    <fieldset class="skin-setting profile-skin-setting" aria-describedby="profileSkinHint">
+      <legend>Оформление кабинета</legend>
+      <p class="muted skin-setting-hint" id="profileSkinHint">
+        Меняет только твой кабинет. Гости увидят оформление, выбранное отдельно для категории.
+      </p>
+      <div class="skin-pick">
+        <label class="skin-option">
+          <input type="radio" name="admin_skin" value="friends"
+                 {% if profile_skin == 'friends' %}checked{% endif %}>
+          <span class="skin-option-preview skin-option-preview-friends" aria-hidden="true">
+            <span class="skin-option-symbol">{% with icon='gather' %}{% include "admin/_icon.html" %}{% endwith %}</span>
+            <span class="skin-option-lines"><i></i><i></i><i></i></span>
+          </span>
+          <span class="skin-option-copy">
+            <strong>Дружеский</strong>
+            <small>Индиго, бирюза и янтарные детали</small>
+          </span>
+          <span class="skin-option-check" aria-hidden="true">{% with icon='check' %}{% include "admin/_icon.html" %}{% endwith %}</span>
+        </label>
+        <label class="skin-option">
+          <input type="radio" name="admin_skin" value="romantic"
+                 {% if profile_skin == 'romantic' %}checked{% endif %}>
+          <span class="skin-option-preview skin-option-preview-romantic" aria-hidden="true">
+            <span class="skin-option-symbol">{% with icon='heart' %}{% include "admin/_icon.html" %}{% endwith %}</span>
+            <span class="skin-option-lines"><i></i><i></i><i></i></span>
+          </span>
+          <span class="skin-option-copy">
+            <strong>Романтический</strong>
+            <small>Авторская розово-персиковая тема</small>
+          </span>
+          <span class="skin-option-check" aria-hidden="true">{% with icon='check' %}{% include "admin/_icon.html" %}{% endwith %}</span>
+        </label>
+      </div>
+    </fieldset>
+
     <label class="toggle cursor-effects-toggle">
       <input type="checkbox" name="cursor_effects" value="1"
              {% if user['cursor_effects'] %}checked{% endif %}>

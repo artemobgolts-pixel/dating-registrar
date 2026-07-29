@@ -37,9 +37,9 @@
        (глобальные флаги moderate_users/moderate_categories, по умолчанию выкл).
   v14 — categories.og_title/og_desc: редактируемый текст превью секретной ссылки
        (как она выглядит при отправке в мессенджере). NULL = дефолтный текст
-       «Тебя ждёт сюрприз ♥ / Открой — внутри кое-что приятное».
+       выбранного оформления.
   v15 — categories.og_image: своя картинка превью ссылки (WebP, как фото событий).
-       NULL = дефолтная /static/og.png.
+       NULL = дефолтная картинка выбранного оформления.
   v16 — dates.share_token: стабильная секретная ссылка на ОТДЕЛЬНОЕ событие
        (/d/<токен>). По ней другой залогиненный пользователь добавляет копию
        события себе в коллекцию. Уникальный индекс (несколько NULL допустимо);
@@ -65,6 +65,9 @@
   v25 — одноразовая починка легаси-событий, которые оставались черновиками
         после привязки к категории; составные и частичные индексы для
         авторизации медиа, голосований, автоархива и непрочитанных вопросов.
+  v26 — независимые оформления: category_skin управляет публичной страницей
+        категории, admin_skin — кабинетом пользователя. Старые категории
+        сохраняют романтическое оформление, новые по умолчанию дружеские.
 
 Свежая база создаётся сразу по последней схеме. Существующая —
 докатывается миграциями при старте приложения.
@@ -78,7 +81,7 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "app.db"
 
-LATEST_VERSION = 25
+LATEST_VERSION = 26
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -95,6 +98,8 @@ CREATE TABLE IF NOT EXISTS users (
     date_limit INTEGER NOT NULL DEFAULT 30,  -- квота событий; оператор поднимает вручную
     bot_linked INTEGER NOT NULL DEFAULT 0,   -- 1 = запускал бота → можно слать уведомления
     cursor_effects INTEGER NOT NULL DEFAULT 0, -- 1 = декоративные эффекты курсора включены
+    admin_skin TEXT NOT NULL DEFAULT 'friends'
+        CHECK(admin_skin IN ('friends', 'romantic')), -- оформление личного кабинета
     created_at TEXT NOT NULL,
     last_login_at TEXT
 );
@@ -155,6 +160,8 @@ CREATE TABLE IF NOT EXISTS categories (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,  -- владелец категории
     name TEXT NOT NULL,
+    category_skin TEXT NOT NULL DEFAULT 'friends'
+        CHECK(category_skin IN ('friends', 'romantic')), -- оформление публичной ссылки
     link_token TEXT UNIQUE,
     link_enabled INTEGER NOT NULL DEFAULT 1,
     moderate_proposals INTEGER NOT NULL DEFAULT 0,
@@ -162,7 +169,7 @@ CREATE TABLE IF NOT EXISTS categories (
     description TEXT,          -- видно всем гостям под заголовком страницы
     og_title TEXT,             -- заголовок превью ссылки (NULL = дефолт)
     og_desc TEXT,              -- описание превью ссылки (NULL = дефолт)
-    og_image TEXT,             -- картинка превью ссылки, WebP-файл (NULL = /static/og.png)
+    og_image TEXT,             -- картинка превью ссылки, WebP-файл (NULL = дефолт skin)
     og_focus TEXT,             -- точка фокуса своей картинки превью: «X% Y%» (NULL = центр)
     choice_mode TEXT CHECK(choice_mode IN ('single', 'multiple')),
     voting_deadline TEXT,      -- задаётся владельцем явно, время МСК
@@ -1036,6 +1043,19 @@ MIGRATIONS: dict[int, str] = {
 
         CREATE INDEX IF NOT EXISTS idx_q_date_read
             ON questions(date_id, is_read);
+    """,
+    26: """
+        -- Два независимых оформления. Схемный DEFAULT новых записей —
+        -- нейтральный friends. Существующие категории после добавления колонки
+        -- явно возвращаем в прежний romantic, чтобы миграция не меняла их вид.
+        ALTER TABLE categories ADD COLUMN category_skin TEXT NOT NULL DEFAULT 'friends'
+            CHECK(category_skin IN ('friends', 'romantic'));
+        UPDATE categories SET category_skin='romantic';
+
+        -- Общий вид кабинета больше не предполагает романтический сценарий:
+        -- существующие и будущие пользователи начинают с friends.
+        ALTER TABLE users ADD COLUMN admin_skin TEXT NOT NULL DEFAULT 'friends'
+            CHECK(admin_skin IN ('friends', 'romantic'));
     """,
 }
 

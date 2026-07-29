@@ -80,6 +80,38 @@
     if (window.UI && UI.glassTabs) UI.glassTabs(document.querySelector("nav.glass-nav"));
   }
 
+  // Оформление кабинета хранится в профиле. Turbo заменяет <body>, но не
+  // атрибуты <html>, поэтому на каждом переходе синхронизируем оба узла.
+  // В профиле тема применяется сразу, не дожидаясь фонового автосохранения.
+  function applyAdminSkin(skin) {
+    if (skin !== "romantic") skin = "friends";
+    var changed = document.documentElement.dataset.skin !== skin;
+    document.documentElement.dataset.skin = skin;
+    document.body.dataset.skin = skin;
+    if (changed) {
+      document.dispatchEvent(new CustomEvent("d4y:skinchange", {
+        detail: { skin: skin }
+      }));
+    }
+  }
+
+  function initSkinSettings() {
+    applyAdminSkin(document.body.dataset.skin || "friends");
+
+    var profilePick = document.querySelector('[name="admin_skin"]:checked');
+    if (profilePick) {
+      var profileGroup = profilePick.closest(".skin-pick");
+      if (profileGroup && !profileGroup.dataset.skinReady) {
+        profileGroup.dataset.skinReady = "1";
+        profileGroup.addEventListener("change", function (event) {
+          if (event.target.matches('[name="admin_skin"]')) {
+            applyAdminSkin(event.target.value);
+          }
+        });
+      }
+    }
+  }
+
   // --- список событий: меню ⋯, стеклянные вкладки, переключатель вида -------
   function initDates() {
     if (window.UI && UI.cardMenu) UI.cardMenu(document);
@@ -434,13 +466,17 @@
     var descField = document.getElementById("ogDescField");
     // исходные значения фиксируем СЕЙЧАС (defaultValue у hidden-инпутов ведёт себя
     // неодинаково в движках — надёжнее свой снимок).
+    var categorySkinField = document.querySelector('[name="category_skin"]:checked');
     var ogBase = { title: titleField ? titleField.value : "",
-                   desc: descField ? descField.value : "" };
+                   desc: descField ? descField.value : "",
+                   skin: categorySkinField ? categorySkinField.value : "" };
     function recompute() {
       if (!ogWarn || warnDismissed) return;
+      var selectedSkin = document.querySelector('[name="category_skin"]:checked');
       var changed = ogChanged.img
         || (titleField && titleField.value !== ogBase.title)
-        || (descField && descField.value !== ogBase.desc);
+        || (descField && descField.value !== ogBase.desc)
+        || (selectedSkin && selectedSkin.value !== ogBase.skin);
       ogWarn.hidden = !changed;
     }
     var wx = ogWarn && ogWarn.querySelector("[data-dismiss]");
@@ -466,6 +502,38 @@
       // есть ли своя картинка (её можно двигать/кропать). Меняется, когда
       // пользователь выбирает новую (новая ещё не сохранена — двигать нельзя до сабмита).
       var hasSavedImage = ogPreview.dataset.hasImage === "1";
+
+      // Переключатель оформления сразу показывает дружеские/романтические
+      // стандартные тексты и картинку. Свои тексты и изображение не трогаем.
+      var skinPick = document.querySelector(".category-skin-setting .skin-pick");
+      function previewSkin(skin) {
+        if (skin !== "romantic") skin = "friends";
+        ogPreview.dataset.previewSkin = skin;
+        var titleView = document.getElementById("ogTitleEd");
+        var descView = document.getElementById("ogDescEd");
+        if (titleView) titleView.dataset.ph =
+          skin === "friends" ? "Собираемся вместе" : "✎ Тебя ждёт сюрприз ♥";
+        if (descView) descView.dataset.ph =
+          skin === "friends" ? "Открой и выбери удобный вариант" : "✎ Открой — внутри кое-что приятное";
+        if (ogImg) {
+          if (ogPreview.dataset.autoImage === "1") {
+            ogImg.src = "/admin/categories/" + cid + "/og-preview?skin=" +
+              encodeURIComponent(skin);
+          } else if (ogPreview.dataset.defaultImage === "1") {
+            ogImg.src = skin === "friends"
+              ? ogPreview.dataset.friendsSrc
+              : ogPreview.dataset.romanticSrc;
+          }
+        }
+      }
+      if (skinPick && !skinPick.dataset.skinReady) {
+        skinPick.dataset.skinReady = "1";
+        skinPick.addEventListener("change", function (event) {
+          if (!event.target.matches('[name="category_skin"]')) return;
+          previewSkin(event.target.value);
+          recompute();
+        });
+      }
 
       // --- смена картинки: клик открывает выбор файла --------------------------
       // Клик именно по бейджу/подсказке (или короткий тап), а не по завершению
@@ -583,6 +651,14 @@
     }
     form.addEventListener("input", schedule);
     form.addEventListener("change", schedule);
+    // Смена оформления должна успеть сохраниться даже если человек сразу
+    // перейдёт в другой раздел: внешний вид применён мгновенно выше, а здесь
+    // отправляем профиль без обычной задержки автосохранения.
+    form.addEventListener("change", function (event) {
+      if (!event.target.matches('[name="admin_skin"]')) return;
+      clearTimeout(timer);
+      save();
+    });
     var effectsControl = form.querySelector('[name="cursor_effects"]');
     if (effectsControl) {
       effectsControl.addEventListener("change", function () {
@@ -615,8 +691,9 @@
       share.addEventListener("click", function () {
         var url = share.getAttribute("data-url");
         var title = share.getAttribute("data-name") || "Подборка событий";
+        var text = share.getAttribute("data-text") || "Собираемся вместе";
         if (navigator.share) {
-          navigator.share({ title: title, text: "Тебя ждёт сюрприз ♥", url: url }).catch(function () {});
+          navigator.share({ title: title, text: text, url: url }).catch(function () {});
         } else if (navigator.clipboard) {
           navigator.clipboard.writeText(url).then(function () {
             var o = share.textContent;
@@ -736,8 +813,11 @@
         .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
         .then(function (res) {
           if (res.ok && res.j && res.j.ok) {
-            btn.textContent = "Добавлено ♥";
-            toast("Событие добавлено в твою коллекцию ♥");
+            var friends = document.documentElement.dataset.skin === "friends";
+            btn.textContent = friends ? "Добавлено ✓" : "Добавлено ♥";
+            toast(friends
+              ? "Событие добавлено в твою коллекцию"
+              : "Событие добавлено в твою коллекцию ♥");
             setTimeout(closeWidget, 900);
           } else {
             btn.disabled = false; btn.textContent = old;
@@ -771,6 +851,7 @@
   // Запускаем инициализаторы на каждой загрузке (в т.ч. после Turbo-перехода).
   // Каждый сам проверяет наличие своих элементов, поэтому безопасно звать все.
   function initPage() {
+    initSkinSettings();
     initNav();
     if (window.UI && UI.numberSteppers) UI.numberSteppers(document);
     if (window.UI && UI.lazyVideos) UI.lazyVideos(document);

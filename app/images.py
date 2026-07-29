@@ -21,6 +21,8 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
+import appearance
+
 try:
     # HEIC/HEIF с айфонов: регистрируем декодер, дальше Pillow сам
     from pillow_heif import register_heif_opener
@@ -430,19 +432,60 @@ def _grid_for(n: int) -> tuple[int, int]:
     return 4, 2          # 5..8
 
 
-def og_collage_name(filenames: list[str]) -> str | None:
+def og_collage_name(
+        filenames: list[str], skin: str = appearance.ROMANTIC) -> str | None:
     """Имя кэш-файла коллажа для набора фото (хэш отсортированного набора,
     но порядок учитываем — он влияет на раскладку). None, если фото нет."""
     files = [f for f in filenames if f][:8]
     if not files:
         return None
+    skin = appearance.normalize_skin(skin, default=appearance.ROMANTIC)
     # Версия входит в ключ: при изменении фирменного оформления старый кэш
     # автоматически перестаёт использоваться.
-    h = hashlib.sha256(("brand-v5\n" + "\n".join(files)).encode()).hexdigest()[:24]
+    # Romantic-рендер не изменился: оставляем его прежний brand-v5 ключ, чтобы
+    # после деплоя не пересобирать синхронно весь уже прогретый OG-кэш. Новый
+    # namespace нужен только для визуально другого friends-коллажа.
+    brand_key = "brand-v5\n" if skin == appearance.ROMANTIC else "brand-v6:friends\n"
+    h = hashlib.sha256(
+        (brand_key + "\n".join(files)).encode()).hexdigest()[:24]
     return f"og_{h}.webp"
 
 
-def build_og_collage(filenames: list[str]) -> str | None:
+def _draw_friends_og_mark(canvas: Image.Image) -> Image.Image:
+    """Нейтральная подпись дружеского коллажа: четыре участника сходятся вместе."""
+    overlay = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    cx, cy = OG_W // 2, OG_H // 2
+
+    # Светлая площадка удерживает знак читаемым на любом пользовательском фото.
+    plate = (cx - 118, cy - 118, cx + 118, cy + 118)
+    draw.rounded_rectangle(
+        plate, radius=58, fill=(250, 247, 240, 225),
+        outline=(255, 255, 255, 220), width=3)
+
+    navy = (39, 40, 59, 255)
+    indigo = (91, 91, 214, 255)
+    teal = (56, 166, 161, 255)
+    amber = (230, 165, 74, 255)
+    arc_boxes = (
+        ((cx - 63, cy - 66, cx + 54, cy + 48), 205, 282, navy),
+        ((cx - 48, cy - 60, cx + 67, cy + 55), 298, 372, indigo),
+        ((cx - 57, cy - 45, cx + 58, cy + 70), 28, 104, amber),
+        ((cx - 69, cy - 55, cx + 49, cy + 66), 116, 192, teal),
+    )
+    for bounds, start, end, color in arc_boxes:
+        draw.arc(bounds, start=start, end=end, fill=color, width=9)
+    for x, y, color in (
+            (cx - 58, cy - 61, navy),
+            (cx + 61, cy - 49, indigo),
+            (cx + 54, cy + 62, amber),
+            (cx - 63, cy + 54, teal)):
+        draw.ellipse((x - 12, y - 12, x + 12, y + 12), fill=color)
+    return Image.alpha_composite(canvas.convert("RGBA"), overlay).convert("RGB")
+
+
+def build_og_collage(
+        filenames: list[str], skin: str = appearance.ROMANTIC) -> str | None:
     """Собирает коллаж из фото событий и кэширует на диск. Возвращает путь к
     готовому файлу (внутри OG_CACHE_DIR) или None, если собрать не из чего.
 
@@ -451,7 +494,8 @@ def build_og_collage(filenames: list[str]) -> str | None:
     files = [f for f in filenames if f][:8]
     if not files:
         return None
-    name = og_collage_name(files)
+    skin = appearance.normalize_skin(skin, default=appearance.ROMANTIC)
+    name = og_collage_name(files, skin)
     out = OG_CACHE_DIR / name
     if out.exists():
         return str(out)
@@ -472,7 +516,9 @@ def build_og_collage(filenames: list[str]) -> str | None:
         return None
 
     cols, rows = _grid_for(len(imgs))
-    canvas = Image.new("RGB", (OG_W, OG_H), (250, 245, 242))
+    canvas = Image.new(
+        "RGB", (OG_W, OG_H),
+        (250, 247, 240) if skin == appearance.FRIENDS else (250, 245, 242))
     cell_w = OG_W // cols
     cell_h = OG_H // rows
     for idx in range(cols * rows):
@@ -482,22 +528,25 @@ def build_og_collage(filenames: list[str]) -> str | None:
         y = (idx // cols) * cell_h
         canvas.paste(tile, (x, y))
 
-    # Лёгкая фирменная подпись по центру: она остаётся читаемой и на светлых,
-    # и на тёмных кадрах, но не перекрывает сам коллаж плотной плашкой.
-    overlay = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
-    draw = ImageDraw.Draw(overlay)
-    try:
-        font_path = Path(__file__).parent / "static" / "fonts" / "great-vibes-latin-400-normal.woff2"
-        brand_font = ImageFont.truetype(str(font_path), 150)
-    except (OSError, ValueError):
-        brand_font = ImageFont.load_default()
-    center = (OG_W // 2, OG_H // 2)
-    draw.text((center[0] + 3, center[1] + 5), "date4you", font=brand_font,
-              anchor="mm", fill=(35, 18, 25, 92))
-    draw.text(center, "date4you", font=brand_font, anchor="mm",
-              fill=(244, 170, 188, 255), stroke_width=1,
-              stroke_fill=(122, 45, 67, 210))
-    canvas = Image.alpha_composite(canvas.convert("RGBA"), overlay).convert("RGB")
+    if skin == appearance.FRIENDS:
+        canvas = _draw_friends_og_mark(canvas)
+    else:
+        # Лёгкая фирменная подпись по центру: она остаётся читаемой и на светлых,
+        # и на тёмных кадрах, но не перекрывает сам коллаж плотной плашкой.
+        overlay = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+        draw = ImageDraw.Draw(overlay)
+        try:
+            font_path = Path(__file__).parent / "static" / "fonts" / "great-vibes-latin-400-normal.woff2"
+            brand_font = ImageFont.truetype(str(font_path), 150)
+        except (OSError, ValueError):
+            brand_font = ImageFont.load_default()
+        center = (OG_W // 2, OG_H // 2)
+        draw.text((center[0] + 3, center[1] + 5), "date4you", font=brand_font,
+                  anchor="mm", fill=(35, 18, 25, 92))
+        draw.text(center, "date4you", font=brand_font, anchor="mm",
+                  fill=(244, 170, 188, 255), stroke_width=1,
+                  stroke_fill=(122, 45, 67, 210))
+        canvas = Image.alpha_composite(canvas.convert("RGBA"), overlay).convert("RGB")
 
     tmp = out.with_suffix(".tmp.webp")
     canvas.save(tmp, "WEBP", quality=82, method=4)

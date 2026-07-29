@@ -395,7 +395,28 @@ with TestClient(main.app, follow_redirects=False) as c:
 
     r = c.get(f"/c/{tok}")
     assert r.status_code == 200 and "пусто" in r.text
-    step("пустая категория показывает заглушку")
+    assert 'data-skin="friends"' in r.text
+    assert "bg-gather" in r.text and "og-friends.jpg" in r.text
+    assert "Собираемся вместе" in r.text
+    category_editor = c.get(f"/admin/categories/{cid}").text
+    assert 'name="category_skin"' in category_editor
+    assert "Дружеский" in category_editor and "Романтический" in category_editor
+
+    # Авторский романтический дизайн остаётся доступен и возвращается тем же
+    # переключателем; затем продолжаем smoke на новом дружеском оформлении.
+    rr = apost(c, f"/admin/categories/{cid}/rename", {
+        "name": "Лето", "category_skin": "romantic",
+    })
+    assert rr.status_code == 303
+    romantic_page = c.get(f"/c/{tok}").text
+    assert 'data-skin="romantic"' in romantic_page
+    assert "bg-hearts" in romantic_page and "/static/og.png" in romantic_page
+    rr = apost(c, f"/admin/categories/{cid}/rename", {
+        "name": "Лето", "category_skin": "friends",
+    })
+    assert rr.status_code == 303
+    assert db_one("SELECT category_skin FROM categories WHERE id=?", (cid,))[0] == "friends"
+    step("пустая категория показывает дружеский дизайн; романтический можно вернуть")
 
     # ---------- событие от админа (+фото) ----------
     r = apost(c, "/admin/dates/new", {
@@ -547,11 +568,11 @@ with TestClient(main.app, follow_redirects=False) as c:
     r = ga.post(f"/c/{tok}/book", data={"date_id": did})
     assert r.json()["booked"] is True
     page = ga.get(f"/c/{tok}").text
-    assert "Выбрано ♥" in page                         # кнопка-переключатель
+    assert 'class="btn book on"' in page and "Выбрано" in page
     mycard = re.search(r'<article[^>]*id="date-%d".*?</article>' % did, page, re.S).group(0)
     assert "booked-me" in mycard                        # карточка помечена выбором
     assert "vote-progress" in mycard and "1/1" in mycard
-    assert '<div class="seal">♥' in mycard              # печать ♥ показана (карточка с фото)
+    assert '<div class="seal">' in mycard and "ui-icon-check" in mycard
     assert "Аня" in mycard and "· ты" in mycard        # участники видны во время голосования
     assert ga.post(f"/c/{tok}/vote", data={"date_id": did}).status_code == 404
     step("голос работает как переключатель; видны прогресс и участники; /vote удалён")
@@ -854,7 +875,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     # вариант не сможет победить за спиной у участников.
     assert 'class="card past"' in card                # карточка в общем списке
     assert "проведено с" not in card
-    assert "Выбрать ♥" not in card                    # действий в архиве нет
+    assert 'class="btn book"' not in card             # действий в архиве нет
     assert ga.get(f"/c/{tok}/image/{fn_did}").status_code == 200   # фото остаётся
     assert ga.get(f"/c/{tok}/ics/{did}").status_code == 404
     assert ga.post(f"/c/{tok}/book", data={"date_id": did}).status_code == 404
@@ -864,7 +885,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     r = apost(c, f"/admin/dates/{did}/archive", {"next": "/admin/dates?view=archived"})
     page = ga.get(f"/c/{tok}").text
     card = re.search(r'<article[^>]*id="date-%d".*?</article>' % did, page, re.S).group(0)
-    assert "Выбрать ♥" in card and "Выбрано ♥" not in card
+    assert 'class="btn book"' in card and 'class="btn book on"' not in card
     assert db_one("SELECT COUNT(*) FROM bookings b JOIN dates d ON d.id=b.date_id "
                   "WHERE d.archived_at IS NULL")[0] == 1
     # архив брони НЕ блокирует выбор другого активного события тем же гостем:
@@ -903,7 +924,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert "Вчерашний вечер" in page
     card = re.search(r'<article[^>]*>(?:(?!</article>).)*Вчерашний вечер.*?</article>',
                      page, re.S).group(0)
-    assert "past" in card and "Выбрать ♥" not in card
+    assert "past" in card and 'class="btn book"' not in card
     assert db_one("SELECT archived_at FROM dates WHERE name='Вчерашний вечер'")["archived_at"]
     step("фоновый проход переносит просроченное событие в архив; гостевой GET только читает")
 
@@ -941,7 +962,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     page = ga.get(f"/c/{tok}").text
     # Ссылка меняется, пользовательская сессия сохраняется; снятый при архиве
     # голос намеренно не воскресает.
-    assert "Выбрано ♥" not in page and 'id="greetName">Аня<' in page
+    assert 'class="btn book on"' not in page and 'id="greetName">Аня<' in page
     step("выключенная ссылка отдаёт 404/410 (и для фото); после перегенерации брони и имя целы")
 
     # ---------- привязка к категории ----------
@@ -1299,7 +1320,8 @@ with TestClient(main.app, follow_redirects=False) as c:
     bp = cb.get(f"/d/{stok}")
     assert bp.status_code == 200
     assert f'action="/d/{stok}/add"' in bp.text and "Сохранить к себе" in bp.text
-    assert "Выбрать ♥" in bp.text                     # полноценный гостевой UI
+    assert "Выбрать" in bp.text and "Выбрать ♥" not in bp.text
+    assert 'data-skin="friends"' in bp.text           # полноценный дружеский UI
     b_uid = db_one("SELECT id FROM users WHERE telegram_id=?", (700621,))["id"]
 
     # B может выбрать событие прямо со страницы шаринга (контекст — категория)
@@ -3029,6 +3051,8 @@ with TestClient(main.app, follow_redirects=False) as cui2:
     # находится внутри основной анкеты (на телефоне её скрывает CSS).
     profile = cui2.get("/admin/profile").text
     assert "theme-pick" not in profile
+    assert 'name="admin_skin"' in profile
+    assert "Дружеский" in profile and "Романтический" in profile
     assert "cursor-effects-toggle" in profile and 'name="cursor_effects"' in profile
     assert "<b>Помощь</b>" in profile and "https://t.me/artiwayn" in profile
     assert "✈️ Связаться с поддержкой" in profile

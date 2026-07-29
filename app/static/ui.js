@@ -165,13 +165,18 @@ window.UI = (() => {
     container.addEventListener("pointercancel", end);
   }
 
-  /* --- Салют из сердечек ------------------------------------------------ */
+  /* --- Небольшой салют после выбора ------------------------------------ */
   function burst(x, y) {
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const friends = (document.body && document.body.dataset.skin ||
+      document.documentElement.dataset.skin) === "friends";
+    const friendlyGlyphs = ["✦", "•", "✧", "•"];
+    const friendlyColors = ["#554eae", "#118b86", "#d39a32", "#6b68c9"];
     for (let i = 0; i < 9; i++) {
       const h = document.createElement("span");
-      h.className = "confetti-heart";
-      h.textContent = i % 3 ? "♥" : "♡";
+      h.className = "confetti-heart" + (friends ? " confetti-gather" : "");
+      h.textContent = friends ? friendlyGlyphs[i % friendlyGlyphs.length] : (i % 3 ? "♥" : "♡");
+      if (friends) h.style.setProperty("--particle-color", friendlyColors[i % friendlyColors.length]);
       const ang = (Math.random() * 120 - 60) * Math.PI / 180;
       const dist = 44 + Math.random() * 52;
       h.style.left = x + "px";

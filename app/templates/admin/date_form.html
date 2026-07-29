@@ -20,7 +20,7 @@
 
 {% if date and booked %}
 <div class="card" style="background:rgba(253,244,246,.85);border-color:#f0d9de">
-  <b>💝 Кто выбрал</b>
+  <b>{{ '◉' if user['admin_skin'] == 'friends' else '💝' }} Кто выбрал</b>
   <div style="margin-top:8px;display:grid;gap:6px">
     {% for b in booked %}
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
@@ -159,7 +159,7 @@
           <span class="ed-field ed-links" id="edLinks" data-ph="Ссылки — каждая с новой строки">{{ links_text }}</span>
         </div>
 
-        <div class="acts"><button type="button" class="bk">Выбрать ♥</button><button type="button" class="ak">Спросить 💬</button></div>
+        <div class="acts"><button type="button" class="bk">Выбрать{% if user['admin_skin'] == 'romantic' %} ♥{% endif %}</button><button type="button" class="ak">Спросить 💬</button></div>
       </div>
     </div>
   </div>
