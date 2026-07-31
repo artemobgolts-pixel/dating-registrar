@@ -282,7 +282,7 @@
     <form method="post" action="/d/{{ token }}/review" class="review-form">
       <input type="hidden" name="csrf" value="{{ csrf }}">
       <fieldset class="star-rating">
-        <legend>Оценка <span aria-hidden="true">*</span></legend>
+        <legend>Оценка<sup class="required-mark" aria-hidden="true">*</sup></legend>
         {% for score in range(5, 0, -1) %}
         <input type="radio" id="share-rating-{{ score }}" name="rating" value="{{ score }}"
                {{ 'checked' if my_review and my_review['rating'] == score else '' }} required>

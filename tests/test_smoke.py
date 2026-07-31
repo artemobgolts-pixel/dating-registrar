@@ -373,7 +373,10 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert me["gender"] == "m" and me["avatar_path"]
     av = me["avatar_path"]
     # имя владельца появилось в шапке
-    assert "Артём" in c.get("/admin/profile").text
+    profile_with_avatar = c.get("/admin/profile").text
+    assert "Артём" in profile_with_avatar
+    assert 'class="avatar-delete"' in profile_with_avatar
+    assert ">Удалить фото</button>" not in profile_with_avatar
     # свой аватар отдаётся
     assert c.get(f"/admin/avatar/{av}").status_code == 200
     # чужой клиент (Боб из HTTP-изоляции ещё не залогинен здесь) — проверим, что
@@ -1515,6 +1518,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert "Поделиться" in sh and "<svg" in sh        # QR нарисован на сервере
     assert "/c/" in sh and "data-copy" in sh          # ссылка копируется по клику
     assert "Показать QR-код" in sh                     # QR можно раскрыть/скачать
+    assert 'class="qr-svg"' in sh and 'class="qr-signature"' in sh
     assert "date4you" in c.get("/admin/dates").text   # ребренд в шапке
     # терминология: «гость/гостья» в админке заменены
     assert "Вопросы гостей" not in c.get("/admin/questions").text
@@ -2069,8 +2073,20 @@ with TestClient(main.app, follow_redirects=False) as crole:
         assert 'href="/operator/"' in crole.get("/admin/").text   # появилась вкладка «Админ»
         assert db_one("SELECT is_operator FROM users WHERE id=?",
                       (uid_role["id"],))[0] == 1
-        # и операторская поверхность теперь доступна
-        assert crole.get("/operator/").status_code == 200
+        # операторская поверхность наследует оформление кабинета
+        operator_page = crole.get("/operator/")
+        assert operator_page.status_code == 200
+        assert 'data-skin="friends"' in operator_page.text
+        _skin_db = dbm.connect()
+        _skin_db.execute("UPDATE users SET admin_skin='romantic' WHERE id=?", (uid_role["id"],))
+        _skin_db.commit(); _skin_db.close()
+        assert 'data-skin="romantic"' in crole.get("/operator/").text
+        # экспорт и импорт убраны с пользовательской главной и живут в настройках оператора
+        assert "Данные платформы" not in crole.get("/admin/").text
+        operator_settings = crole.get("/operator/settings").text
+        assert "Данные платформы" in operator_settings
+        assert "/admin/export/archive" in operator_settings
+        assert "/admin/import/json?return_to=operator" in operator_settings
     finally:
         _users.OPERATOR_TG_IDS.clear(); _users.OPERATOR_TG_IDS.update(_saved_ops)
         _cfg.OPERATOR_TG_IDS.clear(); _cfg.OPERATOR_TG_IDS.update(_saved_ops)
@@ -2428,6 +2444,8 @@ with TestClient(main.app, follow_redirects=False) as cown, \
 
     prefs_page = cown.get("/admin/questions").text
     assert "Уведомления в Telegram" in prefs_page
+    assert '<details class="notif-settings-card"' in prefs_page
+    assert '<summary class="notif-settings-head">' in prefs_page
     assert all(f'name="{key}"' in prefs_page for key in
                ("votes", "questions", "proposals", "updates", "reminders", "reviews"))
     _badge_db = dbm.connect()
@@ -2959,7 +2977,7 @@ with TestClient(main.app, follow_redirects=False) as cnata, \
     # C5: публичный профиль Наты перечисляет её публичные события (без приватных)
     prof = cgosha.get(f"/u/{pub['owner_id']}").text
     assert "Пикник на закате" in prof and "Секретный ужин" not in prof
-    assert "Публичные встречи" in prof
+    assert "Публичные события" in prof
     assert "?w=480 480w" in prof and 'fetchpriority="high"' in prof
 
     # Профиль не тянет бесконечную историю одним HTML: 12 карточек на страницу.
@@ -2995,13 +3013,17 @@ with TestClient(main.app, follow_redirects=False) as cui:
     assert 'class="more"' in cats and "Скопировать ссылку" in cats
     assert "Перегенерировать ссылку" in cats and "Удалить категорию" in cats
     assert "Отключить ссылку" in cats
+    assert all(mark not in cats for mark in ("👀 Открыть", "🔗 Скопировать ссылку",
+                                              "🔒 Отключить ссылку", "↻ Перегенерировать ссылку",
+                                              "🗑 Удалить категорию"))
     assert "copy-code" not in cats, "строка-ссылка на списке категорий убрана"
 
-    # B3: в редакторе категории остаётся одно главное действие «Сохранить»,
+    # B3: основные действия «Сохранить» и «Отмена» остаются на виду,
     # а сброс, ссылка и удаление собраны в компактном меню ⋯.
     ed = cui.get(f"/admin/categories/{mcat['id']}").text
     assert "Сбросить превью" in ed and 'id="resetPreviewForm"' in ed
     assert "cat-editor-actions" in ed and "cat-editor-menu" in ed
+    assert "cat-editor-main-actions" in ed and ">Отмена</a>" in ed
     assert "Скопировать ссылку" in ed
     assert "Открыть ссылку" in ed
     assert "Удалить категорию" in ed
@@ -3191,9 +3213,11 @@ with TestClient(main.app, follow_redirects=False) as cui2:
     assert 'name="admin_skin"' in profile
     assert "Дружеский" in profile and "Романтический" in profile
     assert "cursor-effects-toggle" in profile and 'name="cursor_effects"' in profile
+    assert "Работает только на компьютере. По умолчанию выключено" not in profile
     assert "<b>Помощь</b>" in profile and "https://t.me/artiwayn" in profile
     assert "Связаться с поддержкой" in profile and "admin-icon-telegram" in profile
     assert "tour-course-actions" in profile
+    assert 'class="social-links"' in profile and "social-service" in profile
     # #2: счётчики переехали на вкладку «События» — пилюли на всех трёх вкладках
     cui2.post("/admin/dates/new", data={"csrf": uc2, "name": "Акт", "categories": str(cc["id"])})
     dpage = cui2.get("/admin/dates?view=active").text
@@ -3206,7 +3230,7 @@ with TestClient(main.app, follow_redirects=False) as cui2:
     # Редкие действия категории спрятаны в меню ⋯ рядом с «Сохранить».
     ed = cui2.get(f"/admin/categories/{cc['id']}").text
     assert "cat-editor-menu" in ed and "Отключить ссылку" in ed
-    assert "Описание (необязательно)" in ed
+    assert ">Описание</label>" in ed and "Описание (необязательно)" not in ed
     assert re.search(r'id="ogWarn"[^>]*hidden', ed)
     assert 'data-tour="category-description"' in ed
     assert "cat-editor-actions" in ed and "Открыть ссылку" in ed

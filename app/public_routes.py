@@ -1193,6 +1193,7 @@ def shared_date_want(token: str, request: Request, conn=Depends(get_db)):
             conn, d["id"], user["id"], "want_removed",
         )
         msg = "Убрано из «Хочу сходить»"
+        wanted = False
     else:
         stamp = now_iso()
         conn.execute(
@@ -1202,7 +1203,10 @@ def shared_date_want(token: str, request: Request, conn=Depends(get_db)):
         )
         social_events.queue_review_prompt(conn, d["id"], user["id"])
         msg = "Добавлено в «Хочу сходить»"
+        wanted = True
     conn.commit()
+    if request.headers.get("x-requested-with") == "fetch":
+        return JSONResponse({"ok": True, "wanted": wanted, "message": msg})
     return redir(f"/d/{token}", msg)
 
 

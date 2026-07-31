@@ -405,6 +405,19 @@ label.chk {
 
 .field { margin-bottom: 12px; }
 
+/* Единый маркер обязательности: близко к подписи, как показатель степени. */
+.required-mark {
+  display: inline-block;
+  margin-left: .06em;
+  color: #d52d48;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: .68em;
+  font-weight: 800;
+  line-height: 0;
+  vertical-align: super;
+}
+.required-title { min-width: 0; }
+
 .grid2 {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -822,14 +835,26 @@ span.oauth-ico { display: grid; place-items: center; font-weight: 700; font-size
 }
 @media (prefers-reduced-motion: reduce) { .shake { animation: none; } }
 
-/* профиль: список привязок соцсетей */
-.social-links { display: flex; flex-direction: column; gap: 10px; }
+/* профиль: компактная строка привязок соцсетей */
+.sr-only {
+  position: absolute !important; width: 1px !important; height: 1px !important;
+  padding: 0 !important; margin: -1px !important; overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important; white-space: nowrap !important; border: 0 !important;
+}
+.social-links {
+  display: flex; flex-direction: row; align-items: center; gap: 12px;
+  overflow-x: auto; padding: 3px 3px 6px; scrollbar-width: thin;
+}
 .tour-course-actions {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px;
 }
 .tour-course-actions .btn {
   display: inline-flex; align-items: center; justify-content: center;
   width: 100%; min-width: 0; text-align: center;
+}
+.tour-course-actions .btn.primary {
+  appearance: none; -webkit-appearance: none;
+  overflow: hidden; border: 0; background-clip: border-box;
 }
 .profile-support-btn {
   display: flex; align-items: center; justify-content: center; gap: 8px;
@@ -845,21 +870,39 @@ span.oauth-ico { display: grid; place-items: center; font-weight: 700; font-size
   color: #fff; border-color: transparent;
   background: linear-gradient(135deg, #229ed9, #117eaf);
 }
-.social-row {
-  display: flex; align-items: center; gap: 12px;
-  padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px;
-  background: rgba(255, 255, 255, .5);
+.social-service {
+  position: relative; flex: 0 0 72px; width: 72px; height: 68px;
+  display: grid; place-items: center;
+  border: 1px solid var(--line); border-radius: 17px;
+  background: rgba(255, 255, 255, .72); color: var(--ink);
+  text-decoration: none; box-shadow: 0 6px 16px rgba(91,54,62,.06);
+  transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease;
 }
-.social-row .social-ico { display: flex; }
-.social-row .social-ico .oauth-ico { width: 24px; height: 24px; }
-.social-row .social-name { font-weight: 600; color: var(--ink); }
-.social-row .inline { margin: 0 0 0 auto; }
-.social-row .btn.primary { margin-left: auto; }
-.social-badge {
-  font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px;
+a.social-service:hover {
+  transform: translateY(-2px); border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+  box-shadow: 0 9px 20px rgba(91,54,62,.11);
 }
-.social-badge.ok { background: #e7f6ee; color: #15734a; }
-.social-badge.soon { margin-left: auto; background: var(--rose-soft); color: var(--rose-2); }
+.social-service.is-linked {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+  background: color-mix(in srgb, var(--rose-soft) 50%, rgba(255,255,255,.82));
+}
+.social-service.is-disabled { opacity: .48; filter: grayscale(.45); }
+.social-service .social-ico { display: grid; place-items: center; }
+.social-service .social-ico .oauth-ico { width: 31px; height: 31px; display: block; }
+.social-service-action { display: contents; }
+.social-state {
+  position: absolute; top: -5px; right: -5px; z-index: 2;
+  width: 24px; height: 24px; margin: 0; padding: 0;
+  display: grid; place-items: center;
+  border: 2px solid var(--card); border-radius: 50%;
+  background: var(--accent); color: #fff;
+  font: 700 17px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  text-decoration: none; cursor: pointer;
+  box-shadow: 0 3px 9px rgba(91,54,62,.2);
+}
+.social-service > span.social-state { pointer-events: none; }
+.social-service.is-linked .social-state { background: #a44343; }
+.social-service.is-disabled .social-state { background: var(--muted); }
 
 /* ===== v3: брони, чипы дат, drag-and-drop фото ============================ */
 
@@ -961,7 +1004,7 @@ input.flash { background: #f8ecea !important; transition: background .4s; }
   font-size: 12.5px; font-weight: 700; white-space: nowrap;
 }
 .notif-settings-card {
-  margin: 0 0 18px; padding: 18px;
+  margin: 0 0 18px; padding: 0;
   border-radius: 20px; border: 1px solid rgba(255,255,255,.72);
   background: linear-gradient(145deg, rgba(255,255,253,.72), rgba(252,242,245,.56));
   -webkit-backdrop-filter: blur(16px) saturate(1.35);
@@ -969,10 +1012,17 @@ input.flash { background: #f8ecea !important; transition: background .4s; }
   box-shadow: 0 14px 34px rgba(150,80,95,.09), inset 0 1px 0 rgba(255,255,255,.82);
 }
 .notif-settings-head {
-  display: flex; align-items: center; gap: 12px; margin-bottom: 15px;
+  display: flex; align-items: center; gap: 12px; padding: 16px 18px;
+  list-style: none; cursor: pointer; border-radius: inherit;
 }
-.notif-settings-head h2 { margin: 0; font-family: var(--serif); font-size: 22px; }
-.notif-settings-head p { margin: 2px 0 0; color: var(--muted); font-size: 13.5px; }
+.notif-settings-head::-webkit-details-marker { display: none; }
+.notif-settings-head::marker { content: ""; }
+.notif-settings-head:hover { background: rgba(255,255,255,.25); }
+.notif-settings-head:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.notif-settings-card:not([open]) .notif-settings-hint { display: none; }
+.notif-settings-copy { display: grid; min-width: 0; }
+.notif-settings-title { font-family: var(--serif); font-size: 22px; font-weight: 700; color: var(--ink); }
+.notif-settings-hint { margin-top: 2px; color: var(--muted); font-size: 13.5px; }
 .notif-settings-icon {
   width: 42px; height: 42px; flex: none; display: grid; place-items: center;
   border-radius: 13px; color: var(--rose-2); background: var(--rose-soft);
@@ -990,6 +1040,18 @@ input.flash { background: #f8ecea !important; transition: background .4s; }
 .notif-channel-state.connected { color: #15734a; }
 .notif-channel-state.connected i {
   background: #34a967; box-shadow: 0 0 0 3px rgba(52,169,103,.14);
+}
+.notif-settings-chevron {
+  width: 10px; height: 10px; flex: none; margin: 0 3px 4px 2px;
+  border-right: 2px solid currentColor; border-bottom: 2px solid currentColor;
+  color: var(--muted); transform: rotate(45deg); transition: transform .18s ease;
+}
+.notif-settings-card[open] .notif-settings-chevron {
+  margin-bottom: -3px; transform: rotate(225deg);
+}
+.notif-settings-form {
+  padding: 16px 18px 18px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 75%, transparent);
 }
 .notif-prefs-grid {
   display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px;
@@ -1093,10 +1155,12 @@ input.flash { background: #f8ecea !important; transition: background .4s; }
   .notif-page-head { align-items: flex-start; margin-bottom: 14px; }
   .notif-page-head p { font-size: 13px; }
   .notif-new-count { min-height: 29px; padding: 5px 10px; }
-  .notif-settings-card { padding: 15px; border-radius: 18px; }
-  .notif-settings-head { align-items: flex-start; flex-wrap: wrap; }
-  .notif-settings-head > div { flex: 1; min-width: 0; }
-  .notif-channel-state { width: 100%; margin: 0 0 0 54px; }
+  .notif-settings-card { border-radius: 18px; }
+  .notif-settings-head { align-items: flex-start; flex-wrap: wrap; padding: 14px 15px; }
+  .notif-settings-copy { flex: 1; }
+  .notif-channel-state { order: 4; width: calc(100% - 54px); margin: -4px 0 0 54px; }
+  .notif-settings-chevron { order: 3; margin-top: 12px; }
+  .notif-settings-form { padding: 15px; }
   .notif-prefs-grid { grid-template-columns: 1fr; }
   .notif-pref:last-child:nth-child(odd) { grid-column: auto; }
   .notif-settings-foot { align-items: stretch; flex-direction: column; }
@@ -1838,13 +1902,59 @@ html.ink-static .bg-smoke span {
   justify-content: center; align-self: stretch; min-width: 0;
 }
 .share-qr {
+  --qr-shell-a: #f8e6e8;
+  --qr-shell-b: #f3d7cf;
+  --qr-ink: #8f4a58;
   width: min(320px, 100%);
-  aspect-ratio: 1 / 1;          /* всегда квадрат: высота = ширине, без пустоты снизу */
   flex: none;
-  background: #fff; border: 1px solid var(--line); border-radius: 16px;
-  padding: 14px; display: grid; place-items: center;
+  position: relative; isolation: isolate; overflow: hidden;
+  background: linear-gradient(145deg, var(--qr-shell-a), var(--qr-shell-b));
+  border: 1px solid rgba(159,108,118,.2); border-radius: 24px;
+  padding: 15px 15px 9px; display: flex; flex-direction: column; align-items: center;
+  box-shadow: 0 16px 36px rgba(91,54,62,.14), inset 0 1px 0 rgba(255,255,255,.72);
 }
-.share-qr svg { width: 100%; height: 100%; display: block; }
+.qr-code {
+  position: relative; z-index: 2;
+  width: 100%; aspect-ratio: 1 / 1; padding: 7px;
+  display: grid; place-items: center;
+  background: #fff; border-radius: 18px;
+  box-shadow: 0 8px 24px rgba(91,54,62,.1);
+}
+.share-qr svg { width: 100%; height: 100%; display: block; border-radius: 11px; }
+.qr-signature {
+  position: relative; z-index: 2; margin-top: 3px;
+  color: var(--qr-ink); font-family: var(--script); font-size: 25px; line-height: 1.1;
+  letter-spacing: .015em;
+}
+.qr-signature span { display: inline-block; font-family: inherit; }
+.qr-decor {
+  position: absolute; z-index: 1; border-radius: 50%; pointer-events: none;
+  filter: blur(2px); opacity: .46;
+}
+.qr-decor-a { width: 122px; height: 122px; left: -55px; top: -52px; background: #c96e83; }
+.qr-decor-b { width: 105px; height: 105px; right: -48px; bottom: -44px; background: #e0a06e; }
+html[data-skin="friends"] .share-qr {
+  --qr-shell-a: #e8edff;
+  --qr-shell-b: #dff4ef;
+  --qr-ink: #354483;
+  border-color: rgba(75,89,166,.22);
+  box-shadow: 0 16px 36px rgba(53,68,131,.14), inset 0 1px 0 rgba(255,255,255,.78);
+}
+html[data-skin="friends"] .qr-decor-a { background: #5365bc; }
+html[data-skin="friends"] .qr-decor-b { background: #238e89; }
+html[data-theme="dark"] .share-qr {
+  --qr-shell-a: #3e2b34;
+  --qr-shell-b: #4b302f;
+  --qr-ink: #f2dce3;
+  border-color: rgba(255,255,255,.12);
+  box-shadow: 0 16px 36px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.08);
+}
+html[data-theme="dark"][data-skin="friends"] .share-qr {
+  --qr-shell-a: #28314f;
+  --qr-shell-b: #203f42;
+  --qr-ink: #e3e7ff;
+  border-color: rgba(255,255,255,.12);
+}
 .share-cat { font-weight: 600; margin-bottom: 8px; }
 .share-pick { margin-bottom: 12px; }
 .share-pick select { width: auto; min-width: 200px; }
@@ -1988,7 +2098,7 @@ html.ink-static .bg-smoke span {
      зато показываем системное «Поделиться» */
   .qr-toggle { display: inline-block; }
   .share-qr, .qr-actions { display: none; }
-  .share-qr-col.qr-open .share-qr { display: grid; }
+  .share-qr-col.qr-open .share-qr { display: flex; }
   .share-qr-col.qr-open .qr-actions { display: flex; }
   /* специфичность 0,2,0 — ровно как у `.qr-actions .qr-share { display:none }`
      на ПК, иначе (0,1,0) не перебила бы её и «Поделиться» осталась бы скрыта */
@@ -2070,10 +2180,11 @@ html.ink-static .bg-smoke span {
 .field-label { display: block; font-weight: 600; color: var(--ink); font-size: 14px; margin-top: 4px; }
 .field-label .muted { font-weight: 400; }
 .category-description-fields { display: grid; gap: 10px; }
+.category-description-fields > .field:first-child .field-label { margin: 0 0 7px; }
 .og-zone { margin-top: 2px; }
 .og-zone .dz-ico { font-size: 20px; }
-/* Низ редактора категории: одно очевидное главное действие и компактное
-   меню для редких операций. Меню использует общий cardMenu из ui.js. */
+/* Низ редактора категории: основные действия и компактное меню для редких
+   операций. Меню использует общий cardMenu из ui.js. */
 .cat-editor-actions {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -2081,15 +2192,21 @@ html.ink-static .bg-smoke span {
   gap: 10px;
   margin-top: 14px;
 }
-.cat-editor-actions > .btn.primary {
-  width: 100%;
+.cat-editor-main-actions {
+  display: flex; align-items: stretch; gap: 12px; min-width: 0;
+}
+.cat-editor-main-actions > .btn {
+  display: inline-flex; align-items: center;
   justify-content: center;
   min-height: 44px;
-  padding: 10px 18px;
+  padding: 11px 22px;
   border-radius: 12px;
   font-size: 15px;
-  font-weight: 650;
+  font-weight: 600;
+  text-align: center;
 }
+.cat-editor-main-actions > .btn.primary { flex: 2 1 0; min-width: 0; }
+.cat-editor-main-actions > .btn.ghost { flex: 1 1 0; min-width: 82px; }
 .cat-editor-more {
   width: 44px;
   height: 44px;
@@ -2300,6 +2417,9 @@ html.ink-static .bg-smoke span {
 .avatar-field {
   display: flex; flex-direction: column; align-items: center; gap: 12px;
 }
+.avatar-wrap {
+  position: relative; width: 116px; height: 116px;
+}
 .avatar-pick {
   position: relative; cursor: pointer;
   width: 116px; height: 116px; border-radius: 50%;
@@ -2321,6 +2441,17 @@ html.ink-static .bg-smoke span {
   border: 2px solid #fff; box-shadow: 0 3px 9px rgba(150, 70, 85, .35);
 }
 .avatar-pick:hover .avatar-cam { transform: scale(1.06); }
+.avatar-delete {
+  position: absolute; z-index: 3; top: -5px; right: -5px;
+  width: 29px; height: 29px; padding: 0; margin: 0;
+  display: grid; place-items: center;
+  border: 2px solid var(--card); border-radius: 50%;
+  background: #fff; color: #8d3540;
+  font: 700 20px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  cursor: pointer; box-shadow: 0 4px 12px rgba(91,54,62,.2);
+  transition: transform .15s ease, background .15s ease, color .15s ease;
+}
+.avatar-delete:hover { transform: scale(1.08); background: #a44343; color: #fff; }
 
 /* пол — три кнопки-пилюли (radio) */
 .gender-pick { display: flex; gap: 8px; flex-wrap: nowrap; }
@@ -2483,6 +2614,7 @@ html.ink-static .bg-smoke span {
   .savebar .btn { padding: 13px 18px; font-size: 16px; }
   .savebar .btn.primary { flex: 2; min-width: 0; }
   .savebar .btn.ghost { flex: 1; text-align: center; }
+  .cat-editor-main-actions > .btn { padding: 13px 18px; font-size: 16px; }
 
   /* форму создания события не должно «таскать» по горизонтали:
      контент клиппим по ширине, элементы не шире контейнера */
@@ -2605,7 +2737,7 @@ html.ink-static .bg-smoke span {
 .cwid-desc { font-size: 14.5px; color: #5f5052; white-space: pre-line; margin: 12px 0; }
 .cwid-links { display: flex; flex-wrap: wrap; gap: 6px 12px; margin: 10px 0; }
 .cwid-links a { font-size: 13px; color: var(--rose-2); }
-.cwid-actions { margin-top: 16px; }
+.cwid-actions { display: grid; gap: 8px; margin-top: 16px; }
 .cwid-actions .btn { width: 100%; text-align: center; padding: 12px; font-size: 15px; font-weight: 600; }
 
 /* собственный тост админки (на гостевой есть свой) */
@@ -2840,6 +2972,9 @@ html[data-theme="dark"] .cat-cover { background-color: #2d272c; }
 html[data-theme="dark"] .avatar-pick .avatar-img,
 html[data-theme="dark"] .avatar-pick .avatar-ph { border-color: var(--line); }
 html[data-theme="dark"] .avatar-pick .avatar-cam { border-color: #251f24; }
+html[data-theme="dark"] .avatar-delete {
+  border-color: #251f24; background: #382b33; color: #ffaaa8;
+}
 html[data-theme="dark"] tr.drag-row.dragging { background: #3b2931; }
 
 html[data-theme="dark"] .login-card {
@@ -2849,7 +2984,7 @@ html[data-theme="dark"] .login-card {
 }
 html[data-theme="dark"] .consent { color: #c6b9bf; }
 html[data-theme="dark"] .oauth-btn,
-html[data-theme="dark"] .social-row,
+html[data-theme="dark"] .social-service,
 html[data-theme="dark"] .chip,
 html[data-theme="dark"] .dropzone,
 html[data-theme="dark"] .notif-quote,
@@ -2863,6 +2998,10 @@ html[data-theme="dark"] .notif-settings-card {
   background: linear-gradient(145deg, rgba(44,34,41,.82), rgba(31,25,31,.72));
   border-color: rgba(255,255,255,.12);
   box-shadow: 0 14px 34px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.07);
+}
+html[data-theme="dark"][data-skin="friends"] .social-service {
+  background: rgba(29,36,51,.84);
+  border-color: var(--line);
 }
 html[data-theme="dark"] .notif-pref.toggle,
 html[data-theme="dark"] .notif-compose textarea {
@@ -3311,6 +3450,7 @@ html[data-theme="dark"][data-skin="friends"] .avatar-pick .avatar-ph {
 }
 html[data-theme="dark"][data-skin="friends"] .avatar-pick .avatar-ph { background: #293145; }
 html[data-theme="dark"][data-skin="friends"] .avatar-pick .avatar-cam { border-color: #1b2130; }
+html[data-theme="dark"][data-skin="friends"] .avatar-delete { border-color: #1b2130; }
 
 html[data-skin="friends"] nav a.on,
 html[data-skin="friends"] .bell.on,

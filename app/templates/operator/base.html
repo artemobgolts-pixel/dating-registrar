@@ -1,14 +1,21 @@
 <!doctype html>
-<html lang="ru">
+<html lang="ru"
+      data-skin="{{ user['admin_skin'] if user and user['admin_skin'] in ('friends', 'romantic') else 'friends' }}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <title>{% block title %}Админ{% endblock %} · date4you</title>
+{% if user and user['admin_skin'] == 'romantic' %}
 <link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='80' font-size='80'&gt;%E2%9D%A4&lt;/text&gt;&lt;/svg&gt;">
 <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
 <link rel="manifest" href="/static/manifest.json">
-<meta name="theme-color" content="#b65f6f">
+{% else %}
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='11' r='8' fill='%234b59a6'/%3E%3Ccircle cx='53' cy='32' r='8' fill='%23228e8a'/%3E%3Ccircle cx='32' cy='53' r='8' fill='%23e1a83b'/%3E%3Ccircle cx='11' cy='32' r='8' fill='%236d78c4'/%3E%3C/svg%3E">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon-friends.png">
+<link rel="manifest" href="/static/manifest-friends.json">
+{% endif %}
+<meta name="theme-color" content="{{ '#b65f6f' if user and user['admin_skin'] == 'romantic' else '#554eae' }}">
 <script src="{{ asset('theme.js') }}"></script>
 <link rel="stylesheet" href="{{ asset('operator.css') }}">
 <script src="{{ asset('operator.js') }}" defer></script>
@@ -17,12 +24,18 @@
 </head>
 <body data-csrf="{{ csrf }}"
       data-user-id="{{ user['id'] if user else '' }}"
+      data-skin="{{ user['admin_skin'] if user and user['admin_skin'] in ('friends', 'romantic') else 'friends' }}"
       data-ink-interactive="{{ '1' if user and user['cursor_effects'] else '0' }}">
 <a class="skip-link" href="#operatorContent">К содержимому</a>
 
 <svg class="op-sprite" aria-hidden="true" focusable="false">
   <symbol id="op-i-heart" viewBox="0 0 24 24">
     <path d="M20.8 4.7a5.5 5.5 0 0 0-7.8 0L12 5.8l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.8-7.4 1.1-1.1a5.5 5.5 0 0 0-.1-7.8Z"/>
+  </symbol>
+  <symbol id="op-i-gather" viewBox="0 0 24 24">
+    <circle cx="12" cy="5" r="2.5"/><circle cx="19" cy="12" r="2.5"/>
+    <circle cx="12" cy="19" r="2.5"/><circle cx="5" cy="12" r="2.5"/>
+    <path d="m7 10 3-3M14 7l3 3M17 14l-3 3M10 17l-3-3"/>
   </symbol>
   <symbol id="op-i-dashboard" viewBox="0 0 24 24">
     <rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="4" rx="2"/>
@@ -116,7 +129,7 @@
       <a class="op-brand" href="/operator/">
         <span class="sr-only">⚙ Админ</span>
         <span class="op-brand__mark">
-          <svg class="op-icon" aria-hidden="true"><use href="#op-i-heart"></use></svg>
+          <svg class="op-icon" aria-hidden="true"><use href="{{ '#op-i-heart' if user['admin_skin'] == 'romantic' else '#op-i-gather' }}"></use></svg>
         </span>
         <span class="op-brand__word">
           <span class="op-brand__logo">date4you</span>

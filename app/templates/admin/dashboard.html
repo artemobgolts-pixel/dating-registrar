@@ -41,7 +41,13 @@
     </div>
     <div class="share-qr-col">
       <button type="button" class="btn ghost qr-toggle" id="qrToggle">Показать QR-код</button>
-      <div class="share-qr" id="shareQr">{{ qr_svg | safe }}</div>
+      <div class="share-qr" id="shareQr"
+           data-qr-skin="{{ user['admin_skin'] if user['admin_skin'] in ('friends', 'romantic') else 'friends' }}">
+        <span class="qr-decor qr-decor-a" aria-hidden="true"></span>
+        <span class="qr-decor qr-decor-b" aria-hidden="true"></span>
+        <div class="qr-code">{{ qr_svg | safe }}</div>
+        <span class="qr-signature" aria-hidden="true">date<span>4</span>you</span>
+      </div>
       <div class="qr-actions">
         <a class="btn small qr-dl" id="qrDownload" download="date4you-qr.svg" href="#">Скачать QR-код</a>
         <button type="button" class="btn primary qr-share" id="qrShare"
@@ -78,23 +84,4 @@
   <button type="button" class="dlg-x" id="cwidClose" aria-label="Закрыть">✕</button>
   <div id="cwidBody"></div>
 </dialog>
-
-{% if user['is_operator'] %}
-<div class="card">
-  <b>Данные платформы</b>
-  <p class="muted" style="margin:6px 0 10px;font-size:13.5px">Экспорт и импорт доступны только админам. CSV — таблица событий для Excel · JSON — все данные · архив — снимок базы, все фото, видео и export.json одним zip · импорт дозаписывает категории и события из export.json.</p>
-  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-    <a class="btn small" href="/admin/export/csv">Скачать CSV</a>
-    <a class="btn small" href="/admin/export/json">Скачать JSON</a>
-    <a class="btn small" href="/admin/export/archive">Полный архив (zip)</a>
-  </div>
-  <form method="post" action="/admin/import/json" enctype="multipart/form-data"
-        style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px"
-        data-confirm="Импортировать данные из файла? Категории и события добавятся к твоему аккаунту.">
-    <input type="hidden" name="csrf" value="{{ csrf }}">
-    <input type="file" name="file" accept="application/json,.json" required>
-    <button class="btn small primary">Импортировать JSON</button>
-  </form>
-</div>
-{% endif %}
 {% endblock %}

@@ -61,15 +61,31 @@ def _miniapp_url() -> str | None:
 
 
 def _miniapp_button(label: str = "Открыть date4you") -> dict | None:
-    url = _miniapp_url()
-    if not url:
+    miniapp_url = _miniapp_url()
+    browser_url = (BASE_URL or "").strip().rstrip("/") + "/"
+    browser = urlsplit(browser_url)
+    if (browser.scheme != "https" or not browser.netloc
+            or browser.username is not None or browser.password is not None):
+        browser_url = ""
+    if not miniapp_url and not browser_url:
         return None
-    return {
-        "inline_keyboard": [[{
+    rows = []
+    if miniapp_url:
+        rows.append([{
             "text": label,
             "style": "primary",
-            "web_app": {"url": url},
-        }]],
+            "web_app": {"url": miniapp_url},
+        }])
+    if browser_url:
+        # Это намеренно обычная URL-кнопка, а не ``web_app``: Telegram передаст
+        # ссылку системному браузеру на Desktop и телефоне. Отдельная строка не
+        # сжимает длинные подписи на узком экране.
+        rows.append([{
+            "text": "Открыть в браузере",
+            "url": browser_url,
+        }])
+    return {
+        "inline_keyboard": rows,
     }
 
 

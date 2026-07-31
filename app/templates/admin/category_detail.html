@@ -13,10 +13,10 @@
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <div class="category-description-fields" data-tour="category-description">
       <label class="field" style="margin:0">
-        <span class="field-label">Название <span aria-hidden="true">*</span></span>
+        <span class="field-label">Название<sup class="required-mark" aria-hidden="true">*</sup></span>
         <input name="name" value="{{ cat['name'] }}" required maxlength="200">
       </label>
-      <label class="field-label">Описание (необязательно)</label>
+      <label class="field-label">Описание</label>
       <div class="toolbar" id="catDescToolbar" data-target="catDescInput">
         <button type="button" class="b" data-wrap="**|**" title="Жирный">Ж</button>
         <button type="button" class="i" data-wrap="*|*" title="Курсив">К</button>
@@ -120,11 +120,14 @@
     <input type="hidden" name="csrf" value="{{ csrf }}">
   </form>
 
-  {# Главное действие остаётся на виду. Редкие и потенциально опасные действия
+  {# Основные действия остаются на виду. Редкие и потенциально опасные действия
      собраны в знакомое меню «⋯», чтобы низ редактора не выглядел как панель
      из разношёрстных кнопок. Формы ниже внешние: вложенные form невалидны. #}
   <div class="cat-editor-actions" data-tour="category-actions">
-    <button class="btn primary" type="submit" form="categoryEditForm">Сохранить</button>
+    <div class="cat-editor-main-actions">
+      <button class="btn primary" type="submit" form="categoryEditForm">Сохранить</button>
+      <a class="btn ghost" href="/admin/categories">Отмена</a>
+    </div>
     <div class="menu-wrap cat-editor-menu-wrap">
       <button type="button" class="more cat-editor-more" aria-label="Другие действия с категорией"
               aria-haspopup="true" aria-expanded="false">⋯</button>
@@ -198,7 +201,7 @@
   <form class="voting-form" method="post" action="/admin/categories/{{ cat['id'] }}/voting">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <div class="field" style="margin:0">
-      <label class="field-label">Сколько вариантов может выбрать один человек <span aria-hidden="true">*</span></label>
+      <label class="field-label">Сколько вариантов может выбрать один человек<sup class="required-mark" aria-hidden="true">*</sup></label>
       <div class="choice-pick">
         <label class="choice-opt">
           <input type="radio" name="choice_mode" value="single"
@@ -213,7 +216,7 @@
       </div>
     </div>
     <label class="field" style="margin:0">
-      <span class="field-label">Дедлайн голосования <span aria-hidden="true">*</span></span>
+      <span class="field-label">Дедлайн голосования<sup class="required-mark" aria-hidden="true">*</sup></span>
       <input type="datetime-local" name="voting_deadline" required data-picker-only
              value="{{ voting_state.voting_deadline[:16] if voting_state.voting_deadline else '' }}">
       <small class="muted">Время указывается по Москве и должно быть раньше начала всех событий.</small>

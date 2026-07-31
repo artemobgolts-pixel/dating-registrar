@@ -4,7 +4,10 @@
 {% block content %}
 <div class="bar">
   <h1 class="serif" style="margin:0">Мой профиль</h1>
-  <a class="btn ghost" href="/admin/">← На главную</a>
+  <div class="actions-cell">
+    <a class="btn ghost" href="/u/{{ user['id'] }}?tab=events">Открыть публичный профиль</a>
+    <a class="btn ghost" href="/admin/">← На главную</a>
+  </div>
 </div>
 
 <div class="card" style="max-width:540px">
@@ -12,27 +15,30 @@
     <input type="hidden" name="csrf" value="{{ csrf }}">
 
     <div class="field avatar-field">
-      <label class="avatar-pick" title="Нажми, чтобы сменить фото">
+      <div class="avatar-wrap">
+        <label class="avatar-pick" title="Нажми, чтобы сменить фото">
+          {% if user['avatar_path'] %}
+          <img src="/admin/avatar/{{ user['avatar_path'] }}?w=128"
+               srcset="/admin/avatar/{{ user['avatar_path'] }}?w=128 128w,
+                       /admin/avatar/{{ user['avatar_path'] }}?w=256 256w,
+                       /admin/avatar/{{ user['avatar_path'] }}?w=480 480w"
+               sizes="116px" alt="Аватар" width="116" height="116"
+               decoding="async" class="avatar-img">
+          {% else %}
+          <span class="avatar-ph">🙂</span>
+          {% endif %}
+          <span class="avatar-cam" aria-hidden="true">📷</span>
+          <input type="file" name="avatar" id="avatarInput" accept="image/*" hidden>
+        </label>
         {% if user['avatar_path'] %}
-        <img src="/admin/avatar/{{ user['avatar_path'] }}?w=128"
-             srcset="/admin/avatar/{{ user['avatar_path'] }}?w=128 128w,
-                     /admin/avatar/{{ user['avatar_path'] }}?w=256 256w,
-                     /admin/avatar/{{ user['avatar_path'] }}?w=480 480w"
-             sizes="116px" alt="Аватар" width="116" height="116"
-             decoding="async" class="avatar-img">
-        {% else %}
-        <span class="avatar-ph">🙂</span>
+        <button class="avatar-delete" type="submit" form="delAvatar"
+                aria-label="Удалить фото профиля" title="Удалить фото">×</button>
         {% endif %}
-        <span class="avatar-cam" aria-hidden="true">📷</span>
-        <input type="file" name="avatar" id="avatarInput" accept="image/*" hidden>
-      </label>
-      {% if user['avatar_path'] %}
-      <button class="btn small danger" type="submit" form="delAvatar">Удалить фото</button>
-      {% endif %}
+      </div>
     </div>
 
     <div class="field">
-      <label>Имя *</label>
+      <label>Имя<sup class="required-mark" aria-hidden="true">*</sup></label>
       <input type="text" name="display_name" required maxlength="80"
              value="{{ user['display_name'] or '' }}">
     </div>
@@ -93,7 +99,6 @@
       <span class="sw" aria-hidden="true"></span>
       <span class="tcol">
         <span class="t">След от курсора и кликов</span>
-        <span class="muted">Работает только на компьютере. По умолчанию выключено.</span>
       </span>
     </label>
 
@@ -147,24 +152,34 @@
   <b>🔗 Соцсети и сервисы</b>
   <p class="muted" style="margin:8px 0 14px;font-size:13.5px">
     Привяжи аккаунты, чтобы входить через них. Отвязать можно в любой момент.</p>
-  <div class="social-links">
+  <div class="social-links" aria-label="Подключённые соцсети и сервисы">
     {% for p in oauth_providers %}
-    <div class="social-row">
-      <span class="social-ico">{% include "auth/_oauth_icon.html" with context %}</span>
-      <span class="social-name">{{ p['label'] }}</span>
-      {% if p['linked'] %}
-      <span class="social-badge ok">Привязан</span>
-      <form class="inline" method="post" action="/admin/profile/oauth/{{ p['slug'] }}/unlink"
+    {% if p['linked'] %}
+    <div class="social-service is-linked" title="{{ p['label'] }} привязан">
+      <span class="social-ico" aria-hidden="true">{% include "auth/_oauth_icon.html" with context %}</span>
+      <span class="sr-only">{{ p['label'] }}: Привязан</span>
+      <form class="social-service-action" method="post"
+            action="/admin/profile/oauth/{{ p['slug'] }}/unlink"
             data-confirm="Отвязать {{ p['label'] }} от аккаунта?">
         <input type="hidden" name="csrf" value="{{ csrf }}">
-        <button class="btn small ghost">Отвязать</button>
+        <button class="social-state" type="submit"
+                aria-label="Отвязать {{ p['label'] }}" title="Отвязать {{ p['label'] }}">×</button>
       </form>
-      {% elif p['enabled'] %}
-      <a class="btn small primary" href="/auth/{{ p['slug'] }}?link=1">Привязать</a>
-      {% else %}
-      <span class="social-badge soon">скоро</span>
-      {% endif %}
     </div>
+    {% elif p['enabled'] %}
+    <a class="social-service" href="/auth/{{ p['slug'] }}?link=1"
+       aria-label="Привязать {{ p['label'] }}" title="Привязать {{ p['label'] }}">
+      <span class="social-ico" aria-hidden="true">{% include "auth/_oauth_icon.html" with context %}</span>
+      <span class="social-state" aria-hidden="true">+</span>
+    </a>
+    {% else %}
+    <span class="social-service is-disabled" aria-label="{{ p['label'] }}: скоро"
+          title="{{ p['label'] }} пока недоступен">
+      <span class="social-ico" aria-hidden="true">{% include "auth/_oauth_icon.html" with context %}</span>
+      <span class="social-state" aria-hidden="true">+</span>
+      <span class="sr-only">{{ p['label'] }}: скоро</span>
+    </span>
+    {% endif %}
     {% endfor %}
   </div>
 </div>

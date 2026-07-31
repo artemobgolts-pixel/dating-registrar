@@ -7,18 +7,18 @@
 <form method="post" action="/admin/categories/create" class="category-create-row" data-tour="category-create">
   <input type="hidden" name="csrf" value="{{ csrf }}">
   <label class="field">
-    <span class="field-label">Название <span aria-hidden="true">*</span></span>
+    <span class="field-label">Название<sup class="required-mark" aria-hidden="true">*</sup></span>
     <input type="text" name="name" maxlength="200" placeholder="Например, Летние планы" required>
   </label>
   <label class="field">
-    <span class="field-label">Режим голосования <span aria-hidden="true">*</span></span>
+    <span class="field-label">Режим голосования<sup class="required-mark" aria-hidden="true">*</sup></span>
     <select name="choice_mode" required>
       <option value="single">Один вариант</option>
       <option value="multiple">Несколько вариантов</option>
     </select>
   </label>
   <label class="field">
-    <span class="field-label">Дедлайн голосования <span aria-hidden="true">*</span></span>
+    <span class="field-label">Дедлайн голосования<sup class="required-mark" aria-hidden="true">*</sup></span>
     <input type="datetime-local" name="voting_deadline" min="{{ deadline_min }}" required data-picker-only>
   </label>
   <button class="btn primary category-create-btn">Создать категорию</button>
@@ -48,17 +48,17 @@
           <button type="button" class="more" aria-label="Ещё действия" aria-haspopup="true" aria-expanded="false">⋯</button>
           <div class="menu">
             {% if c['link_enabled'] %}
-            <a href="/c/{{ c['link_token'] }}" target="_blank" rel="noopener" data-turbo="false">👀 Открыть</a>
-            <button type="button" data-copy="{{ BASE_URL }}/c/{{ c['link_token'] }}">🔗 Скопировать ссылку</button>
+            <a href="/c/{{ c['link_token'] }}" target="_blank" rel="noopener" data-turbo="false">Открыть</a>
+            <button type="button" data-copy="{{ BASE_URL }}/c/{{ c['link_token'] }}">Скопировать ссылку</button>
             {% endif %}
             <form method="post" action="/admin/categories/{{ c['id'] }}/toggle">
               <input type="hidden" name="csrf" value="{{ csrf }}">
-              <button type="submit">{{ '🔒 Отключить ссылку' if c['link_enabled'] else '🔓 Включить ссылку' }}</button>
+              <button type="submit">{{ 'Отключить ссылку' if c['link_enabled'] else 'Включить ссылку' }}</button>
             </form>
             <form method="post" action="/admin/categories/{{ c['id'] }}/regenerate"
                   data-confirm="Сгенерировать новую ссылку? Старая перестанет работать, но все голоса и вопросы сохранятся.">
               <input type="hidden" name="csrf" value="{{ csrf }}">
-              <button type="submit">↻ Перегенерировать ссылку</button>
+              <button type="submit">Перегенерировать ссылку</button>
             </form>
             <form method="post" action="/admin/categories/{{ c['id'] }}/clone">
               <input type="hidden" name="csrf" value="{{ csrf }}">
@@ -68,7 +68,7 @@
             <form method="post" action="/admin/categories/{{ c['id'] }}/delete"
                   data-confirm="Удалить категорию? События останутся, но голоса в этой категории удалятся, а ссылка перестанет работать.">
               <input type="hidden" name="csrf" value="{{ csrf }}">
-              <button type="submit" class="danger">🗑 Удалить категорию</button>
+              <button type="submit" class="danger">Удалить категорию</button>
             </form>
           </div>
         </div>

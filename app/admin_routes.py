@@ -295,7 +295,7 @@ def dashboard(request: Request, conn=Depends(get_db)):
     share_has_og = False
     if share:
         share_url = f"{BASE_URL}/c/{share['link_token']}"
-        qr_svg = _qr_svg(share_url)
+        qr_svg = _qr_svg(share_url, request.state.user["admin_skin"])
         # превью ссылки: своя картинка ИЛИ коллаж из фото активных событий
         share_has_og = bool(share["og_image"]) or conn.execute(
             "SELECT 1 FROM date_categories dc JOIN dates d ON d.id=dc.date_id "
@@ -310,16 +310,36 @@ def dashboard(request: Request, conn=Depends(get_db)):
              share_has_og=share_has_og))
 
 
-def _qr_svg(data: str) -> str:
+def _qr_svg(data: str, skin: str = "friends") -> str:
     """QR-код ссылки как инлайновый SVG (без внешних запросов и без PIL).
 
-    Прозрачный фон, цвет — роза палитры; omitsize сохраняет viewBox, поэтому
-    SVG масштабируется под контейнер. Под нашу CSP инлайновый SVG безопасен.
+    Основные модули и поисковые рамки окрашены в палитру выбранного оформления
+    кабинета. Белая тихая зона остаётся частью скачиваемого SVG, поэтому код
+    надёжно читается не только на странице, но и после сохранения в файл.
     """
+    palette = {
+        "friends": {
+            "data": "#354483",
+            "finder": "#176f6c",
+            "detail": "#4b59a6",
+        },
+        "romantic": {
+            "data": "#633743",
+            "finder": "#a84f63",
+            "detail": "#8f4a58",
+        },
+    }[skin if skin in ("friends", "romantic") else "friends"]
     buf = io.BytesIO()
     segno.make(data, error="m").save(
-        buf, kind="svg", scale=4, border=2,
-        dark="#8f4a58", svgclass=None, omitsize=True, xmldecl=False)
+        buf, kind="svg", scale=4, border=4,
+        dark=palette["data"], light="#ffffff",
+        data_dark=palette["data"], finder_dark=palette["finder"],
+        alignment_dark=palette["detail"], format_dark=palette["detail"],
+        version_dark=palette["detail"], timing_dark=palette["detail"],
+        separator="#ffffff", quiet_zone="#ffffff",
+        svgclass="qr-svg", omitsize=True, xmldecl=False,
+        title="QR-код ссылки date4you",
+        desc="Откройте камеру телефона и наведите её на код")
     return buf.getvalue().decode("utf-8")
 
 
@@ -387,10 +407,17 @@ def community_widget(did: int, request: Request, conn=Depends(get_db)):
     d = public_routes.date_payload_from(r, media)
     d["owner_display"] = (r["owner_name"] or r["owner_username"]
                           or f"Человек #{r['owner_id']}")
+    is_mine = int(r["owner_id"]) == int(request.state.user["id"])
+    wanted_by_me = False
+    if not is_mine:
+        wanted_by_me = conn.execute(
+            "SELECT 1 FROM date_wants WHERE user_id=? AND date_id=?",
+            (request.state.user["id"], did),
+        ).fetchone() is not None
     return templates.TemplateResponse(
         request, "admin/_community_widget.html",
         {"request": request, "d": d,
-         "is_mine": r["owner_id"] == request.state.user["id"],
+         "is_mine": is_mine, "wanted_by_me": wanted_by_me,
          "admin_skin": appearance.normalize_skin(request.state.user["admin_skin"])})
 
 
@@ -649,7 +676,10 @@ async def import_json(request: Request, file: UploadFile = File(...),
                     (did, fn, pos))
         n_dates += 1
     conn.commit()
-    return redir("/admin/", f"Импортировано: {n_cats} категорий и {n_dates} событий")
+    query = getattr(request, "query_params", {})
+    return_to = "/operator/settings" \
+        if query.get("return_to") == "operator" else "/admin/"
+    return redir(return_to, f"Импортировано: {n_cats} категорий и {n_dates} событий")
 
 
 # ----- Категории -----------------------------------------------------------

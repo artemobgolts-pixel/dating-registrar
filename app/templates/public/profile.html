@@ -129,11 +129,11 @@
 
 <section class="pub-dates">
   <nav class="profile-tabs" aria-label="Разделы профиля">
-    <a href="?tab=events" class="{{ 'on' if tab == 'events' else '' }}">События <b>{{ event_total }}</b></a>
+    <a href="?tab=events" class="{{ 'on' if tab == 'events' else '' }}">Публичные события <b>{{ event_total }}</b></a>
     <a href="?tab=want" class="{{ 'on' if tab == 'want' else '' }}">Хочу сходить <b>{{ want_total }}</b></a>
     <a href="?tab=reviews" class="{{ 'on' if tab == 'reviews' else '' }}">Обзоры <b>{{ review_total }}</b></a>
   </nav>
-  <h2>{% if tab == 'want' %}Хочу сходить{% elif tab == 'reviews' %}Обзоры{% else %}Публичные встречи{% endif %}{% if total %} · {{ total }}{% endif %}</h2>
+  <h2>{% if tab == 'want' %}Хочу сходить{% elif tab == 'reviews' %}Обзоры{% else %}Публичные события{% endif %}{% if total %} · {{ total }}{% endif %}</h2>
 
   {% if tab == 'events' and dates %}
   <div class="pub-grid">
@@ -208,7 +208,7 @@
         <form method="post" action="/u/{{ u['id'] }}/reviews/{{ r['review_id'] }}/edit">
           <input type="hidden" name="csrf" value="{{ csrf }}">
           <fieldset class="profile-rating">
-            <legend>Оценка <span aria-hidden="true">*</span></legend>
+            <legend>Оценка<sup class="required-mark" aria-hidden="true">*</sup></legend>
             {% for score in range(1, 6) %}<label><input type="radio" name="rating" value="{{ score }}" {{ 'checked' if r['rating'] == score else '' }} required>{{ score }} ★</label>{% endfor %}
           </fieldset>
           <textarea name="text" maxlength="4000" placeholder="Текст необязателен">{{ r['review_text'] or '' }}</textarea>

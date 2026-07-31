@@ -831,8 +831,43 @@
       if (e.target === dlg) closeWidget();               // клик по подложке
     });
 
-    // «Добавить себе» внутри виджета (делегированно — контент подгружается)
+    // Независимые действия внутри виджета (контент подгружается): отметка
+    // «Хочу сходить» хранит связь с оригиналом, «Добавить себе» создаёт копию.
     if (cwidBody) cwidBody.addEventListener("click", function (e) {
+      var want = e.target.closest("[data-want]");
+      if (want) {
+        want.disabled = true;
+        var wantOld = want.textContent;
+        want.textContent = "Сохраняю…";
+        var wantData = new FormData();
+        wantData.append("csrf", document.body.dataset.csrf || "");
+        fetch(want.getAttribute("data-want"), {
+          method: "POST", credentials: "same-origin", body: wantData,
+          headers: { "X-Requested-With": "fetch" }
+        })
+          .then(function (r) {
+            return r.json().then(function (j) { return { ok: r.ok, j: j }; });
+          })
+          .then(function (res) {
+            if (!res.ok || !res.j || !res.j.ok) {
+              want.textContent = wantOld;
+              toast((res.j && res.j.detail) || "Не удалось сохранить");
+              return;
+            }
+            var wanted = Boolean(res.j.wanted);
+            want.dataset.wanted = wanted ? "1" : "0";
+            want.setAttribute("aria-pressed", wanted ? "true" : "false");
+            want.textContent = wanted ? "Убрать из «Хочу сходить»" : "Хочу сходить";
+            want.classList.toggle("primary", !wanted);
+            want.classList.toggle("ghost", wanted);
+            toast(res.j.message || (wanted
+              ? "Добавлено в «Хочу сходить»"
+              : "Убрано из «Хочу сходить»"));
+          })
+          .catch(function () { want.textContent = wantOld; toast("Нет связи"); })
+          .finally(function () { want.disabled = false; });
+        return;
+      }
       var btn = e.target.closest("[data-add]");
       if (!btn) return;
       btn.disabled = true;

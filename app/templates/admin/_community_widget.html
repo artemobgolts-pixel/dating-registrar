@@ -53,7 +53,13 @@
       {% if is_mine %}
       <a class="btn primary" href="/admin/dates/{{ d['id'] }}/edit">Это твоё событие — открыть</a>
       {% else %}
-      <button type="button" class="btn primary cwid-add" data-add="/d/{{ d['share_token'] }}/add">Добавить себе{% if admin_skin == 'romantic' %} ♥{% endif %}</button>
+      <button type="button" class="btn {{ 'ghost' if wanted_by_me else 'primary' }} cwid-want"
+              data-want="/d/{{ d['share_token'] }}/want"
+              data-wanted="{{ '1' if wanted_by_me else '0' }}"
+              aria-pressed="{{ 'true' if wanted_by_me else 'false' }}">
+        {{ 'Убрать из «Хочу сходить»' if wanted_by_me else 'Хочу сходить' }}
+      </button>
+      <button type="button" class="btn ghost cwid-add" data-add="/d/{{ d['share_token'] }}/add">Добавить себе{% if admin_skin == 'romantic' %} ♥{% endif %}</button>
       {% endif %}
     </div>
   </div>

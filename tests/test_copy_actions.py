@@ -238,6 +238,68 @@ class CopyActionTests(unittest.TestCase):
         self.assertIn("img.releasePointerCapture(e.pointerId)", admin)
         self.assertIn("e.stopPropagation();", admin)
 
+        date_form = (APP / "templates/admin/date_form.html").read_text(encoding="utf-8")
+        public_category = (APP / "templates/public/category.html").read_text(encoding="utf-8")
+        self.assertIn('class="required-title"', date_form)
+        self.assertIn('class="required-title"', public_category)
+        self.assertIn(".required-mark {", css)
+        self.assertIn(
+            ".cat-editor-main-actions > .btn { padding: 13px 18px; font-size: 16px; }",
+            css,
+        )
+
+    def test_community_widget_toggles_want_without_copying_event(self):
+        with TestClient(main.app, follow_redirects=False) as owner:
+            login(owner, 880201)
+            _, source_date, _ = self._seed_source(880201)
+
+        with TestClient(main.app, follow_redirects=False) as viewer:
+            csrf = login(viewer, 880202)
+            widget = viewer.get(f"/admin/community/date/{source_date}")
+            self.assertEqual(widget.status_code, 200)
+            self.assertIn("Хочу сходить", widget.text)
+            self.assertIn(f'data-want="/d/date-880201/want"', widget.text)
+
+            marked = viewer.post(
+                "/d/date-880201/want",
+                data={"csrf": csrf},
+                headers={"X-Requested-With": "fetch"},
+            )
+            self.assertEqual(marked.status_code, 200, marked.text)
+            self.assertEqual(marked.json()["wanted"], True)
+
+            conn = db.connect()
+            viewer_id = conn.execute(
+                "SELECT id FROM users WHERE telegram_id=880202",
+            ).fetchone()[0]
+            self.assertIsNotNone(conn.execute(
+                "SELECT 1 FROM date_wants WHERE user_id=? AND date_id=?",
+                (viewer_id, source_date),
+            ).fetchone())
+            # Отметка не вызывает существующую ручку копирования события.
+            self.assertEqual(conn.execute(
+                "SELECT COUNT(*) FROM dates WHERE owner_id=?",
+                (viewer_id,),
+            ).fetchone()[0], 0)
+            conn.close()
+
+            marked_widget = viewer.get(f"/admin/community/date/{source_date}")
+            self.assertIn("Убрать из «Хочу сходить»", marked_widget.text)
+
+            unmarked = viewer.post(
+                "/d/date-880201/want",
+                data={"csrf": csrf},
+                headers={"X-Requested-With": "fetch"},
+            )
+            self.assertEqual(unmarked.status_code, 200, unmarked.text)
+            self.assertEqual(unmarked.json()["wanted"], False)
+            conn = db.connect()
+            self.assertIsNone(conn.execute(
+                "SELECT 1 FROM date_wants WHERE user_id=? AND date_id=?",
+                (viewer_id, source_date),
+            ).fetchone())
+            conn.close()
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

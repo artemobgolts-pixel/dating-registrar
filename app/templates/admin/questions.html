@@ -11,19 +11,20 @@
   {% endif %}
 </div>
 
-<section class="notif-settings-card" aria-labelledby="notif-settings-title">
-  <div class="notif-settings-head">
+<details class="notif-settings-card" aria-labelledby="notif-settings-title">
+  <summary class="notif-settings-head">
     <span class="notif-settings-icon" aria-hidden="true">
       {% with icon='bell' %}{% include "admin/_icon.html" %}{% endwith %}
     </span>
-    <div>
-      <h2 id="notif-settings-title">Уведомления в Telegram</h2>
-      <p>Выбери, какие сообщения бот будет присылать тебе.</p>
-    </div>
+    <span class="notif-settings-copy">
+      <span class="notif-settings-title" id="notif-settings-title" role="heading" aria-level="2">Уведомления в Telegram</span>
+      <span class="notif-settings-hint">Выбери, какие сообщения бот будет присылать тебе.</span>
+    </span>
     <span class="notif-channel-state{{ ' connected' if user['bot_linked'] else '' }}">
       <i aria-hidden="true"></i>{{ 'Бот подключён' if user['bot_linked'] else 'Бот не подключён' }}
     </span>
-  </div>
+    <span class="notif-settings-chevron" aria-hidden="true"></span>
+  </summary>
 
   <form method="post" action="/admin/questions/settings" class="notif-settings-form">
     <input type="hidden" name="csrf" value="{{ csrf }}">
@@ -64,7 +65,7 @@
       <button type="submit" class="btn primary notif-action-btn">Сохранить настройки</button>
     </div>
   </form>
-</section>
+</details>
 
 <div class="controls notif-controls">
   <div class="tabs" aria-label="Фильтр уведомлений">

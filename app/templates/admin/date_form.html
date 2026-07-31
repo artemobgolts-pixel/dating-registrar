@@ -116,7 +116,7 @@
 
       <div class="body">
         <h3 class="ttl">
-          <span class="ed-field" id="edTitle" data-ph="Название события *">{{ date['name'] if date else '' }}</span>
+          <span class="required-title"><span class="ed-field" id="edTitle" data-ph="Название события">{{ date['name'] if date else '' }}</span><sup class="required-mark" aria-hidden="true">*</sup></span>
           {# запасное место модификатора — в заголовке, когда фото НЕТ (иначе он
              живёт бейджем на фото, см. .ed-gallery-pay). JS переключает видимость. #}
           <span class="pay" data-preview="pay" {% if not (date and date['pay_split']) or (date and photos) %}hidden{% endif %}>{{ pay_label(date['pay_split']) if date else '' }}</span>

@@ -217,6 +217,10 @@ class TelegramMiniAppTests(unittest.TestCase):
         button = sent[0][2]["reply_markup"]["inline_keyboard"][0][0]
         self.assertEqual(button["style"], "primary")
         self.assertEqual(button["web_app"]["url"], "https://localhost/tg/app")
+        browser = sent[0][2]["reply_markup"]["inline_keyboard"][1][0]
+        self.assertEqual(browser["text"], "Открыть в браузере")
+        self.assertEqual(browser["url"], "https://localhost/")
+        self.assertNotIn("web_app", browser)
 
     def test_expired_start_payload_does_not_create_separate_account(self):
         sent = []

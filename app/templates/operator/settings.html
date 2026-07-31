@@ -60,4 +60,38 @@
     </button>
   </div>
 </form>
+
+<section class="panel settings-panel platform-data-panel">
+  <div class="panel__head">
+    <div class="panel__title-wrap">
+      <h2 class="panel__title">Данные платформы</h2>
+      <span class="panel__hint">Экспорт, резервный архив и перенос данных аккаунта</span>
+    </div>
+  </div>
+  <div class="panel__body">
+    <p class="muted platform-data-copy">
+      CSV подходит для таблиц, JSON — для переноса категорий и событий, а полный
+      архив содержит снимок базы, медиафайлы и export.json.
+    </p>
+    <div class="platform-export-actions">
+      <a class="btn" href="/admin/export/csv">Скачать CSV</a>
+      <a class="btn" href="/admin/export/json">Скачать JSON</a>
+      <a class="btn" href="/admin/export/archive">
+        <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-archive"></use></svg>
+        Полный архив
+      </a>
+    </div>
+
+    <form class="platform-import-form" method="post"
+          action="/admin/import/json?return_to=operator" enctype="multipart/form-data"
+          data-confirm="Импортировать данные из файла? Категории и события добавятся к твоему аккаунту.">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <label class="platform-file-field">
+        <span>Файл export.json</span>
+        <input type="file" name="file" accept="application/json,.json" required>
+      </label>
+      <button class="btn primary" type="submit">Импортировать JSON</button>
+    </form>
+  </div>
+</section>
 {% endblock %}

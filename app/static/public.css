@@ -891,6 +891,19 @@ dialog::backdrop { background: rgba(70, 40, 46, .38); backdrop-filter: blur(5px)
 .field input.flash { background: var(--rose-soft); }
 .field textarea { min-height: 86px; resize: vertical; }
 
+/* Единый маркер обязательности: близко к подписи, как показатель степени. */
+.required-mark {
+  display: inline-block;
+  margin-left: .06em;
+  color: #d52d48;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: .68em;
+  font-weight: 800;
+  line-height: 0;
+  vertical-align: super;
+}
+.required-title { min-width: 0; }
+
 details.endtime { margin: -4px 0 14px; }
 details.endtime summary {
   cursor: pointer; list-style: none;
