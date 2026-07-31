@@ -389,7 +389,10 @@ window.UI = (() => {
       if (vids.length) video.addFiles(vids);
     }
     zone.addEventListener("click", (e) => {
-      if (e.target.closest(".ptile, button, a")) return;
+      // В карточном редакторе большой `.ed-slide` сам обрабатывает drag точки
+      // фокуса. Pointer-up после такого жеста порождает click; это не клик по
+      // пустой зоне и не должно повторно открывать системный выбор файла.
+      if (e.target.closest(".ptile, .ed-slide, button, a")) return;
       input.click();
     });
     zone.addEventListener("dragover", (e) => { e.preventDefault(); zone.classList.add("over"); });

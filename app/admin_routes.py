@@ -10,7 +10,7 @@ import logging
 import os
 import tempfile
 import zipfile
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import segno
 
@@ -27,13 +27,14 @@ import images
 import notify
 import places
 import public_routes
+import social_events
 import settings as app_settings
 import voting
 import voting_events
 from config import BASE_URL, SUPPORT_CONTACT, OAUTH_PROVIDERS, OAUTH_LABELS
 from guests import gname
 from helpers import (clean_text, new_link_token, normalize_period, now_iso, now_naive,
-                     parse_birth_date, parse_dt_local, parse_links, pay_label)
+                     parse_birth_date, parse_dt_local, parse_links, pay_label, plural)
 from fastapi.responses import JSONResponse
 from ownership import get_owned_category, get_owned_date
 from public_routes import (add_photos, copy_date_media_and_links, insert_date,
@@ -583,14 +584,27 @@ async def import_json(request: Request, file: UploadFile = File(...),
         category_skin = appearance.normalize_skin(
             c.get("category_skin"), default=appearance.ROMANTIC
         )
+        choice_mode = str(c.get("choice_mode") or "").strip()
+        voting_deadline = str(c.get("voting_deadline") or "").strip()
+        if choice_mode not in voting.CHOICE_MODES or not voting_deadline:
+            raise HTTPException(
+                400,
+                f"У импортируемой категории «{name}» нет обязательного дедлайна",
+            )
+        try:
+            datetime.fromisoformat(voting_deadline)
+        except ValueError:
+            raise HTTPException(400, f"У категории «{name}» некорректный дедлайн")
         token = new_link_token()
         cur = conn.execute(
             "INSERT INTO categories(owner_id, name, category_skin, description, link_token, "
-            "link_enabled, moderate_proposals, created_at) VALUES(?,?,?,?,?,?,?,?)",
+            "link_enabled, moderate_proposals, choice_mode, voting_deadline, created_at) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?)",
             (uid, name, category_skin,
              clean_text(str(c.get("description") or ""), 1000, "Описание"),
              token, 1 if c.get("link_enabled", 1) else 0,
-             1 if c.get("moderate_proposals") else 0, now_iso()))
+             1 if c.get("moderate_proposals") else 0,
+             choice_mode, voting_deadline, now_iso()))
         if c.get("id") is not None:
             cat_map[c["id"]] = cur.lastrowid
         n_cats += 1
@@ -655,13 +669,18 @@ def categories_list(request: Request, conn=Depends(get_db)):
         (request.state.user["id"],)
     ).fetchall()
     return templates.TemplateResponse(
-        request, "admin/categories.html", actx(request, conn, active="cats", cats=cats))
+        request, "admin/categories.html",
+        actx(request, conn, active="cats", cats=cats,
+             deadline_min=now_naive().strftime("%Y-%m-%dT%H:%M")))
 
 
 @router.post("/categories/create")
 def category_create(request: Request, bg: BackgroundTasks, name: str = Form(...),
+                    choice_mode: str = Form(""), voting_deadline: str = Form(""),
                     conn=Depends(get_db)):
     name = clean_text(name, 200, "Название", required=True)
+    if not choice_mode or not voting_deadline:
+        raise HTTPException(400, "Название, режим и дедлайн голосования обязательны")
     token = new_link_token()
     # мягкая очередь: при включённой модерации категорий новая помечается
     # is_reviewed=0 (ссылка работает сразу, админ просто видит её в очереди).
@@ -671,6 +690,13 @@ def category_create(request: Request, bg: BackgroundTasks, name: str = Form(...)
         "moderate_proposals, is_reviewed, created_at) VALUES(?,?,?,?,1,0,?,?)",
         (request.state.user["id"], name, appearance.FRIENDS, token, reviewed, now_iso()))
     category_id = int(cursor.lastrowid)
+    try:
+        voting.configure_category(
+            conn, category_id, request.state.user["id"],
+            choice_mode, voting_deadline,
+        )
+    except voting.VotingError as exc:
+        _raise_voting_http(exc)
     conn.commit()
     actor = request.state.user["display_name"] or request.state.user["tg_username"] or "—"
     notify_admin(bg, conn, request.state.user["id"], notify.card(
@@ -689,6 +715,106 @@ def _cat_or_404(conn, cid: int, user):
             raise HTTPException(404, "Категория не найдена")
         return cat
     return get_owned_category(conn, cid, user["id"])
+
+
+@router.post("/categories/{cid}/clone")
+def category_clone(cid: int, request: Request, conn=Depends(get_db)):
+    """Создаёт независимую копию категории вместе с её событиями.
+
+    Новая категория получает собственную секретную ссылку, а каждое событие —
+    собственную запись, share-токен и физические копии фото/видео. Голоса,
+    вопросы и завершённый результат голосования намеренно не переносятся:
+    копия начинает новый жизненный цикл и не зависит от исходной категории.
+    """
+    src = _cat_or_404(conn, cid, request.state.user)
+    if not src["choice_mode"] or not src["voting_deadline"]:
+        raise HTTPException(
+            409,
+            "Сначала задай исходной категории режим и обязательный дедлайн",
+        )
+    owner_id = int(request.state.user["id"])
+    suffix = " (копия)"
+    name = src["name"][:200 - len(suffix)].rstrip() + suffix
+    reviewed = 0 if app_settings.is_on(conn, app_settings.MODERATE_CATEGORIES) else 1
+    copied_files: list[str] = []
+    try:
+        source_deadline = datetime.fromisoformat(src["voting_deadline"])
+    except (TypeError, ValueError):
+        source_deadline = now_naive()
+    copied_deadline = (
+        source_deadline if source_deadline > now_naive()
+        else now_naive() + timedelta(days=7)
+    ).replace(microsecond=0).isoformat()
+
+    try:
+        # Собственная OG-картинка тоже должна быть независимым файлом. Если
+        # исходник был удалён с диска, копия корректно откатится к авто-превью.
+        og_image = images.copy_file(src["og_image"]) if src["og_image"] else None
+        if og_image:
+            copied_files.append(og_image)
+        cursor = conn.execute(
+            "INSERT INTO categories("
+            "owner_id, name, category_skin, link_token, link_enabled, "
+            "moderate_proposals, is_reviewed, description, og_title, og_desc, "
+            "og_image, og_focus, choice_mode, voting_deadline, voting_status, created_at"
+            ") VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (owner_id, name, src["category_skin"], new_link_token(),
+             0, src["moderate_proposals"], reviewed,
+             src["description"], src["og_title"], src["og_desc"], og_image,
+             src["og_focus"] if og_image else None, src["choice_mode"],
+             copied_deadline, voting.STATUS_UNCONFIGURED,
+             now_iso()),
+        )
+        new_cid = int(cursor.lastrowid)
+
+        source_dates = conn.execute(
+            "SELECT d.*, dc.position AS category_position "
+            "FROM dates d JOIN date_categories dc ON dc.date_id=d.id "
+            "WHERE dc.category_id=? ORDER BY dc.position, d.id",
+            (cid,),
+        ).fetchall()
+        for source in source_dates:
+            date_name = source["name"][:200 - len(suffix)].rstrip() + suffix
+            new_did = insert_date(
+                conn, name=date_name, place=source["place"],
+                starts=source["starts_at"], ends=source["ends_at"],
+                comment=source["comment"], origin="admin", guest_token=None,
+                owner_id=owner_id, draft=1,
+                pay_split=source["pay_split"], place_url=source["place_url"],
+                is_public=source["is_public"], capacity=source["capacity"],
+            )
+            copy_date_media_and_links(conn, int(source["id"]), new_did)
+            copied_files.extend(r["filename"] for r in conn.execute(
+                "SELECT filename FROM date_images WHERE date_id=?",
+                (new_did,),
+            ))
+            copied_files.extend(r["filename"] for r in conn.execute(
+                "SELECT filename FROM date_videos WHERE date_id=?",
+                (new_did,),
+            ))
+            if source["archived_at"]:
+                conn.execute(
+                    "UPDATE dates SET archived_at=? WHERE id=?",
+                    (source["archived_at"], new_did),
+                )
+            conn.execute(
+                "INSERT INTO date_categories(date_id, category_id, position) "
+                "VALUES(?,?,?)",
+                (new_did, new_cid, source["category_position"]),
+            )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        for filename in copied_files:
+            images.delete_file(filename)
+        raise
+
+    count = len(source_dates)
+    return redir(
+        f"/admin/categories/{new_cid}",
+        f"Категория и {count} {plural(count, 'событие', 'события', 'событий')} "
+        "скопированы как черновики — проверь дедлайн и включи ссылку после правок",
+    )
 
 
 @router.get("/categories/{cid}", response_class=HTMLResponse)
@@ -753,6 +879,10 @@ def category_voting_configure(cid: int, request: Request,
         (cid,),
     ):
         voting_events.queue_deadline_reminder(conn, cid, int(row["user_id"]))
+    for row in conn.execute(
+        "SELECT date_id FROM date_categories WHERE category_id=?", (cid,),
+    ).fetchall():
+        social_events.queue_review_prompts_for_date(conn, int(row["date_id"]))
     conn.commit()
     return redir(f"/admin/categories/{cid}", "Настройки голосования сохранены")
 
@@ -1004,12 +1134,17 @@ def category_delete(cid: int, request: Request, bg: BackgroundTasks, conn=Depend
         "SELECT DISTINCT d.id, d.name FROM dates d JOIN bookings b ON b.date_id=d.id "
         "WHERE b.category_id=?", (cid,),
     ).fetchall()
+    affected_date_ids = [int(row["date_id"]) for row in conn.execute(
+        "SELECT date_id FROM date_categories WHERE category_id=?", (cid,),
+    ).fetchall()]
     voting_events.cancel_category_notifications(conn, cid)
     for d in affected:
         voting_events.queue_date_removed(
             conn, d["id"], d["name"], cid, cat["name"], None,
         )
     conn.execute("DELETE FROM categories WHERE id=?", (cid,))
+    for date_id in affected_date_ids:
+        social_events.queue_review_prompts_for_date(conn, date_id)
     conn.commit()
     if cat["og_image"]:
         images.delete_file(cat["og_image"])
@@ -1035,6 +1170,7 @@ def category_attach(cid: int, request: Request, date_id: int = Form(...),
         "VALUES(?,?,?)", (date_id, cid, next_cat_pos(conn, cid)))
     # попав хотя бы в одну категорию, событие становится активным
     conn.execute("UPDATE dates SET is_draft=0 WHERE id=?", (date_id,))
+    social_events.queue_review_prompts_for_date(conn, date_id)
     conn.commit()
     return redir(f"/admin/categories/{cid}", "Событие добавлено в категорию")
 
@@ -1089,6 +1225,7 @@ def category_detach(cid: int, request: Request, date_id: int = Form(...),
         "SELECT 1 FROM date_categories WHERE date_id=? LIMIT 1", (date_id,)).fetchone()
     if not still:
         conn.execute("UPDATE dates SET is_draft=1 WHERE id=?", (date_id,))
+    social_events.queue_review_prompts_for_date(conn, date_id)
     conn.commit()
     return redir(f"/admin/categories/{cid}", "Событие убрано из категории")
 
@@ -1509,6 +1646,7 @@ def date_update(did: int, request: Request, bg: BackgroundTasks, name: str = For
             images.delete_file(fn)
         raise
     voting_events.queue_date_changed(conn, did, changed_labels)
+    social_events.queue_review_prompts_for_date(conn, did)
     conn.commit()
     if needs_resolve:
         bg.add_task(places.resolve_into_db, did, place_url)
@@ -1540,12 +1678,15 @@ def date_publish(did: int, request: Request, bg: BackgroundTasks,
     # если это было предложение гостя — уведомим автора о публикации
     if d["origin"] == "guest" and d["proposed_by"]:
         cat = conn.execute(
-            "SELECT c.name FROM categories c JOIN date_categories dc ON dc.category_id=c.id "
+            "SELECT c.name, c.link_token FROM categories c "
+            "JOIN date_categories dc ON dc.category_id=c.id "
             "WHERE dc.date_id=? LIMIT 1", (did,)).fetchone()
         notify_user(bg, conn, d["proposed_by"], notify.card(
             "✅ Твоё предложение опубликовано",
             f"«{notify.esc(d['name'])}»" + (f" · {notify.esc(cat['name'])}" if cat else ""),
-            "Теперь его видят гости ♥"))
+            "Теперь его видят гости ♥"), preference="updates",
+            action_url=f"{BASE_URL}/c/{cat['link_token']}" if cat else None,
+            action_label="Открыть событие" if cat else None)
     return redir(next, "Опубликовано — гости теперь видят это событие")
 
 
@@ -1608,6 +1749,7 @@ def date_delete(did: int, request: Request, bg: BackgroundTasks, conn=Depends(ge
         "SELECT filename FROM date_images WHERE date_id=?", (did,))]
     files += [r["filename"] for r in conn.execute(
         "SELECT filename FROM date_videos WHERE date_id=?", (did,))]
+    social_events.cancel_review_prompts_for_date(conn, did)
     conn.execute("DELETE FROM dates WHERE id=?", (did,))
     for category_id, user_ids in affected_by_cat.items():
         for user_id in user_ids:
@@ -1635,17 +1777,32 @@ def date_clone(did: int, request: Request, next: str = Form("/admin/dates"),
     предложение без категории, поэтому он неактивен (гости не видят дубль),
     пока владелец не добавит его в категорию. Карта (place_url) уже распознана."""
     src = _date_or_404(conn, did, request.state.user)
-    new_id = insert_date(
-        conn, name=f"{src['name']} (копия)", place=src["place"],
-        starts=src["starts_at"], ends=src["ends_at"], comment=src["comment"],
-        origin="admin", guest_token=None, draft=1, owner_id=request.state.user["id"],
-        pay_split=src["pay_split"], place_url=src["place_url"],
-        capacity=src["capacity"])
+    suffix = " (копия)"
+    clone_name = src["name"][:200 - len(suffix)].rstrip() + suffix
+    copied_files: list[str] = []
+    try:
+        new_id = insert_date(
+            conn, name=clone_name, place=src["place"],
+            starts=src["starts_at"], ends=src["ends_at"], comment=src["comment"],
+            origin="admin", guest_token=None, draft=1,
+            owner_id=request.state.user["id"], pay_split=src["pay_split"],
+            place_url=src["place_url"], is_public=src["is_public"],
+            capacity=src["capacity"])
 
-    # ссылки и физические копии фото/видео — общий хелпер (его же зовёт «добавить
-    # себе» по share-ссылке). При ошибке он сам подчистит осиротевшие копии.
-    copy_date_media_and_links(conn, did, new_id)
-    conn.commit()
+        # При ошибке внутри helper он чистит частичную копию сам. Полный список
+        # сохраняем до commit, чтобы убрать файлы и при ошибке фиксации БД.
+        copy_date_media_and_links(conn, did, new_id)
+        copied_files = [row["filename"] for row in conn.execute(
+            "SELECT filename FROM date_images WHERE date_id=? UNION ALL "
+            "SELECT filename FROM date_videos WHERE date_id=?",
+            (new_id, new_id),
+        ).fetchall()]
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        for filename in copied_files:
+            images.delete_file(filename)
+        raise
     return redir(f"/admin/dates/{new_id}/edit",
                  "Событие скопировано — оно неактивно, добавь его в категорию")
 
@@ -1751,7 +1908,7 @@ def date_image_focus(did: int, img_id: int, request: Request, focus: str = Form(
 
 @router.get("/questions", response_class=HTMLResponse)
 def questions_list(request: Request, conn=Depends(get_db)):
-    f = request.query_params.get("f", "unread")
+    f = "all" if request.query_params.get("f") == "all" else "unread"
     where = ("q.date_id IN (SELECT id FROM dates WHERE owner_id=?)"
              + ("" if f == "all" else " AND q.is_read=0"))
     rows = conn.execute(
@@ -1763,15 +1920,47 @@ def questions_list(request: Request, conn=Depends(get_db)):
         f"WHERE {where} ORDER BY q.created_at DESC",
         (request.state.user["id"],)
     ).fetchall()
+    total_notifications = conn.execute(
+        "SELECT COUNT(*) FROM questions q "
+        "WHERE q.date_id IN (SELECT id FROM dates WHERE owner_id=?)",
+        (request.state.user["id"],),
+    ).fetchone()[0]
     return templates.TemplateResponse(
-        request, "admin/questions.html", actx(request, conn, active="q", rows=rows, f=f))
+        request, "admin/questions.html",
+        actx(request, conn, active="q", rows=rows, f=f,
+             notif_settings=notify.get_preferences(conn, request.state.user["id"]),
+             total_notifications=total_notifications))
+
+
+@router.post("/questions/settings")
+def question_notification_settings(
+    request: Request,
+    votes: str | None = Form(None),
+    questions: str | None = Form(None),
+    proposals: str | None = Form(None),
+    updates: str | None = Form(None),
+    reminders: str | None = Form(None),
+    reviews: str | None = Form(None),
+    conn=Depends(get_db),
+):
+    values = {
+        "votes": votes == "1",
+        "questions": questions == "1",
+        "proposals": proposals == "1",
+        "updates": updates == "1",
+        "reminders": reminders == "1",
+        "reviews": reviews == "1",
+    }
+    notify.save_preferences(conn, request.state.user["id"], values)
+    conn.commit()
+    return redir("/admin/questions", "Настройки уведомлений сохранены")
 
 
 def _owned_question(conn, qid: int, uid: int):
     """Вопрос вместе с проверкой, что его событие принадлежит владельцу.
     Подтягиваем имена события/категории для уведомления автору."""
     return conn.execute(
-        "SELECT q.*, d.name AS date_name, c.name AS cat_name "
+        "SELECT q.*, d.name AS date_name, c.name AS cat_name, c.link_token "
         "FROM questions q JOIN dates d ON d.id=q.date_id "
         "LEFT JOIN categories c ON c.id=q.category_id "
         "WHERE q.id=? AND d.owner_id=?", (qid, uid)).fetchone()
@@ -1779,12 +1968,15 @@ def _owned_question(conn, qid: int, uid: int):
 
 def _notify_answer(bg, conn, q, answer: str) -> None:
     """Уведомляет автора вопроса (если залогинен и бот подключён) об ответе."""
+    action_url = f"{BASE_URL}/c/{q['link_token']}" if q["link_token"] else None
     notify_user(bg, conn, q["user_id"], notify.card(
         "💬 Ответ на твой вопрос",
         f"«{notify.esc(q['date_name'])}»"
         + (f" · {notify.esc(q['cat_name'])}" if q["cat_name"] else ""),
         f"Вопрос: {notify.esc(q['text'])}",
-        f"\nОтвет: {notify.esc(answer)}"))
+        f"\nОтвет: {notify.esc(answer)}"), preference="updates",
+        action_url=action_url,
+        action_label="Открыть событие" if action_url else None)
 
 
 @router.post("/questions/{qid}/accept_time")
@@ -1816,6 +2008,7 @@ def question_accept_time(qid: int, request: Request, bg: BackgroundTasks,
     if (old_period["starts_at"], old_period["ends_at"]) != \
             (q["suggest_starts"], q["suggest_ends"]):
         voting_events.queue_date_changed(conn, q["date_id"], ["дата или время"])
+    social_events.queue_review_prompts_for_date(conn, int(q["date_id"]))
     conn.execute(
         "UPDATE questions SET answer=?, answered_at=?, is_read=1 WHERE id=?",
         (answer, now_iso(), qid))
@@ -1902,30 +2095,143 @@ def public_profile(user_id: int, request: Request, conn=Depends(get_db)):
         "FROM users WHERE id=? AND is_active=1", (user_id,)).fetchone()
     if not u:
         raise HTTPException(404, "Профиль не найден")
-    # Публичные активные события пользователя — то же, что видно в общей ленте.
-    # Не отдаём сразу всю историю: каждая страница содержит максимум 12 карточек
-    # и столько же обложек. Это особенно важно для мобильной сети.
-    total = conn.execute(
+    is_me = int(u["id"]) == int(request.state.user["id"])
+    tab = request.query_params.get("tab", "events")
+    if tab not in {"events", "want", "reviews"}:
+        tab = "events"
+
+    # Каждая вкладка пагинируется независимо. Секретные/черновые события не
+    # раскрываются через чужую отметку или обзор, даже если /d-ссылка известна
+    # самому автору публикации.
+    event_total = conn.execute(
         "SELECT COUNT(*) FROM dates "
         "WHERE owner_id=? AND is_public=1 AND is_draft=0 AND archived_at IS NULL",
         (user_id,)).fetchone()[0]
+    want_visibility = "" if is_me else " AND w.is_public=1 AND d.is_public=1 AND d.is_draft=0"
+    want_total = conn.execute(
+        "SELECT COUNT(*) FROM date_wants w JOIN dates d ON d.id=w.date_id "
+        "WHERE w.user_id=?" + want_visibility,
+        (user_id,),
+    ).fetchone()[0]
+    review_visibility = ("" if is_me else
+                         " AND r.is_public=1 AND d.is_public=1 AND d.is_draft=0")
+    review_total = conn.execute(
+        "SELECT COUNT(*) FROM date_reviews r JOIN dates d ON d.id=r.date_id "
+        "WHERE r.user_id=?" + review_visibility,
+        (user_id,),
+    ).fetchone()[0]
+    total = {"events": event_total, "want": want_total,
+             "reviews": review_total}[tab]
     pages = max(1, -(-total // PUBLIC_PROFILE_PAGE))
     try:
         page = max(1, min(int(request.query_params.get("page", "1")), pages))
     except ValueError:
         page = 1
-    date_rows = conn.execute(
-        "SELECT id, name, share_token, starts_at, ends_at, place FROM dates "
-        "WHERE owner_id=? AND is_public=1 AND is_draft=0 AND archived_at IS NULL "
-        "ORDER BY id DESC LIMIT ? OFFSET ?",
-        (user_id, PUBLIC_PROFILE_PAGE, (page - 1) * PUBLIC_PROFILE_PAGE)).fetchall()
-    media = public_routes._batch_media(conn, [r["id"] for r in date_rows])
-    dates = [public_routes.date_payload_from(r, media) for r in date_rows]
+    offset = (page - 1) * PUBLIC_PROFILE_PAGE
+    dates = []
+    want_dates = []
+    reviews = []
+    if tab == "events":
+        date_rows = conn.execute(
+            "SELECT id, name, share_token, starts_at, ends_at, place FROM dates "
+            "WHERE owner_id=? AND is_public=1 AND is_draft=0 AND archived_at IS NULL "
+            "ORDER BY id DESC LIMIT ? OFFSET ?",
+            (user_id, PUBLIC_PROFILE_PAGE, offset),
+        ).fetchall()
+        media = public_routes._batch_media(conn, [r["id"] for r in date_rows])
+        dates = [public_routes.date_payload_from(r, media) for r in date_rows]
+    elif tab == "want":
+        rows = conn.execute(
+            "SELECT d.id, d.name, d.share_token, d.starts_at, d.ends_at, d.place, "
+            "w.updated_at AS marked_at FROM date_wants w "
+            "JOIN dates d ON d.id=w.date_id "
+            "WHERE w.user_id=?" + want_visibility +
+            " ORDER BY w.updated_at DESC LIMIT ? OFFSET ?",
+            (user_id, PUBLIC_PROFILE_PAGE, offset),
+        ).fetchall()
+        media = public_routes._batch_media(conn, [r["id"] for r in rows])
+        want_dates = [public_routes.date_payload_from(r, media) for r in rows]
+    else:
+        rows = conn.execute(
+            "SELECT r.id AS review_id, r.rating, r.text AS review_text, "
+            "r.is_public AS review_public, r.updated_at AS review_updated_at, "
+            "d.id, d.name, d.share_token, d.starts_at, d.ends_at, d.place, "
+            "d.is_public AS date_public, d.is_draft AS date_draft "
+            "FROM date_reviews r JOIN dates d ON d.id=r.date_id "
+            "WHERE r.user_id=?" + review_visibility +
+            " ORDER BY r.updated_at DESC LIMIT ? OFFSET ?",
+            (user_id, PUBLIC_PROFILE_PAGE, offset),
+        ).fetchall()
+        media = public_routes._batch_media(conn, [r["id"] for r in rows])
+        for row in rows:
+            item = dict(row)
+            item["images"] = media["images"].get(row["id"], [])
+            reviews.append(item)
+    edit_review_id = None
+    if is_me and tab == "reviews":
+        raw_edit = request.query_params.get("edit", "")
+        if raw_edit.isdigit() and any(
+                int(item["review_id"]) == int(raw_edit) for item in reviews):
+            edit_review_id = int(raw_edit)
     return templates.TemplateResponse(
         request, "public/profile.html",
-        {"request": request, "u": u, "dates": dates, "total": total,
-         "page": page, "pages": pages,
-         "is_me": u["id"] == request.state.user["id"]})
+        {"request": request, "u": u, "dates": dates, "want_dates": want_dates,
+         "reviews": reviews, "total": total, "event_total": event_total,
+         "want_total": want_total, "review_total": review_total, "tab": tab,
+         "page": page, "pages": pages, "is_me": is_me,
+         "edit_review_id": edit_review_id,
+         "csrf": request.session.get("csrf", "")})
+
+
+def _owned_profile_review(conn, review_id: int, user_id: int):
+    return conn.execute(
+        "SELECT r.*, d.is_public AS date_public, d.is_draft AS date_draft "
+        "FROM date_reviews r JOIN dates d ON d.id=r.date_id "
+        "WHERE r.id=? AND r.user_id=?",
+        (review_id, user_id),
+    ).fetchone()
+
+
+@user_router.post("/{user_id}/reviews/{review_id}/edit")
+def public_profile_review_edit(user_id: int, review_id: int, request: Request,
+                               rating: int = Form(...), text: str = Form(""),
+                               conn=Depends(get_db)):
+    if user_id != int(request.state.user["id"]):
+        raise HTTPException(404, "Обзор не найден")
+    review = _owned_profile_review(conn, review_id, user_id)
+    if not review:
+        raise HTTPException(404, "Обзор не найден")
+    if not 1 <= rating <= 5:
+        raise HTTPException(400, "Поставь оценку от 1 до 5")
+    text = clean_text(text, 4000, "Текст обзора")
+    publish = 1 if review["date_public"] and not review["date_draft"] else 0
+    conn.execute(
+        "UPDATE date_reviews SET rating=?, text=?, is_public=?, updated_at=? "
+        "WHERE id=? AND user_id=?",
+        (rating, text or None, publish, now_iso(), review_id, user_id),
+    )
+    if publish:
+        social_events.queue_review_received(conn, review_id)
+    conn.commit()
+    msg = "Обзор обновлён" if publish else "Обзор обновлён и оставлен скрытым"
+    return redir(f"/u/{user_id}?tab=reviews", msg)
+
+
+@user_router.post("/{user_id}/reviews/{review_id}/hide")
+def public_profile_review_hide(user_id: int, review_id: int, request: Request,
+                               conn=Depends(get_db)):
+    if user_id != int(request.state.user["id"]):
+        raise HTTPException(404, "Обзор не найден")
+    review = _owned_profile_review(conn, review_id, user_id)
+    if not review:
+        raise HTTPException(404, "Обзор не найден")
+    conn.execute(
+        "UPDATE date_reviews SET is_public=0, updated_at=? WHERE id=? AND user_id=?",
+        (now_iso(), review_id, user_id),
+    )
+    social_events.cancel_review_received(conn, review_id, "review_hidden")
+    conn.commit()
+    return redir(f"/u/{user_id}?tab=reviews", "Обзор убран из публичного профиля")
 
 
 @user_router.get("/{user_id}/avatar")

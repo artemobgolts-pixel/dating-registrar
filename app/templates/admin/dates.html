@@ -22,12 +22,12 @@
     <select name="sort" data-autosubmit>
       <option value="new" {{ 'selected' if sort == 'new' }}>Сначала новые</option>
       <option value="when" {{ 'selected' if sort == 'when' }}>По дате события</option>
-      <option value="book" {{ 'selected' if sort == 'book' }}>По голосам{% if user['admin_skin'] == 'romantic' %} 💝{% endif %}</option>
+      <option value="book" {{ 'selected' if sort == 'book' }}>По голосам</option>
     </select>
     <select name="f" data-autosubmit>
       <option value="">Все события</option>
       <option value="guest" {{ 'selected' if flt == 'guest' }}>Только предложенные</option>
-      <option value="booked" {{ 'selected' if flt == 'booked' }}>С голосами{% if user['admin_skin'] == 'romantic' %} 💝{% endif %}</option>
+      <option value="booked" {{ 'selected' if flt == 'booked' }}>С голосами</option>
       <option value="nodate" {{ 'selected' if flt == 'nodate' }}>Без даты</option>
     </select>
     <select name="cat" data-autosubmit>
@@ -61,10 +61,10 @@
         <form method="post" action="/admin/dates/{{ r['id'] }}/clone">
           <input type="hidden" name="csrf" value="{{ csrf }}">
           <input type="hidden" name="next" value="/admin/dates?view={{ view }}{{ qs_keep }}">
-          <button type="submit">📋 Дублировать</button>
+          <button type="submit">📋 Скопировать событие</button>
         </form>
         {% if r['share_token'] %}
-        <button type="button" data-copy="{{ BASE_URL }}/d/{{ r['share_token'] }}">🔗 Поделиться</button>
+        <button type="button" data-copy="{{ BASE_URL }}/d/{{ r['share_token'] }}">{% with icon='link' %}{% include "admin/_icon.html" %}{% endwith %} Поделиться</button>
         {% endif %}
         <form method="post" action="/admin/dates/{{ r['id'] }}/archive">
           <input type="hidden" name="csrf" value="{{ csrf }}">
@@ -92,7 +92,7 @@
         {% if r['origin'] == 'guest' %}<span class="bdg guest">💡 предложено</span>{% endif %}
         {% if r['is_draft'] %}<span class="bdg draft">{{ 'на модерации' if r['origin'] == 'guest' else 'неактивно' }}</span>{% endif %}
       </div>
-      {% if r['booked_names'] %}<div class="badges book-corner"><span class="bdg book">{{ '◉' if user['admin_skin'] == 'friends' else '💝' }} {{ r['booked_names'] }}</span></div>{% endif %}
+      {% if r['booked_names'] %}<div class="badges book-corner"><span class="bdg book">{% with icon='check' %}{% include "admin/_icon.html" %}{% endwith %} {{ r['booked_names'] }}</span></div>{% endif %}
     </div>
     {% endif %}
     <div class="b">
@@ -101,7 +101,7 @@
         {% if r['pay_split'] %}<span class="bdg pay">{{ r['pay_split'] | pay_label }}</span>{% endif %}
         {% if r['origin'] == 'guest' %}<span class="bdg guest">💡 предложено</span>{% endif %}
         {% if r['is_draft'] %}<span class="bdg draft">{{ 'на модерации' if r['origin'] == 'guest' else 'неактивно' }}</span>{% endif %}
-        {% if r['booked_names'] %}<span class="bdg book">{{ '◉' if user['admin_skin'] == 'friends' else '💝' }} {{ r['booked_names'] }}</span>{% endif %}
+        {% if r['booked_names'] %}<span class="bdg book">{% with icon='check' %}{% include "admin/_icon.html" %}{% endwith %} {{ r['booked_names'] }}</span>{% endif %}
       </div>
       {% endif %}
       <h3 class="ttl serif"><a href="/admin/dates/{{ r['id'] }}/edit">{{ r['name'] }}</a></h3>
@@ -110,10 +110,10 @@
          «назначить дату»/«указать место» (по просьбе: не заполнять карточку
          пустотой). Дозаполнить всё равно можно через «Редактировать». #}
       <div class="meta">
-        {% if when_str %}<span class="mrow">📅 {{ when_str }}</span>{% endif %}
-        {% if r['place'] %}<span class="mrow">📍 {{ r['place'] | placename }}</span>{% endif %}
-        {% if r['books'] %}<span class="mrow">{{ '◉' if user['admin_skin'] == 'friends' else '💝' }} {{ r['books'] }} {{ r['books'] | plural('голос', 'голоса', 'голосов') }}</span>{% endif %}
-        {% if not cat and r['cats'] %}<span class="mrow mcats">🔗 {{ r['cats'] }}</span>{% endif %}
+        {% if when_str %}<span class="mrow">{% with icon='calendar' %}{% include "admin/_icon.html" %}{% endwith %} {{ when_str }}</span>{% endif %}
+        {% if r['place'] %}<span class="mrow">{% with icon='pin' %}{% include "admin/_icon.html" %}{% endwith %} {{ r['place'] | placename }}</span>{% endif %}
+        {% if r['books'] %}<span class="mrow">{% with icon='check' %}{% include "admin/_icon.html" %}{% endwith %} {{ r['books'] }} {{ r['books'] | plural('голос', 'голоса', 'голосов') }}</span>{% endif %}
+        {% if not cat and r['cats'] %}<span class="mrow mcats">{% with icon='categories' %}{% include "admin/_icon.html" %}{% endwith %} {{ r['cats'] }}</span>{% endif %}
       </div>
       <div class="foot">
         <a class="edit-hint" href="/admin/dates/{{ r['id'] }}/edit">Редактировать</a>
@@ -151,7 +151,7 @@
       <div class="drow-meta">
         {% if when_str %}<span>{{ when_str }}</span>{% endif %}
         {% if r['cats'] %}<span>{% if when_str %}· {% endif %}{{ r['cats'] }}</span>{% endif %}
-        {% if r['books'] %}<span>{% if when_str or r['cats'] %}· {% endif %}{{ '◉' if user['admin_skin'] == 'friends' else '💝' }} {{ r['booked_names'] }}</span>{% endif %}
+        {% if r['books'] %}<span>{% if when_str or r['cats'] %}· {% endif %}{% with icon='check' %}{% include "admin/_icon.html" %}{% endwith %} {{ r['booked_names'] }}</span>{% endif %}
       </div>
       {% endif %}
     </div>
@@ -159,7 +159,7 @@
       <a class="btn small" href="/admin/dates/{{ r['id'] }}/edit">Редактировать</a>
       {% if r['share_token'] %}
       <a class="btn small open-date" href="/d/{{ r['share_token'] }}" target="_blank" rel="noopener">Открыть</a>
-      <button type="button" class="btn small" data-copy="{{ BASE_URL }}/d/{{ r['share_token'] }}">🔗 Поделиться</button>
+      <button type="button" class="btn small" data-copy="{{ BASE_URL }}/d/{{ r['share_token'] }}">{% with icon='link' %}{% include "admin/_icon.html" %}{% endwith %} Поделиться</button>
       {% endif %}
       <div class="menu-wrap">
       <button type="button" class="more" aria-label="Ещё действия" aria-haspopup="true" aria-expanded="false">⋯</button>
@@ -174,7 +174,7 @@
         <form method="post" action="/admin/dates/{{ r['id'] }}/clone">
           <input type="hidden" name="csrf" value="{{ csrf }}">
           <input type="hidden" name="next" value="/admin/dates?view={{ view }}{{ qs_keep }}">
-          <button type="submit">📋 Дублировать</button>
+          <button type="submit">📋 Скопировать событие</button>
         </form>
         <form method="post" action="/admin/dates/{{ r['id'] }}/archive">
           <input type="hidden" name="csrf" value="{{ csrf }}">
@@ -214,7 +214,7 @@
     <p>Неактивных событий нет. Сюда попадают события без категории и предложения на модерации.</p>
     <a class="btn primary" href="/admin/dates/new">+ Создать событие</a>
     {% else %}
-    <div class="big">{% if user['admin_skin'] == 'friends' %}{% with icon='gather' %}{% include "admin/_icon.html" %}{% endwith %}{% else %}🌷{% endif %}</div>
+    <div class="big">{% if user['admin_skin'] == 'friends' %}{% with icon='gather' %}{% include "admin/_icon.html" %}{% endwith %}{% else %}{% with icon='heart' %}{% include "admin/_icon.html" %}{% endwith %}{% endif %}</div>
     <p>Пока нет ни одного события — давай создадим первое.</p>
     <a class="btn primary" href="/admin/dates/new">+ Создать событие</a>
     {% endif %}

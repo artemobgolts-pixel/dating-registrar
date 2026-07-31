@@ -23,6 +23,7 @@ os.environ.setdefault("SECRET_KEY", "test-secret-key-for-notification-outbox")
 
 import db  # noqa: E402
 import notification_outbox as outbox  # noqa: E402
+import notify  # noqa: E402
 
 
 NOW = "2030-01-01T10:00:00"
@@ -195,6 +196,49 @@ class NotificationOutboxTests(unittest.TestCase):
         self.assertEqual(retried.sent, 1)
         self.assertEqual(self.row("event:retry")["attempts"], 2)
 
+    def test_rich_action_is_sent_as_inline_keyboard(self):
+        self.conn.execute("UPDATE users SET bot_linked=1 WHERE id=1")
+        outbox.enqueue(
+            self.conn, user_id=1, kind="date_changed", event_key="event:rich",
+            text="Событие изменилось", now=NOW,
+            action_url="https://date4you.example/c/demo",
+            action_label="Открыть событие",
+        )
+        calls = []
+
+        def sender(chat_id, text, **kwargs):
+            calls.append((chat_id, text, kwargs))
+            return True
+
+        stats = outbox.process_due(self.conn, now=NOW, sender=sender)
+        self.assertEqual(stats.sent, 1)
+        self.assertEqual(calls[0][:2], (1001, "Событие изменилось"))
+        self.assertEqual(
+            calls[0][2]["reply_markup"]["inline_keyboard"][0][0],
+            {"text": "Открыть событие", "style": "primary",
+             "url": "https://date4you.example/c/demo"},
+        )
+
+    def test_disabled_preference_skips_due_message_terminally(self):
+        self.conn.execute("UPDATE users SET bot_linked=1 WHERE id=1")
+        values = {key: True for key in notify.PREFERENCE_KEYS}
+        values["updates"] = False
+        notify.save_preferences(self.conn, 1, values)
+        outbox.enqueue(
+            self.conn, user_id=1, kind="date_changed",
+            event_key="event:disabled", text="Не отправлять", now=NOW,
+        )
+        calls = []
+        stats = outbox.process_due(
+            self.conn, now=NOW,
+            sender=lambda *args, **kwargs: calls.append((args, kwargs)) or True,
+        )
+        self.assertEqual((stats.skipped, stats.sent), (1, 0))
+        self.assertEqual(calls, [])
+        row = self.row("event:disabled")
+        self.assertEqual(row["last_error"], "disabled_by_user")
+        self.assertIsNotNone(row["cancelled_at"])
+
     def test_cancel_by_literal_prefix_and_expiry_are_terminal(self):
         outbox.enqueue(
             self.conn, user_id=1, kind="reminder", event_key="date:5:%:24h",
@@ -290,7 +334,23 @@ class NotificationOutboxMigrationTests(unittest.TestCase):
                 self.assertTrue({
                     "event_key", "send_at", "expires_at", "sent_at",
                     "attempts", "last_error", "cancelled_at", "claimed_at",
+                    "action_url", "action_label",
                 } <= columns)
+                self.assertTrue(conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' "
+                    "AND name='notification_preferences'"
+                ).fetchone())
+                pref_columns = {
+                    row[1] for row in conn.execute(
+                        "PRAGMA table_info(notification_preferences)"
+                    )
+                }
+                self.assertIn("reviews", pref_columns)
+                for table in ("date_wants", "date_reviews"):
+                    self.assertTrue(conn.execute(
+                        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                        (table,),
+                    ).fetchone())
             finally:
                 conn.close()
 
@@ -303,6 +363,7 @@ class NotificationOutboxMigrationTests(unittest.TestCase):
                 db.init_db()
                 conn = sqlite3.connect(path)
                 conn.execute("DROP TABLE notification_outbox")
+                conn.execute("DROP TABLE notification_preferences")
                 # Свежая фикстура уже содержит поля v26. Убираем их, чтобы
                 # user_version=22 действительно описывал старую схему, а не
                 # просил миграцию повторно добавить существующие колонки.
@@ -324,6 +385,43 @@ class NotificationOutboxMigrationTests(unittest.TestCase):
                 self.assertTrue(conn.execute(
                     "SELECT 1 FROM sqlite_master WHERE type='table' "
                     "AND name='notification_outbox'"
+                ).fetchone())
+            finally:
+                conn.close()
+
+    def test_v26_database_gets_preferences_and_rich_action_columns(self):
+        with tempfile.TemporaryDirectory(prefix="date4you-v26-notifications-") as tmp:
+            path = Path(tmp) / "app.db"
+            old_path = db.DB_PATH
+            try:
+                db.DB_PATH = path
+                db.init_db()
+                conn = sqlite3.connect(path)
+                conn.execute("ALTER TABLE notification_outbox DROP COLUMN action_url")
+                conn.execute("ALTER TABLE notification_outbox DROP COLUMN action_label")
+                conn.execute("DROP TABLE notification_preferences")
+                conn.execute("PRAGMA user_version=26")
+                conn.commit()
+                conn.close()
+
+                db.init_db()
+            finally:
+                db.DB_PATH = old_path
+            conn = sqlite3.connect(path)
+            try:
+                self.assertEqual(
+                    conn.execute("PRAGMA user_version").fetchone()[0],
+                    db.LATEST_VERSION,
+                )
+                columns = {
+                    row[1] for row in conn.execute(
+                        "PRAGMA table_info(notification_outbox)"
+                    )
+                }
+                self.assertTrue({"action_url", "action_label"} <= columns)
+                self.assertTrue(conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' "
+                    "AND name='notification_preferences'"
                 ).fetchone())
             finally:
                 conn.close()

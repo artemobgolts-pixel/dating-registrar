@@ -9,7 +9,7 @@
   <title>{{ d.name }} · date4you</title>
   <meta property="og:title" content="Событие: {{ d.name }}">
   <meta property="og:description" content="{{ 'Открой и выбери удобный вариант' if active_skin == 'friends' else 'Тебе предлагают событие — открой ♥' }}">
-  <meta property="og:image" content="{{ BASE_URL }}/static/{{ 'og-friends.jpg' if active_skin == 'friends' else 'og.png' }}">
+  <meta property="og:image" content="{{ BASE_URL }}{{ asset('og-friends.jpg' if active_skin == 'friends' else 'og.png') }}">
   <meta property="og:type" content="website">
   <meta name="theme-color" content="{{ '#554eae' if active_skin == 'friends' else '#b65f6f' }}">
   <script src="{{ asset('theme.js') }}"></script>
@@ -110,7 +110,7 @@
   {% if bot and (not me or not me['bot_linked']) %}
   <section class="notify-cta tg-connect" data-return-to="/d/{{ token }}"
            aria-label="Уведомления в Telegram">
-    <div class="notify-cta-icon" aria-hidden="true">🔔</div>
+    <div class="notify-cta-icon" aria-hidden="true">{{ icon('bell') }}</div>
     <div class="notify-cta-copy">
       <b>Подключите уведомления в Telegram</b>
       <span>Пришлём результат голосования, важные изменения и напоминания.</span>
@@ -172,7 +172,7 @@
         {% if not d.images and not d.videos and d.is_winner %}<div class="winner-ribbon inflow">{% if active_skin == 'friends' %}{{ icon('spark') }} Общий выбор{% else %}Победитель ♥{% endif %}</div>{% endif %}
         <div class="meta">
           {% if d.starts_at %}
-          <div class="when"><span class="meta-icon" aria-hidden="true">{% if active_skin == 'friends' %}{{ icon('clock') }}{% else %}🕐{% endif %}</span>
+          <div class="when"><span class="meta-icon" aria-hidden="true">{{ icon('clock') }}</span>
             <span>{{ d.starts_at | when(d.ends_at) }}</span>
             {% if d.gcal %}
             <a href="#" class="cal-link" data-gcal="{{ d.gcal }}"
@@ -182,11 +182,11 @@
           {% elif can_question %}
           <div class="when">
             <button type="button" class="chip-suggest suggest"
-                    data-id="{{ d.id }}" data-name="{{ d.name }}">{% if active_skin == 'friends' %}{{ icon('calendar') }}{% else %}📅{% endif %} предложить дату</button>
+                    data-id="{{ d.id }}" data-name="{{ d.name }}">{{ icon('calendar') }} предложить дату</button>
           </div>
           {% endif %}
           {% if d.place %}
-          <div class="place"><span class="meta-icon" aria-hidden="true">{% if active_skin == 'friends' %}{{ icon('pin') }}{% else %}📍{% endif %}</span>
+          <div class="place"><span class="meta-icon" aria-hidden="true">{{ icon('pin') }}</span>
             <span><a href="{{ d.place_url or (d.place | ymaps) }}" target="_blank" rel="noopener">{{ d.place | placename }}</a></span>
           </div>
           {% endif %}
@@ -194,7 +194,7 @@
         {% if d.comment %}<p class="comment">{{ d.comment | rich }}</p>{% endif %}
         {% if d.links %}
         <div class="links">
-          {% for l in d.links %}<a href="{{ l.url }}" target="_blank" rel="noopener">{% if active_skin == 'friends' %}{{ icon('link') }}{% else %}🔗{% endif %} {{ l.url | host }}</a>{% endfor %}
+          {% for l in d.links %}<a href="{{ l.url }}" target="_blank" rel="noopener">{{ icon('link') }} {{ l.url | host }}</a>{% endfor %}
         </div>
         {% endif %}
 
@@ -224,14 +224,14 @@
         {% if not is_mine and can_question %}
         <div class="actions">
           {% if can_vote and vote_state and vote_state.status == 'open' %}
-            {% if d.booked_by_me %}<button class="btn book on" data-id="{{ d.id }}">{% if active_skin == 'friends' %}{{ icon('check') }} Выбрано{% else %}Выбрано ♥{% endif %}</button>
+            {% if d.booked_by_me %}<button class="btn book on" data-id="{{ d.id }}">{{ icon('check') }} Выбрано</button>
             {% elif can_cast_vote and d.is_full %}<button class="btn book" data-id="{{ d.id }}" disabled>Набрано {{ d.vote_count }}/{{ d.capacity }}</button>
-            {% elif can_cast_vote %}<button class="btn book" data-id="{{ d.id }}">{% if active_skin == 'friends' %}{{ icon('check') }} Выбрать{% else %}Выбрать ♥{% endif %}</button>{% endif %}
+            {% elif can_cast_vote %}<button class="btn book" data-id="{{ d.id }}">{{ icon('check') }} Выбрать</button>{% endif %}
           {% elif can_vote and vote_state and vote_state.status == 'unconfigured' and d.booked_by_me %}
             <button class="btn book on" data-id="{{ d.id }}">Снять старый выбор</button>
           {% endif %}
           {% if d.is_winner and d.booked_by_me and not d.participation_withdrawn %}<button class="btn ghost withdraw-vote" type="button">Отказаться от участия</button>{% endif %}
-          <button class="btn ghost ask" data-id="{{ d.id }}" data-name="{{ d.name }}">{% if active_skin == 'friends' %}{{ icon('message') }} Спросить{% else %}Спросить 💬{% endif %}</button>
+          <button class="btn ghost ask" data-id="{{ d.id }}" data-name="{{ d.name }}">{{ icon('message') }} Спросить</button>
         </div>
         {% endif %}
         {% if d.my_questions %}
@@ -254,15 +254,56 @@
     <p>Это твоё событие — оно уже в твоей коллекции.</p>
     <a class="btn book" href="/admin/dates">К моим событиям</a>
     {% elif me %}
+    <div class="share-choice-block" id="plans">
+      <p>Отметка появится в отдельной вкладке профиля и не создаст копию события.</p>
+      <form method="post" action="/d/{{ token }}/want">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button type="submit" class="btn {{ 'ghost want-on' if wanted_by_me else 'book' }}">
+          {{ icon('heart') }} {{ 'Убрать из «Хочу сходить»' if wanted_by_me else 'Хочу сходить' }}
+        </button>
+      </form>
+    </div>
+    <div class="share-choice-sep" aria-hidden="true"></div>
     <p>Нравится? Сохрани это событие к себе — потом добавишь в свои категории.</p>
     <form method="post" action="/d/{{ token }}/add">
-      <button type="submit" class="btn book">{% if active_skin == 'friends' %}{{ icon('plus') }} Сохранить к себе{% else %}Сохранить к себе ♥{% endif %}</button>
+      <button type="submit" class="btn book">{{ icon('plus') }} Сохранить к себе</button>
     </form>
     {% else %}
     <p>Войди, чтобы выбрать это событие или сохранить к себе.</p>
     <button type="button" class="btn book" data-login-open>Войти</button>
     {% endif %}
   </div>
+
+  {% if me and not is_mine and wanted_by_me %}
+  <section class="review-cta" id="review" aria-labelledby="review-title">
+    {% if can_review %}
+    <h2 id="review-title">{{ 'Изменить обзор' if my_review else 'Удалось сходить?' }}</h2>
+    <p>Поставь оценку от 1 до 5. Текст можно не писать.</p>
+    <form method="post" action="/d/{{ token }}/review" class="review-form">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <fieldset class="star-rating">
+        <legend>Оценка <span aria-hidden="true">*</span></legend>
+        {% for score in range(5, 0, -1) %}
+        <input type="radio" id="share-rating-{{ score }}" name="rating" value="{{ score }}"
+               {{ 'checked' if my_review and my_review['rating'] == score else '' }} required>
+        <label for="share-rating-{{ score }}" title="{{ score }} из 5">★<span class="sr-only">{{ score }} из 5</span></label>
+        {% endfor %}
+      </fieldset>
+      <label class="review-text-field">
+        <span>Обзор <small>необязательно</small></span>
+        <textarea name="text" maxlength="4000" placeholder="Что понравилось? Что стоит знать другим?">{{ my_review['text'] if my_review and my_review['text'] else '' }}</textarea>
+      </label>
+      <button type="submit" class="btn book">{{ 'Сохранить и опубликовать' if my_review else 'Опубликовать обзор' }}</button>
+    </form>
+    {% if not d.is_public or d.is_draft %}
+    <p class="review-private-note">Событие приватное: обзор сохранится, но не раскроет секретную ссылку в публичном профиле.</p>
+    {% endif %}
+    {% else %}
+    <h2 id="review-title">Событие в планах</h2>
+    <p>После встречи здесь появится форма оценки, а бот пришлёт кнопку «Оставить обзор».</p>
+    {% endif %}
+  </section>
+  {% endif %}
 
   <footer>
     {% if active_skin == 'friends' %}
@@ -306,7 +347,7 @@
     </div>
     <div class="dlg-actions">
       <button type="button" class="btn ghost" id="askCancel">Отмена</button>
-      <button type="submit" class="btn book">{% if active_skin == 'friends' %}{{ icon('mail') }} Отправить{% else %}Отправить 💌{% endif %}</button>
+      <button type="submit" class="btn book">{{ icon('mail') }} Отправить</button>
     </div>
   </form>
 </dialog>
@@ -362,7 +403,7 @@
     </details>
     <div class="dlg-actions">
       <button type="button" class="btn ghost" id="timeCancel">Отмена</button>
-      <button type="submit" class="btn book">{% if active_skin == 'friends' %}{{ icon('calendar') }} Предложить{% else %}Предложить 📅{% endif %}</button>
+      <button type="submit" class="btn book">{{ icon('calendar') }} Предложить</button>
     </div>
   </form>
 </dialog>

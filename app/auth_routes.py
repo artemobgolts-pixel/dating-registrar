@@ -16,6 +16,7 @@
 import asyncio
 import hashlib
 import hmac
+import json
 import logging
 import secrets
 import sqlite3
@@ -26,11 +27,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 import users
-from config import (BASE_URL, SUPPORT_CONTACT, TG_BOT_USERNAME, TG_WEBHOOK_SECRET,
-                    OAUTH_PROVIDERS, OAUTH_LABELS, OAUTH_META)
+from config import (BASE_URL, SUPPORT_CONTACT, TG_BOT_USERNAME, TG_MINI_APP_URL,
+                    TG_WEBHOOK_SECRET, OAUTH_PROVIDERS, OAUTH_LABELS, OAUTH_META)
 from helpers import now_iso, now_naive
 from datetime import timedelta
-from urllib.parse import urlencode, quote
+from urllib.parse import parse_qsl, urlencode, quote, urlsplit
 from ratelimit import client_ip, rate_ok
 from web import get_db, templates
 
@@ -38,6 +39,8 @@ log = logging.getLogger("auth")
 router = APIRouter()
 
 TTL_SECONDS = 600          # код входа живёт 10 минут
+MINIAPP_AUTH_TTL_SECONDS = 600
+MINIAPP_MAX_INIT_DATA = 8192
 
 # Username бота для кнопки входа и deep-link. Берём из env (TG_BOT_USERNAME);
 # если там пусто — определяем по токену через getMe при старте (resolve_bot_username),
@@ -45,6 +48,58 @@ TTL_SECONDS = 600          # код входа живёт 10 минут
 BOT_USERNAME = TG_BOT_USERNAME
 _WIDGET_STATES_KEY = "tg_widget_states"
 _AUTH_FLOWS_KEY = "tg_auth_flows"
+_MINIAPP_NONCES_KEY = "tg_miniapp_nonces"
+
+
+def _miniapp_url() -> str | None:
+    """Возвращает только пригодный для Telegram HTTPS URL Mini App."""
+    value = (TG_MINI_APP_URL or "").strip()
+    parsed = urlsplit(value)
+    if parsed.scheme != "https" or not parsed.netloc:
+        return None
+    return value
+
+
+def _miniapp_button(label: str = "Открыть date4you") -> dict | None:
+    url = _miniapp_url()
+    if not url:
+        return None
+    return {
+        "inline_keyboard": [[{
+            "text": label,
+            "style": "primary",
+            "web_app": {"url": url},
+        }]],
+    }
+
+
+def _issue_miniapp_nonce(request: Request) -> str:
+    """Одноразово связывает initData POST с загруженной нами boot-страницей."""
+    nonce = secrets.token_urlsafe(24)
+    values = request.session.get(_MINIAPP_NONCES_KEY, [])
+    if not isinstance(values, list):
+        values = []
+    request.session[_MINIAPP_NONCES_KEY] = [
+        *(str(value) for value in values[-3:]), nonce,
+    ]
+    return nonce
+
+
+def _consume_miniapp_nonce(request: Request, supplied: object) -> bool:
+    values = request.session.get(_MINIAPP_NONCES_KEY, [])
+    if not isinstance(values, list) or not isinstance(supplied, str):
+        return False
+    matched = next((value for value in values
+                    if isinstance(value, str)
+                    and hmac.compare_digest(value, supplied)), None)
+    if matched is None:
+        return False
+    remaining = [value for value in values if value != matched]
+    if remaining:
+        request.session[_MINIAPP_NONCES_KEY] = remaining
+    else:
+        request.session.pop(_MINIAPP_NONCES_KEY, None)
+    return True
 
 
 def issue_widget_state(request: Request) -> str:
@@ -112,12 +167,12 @@ def _consume_auth_flow(request: Request, code: str) -> None:
 
 def _safe_next(raw: str | None) -> str | None:
     """Безопасный возврат после входа: только локальные пути в наши разделы
-    (гостевая ссылка /c/…, share-ссылка события /d/… или кабинет /admin…). Чужой/
+    (гостевая /c/…, событие /d/…, профиль /u/… или кабинет /admin…). Чужой/
     протокол-относительный URL отбрасываем (open redirect)."""
     raw = (raw or "").strip()
     if not raw or raw.startswith("//") or not raw.startswith("/"):
         return None
-    if raw.startswith(("/c/", "/d/", "/admin")):
+    if raw.startswith(("/c/", "/d/", "/u/", "/admin")):
         return raw
     return None
 
@@ -168,7 +223,7 @@ def setup_webhook() -> None:
             f"https://api.telegram.org/bot{notify.TOKEN}/setWebhook",
             json={"url": f"{BASE_URL}/tg/webhook",
                   "secret_token": TG_WEBHOOK_SECRET,
-                  "allowed_updates": ["message", "callback_query"]},
+                  "allowed_updates": ["message", "callback_query", "my_chat_member"]},
             timeout=10)
         if r.status_code >= 400:
             log.warning("setWebhook вернул %s: %s", r.status_code, r.text[:200])
@@ -176,6 +231,36 @@ def setup_webhook() -> None:
             log.info("Telegram-вебхук входа зарегистрирован")
     except Exception:
         log.exception("Не удалось зарегистрировать Telegram-вебхук")
+
+
+def setup_miniapp_menu() -> None:
+    """Идемпотентно ставит Mini App основной кнопкой меню личного чата.
+
+    Ту же точку входа бот присылает после /start. Глобальная menu button нужна,
+    чтобы затем открывать кабинет одним нажатием и на телефоне, и в Desktop.
+    """
+    import notify
+    url = _miniapp_url()
+    if not (notify.TOKEN and url):
+        return
+    try:
+        r = httpx.post(
+            f"https://api.telegram.org/bot{notify.TOKEN}/setChatMenuButton",
+            json={
+                "menu_button": {
+                    "type": "web_app",
+                    "text": "Открыть date4you",
+                    "web_app": {"url": url},
+                },
+            },
+            timeout=10,
+        )
+        if r.status_code >= 400:
+            log.warning("setChatMenuButton вернул %s: %s", r.status_code, r.text[:200])
+        else:
+            log.info("Кнопка меню Telegram Mini App зарегистрирована")
+    except Exception:
+        log.exception("Не удалось зарегистрировать кнопку Telegram Mini App")
 
 
 def _gc_codes(conn) -> None:
@@ -283,6 +368,123 @@ def auth_widget(request: Request, conn=Depends(get_db)):
     request.session["user_id"] = uid
     request.session["csrf"] = secrets.token_urlsafe(16)
     return RedirectResponse(_post_login_redirect(request), status_code=303)
+
+
+def verify_miniapp_init_data(raw: str, *, now: float | None = None) -> dict:
+    """Проверяет сырые ``Telegram.WebApp.initData`` и возвращает user.
+
+    Алгоритм ровно из документации Mini Apps: secret key — HMAC-SHA256 токена
+    с ключом ``WebAppData``, затем HMAC data-check-string. ``initDataUnsafe`` с
+    клиента здесь принципиально не принимается. Короткий TTL ограничивает replay.
+    """
+    import notify
+    if not notify.TOKEN:
+        raise HTTPException(503, "Telegram Mini App пока не настроен.")
+    if not isinstance(raw, str) or not raw or len(raw.encode("utf-8")) > MINIAPP_MAX_INIT_DATA:
+        raise HTTPException(400, "Некорректные данные Telegram.")
+    try:
+        pairs = parse_qsl(raw, keep_blank_values=True, strict_parsing=True,
+                          max_num_fields=64)
+    except (ValueError, UnicodeError):
+        raise HTTPException(400, "Некорректные данные Telegram.") from None
+    values: dict[str, str] = {}
+    for key, value in pairs:
+        if not key or key in values:
+            raise HTTPException(400, "Некорректные данные Telegram.")
+        values[key] = value
+    received_hash = values.pop("hash", "")
+    if len(received_hash) != 64:
+        raise HTTPException(403, "Подпись Telegram не подтвердилась.")
+    check = "\n".join(f"{key}={values[key]}" for key in sorted(values))
+    secret = hmac.new(b"WebAppData", notify.TOKEN.encode(), hashlib.sha256).digest()
+    calculated = hmac.new(secret, check.encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(calculated, received_hash):
+        raise HTTPException(403, "Подпись Telegram не подтвердилась.")
+    try:
+        auth_date = int(values.get("auth_date", ""))
+    except (TypeError, ValueError):
+        raise HTTPException(403, "Сессия Telegram устарела.") from None
+    current = time.time() if now is None else now
+    age = current - auth_date
+    if age < -30 or age > MINIAPP_AUTH_TTL_SECONDS:
+        raise HTTPException(403, "Сессия Telegram устарела. Открой Mini App заново.")
+    try:
+        person = json.loads(values.get("user", ""))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        raise HTTPException(400, "Telegram не передал профиль пользователя.") from None
+    if not isinstance(person, dict) or person.get("is_bot") is True:
+        raise HTTPException(400, "Telegram не передал профиль пользователя.")
+    try:
+        telegram_id = int(person.get("id"))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "Telegram не передал профиль пользователя.") from None
+    if telegram_id <= 0 or telegram_id >= 2**63:
+        raise HTTPException(400, "Некорректный Telegram ID.")
+    person["id"] = telegram_id
+    return person
+
+
+@router.get("/tg/app", response_class=HTMLResponse)
+def miniapp_page(request: Request):
+    """Небольшой boot-screen: SDK получает initData, backend заводит сессию."""
+    return templates.TemplateResponse(
+        request,
+        "auth/miniapp.html",
+        {"bot": BOT_USERNAME, "miniapp_ready": bool(_miniapp_url()),
+         "miniapp_nonce": _issue_miniapp_nonce(request)},
+    )
+
+
+@router.post("/auth/miniapp")
+async def auth_miniapp(request: Request, conn=Depends(get_db)):
+    """Безопасный автологин Mini App для Telegram mobile, Desktop и Web."""
+    ip = client_ip(request)
+    if not rate_ok(f"miniapp:{ip}", 30, 60):
+        raise HTTPException(429, "Слишком много попыток. Открой Mini App заново.")
+    content_length = request.headers.get("content-length")
+    if not content_length or not content_length.isdigit():
+        raise HTTPException(411, "Не указан размер запроса Mini App.")
+    if int(content_length) > 16384:
+        raise HTTPException(413, "Слишком большой запрос.")
+    content_type = request.headers.get("content-type", "").partition(";")[0].strip().lower()
+    if content_type != "application/json":
+        raise HTTPException(415, "Ожидался JSON-запрос Mini App.")
+    expected_origin = f"{urlsplit(BASE_URL).scheme}://{urlsplit(BASE_URL).netloc}"
+    if request.headers.get("origin", "").rstrip("/") != expected_origin:
+        raise HTTPException(403, "Источник запроса Mini App не подтверждён.")
+    try:
+        payload = await request.json()
+    except (ValueError, json.JSONDecodeError):
+        raise HTTPException(400, "Ожидались данные Telegram.") from None
+    if not isinstance(payload, dict):
+        raise HTTPException(400, "Ожидались данные Telegram.")
+    if not _consume_miniapp_nonce(request, payload.get("nonce")):
+        raise HTTPException(403, "Страница Mini App устарела. Открой её заново.")
+    person = verify_miniapp_init_data(payload.get("init_data"))
+    # allows_write_to_pm покрыт подписью initData. Само открытие Mini App не
+    # означает, что бот вправе писать: без этого флага bot_linked не выдаём.
+    may_notify = person.get("allows_write_to_pm") is True
+    uid = users.upsert_on_login(
+        conn,
+        person["id"],
+        username=str(person.get("username") or "")[:64] or None,
+        first_name=str(person.get("first_name") or "")[:128] or None,
+        link_bot=may_notify,
+    )
+    user = users.get_user(conn, uid)
+    if not user or not user["is_active"]:
+        request.session.clear()
+        raise HTTPException(403, "Доступ закрыт. Напиши в поддержку.")
+    nxt = _safe_next(str(payload.get("next") or "")) or "/admin/"
+    request.session.clear()
+    request.session["user_id"] = uid
+    request.session["csrf"] = secrets.token_urlsafe(16)
+    request.session["telegram_miniapp"] = True
+    return JSONResponse({
+        "status": "ok",
+        "redirect": nxt,
+        "notifications_enabled": bool(user["bot_linked"] or may_notify),
+    })
 
 
 @router.post("/auth/start")
@@ -419,6 +621,64 @@ def _link_telegram(conn, user_id: int, telegram_id: int,
     return True, None
 
 
+def _private_chat_from_user(message: dict, telegram_id: int) -> bool:
+    """True только для настоящего личного диалога пользователя с ботом."""
+    chat = message.get("chat") or {}
+    try:
+        return chat.get("type") == "private" and int(chat.get("id")) == telegram_id
+    except (TypeError, ValueError):
+        return False
+
+
+async def _welcome_from_bot(conn, person: dict, message: dict, *, write_granted=False):
+    """Создаёт аккаунт из личного /start или подтверждения write access."""
+    import notify
+    try:
+        telegram_id = int(person.get("id"))
+    except (TypeError, ValueError):
+        return
+    if telegram_id <= 0:
+        return
+    if not _private_chat_from_user(message, telegram_id):
+        return
+    existing = users.get_by_telegram(conn, telegram_id)
+    if existing and not existing["is_active"]:
+        await asyncio.to_thread(
+            notify.send_to, telegram_id,
+            "Доступ к date4you закрыт. Если это ошибка, напишите в поддержку.",
+        )
+        return
+    users.upsert_on_login(
+        conn,
+        telegram_id,
+        username=str(person.get("username") or "")[:64] or None,
+        first_name=str(person.get("first_name") or "")[:128] or None,
+        link_bot=True,
+    )
+    if write_granted:
+        text = notify.card(
+            "Уведомления включены",
+            "Теперь бот сможет сообщать о голосованиях, событиях и ответах.",
+        )
+    elif existing:
+        text = notify.card(
+            "С возвращением в date4you",
+            "Откройте кабинет — вход произойдёт автоматически через Telegram.",
+        )
+    else:
+        text = notify.card(
+            "Добро пожаловать в date4you",
+            "Аккаунт создан. Откройте кабинет — вход произойдёт автоматически.",
+            "Типы уведомлений можно выбрать в настройках кабинета.",
+        )
+    await asyncio.to_thread(
+        notify.send_to,
+        telegram_id,
+        text,
+        reply_markup=_miniapp_button(),
+    )
+
+
 @router.post("/tg/webhook")
 async def tg_webhook(request: Request, conn=Depends(get_db)):
     """Приём /start и явного подтверждения inline-кнопкой в личке бота.
@@ -432,6 +692,28 @@ async def tg_webhook(request: Request, conn=Depends(get_db)):
         raise HTTPException(403, "forbidden")
     update = await request.json()
     import notify
+
+    membership = (update or {}).get("my_chat_member") or {}
+    if membership:
+        chat = membership.get("chat") or {}
+        status = ((membership.get("new_chat_member") or {}).get("status") or "")
+        try:
+            telegram_id = int(chat.get("id"))
+        except (TypeError, ValueError):
+            telegram_id = 0
+        if telegram_id and chat.get("type") == "private":
+            if status in {"kicked", "left"}:
+                conn.execute(
+                    "UPDATE users SET bot_linked=0 WHERE telegram_id=?",
+                    (telegram_id,),
+                )
+            elif status in {"member", "administrator"}:
+                conn.execute(
+                    "UPDATE users SET bot_linked=1 WHERE telegram_id=?",
+                    (telegram_id,),
+                )
+            conn.commit()
+        return JSONResponse({"ok": True})
 
     callback = (update or {}).get("callback_query") or {}
     if callback:
@@ -528,8 +810,20 @@ async def tg_webhook(request: Request, conn=Depends(get_db)):
     text = (msg.get("text") or "").strip()
     frm = msg.get("from") or {}
     tg_id = frm.get("id")
-    # Бот реагирует только на «/start <код>» от настоящего пользователя.
-    if not tg_id or not text.startswith("/start"):
+    try:
+        tg_id = int(tg_id)
+    except (TypeError, ValueError):
+        tg_id = 0
+
+    # Telegram присылает это service message после requestWriteAccess(). Это
+    # надёжнее JS-callback: вебхук подписан секретом и доказывает право доставки.
+    if tg_id and "write_access_allowed" in msg:
+        await _welcome_from_bot(conn, frm, msg, write_granted=True)
+        return JSONResponse({"ok": True})
+
+    # Бот реагирует только на команду /start от настоящего пользователя.
+    command = text.split(maxsplit=1)[0].split("@", 1)[0] if text else ""
+    if not tg_id or command != "/start":
         return JSONResponse({"ok": True})
     parts = text.split(maxsplit=1)
     code = parts[1].strip() if len(parts) > 1 else ""
@@ -537,9 +831,24 @@ async def tg_webhook(request: Request, conn=Depends(get_db)):
     row = conn.execute(
         "SELECT * FROM login_codes WHERE code=? AND created_at>=?", (code, cutoff)
     ).fetchone() if code else None
-    if not row or row["status"] != "pending":
+    if not row and code in ("", "app"):
+        # Обычный /start и зарезервированный вход с browser-link — полноценная
+        # регистрация. Произвольный/просроченный login code сюда не попадает.
+        await _welcome_from_bot(conn, frm, msg)
         return JSONResponse({"ok": True})
-    tg_id = int(tg_id)
+    if not row or row["status"] != "pending":
+        if _private_chat_from_user(msg, tg_id):
+            import notify
+            await asyncio.to_thread(
+                notify.send_to,
+                tg_id,
+                notify.card(
+                    "Ссылка входа устарела",
+                    "Вернись на сайт и нажми «Войти через Telegram» ещё раз.",
+                    "Для отдельной новой регистрации отправь /start без кода.",
+                ),
+            )
+        return JSONResponse({"ok": True})
     claimed = conn.execute(
         "UPDATE login_codes SET status='awaiting_confirmation', telegram_id=? "
         "WHERE code=? AND status='pending' AND created_at>=?",

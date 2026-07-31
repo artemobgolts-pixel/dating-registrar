@@ -68,6 +68,11 @@
   v26 — независимые оформления: category_skin управляет публичной страницей
         категории, admin_skin — кабинетом пользователя. Старые категории
         сохраняют романтическое оформление, новые по умолчанию дружеские.
+  v27 — настройки типов Telegram-уведомлений и действия rich-карточек:
+        inline-кнопка хранится вместе с отложенным сообщением outbox.
+  v28 — социальные отметки событий и обзоры: независимое «Хочу сходить»,
+        публичные отзывы с рейтингом и отдельная настройка уведомлений об
+        обзорах.
 
 Свежая база создаётся сразу по последней схеме. Существующая —
 докатывается миграциями при старте приложения.
@@ -81,7 +86,7 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "app.db"
 
-LATEST_VERSION = 26
+LATEST_VERSION = 28
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -113,6 +118,8 @@ CREATE TABLE IF NOT EXISTS notification_outbox (
     kind TEXT NOT NULL,
     event_key TEXT NOT NULL UNIQUE,
     text TEXT NOT NULL,
+    action_url TEXT,
+    action_label TEXT,
     send_at TEXT NOT NULL,
     expires_at TEXT,
     sent_at TEXT,
@@ -127,6 +134,19 @@ CREATE INDEX IF NOT EXISTS idx_notification_outbox_due
     ON notification_outbox(sent_at, cancelled_at, send_at);
 CREATE INDEX IF NOT EXISTS idx_notification_outbox_user
     ON notification_outbox(user_id, kind);
+
+-- Пользователь управляет смысловыми группами Telegram-уведомлений. Отсутствие
+-- строки означает безопасный обратносуместимый дефолт: все группы включены.
+CREATE TABLE IF NOT EXISTS notification_preferences (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    votes INTEGER NOT NULL DEFAULT 1 CHECK(votes IN (0, 1)),
+    questions INTEGER NOT NULL DEFAULT 1 CHECK(questions IN (0, 1)),
+    proposals INTEGER NOT NULL DEFAULT 1 CHECK(proposals IN (0, 1)),
+    updates INTEGER NOT NULL DEFAULT 1 CHECK(updates IN (0, 1)),
+    reminders INTEGER NOT NULL DEFAULT 1 CHECK(reminders IN (0, 1)),
+    reviews INTEGER NOT NULL DEFAULT 1 CHECK(reviews IN (0, 1)),
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 
 -- Привязки OAuth-провайдеров к аккаунту (Discord/Google/Yandex).
 CREATE TABLE IF NOT EXISTS oauth_accounts (
@@ -201,6 +221,40 @@ CREATE TABLE IF NOT EXISTS dates (
     archived_at TEXT,          -- NULL = активно
     created_at TEXT NOT NULL
 );
+
+-- Независимая от «добавить себе в коллекцию» связь с исходным событием.
+-- Публичный профиль дополнительно проверяет публичность самого события: так
+-- секретная /d-ссылка не может случайно раскрыться через чужой профиль.
+CREATE TABLE IF NOT EXISTS date_wants (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    date_id INTEGER NOT NULL REFERENCES dates(id) ON DELETE CASCADE,
+    is_public INTEGER NOT NULL DEFAULT 1 CHECK(is_public IN (0, 1)),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, date_id)
+);
+CREATE INDEX IF NOT EXISTS idx_date_wants_profile
+    ON date_wants(user_id, is_public, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_date_wants_date
+    ON date_wants(date_id, user_id);
+
+-- Один обзор пользователя на одно событие. Скрытие из профиля мягкое: текст и
+-- рейтинг остаются владельцу для последующего редактирования/публикации.
+CREATE TABLE IF NOT EXISTS date_reviews (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    date_id INTEGER NOT NULL REFERENCES dates(id) ON DELETE CASCADE,
+    rating INTEGER NOT NULL CHECK(rating BETWEEN 1 AND 5),
+    text TEXT,
+    is_public INTEGER NOT NULL DEFAULT 1 CHECK(is_public IN (0, 1)),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (user_id, date_id)
+);
+CREATE INDEX IF NOT EXISTS idx_date_reviews_profile
+    ON date_reviews(user_id, is_public, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_date_reviews_date
+    ON date_reviews(date_id, is_public, updated_at DESC);
 
 CREATE TABLE IF NOT EXISTS date_links (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1056,6 +1110,74 @@ MIGRATIONS: dict[int, str] = {
         -- существующие и будущие пользователи начинают с friends.
         ALTER TABLE users ADD COLUMN admin_skin TEXT NOT NULL DEFAULT 'friends'
             CHECK(admin_skin IN ('friends', 'romantic'));
+    """,
+    27: """
+        -- Inline-кнопка Telegram должна переживать отложенную доставку вместе
+        -- с текстом сообщения, а не собираться из уже изменившихся данных.
+        ALTER TABLE notification_outbox ADD COLUMN action_url TEXT;
+        ALTER TABLE notification_outbox ADD COLUMN action_label TEXT;
+
+        -- Строку создаём только после первого сохранения настроек. Для всех
+        -- существующих пользователей отсутствие строки означает «всё включено».
+        CREATE TABLE IF NOT EXISTS notification_preferences (
+            user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+            votes INTEGER NOT NULL DEFAULT 1 CHECK(votes IN (0, 1)),
+            questions INTEGER NOT NULL DEFAULT 1 CHECK(questions IN (0, 1)),
+            proposals INTEGER NOT NULL DEFAULT 1 CHECK(proposals IN (0, 1)),
+            updates INTEGER NOT NULL DEFAULT 1 CHECK(updates IN (0, 1)),
+            reminders INTEGER NOT NULL DEFAULT 1 CHECK(reminders IN (0, 1)),
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+    """,
+    28: """
+        -- Отзывы и приглашения оставить отзыв управляются отдельно от общих
+        -- напоминаний: пользователь может оставить дедлайны, но выключить
+        -- социальные сообщения.
+        ALTER TABLE notification_preferences ADD COLUMN reviews INTEGER NOT NULL
+            DEFAULT 1 CHECK(reviews IN (0, 1));
+
+        -- v22 намеренно оставляла старые категории ненастроенными. Теперь
+        -- дедлайн обязателен ещё и как страховка review-prompt для события без
+        -- времени: legacy-категории получают нейтральный режим и момент
+        -- миграции по Москве. Статус остаётся unconfigured — это не открывает
+        -- голосование без явного решения владельца.
+        UPDATE categories
+        SET choice_mode=COALESCE(NULLIF(TRIM(choice_mode), ''), 'multiple'),
+            voting_deadline=COALESCE(
+                NULLIF(TRIM(voting_deadline), ''),
+                strftime('%Y-%m-%dT%H:%M:%S', 'now', '+3 hours')
+            )
+        WHERE choice_mode IS NULL OR TRIM(choice_mode)=''
+           OR voting_deadline IS NULL OR TRIM(voting_deadline)='';
+
+        CREATE TABLE IF NOT EXISTS date_wants (
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            date_id INTEGER NOT NULL REFERENCES dates(id) ON DELETE CASCADE,
+            is_public INTEGER NOT NULL DEFAULT 1 CHECK(is_public IN (0, 1)),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (user_id, date_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_date_wants_profile
+            ON date_wants(user_id, is_public, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_date_wants_date
+            ON date_wants(date_id, user_id);
+
+        CREATE TABLE IF NOT EXISTS date_reviews (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            date_id INTEGER NOT NULL REFERENCES dates(id) ON DELETE CASCADE,
+            rating INTEGER NOT NULL CHECK(rating BETWEEN 1 AND 5),
+            text TEXT,
+            is_public INTEGER NOT NULL DEFAULT 1 CHECK(is_public IN (0, 1)),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE (user_id, date_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_date_reviews_profile
+            ON date_reviews(user_id, is_public, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_date_reviews_date
+            ON date_reviews(date_id, is_public, updated_at DESC);
     """,
 }
 

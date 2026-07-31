@@ -120,7 +120,9 @@
     // на телефоне — только карточки: если из cookie пришёл список, переключаем
     // на карточки один раз (переключатель вида на мобиле скрыт из CSS)
     var dlist = document.querySelector(".dlist");
-    if (dlist && window.matchMedia("(max-width: 720px)").matches &&
+    if (dlist && window.matchMedia(
+          "(max-width: 720px), (max-width: 950px) and (max-height: 600px) and (pointer: coarse)"
+        ).matches &&
         !sessionStorage.getItem("forcedCards")) {
       sessionStorage.setItem("forcedCards", "1");
       document.cookie = "layout=cards;path=/admin;max-age=31536000;samesite=lax";
@@ -387,11 +389,18 @@
     });
 
     // свайп на телефоне (как на гостевой)
-    var tx = null;
-    gallery.addEventListener("touchstart", function (e) { tx = e.touches[0].clientX; }, { passive: true });
+    var tx = null, touchEditsFocus = false;
+    gallery.addEventListener("touchstart", function (e) {
+      tx = e.touches[0].clientX;
+      // На фото один палец двигает зону кадра. Не трактуем тот же жест как
+      // перелистывание галереи; перейти к соседнему слайду можно стрелками.
+      touchEditsFocus = !!e.target.closest('.ed-slide[data-kind="image"] img');
+    }, { passive: true });
     gallery.addEventListener("touchend", function (e) {
       if (tx === null) return;
-      var dx = e.changedTouches[0].clientX - tx; tx = null;
+      var dx = e.changedTouches[0].clientX - tx;
+      tx = null;
+      if (touchEditsFocus) { touchEditsFocus = false; return; }
       if (Math.abs(dx) > 44) {
         if (dx < 0) cur = Math.min(slides().length - 1, cur + 1);
         else cur = Math.max(0, cur - 1);
@@ -432,10 +441,31 @@
         dragging = true; img.setPointerCapture && img.setPointerCapture(e.pointerId);
         slide.classList.add("dragging"); apply(e); e.preventDefault();
       });
-      img.addEventListener("pointermove", function (e) { if (dragging) apply(e); });
-      function end() { if (!dragging) return; dragging = false; slide.classList.remove("dragging"); save(slide.dataset.focus); }
+      img.addEventListener("pointermove", function (e) {
+        if (!dragging) return;
+        apply(e);
+        e.preventDefault();
+      });
+      function end(e) {
+        if (!dragging) return;
+        dragging = false;
+        slide.classList.remove("dragging");
+        save(slide.dataset.focus);
+        if (e) {
+          if (img.hasPointerCapture && img.hasPointerCapture(e.pointerId)) {
+            img.releasePointerCapture(e.pointerId);
+          }
+          e.preventDefault();
+        }
+      }
       img.addEventListener("pointerup", end);
       img.addEventListener("pointercancel", end);
+      // Дополнительная защита для Safari/iOS: совместимый click может прийти
+      // уже после pointerup, отдельным событием. Он не должен всплыть к picker.
+      img.addEventListener("click", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+      });
     }
 
     layout();

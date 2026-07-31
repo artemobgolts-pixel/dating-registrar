@@ -64,13 +64,14 @@ def queue_deadline_reminder(conn: sqlite3.Connection, category_id: int,
         "⏳ До конца голосования осталось 2 часа",
         f"«{notify.esc(cat['name'])}»",
         "Можно проверить или изменить свой выбор.",
-        f"\n{BASE_URL}/c/{cat['link_token']}",
     )
     outbox.enqueue(
         conn, user_id=user_id, kind="voting_deadline",
         event_key=(f"category:{category_id}:deadline:{deadline.isoformat()}:"
                    f"user:{user_id}"),
         text=text, send_at=send_at, expires_at=deadline,
+        action_url=f"{BASE_URL}/c/{cat['link_token']}",
+        action_label="Открыть голосование",
     )
 
 
@@ -108,8 +109,10 @@ def cancel_category_notifications(conn: sqlite3.Connection, category_id: int,
             "UPDATE notification_outbox SET cancelled_at=?, claimed_at=NULL, "
             "last_error=?, updated_at=? "
             "WHERE sent_at IS NULL AND cancelled_at IS NULL "
-            "AND (instr(event_key, ?) > 0 OR instr(text, ?) > 0)",
-            (stamp, reason, stamp, key_fragment, f"{BASE_URL}/c/{token}"),
+            "AND (instr(event_key, ?) > 0 OR instr(text, ?) > 0 "
+            "OR instr(COALESCE(action_url, ''), ?) > 0)",
+            (stamp, reason, stamp, key_fragment, f"{BASE_URL}/c/{token}",
+             f"{BASE_URL}/c/{token}"),
         )
     else:
         cur = conn.execute(
@@ -140,26 +143,28 @@ def queue_category_outcome(conn: sqlite3.Connection, state: voting.CategoryState
         owner_text = notify.card(
             "🤍 Никто не выбрал",
             f"«{notify.esc(cat['name'])}»",
-            "Категория завершена без победителя.", f"\n{admin_url}")
+            "Категория завершена без победителя.")
     elif state.status == voting.STATUS_TIE:
         leaders = [_date(conn, did) for did in state.leader_date_ids]
         names = ", ".join(f"«{notify.esc(d['name'])}»" for d in leaders if d)
         owner_text = notify.card(
             "⚖️ В голосовании ничья",
             f"«{notify.esc(cat['name'])}»",
-            f"Лидируют: {names}", "Выбери победителя вручную:", f"\n{admin_url}")
+            f"Лидируют: {names}", "Выбери победителя вручную.")
     else:
         winner_name = notify.esc(winner["name"] if winner else "Событие")
         count = state.vote_counts.get(state.winner_date_id or -1, 0)
         owner_text = notify.card(
             "🏆 Победитель определён",
             f"«{notify.esc(cat['name'])}»",
-            f"«{winner_name}» · {count} голос(а)", f"\n{admin_url}")
+            f"«{winner_name}» · {count} голос(а)")
 
     outbox.enqueue(
         conn, user_id=owner_id, kind=f"voting_{state.status}",
         event_key=f"category:{state.category_id}:status:{state.status}:owner:{owner_id}",
-        text=owner_text, expires_at=expiry,
+        text=owner_text, expires_at=expiry, action_url=admin_url,
+        action_label=("Выбрать победителя" if state.status == voting.STATUS_TIE
+                      else "Открыть категорию"),
     )
 
     voter_rows = _voters(conn, state.category_id)
@@ -181,12 +186,12 @@ def queue_category_outcome(conn: sqlite3.Connection, state: voting.CategoryState
         else:
             title = "Голосование завершено"
             detail = "До дедлайна никто не сделал выбор."
-        text = notify.card(title, f"«{notify.esc(cat['name'])}»", detail,
-                           f"\n{public_url}")
+        text = notify.card(title, f"«{notify.esc(cat['name'])}»", detail)
         outbox.enqueue(
             conn, user_id=user_id, kind=f"voting_{state.status}",
             event_key=(f"category:{state.category_id}:status:{state.status}:"
                        f"user:{user_id}"), text=text, expires_at=expiry,
+            action_url=public_url, action_label="Посмотреть результат",
         )
 
     # Напоминания получают только участники победившего варианта. Количество
@@ -212,13 +217,13 @@ def queue_category_outcome(conn: sqlite3.Connection, state: voting.CategoryState
                         f"«{notify.esc(winner['name'])}»",
                         f"Когда: {fmt_when(winner['starts_at'], winner['ends_at'])} (мск)",
                         f"📍 {notify.esc(winner['place'])}" if winner["place"] else "",
-                        f"\n{public_url}",
                     )
                     outbox.enqueue(
                         conn, user_id=user_id, kind="winner_reminder",
                         event_key=(f"category:{state.category_id}:date:{winner['id']}:"
                                    f"reminder:{hours}h:at:{starts.isoformat()}:user:{user_id}"),
                         text=text, send_at=send_at, expires_at=expires_at,
+                        action_url=public_url, action_label="Открыть событие",
                     )
 
 
@@ -316,13 +321,14 @@ def queue_date_changed(conn: sqlite3.Connection, date_id: int,
             "Изменено: " + notify.esc(", ".join(changed_labels)) + ".",
             f"Когда: {fmt_when(d['starts_at'], d['ends_at'])} (мск)" if d["starts_at"] else "",
             f"📍 {notify.esc(d['place'])}" if d["place"] else "",
-            f"\n{BASE_URL}/c/{row['link_token']}",
         )
         outbox.enqueue(
             conn, user_id=int(row["user_id"]), kind="date_changed",
             event_key=(f"date:{date_id}:changed:{stamp_key}:category:"
                        f"{row['category_id']}:user:{row['user_id']}"),
             text=text, expires_at=current + RESULT_TTL,
+            action_url=f"{BASE_URL}/c/{row['link_token']}",
+            action_label="Посмотреть изменения",
         )
         queued += 1
 
@@ -348,12 +354,13 @@ def queue_date_removed(conn: sqlite3.Connection, date_id: int, date_name: str,
             "🗑 Вариант удалён из голосования",
             f"«{notify.esc(date_name)}» · {notify.esc(category_name)}",
             "Ваш голос за этот вариант снят. Можно выбрать другой.",
-            f"\n{BASE_URL}/c/{category_token}" if category_token else "",
         )
         outbox.enqueue(
             conn, user_id=user_id, kind="date_removed",
             event_key=(f"booking:{int(booking['id'])}:date_removed:user:{user_id}"),
             text=text, expires_at=current + RESULT_TTL,
+            action_url=f"{BASE_URL}/c/{category_token}" if category_token else None,
+            action_label="Выбрать другой вариант" if category_token else None,
         )
     cancel_date_reminders(conn, date_id, reason="date_removed",
                           category_id=category_id)
@@ -370,12 +377,13 @@ def queue_vote_removed_by_owner(conn: sqlite3.Connection, *, booking_id: int,
         "ℹ️ Организатор снял ваш голос",
         f"«{notify.esc(date_name)}» · {notify.esc(category_name)}",
         "Если голосование ещё идёт, можно выбрать другой вариант.",
-        f"\n{BASE_URL}/c/{category_token}" if category_token else "",
     )
     outbox.enqueue(
         conn, user_id=int(user_id), kind="vote_removed",
         event_key=f"booking:{int(booking_id)}:removed:user:{int(user_id)}",
         text=text, expires_at=now_naive() + RESULT_TTL,
+        action_url=f"{BASE_URL}/c/{category_token}" if category_token else None,
+        action_label="Открыть голосование" if category_token else None,
     )
 
 
@@ -388,10 +396,11 @@ def queue_participant_withdrawal(conn: sqlite3.Connection, *, booking_id: int,
         f"«{notify.esc(date_name)}» · {notify.esc(category_name)}",
         f"Кто: {notify.esc(participant_name)}",
         "Итог голосования не изменился.",
-        f"\n{BASE_URL}/admin/categories/{int(category_id)}",
     )
     outbox.enqueue(
         conn, user_id=int(owner_id), kind="participant_withdrawal",
         event_key=f"booking:{int(booking_id)}:participant_withdrawal",
         text=text, expires_at=now_naive() + RESULT_TTL,
+        action_url=f"{BASE_URL}/admin/categories/{int(category_id)}",
+        action_label="Открыть категорию",
     )

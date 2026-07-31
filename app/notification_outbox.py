@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import inspect
 import logging
 import sqlite3
 import uuid
@@ -28,7 +29,7 @@ from helpers import now_naive
 
 log = logging.getLogger("notification_outbox")
 
-Sender = Callable[[int | str, str], bool]
+Sender = Callable[..., bool]
 CLAIM_LEASE = timedelta(minutes=5)
 MAX_ERROR_LENGTH = 500
 
@@ -42,6 +43,7 @@ class ProcessStats:
     failed: int = 0
     deferred: int = 0
     expired: int = 0
+    skipped: int = 0
 
 
 def _dt(value: datetime | str | None, *, default: datetime | None = None) -> datetime:
@@ -71,6 +73,8 @@ def enqueue(
     kind: str,
     event_key: str,
     text: str,
+    action_url: str | None = None,
+    action_label: str | None = None,
     send_at: datetime | str | None = None,
     expires_at: datetime | str | None = None,
     now: datetime | str | None = None,
@@ -85,12 +89,16 @@ def enqueue(
     kind = (kind or "").strip()
     event_key = (event_key or "").strip()
     text = (text or "").strip()
+    action_url = (action_url or "").strip() or None
+    action_label = (action_label or "").strip() or None
     if not kind:
         raise ValueError("kind is required")
     if not event_key:
         raise ValueError("event_key is required")
     if not text:
         raise ValueError("text is required")
+    # Единая валидация и для немедленной, и для отложенной rich-карточки.
+    notify.action_markup(action_label, action_url)
 
     now_dt = _dt(now, default=now_naive())
     created = _iso(now_dt)
@@ -99,13 +107,15 @@ def enqueue(
     conn.execute(
         """
         INSERT INTO notification_outbox(
-            user_id, kind, event_key, text, send_at, expires_at,
-            created_at, updated_at
-        ) VALUES(?,?,?,?,?,?,?,?)
+            user_id, kind, event_key, text, action_url, action_label,
+            send_at, expires_at, created_at, updated_at
+        ) VALUES(?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(event_key) DO UPDATE SET
             user_id=excluded.user_id,
             kind=excluded.kind,
             text=excluded.text,
+            action_url=excluded.action_url,
+            action_label=excluded.action_label,
             send_at=excluded.send_at,
             expires_at=excluded.expires_at,
             cancelled_at=NULL,
@@ -115,7 +125,8 @@ def enqueue(
             updated_at=excluded.updated_at
         WHERE notification_outbox.sent_at IS NULL
         """,
-        (user_id, kind, event_key, text, due, expiry, created, created),
+        (user_id, kind, event_key, text, action_url, action_label,
+         due, expiry, created, created),
     )
     row = conn.execute(
         "SELECT id FROM notification_outbox WHERE event_key=?", (event_key,)
@@ -184,6 +195,25 @@ def _claim_token(now: datetime) -> str:
     return f"{_iso(now)}.{uuid.uuid4().int:039d}"
 
 
+def _send(sender: Sender, chat_id: int | str, text: str,
+          action_label: str | None, action_url: str | None) -> bool:
+    """Передаёт rich-разметку новому sender и поддерживает старые тестовые sender."""
+    markup = notify.action_markup(action_label, action_url)
+    if markup is None:
+        return sender(chat_id, text) is True
+    try:
+        params = inspect.signature(sender).parameters.values()
+        supports_markup = any(
+            p.kind == inspect.Parameter.VAR_KEYWORD or p.name == "reply_markup"
+            for p in params
+        )
+    except (TypeError, ValueError):
+        supports_markup = sender is notify.send_to
+    if supports_markup:
+        return sender(chat_id, text, reply_markup=markup) is True
+    return sender(chat_id, text) is True
+
+
 def process_due(
     conn: sqlite3.Connection | None = None,
     *,
@@ -207,7 +237,7 @@ def process_due(
     now_dt = _dt(now, default=now_naive())
     stamp = _iso(now_dt)
     lease_before = _iso(now_dt - CLAIM_LEASE)
-    expired = claimed = sent = failed = deferred = 0
+    expired = claimed = sent = failed = deferred = skipped = 0
     try:
         cur = conn.execute(
             """
@@ -253,7 +283,8 @@ def process_due(
 
             row = conn.execute(
                 """
-                SELECT o.id, o.user_id, o.text, o.attempts, u.telegram_id
+                SELECT o.id, o.user_id, o.text, o.attempts, u.telegram_id,
+                       o.kind, o.action_url, o.action_label
                 FROM notification_outbox o
                 LEFT JOIN users u ON u.id=o.user_id AND u.bot_linked=1
                     AND u.is_active=1 AND u.telegram_id IS NOT NULL
@@ -264,6 +295,19 @@ def process_due(
                 (notification_id, claim_token),
             ).fetchone()
             if row is None:
+                continue
+            preference = notify.preference_for_kind(row["kind"])
+            if not notify.preference_enabled(conn, int(row["user_id"]), preference):
+                cur = conn.execute(
+                    "UPDATE notification_outbox SET cancelled_at=?, claimed_at=NULL, "
+                    "last_error='disabled_by_user', updated_at=? "
+                    "WHERE id=? AND claimed_at=? AND sent_at IS NULL "
+                    "AND cancelled_at IS NULL",
+                    (stamp, stamp, notification_id, claim_token),
+                )
+                conn.commit()
+                if cur.rowcount == 1:
+                    skipped += 1
                 continue
             chat_id = row["telegram_id"]
             if chat_id is None:
@@ -286,7 +330,10 @@ def process_due(
 
             error: str | None = None
             try:
-                delivered = sender(chat_id, row["text"]) is True
+                delivered = _send(
+                    sender, chat_id, row["text"],
+                    row["action_label"], row["action_url"],
+                )
                 if not delivered:
                     error = "telegram_send_failed"
             except Exception as exc:  # sender может быть пользовательским в тесте
@@ -325,4 +372,4 @@ def process_due(
         if own:
             conn.close()
     return ProcessStats(claimed=claimed, sent=sent, failed=failed,
-                        deferred=deferred, expired=expired)
+                        deferred=deferred, expired=expired, skipped=skipped)

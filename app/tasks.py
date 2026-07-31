@@ -27,11 +27,11 @@ async def notification_outbox_loop() -> None:
     while True:
         try:
             stats = await asyncio.to_thread(notification_outbox.process_due)
-            if stats.sent or stats.failed or stats.expired:
+            if stats.sent or stats.failed or stats.expired or stats.skipped:
                 log.info(
                     "Telegram outbox: отправлено=%d, ошибок=%d, ждут привязки=%d, "
-                    "просрочено=%d",
-                    stats.sent, stats.failed, stats.deferred, stats.expired,
+                    "просрочено=%d, отключено пользователем=%d",
+                    stats.sent, stats.failed, stats.deferred, stats.expired, stats.skipped,
                 )
         except asyncio.CancelledError:
             raise

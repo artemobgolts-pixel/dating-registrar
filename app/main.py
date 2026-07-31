@@ -77,13 +77,19 @@ async def lifespan(app: FastAPI):
         voting_events.close_due_once()
     except Exception:
         log.exception("Ошибка закрытия голосований при старте")
-    try:
-        autoarchive_once()
-        backup.make_backup_if_stale(hours=20)
-        auth_routes.resolve_bot_username()
-        auth_routes.setup_webhook()
-    except Exception:
-        log.exception("Ошибка при старте")
+    # Независимые startup-шаги не должны каскадно отключать Telegram: например,
+    # ошибка локального backup не мешает повторно зарегистрировать webhook/menu.
+    for label, startup in (
+        ("автоархивации", autoarchive_once),
+        ("локального бэкапа", lambda: backup.make_backup_if_stale(hours=20)),
+        ("определения Telegram username", auth_routes.resolve_bot_username),
+        ("регистрации Telegram webhook", auth_routes.setup_webhook),
+        ("регистрации Telegram Mini App menu", auth_routes.setup_miniapp_menu),
+    ):
+        try:
+            startup()
+        except Exception:
+            log.exception("Ошибка %s при старте", label)
     # Чиним старые события, где ссылка на карты осела в поле place
     # (показывалась сырым URL и уходила в поиск Яндекса). В отдельном потоке —
     # внутри сетевые запросы к картам, не блокируем событийный цикл.
@@ -110,10 +116,19 @@ async def lifespan(app: FastAPI):
             pass
 
 
+def session_same_site(cookie_secure: bool) -> str:
+    """Web Telegram embeds Mini Apps cross-site; its session needs None+Secure."""
+    return "none" if cookie_secure else "lax"
+
+
 app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY,
                    session_cookie="__Host-admin_s" if COOKIE_SECURE else "admin_s",
-                   max_age=60 * 60 * 24 * 30, same_site="lax", https_only=COOKIE_SECURE)
+                   max_age=60 * 60 * 24 * 30,
+                   # web.telegram.org может открыть Mini App cross-site iframe.
+                   # None допустим только вместе с Secure; локальный HTTP — Lax.
+                   same_site=session_same_site(COOKIE_SECURE),
+                   https_only=COOKIE_SECURE)
 _domain_host = urlsplit(f"//{DOMAIN}").hostname or DOMAIN.partition(":")[0]
 _trusted_hosts = {_domain_host, "localhost", "127.0.0.1", "testserver"}
 if _domain_host and not _domain_host.startswith("www."):
@@ -152,9 +167,19 @@ async def csp_headers(request: Request, call_next):
     nonce не распространяется, а риск инъекции стиля несравним со скриптом.
     """
     request.state.csp_nonce = secrets.token_urlsafe(16)
+    p = request.url.path
     resp = await call_next(request)
+    # Telegram Web/Desktop может держать Mini App во frame/webview. Разрешение
+    # выдаётся только boot-route и сессии, которая успешно прошла initData auth.
+    # TrustedHost может отклонить запрос раньше SessionMiddleware. В таком
+    # ответе ``request.session`` недоступен, поэтому читаем уже созданный scope
+    # без AssertionError и сохраняем обычную защиту от framing.
+    miniapp = p == "/tg/app" or bool(
+        request.scope.get("session", {}).get("telegram_miniapp")
+    )
     resp.headers["X-Content-Type-Options"] = "nosniff"
-    resp.headers["X-Frame-Options"] = "DENY"
+    if not miniapp:
+        resp.headers["X-Frame-Options"] = "DENY"
     resp.headers["Referrer-Policy"] = "no-referrer"
     resp.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
     # Старый браузерный XSS-фильтр сам создавал обходы; современная защита — CSP.
@@ -169,8 +194,17 @@ async def csp_headers(request: Request, call_next):
         # грузится на странице входа /login И на гостевых ссылках /c/<токен>
         # и /d/<токен> (вход-модалка прямо со страницы подборки/события).
         # Послабление CSP — ровно на этих HTML-страницах, не на всём сайте.
-        p = request.url.path
-        if p == "/login" or p.startswith("/c/") or p.startswith("/d/"):
+        if miniapp:
+            resp.headers["Content-Security-Policy"] = (
+                "default-src 'self'; "
+                f"script-src 'self' 'nonce-{request.state.csp_nonce}' "
+                "https://telegram.org https://oauth.telegram.org; "
+                "style-src 'self' 'unsafe-inline'; "
+                "img-src 'self' data: blob: https://t.me; font-src 'self'; "
+                "connect-src 'self'; frame-src https://oauth.telegram.org; "
+                "frame-ancestors https://telegram.org https://*.telegram.org; "
+                "base-uri 'self'; form-action 'self'")
+        elif p == "/login" or p.startswith("/c/") or p.startswith("/d/"):
             resp.headers["Content-Security-Policy"] = (
                 "default-src 'self'; "
                 f"script-src 'self' 'nonce-{request.state.csp_nonce}' "

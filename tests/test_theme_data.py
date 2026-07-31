@@ -126,6 +126,13 @@ class ThemeMigrationTests(unittest.TestCase):
 
 
 class ThemePreviewTests(unittest.TestCase):
+    def test_romantic_preview_is_exact_og_png(self):
+        path = APP / "static" / "og.png"
+        self.assertTrue(path.is_file())
+        with images.Image.open(path) as preview:
+            self.assertEqual(preview.format, "PNG")
+            self.assertEqual(preview.size, (1200, 630))
+
     def test_friends_preview_is_exact_lightweight_og_image(self):
         path = APP / "static" / "og-friends.jpg"
         self.assertTrue(path.is_file())
@@ -202,6 +209,11 @@ class ThemeRouteDataTests(unittest.IsolatedAsyncioTestCase):
                 ],
                 "dates": [],
             }
+            for category in payload["categories"]:
+                category.update(
+                    choice_mode="multiple",
+                    voting_deadline="2030-02-01T12:00:00",
+                )
             upload = UploadFile(
                 filename="export.json",
                 file=io.BytesIO(json.dumps(payload).encode("utf-8")),

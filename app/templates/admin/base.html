@@ -22,6 +22,10 @@
 <link rel="manifest" href="/static/manifest-friends.json">
 {% endif %}
 <meta name="theme-color" content="{{ '#b65f6f' if user and user['admin_skin'] == 'romantic' else '#554eae' }}">
+{% if request.session.get('telegram_miniapp') %}
+<script src="https://telegram.org/js/telegram-web-app.js?63"></script>
+<script src="{{ asset('telegram-miniapp.js') }}" data-turbo-track="reload" defer></script>
+{% endif %}
 <script src="{{ asset('theme.js') }}" data-turbo-track="reload"></script>
 <link rel="stylesheet" href="{{ asset('admin.css') }}" data-turbo-track="reload">
 <!-- Turbo Drive: мгновенная навигация без полной перезагрузки (self-hosted).
@@ -87,23 +91,19 @@
   <a class="brand" href="/admin/">date<span class="d4">4</span>you</a>
   <nav class="glass-nav">
     <a href="/admin/" class="{{ 'on' if active == 'dash' else '' }}">
-      <span class="ic skin-icon skin-icon-romantic" aria-hidden="true">🏠</span>
-      <span class="ic skin-icon skin-icon-friends">{% with icon='home' %}{% include "admin/_icon.html" %}{% endwith %}</span>
+      <span class="ic">{% with icon='home' %}{% include "admin/_icon.html" %}{% endwith %}</span>
       <span class="lb">Главная</span>
     </a>
     <a href="/admin/categories" class="{{ 'on' if active == 'cats' else '' }}">
-      <span class="ic skin-icon skin-icon-romantic" aria-hidden="true">🔗</span>
-      <span class="ic skin-icon skin-icon-friends">{% with icon='categories' %}{% include "admin/_icon.html" %}{% endwith %}</span>
+      <span class="ic">{% with icon='categories' %}{% include "admin/_icon.html" %}{% endwith %}</span>
       <span class="lb">Категории</span>
     </a>
     <a href="/admin/dates" class="{{ 'on' if active == 'dates' else '' }}">
-      <span class="ic skin-icon skin-icon-romantic" aria-hidden="true">💝</span>
-      <span class="ic skin-icon skin-icon-friends">{% with icon='calendar' %}{% include "admin/_icon.html" %}{% endwith %}</span>
+      <span class="ic">{% with icon='calendar' %}{% include "admin/_icon.html" %}{% endwith %}</span>
       <span class="lb">События</span>
     </a>
     <a href="/admin/profile" class="{{ 'on' if active == 'profile' else '' }}">
-      <span class="ic skin-icon skin-icon-romantic" aria-hidden="true">👤</span>
-      <span class="ic skin-icon skin-icon-friends">{% with icon='profile' %}{% include "admin/_icon.html" %}{% endwith %}</span>
+      <span class="ic">{% with icon='profile' %}{% include "admin/_icon.html" %}{% endwith %}</span>
       <span class="lb">{{ user['display_name'] or 'Профиль' }}</span>
     </a>
     {% if user['is_operator'] %}<a href="/operator/" class="op-link"><span class="ic" aria-hidden="true">⚙</span><span class="lb">Админ</span></a>{% endif %}
@@ -121,9 +121,8 @@
     {% endif %}
     <a class="bell {{ 'on' if active == 'q' else '' }}" href="/admin/questions"
        aria-label="Уведомления{% if unread %} ({{ unread }} непрочитанных){% endif %}">
-      <span class="bell-ic skin-icon skin-icon-romantic" aria-hidden="true">🔔</span>
-      <span class="bell-ic skin-icon skin-icon-friends">{% with icon='bell' %}{% include "admin/_icon.html" %}{% endwith %}</span>
-      {% if unread %}<span class="bell-count">{{ unread }}</span>{% endif %}
+      <span class="bell-ic">{% with icon='bell' %}{% include "admin/_icon.html" %}{% endwith %}</span>
+      {% if unread %}<span class="bell-count" aria-hidden="true">{{ '99+' if unread > 99 else unread }}</span>{% endif %}
     </a>
     <form class="logout-top" method="post" action="/admin/logout">
       <input type="hidden" name="csrf" value="{{ csrf }}">

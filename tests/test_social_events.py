@@ -1,0 +1,182 @@
+#!/usr/bin/env python3
+"""Точечные тесты «Хочу сходить», обзоров и review-notifications."""
+
+from __future__ import annotations
+
+import os
+import sqlite3
+import sys
+import tempfile
+import unittest
+from datetime import datetime
+from pathlib import Path
+
+
+APP = Path(__file__).resolve().parents[1] / "app"
+sys.path.insert(0, str(APP))
+_IMPORT_DATA = tempfile.TemporaryDirectory(prefix="date4you-social-import-")
+os.environ["DATA_DIR"] = _IMPORT_DATA.name
+os.environ.setdefault("SECRET_KEY", "social-test-secret")
+os.environ.setdefault("DOMAIN", "social.test")
+
+import db  # noqa: E402
+import notify  # noqa: E402
+import social_events  # noqa: E402
+
+
+class SocialEventsTests(unittest.TestCase):
+    def setUp(self):
+        self.conn = sqlite3.connect(":memory:")
+        self.conn.row_factory = sqlite3.Row
+        self.conn.execute("PRAGMA foreign_keys=ON")
+        self.conn.executescript(db.SCHEMA)
+        for user_id, tg, name in ((1, 101, "Автор"), (2, 202, "Гость")):
+            self.conn.execute(
+                "INSERT INTO users(id, telegram_id, display_name, created_at) "
+                "VALUES(?,?,?,?)",
+                (user_id, tg, name, "2030-01-01T00:00:00"),
+            )
+
+    def tearDown(self):
+        self.conn.close()
+
+    def _category(self, cid: int, deadline: str) -> None:
+        self.conn.execute(
+            "INSERT INTO categories(id, owner_id, name, choice_mode, "
+            "voting_deadline, created_at) VALUES(?,1,?,?,?,?)",
+            (cid, f"Категория {cid}", "multiple", deadline,
+             "2030-01-01T00:00:00"),
+        )
+
+    def _date(self, did: int, *, starts: str | None, ends: str | None) -> None:
+        self.conn.execute(
+            "INSERT INTO dates(id, owner_id, name, starts_at, ends_at, share_token, "
+            "is_draft, is_public, created_at) VALUES(?,1,?,?,?,?,0,1,?)",
+            (did, f"Событие {did}", starts, ends, f"token-{did}",
+             "2030-01-01T00:00:00"),
+        )
+
+    def _want(self, did: int) -> None:
+        self.conn.execute(
+            "INSERT INTO date_wants(user_id,date_id,created_at,updated_at) "
+            "VALUES(2,?,?,?)",
+            (did, "2030-01-01T00:00:00", "2030-01-01T00:00:00"),
+        )
+
+    def test_due_waits_for_event_and_uses_latest_category_deadline(self):
+        self._category(1, "2030-01-02T10:00:00")
+        self._category(2, "2030-01-03T10:00:00")
+        self._date(1, starts="2030-01-04T18:00:00", ends=None)
+        self.conn.executemany(
+            "INSERT INTO date_categories(date_id,category_id) VALUES(1,?)",
+            [(1,), (2,)],
+        )
+        self.assertEqual(
+            social_events.review_due(self.conn, 1),
+            datetime(2030, 1, 4, 21, 0),
+        )
+
+    def test_undated_event_falls_back_to_latest_deadline_plus_day(self):
+        self._category(1, "2030-01-02T10:00:00")
+        self._category(2, "2030-01-05T12:30:00")
+        self._date(1, starts=None, ends=None)
+        self.conn.executemany(
+            "INSERT INTO date_categories(date_id,category_id) VALUES(1,?)",
+            [(1,), (2,)],
+        )
+        self.assertEqual(
+            social_events.review_due(self.conn, 1),
+            datetime(2030, 1, 6, 12, 30),
+        )
+
+    def test_one_prompt_per_user_and_date_is_rescheduled_and_cancelled_by_review(self):
+        self._category(1, "2030-01-02T10:00:00")
+        self._date(1, starts="2030-01-03T18:00:00", ends="2030-01-03T20:00:00")
+        self.conn.execute("INSERT INTO date_categories(date_id,category_id) VALUES(1,1)")
+        self._want(1)
+
+        first = social_events.queue_review_prompt(self.conn, 1, 2)
+        second = social_events.queue_review_prompt(self.conn, 1, 2)
+        self.assertEqual(first, second)
+        rows = self.conn.execute(
+            "SELECT kind, event_key, send_at, action_label FROM notification_outbox"
+        ).fetchall()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["kind"], "review_prompt")
+        self.assertEqual(rows[0]["send_at"], "2030-01-03T20:00:00")
+        self.assertEqual(rows[0]["action_label"], "Оставить обзор")
+        self.assertEqual(notify.preference_for_kind("review_prompt"), "reviews")
+
+        self.conn.execute(
+            "INSERT INTO date_reviews(user_id,date_id,rating,text,created_at,updated_at) "
+            "VALUES(2,1,5,NULL,?,?)",
+            ("2030-01-04T00:00:00", "2030-01-04T00:00:00"),
+        )
+        self.assertIsNone(social_events.queue_review_prompt(self.conn, 1, 2))
+        cancelled = self.conn.execute(
+            "SELECT cancelled_at,last_error FROM notification_outbox"
+        ).fetchone()
+        self.assertIsNotNone(cancelled["cancelled_at"])
+        self.assertEqual(cancelled["last_error"], "review_exists")
+
+    def test_rating_constraint_and_delete_cascade(self):
+        self._date(1, starts=None, ends=None)
+        self._want(1)
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.conn.execute(
+                "INSERT INTO date_reviews(user_id,date_id,rating,created_at,updated_at) "
+                "VALUES(2,1,6,?,?)",
+                ("2030-01-01T00:00:00", "2030-01-01T00:00:00"),
+            )
+        self.conn.execute(
+            "INSERT INTO date_reviews(user_id,date_id,rating,created_at,updated_at) "
+            "VALUES(2,1,5,?,?)",
+            ("2030-01-01T00:00:00", "2030-01-01T00:00:00"),
+        )
+        self.conn.execute("DELETE FROM dates WHERE id=1")
+        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM date_wants").fetchone()[0], 0)
+        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM date_reviews").fetchone()[0], 0)
+
+    def test_v28_backfills_legacy_category_deadline(self):
+        conn = sqlite3.connect(":memory:")
+        try:
+            conn.executescript(
+                """
+                CREATE TABLE users(id INTEGER PRIMARY KEY);
+                CREATE TABLE dates(id INTEGER PRIMARY KEY);
+                CREATE TABLE categories(
+                    id INTEGER PRIMARY KEY,
+                    choice_mode TEXT,
+                    voting_deadline TEXT
+                );
+                CREATE TABLE notification_preferences(
+                    user_id INTEGER PRIMARY KEY,
+                    votes INTEGER NOT NULL DEFAULT 1,
+                    questions INTEGER NOT NULL DEFAULT 1,
+                    proposals INTEGER NOT NULL DEFAULT 1,
+                    updates INTEGER NOT NULL DEFAULT 1,
+                    reminders INTEGER NOT NULL DEFAULT 1,
+                    updated_at TEXT
+                );
+                INSERT INTO categories(id,choice_mode,voting_deadline)
+                    VALUES(1,NULL,NULL);
+                """
+            )
+            conn.executescript(db.MIGRATIONS[28])
+            row = conn.execute(
+                "SELECT choice_mode,voting_deadline FROM categories WHERE id=1"
+            ).fetchone()
+            self.assertEqual(row[0], "multiple")
+            self.assertTrue(row[1])
+            self.assertIn(
+                "reviews",
+                {column[1] for column in conn.execute(
+                    "PRAGMA table_info(notification_preferences)"
+                )},
+            )
+        finally:
+            conn.close()
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

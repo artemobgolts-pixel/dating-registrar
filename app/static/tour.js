@@ -43,8 +43,8 @@
         text: "Выбери один или несколько вариантов на гостя и задай обязательный срок. После дедлайна система определит победителя." },
       { sel: '[data-tour="category-dates"]', title: "Наполни подборку",
         text: "Создай новое или добавь существующее событие. Перетаскивание меняет порядок для гостей." },
-      { sel: '[data-tour="category-share-copy"]', title: "Поделись ссылкой",
-        text: "Скопируй гостевую ссылку и отправь её друзьям." }
+      { sel: '[data-tour="category-actions"]', title: "Поделись ссылкой",
+        text: "Открой меню «⋯», скопируй гостевую ссылку и отправь её друзьям." }
     ]
   };
 
@@ -100,6 +100,9 @@
 
   window.d4yStartTour = function (id) {
     id = DEFINITIONS[id] ? id : "dashboard";
+    // Ручной повтор запускает только выбранную часть. В частности, «Основы»
+    // не должны подхватывать оставшийся от другого курса переход.
+    try { sessionStorage.removeItem(REQUEST_KEY); } catch (_) {}
     if (screenId() !== id) {
       try { sessionStorage.setItem(REQUEST_KEY, id); } catch (_) {}
       var route = ROUTES[id] || "/admin/";
@@ -133,17 +136,41 @@
       '<button type="button" class="tour-skip">Пропустить</button>' +
       '<button type="button" class="tour-next btn primary"></button></div></div>';
     document.body.appendChild(overlay);
-    document.body.classList.add("tour-lock");
 
     var spot = overlay.querySelector(".tour-spot");
     var blur = overlay.querySelector(".tour-blur");
     var pop = overlay.querySelector(".tour-pop");
     var nextButton = overlay.querySelector(".tour-next");
     var aborting = false;
+    var placing = false;
+    var placeAgain = false;
+    var placeFrame = 0;
+    var placeToken = 0;
+    var geometryFrame = 0;
+    var geometryFramesLeft = 0;
+    var lastGeometry = "";
+    var resizeObserver = null;
+    var mutationObserver = null;
+    var observedTarget = null;
+    var observedExtra = null;
+
+    function setScrollLock(locked) {
+      if (locked) {
+        document.documentElement.classList.add("tour-lock");
+        document.body.classList.add("tour-lock");
+      } else {
+        document.documentElement.classList.remove("tour-lock");
+        document.body.classList.remove("tour-lock");
+      }
+    }
+
+    function extraTarget(step) {
+      return step.extra ? document.querySelector(step.extra) : null;
+    }
 
     function stepRect(step, target) {
       var r = target.getBoundingClientRect();
-      var extra = step.extra && document.querySelector(step.extra);
+      var extra = extraTarget(step);
       if (!extra) return r;
       var e = extra.getBoundingClientRect();
       return {
@@ -156,15 +183,45 @@
       };
     }
 
-    function layout() {
+    function viewportSize() {
+      return {
+        width: Math.max(1, document.documentElement.clientWidth || innerWidth),
+        height: Math.max(1, innerHeight || document.documentElement.clientHeight)
+      };
+    }
+
+    function isViewportAnchored(target) {
+      for (var node = target; node && node !== document.documentElement; node = node.parentElement) {
+        if (getComputedStyle(node).position === "fixed") return true;
+      }
+      return false;
+    }
+
+    function updateCopy() {
+      var step = steps[index];
+      overlay.querySelector("#tourStepNo").textContent = "Шаг " + (index + 1) + " из " + steps.length;
+      overlay.querySelector("#tourTitle").textContent = step.title;
+      overlay.querySelector("#tourText").textContent = step.text;
+      nextButton.textContent = index === steps.length - 1 ? "Готово" : "Далее";
+    }
+
+    function layout(measuredRect) {
       if (!running || aborting) return;
       var step = steps[index];
       var target = document.querySelector(step.sel);
       if (!target) { advance(); return; }
-      var r = stepRect(step, target);
+      var r = measuredRect && typeof measuredRect.top === "number"
+        ? measuredRect : stepRect(step, target);
+      var viewport = viewportSize();
       var pad = typeof step.pad === "number" ? step.pad : (innerWidth <= 720 ? 4 : 8);
-      var top = r.top - pad, left = r.left - pad;
-      var width = r.width + pad * 2, height = r.height + pad * 2;
+      // Если цель выше экрана (например, большая карточка редактора), рамка
+      // показывает её видимую часть и никогда не уезжает за границы viewport.
+      var top = Math.max(4, r.top - pad);
+      var left = Math.max(4, r.left - pad);
+      var right = Math.min(viewport.width - 4, r.right + pad);
+      var bottom = Math.min(viewport.height - 4, r.bottom + pad);
+      var width = Math.max(1, right - left);
+      var height = Math.max(1, bottom - top);
       spot.style.cssText = "top:" + top + "px;left:" + left + "px;width:" + width + "px;height:" + height + "px";
       if (blur) {
         var rr = Math.min(14, width / 2, height / 2), x1 = left + width, y1 = top + height;
@@ -175,38 +232,175 @@
         blur.style.clipPath = "polygon(evenodd,0 0,100% 0,100% 100%,0 100%,0 0," + hole + ")";
         blur.style.webkitClipPath = blur.style.clipPath;
       }
-      overlay.querySelector("#tourStepNo").textContent = "Шаг " + (index + 1) + " из " + steps.length;
-      overlay.querySelector("#tourTitle").textContent = step.title;
-      overlay.querySelector("#tourText").textContent = step.text;
-      var last = index === steps.length - 1;
-      nextButton.textContent = last ? "Готово" : "Далее";
+      updateCopy();
       var popHeight = pop.offsetHeight || 160;
-      pop.style.top = (r.bottom + 12 + popHeight <= innerHeight)
-        ? (r.bottom + 12) + "px" : Math.max(12, r.top - popHeight - 12) + "px";
-      pop.style.left = Math.min(Math.max(12, r.left), Math.max(12, innerWidth - pop.offsetWidth - 12)) + "px";
+      var below = bottom + 12;
+      var above = top - popHeight - 12;
+      var popTop;
+      if (below + popHeight <= viewport.height - 12) popTop = below;
+      else if (above >= 12) popTop = above;
+      else {
+        // Высокая цель не может поместиться рядом с подсказкой. Закрепляем
+        // подсказку у более далёкого края, сохраняя максимум цели открытым.
+        popTop = (r.top + r.bottom) / 2 < viewport.height / 2
+          ? viewport.height - popHeight - 12 : 12;
+      }
+      popTop = Math.min(Math.max(12, popTop), Math.max(12, viewport.height - popHeight - 12));
+      pop.style.top = popTop + "px";
+      pop.style.left = Math.min(Math.max(12, r.left), Math.max(12, viewport.width - pop.offsetWidth - 12)) + "px";
+    }
+
+    function refreshLayout() { layout(); }
+
+    function onPageMotion(e) {
+      // Анимация самой рамки тура не должна заново запускать измерения.
+      if (!overlay.contains(e.target)) schedulePlace();
+    }
+
+    function observeStep(target, extra) {
+      if (target === observedTarget && extra === observedExtra) return;
+      observedTarget = target;
+      observedExtra = extra;
+      if (!resizeObserver) return;
+      resizeObserver.disconnect();
+      resizeObserver.observe(target);
+      if (extra) resizeObserver.observe(extra);
+    }
+
+    function desiredScrollTop(step, target, r) {
+      if (isViewportAnchored(target)) return window.pageYOffset || 0;
+      var viewport = viewportSize();
+      var margin = 12;
+      var gap = 12;
+      var usable = viewport.height - margin * 2;
+      var popHeight = pop.offsetHeight || 160;
+      var total = r.height + gap + popHeight;
+      var desiredTop;
+      if (total <= usable) {
+        // Цель и подсказка помещаются вместе: центрируем весь комплект. Для
+        // community-шага сюда входит и заголовок, и первая карточка целиком.
+        desiredTop = margin + (usable - total) / 2;
+      } else if (r.height <= usable) {
+        desiredTop = margin + (usable - r.height) / 2;
+      } else {
+        desiredTop = margin;
+      }
+      var scrolling = document.scrollingElement || document.documentElement;
+      var current = window.pageYOffset || scrolling.scrollTop || 0;
+      var max = Math.max(0, scrolling.scrollHeight - viewport.height);
+      return Math.min(max, Math.max(0, current + r.top - desiredTop));
+    }
+
+    function finishPlace(token) {
+      if (aborting || token !== placeToken) return;
+      setScrollLock(true);
+      placing = false;
+      lastGeometry = "";
+      layout();
+      if (placeAgain) {
+        placeAgain = false;
+        schedulePlace();
+      }
     }
 
     function place() {
-      var target = document.querySelector(steps[index].sel);
+      if (aborting || !running) return;
+      if (placing) { placeAgain = true; return; }
+      var step = steps[index];
+      var target = document.querySelector(step.sel);
       if (!target) { advance(); return; }
-      document.documentElement.classList.remove("tour-lock");
-      document.body.classList.remove("tour-lock");
-      target.scrollIntoView({ block: "center", behavior: "auto" });
-      document.documentElement.classList.add("tour-lock");
-      document.body.classList.add("tour-lock");
-      requestAnimationFrame(function () { requestAnimationFrame(layout); });
+      var extra = extraTarget(step);
+      observeStep(target, extra);
+      updateCopy();
+      var r = stepRect(step, target);
+      var scrolling = document.scrollingElement || document.documentElement;
+      var current = window.pageYOffset || scrolling.scrollTop || 0;
+      var wanted = desiredScrollTop(step, target, r);
+      var token = ++placeToken;
+      placing = true;
+      if (Math.abs(wanted - current) < 1) {
+        finishPlace(token);
+        return;
+      }
+      // На iOS программная прокрутка заблокированного html ненадёжна. Замок
+      // снимается ровно на время синхронного scrollTo и двух кадров раскладки.
+      setScrollLock(false);
+      window.scrollTo(window.pageXOffset || 0, wanted);
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () { finishPlace(token); });
+      });
+    }
+
+    function schedulePlace() {
+      if (aborting || !running) return;
+      stabilizeGeometry(24);
+      if (placing) { placeAgain = true; return; }
+      if (placeFrame) return;
+      placeFrame = requestAnimationFrame(function () {
+        placeFrame = 0;
+        place();
+      });
+    }
+
+    function stabilizeGeometry(frames) {
+      if (aborting || !running) return;
+      geometryFramesLeft = Math.max(geometryFramesLeft, frames || 24);
+      if (!geometryFrame) geometryFrame = requestAnimationFrame(watchGeometry);
+    }
+
+    function watchGeometry() {
+      if (aborting || !running) return;
+      geometryFrame = 0;
+      var step = steps[index];
+      var target = document.querySelector(step.sel);
+      if (target) {
+        var extra = extraTarget(step);
+        if (target !== observedTarget || extra !== observedExtra) {
+          observeStep(target, extra);
+          schedulePlace();
+        }
+        var r = stepRect(step, target);
+        var viewport = viewportSize();
+        var signature = [r.top, r.left, r.width, r.height, viewport.width, viewport.height]
+          .map(function (n) { return Math.round(n * 2) / 2; }).join(":");
+        // Карточки и секции могут сдвигаться после загрузки изображений,
+        // анимаций или изменений формы. Spotlight следует за реальной целью.
+        if (signature !== lastGeometry && !placing) {
+          lastGeometry = signature;
+          layout(r);
+        }
+      }
+      geometryFramesLeft -= 1;
+      if (geometryFramesLeft > 0) geometryFrame = requestAnimationFrame(watchGeometry);
     }
 
     function cleanup() {
       if (aborting) return;
       aborting = true;
-      window.removeEventListener("resize", layout);
+      placeToken += 1;
+      if (placeFrame) cancelAnimationFrame(placeFrame);
+      if (geometryFrame) cancelAnimationFrame(geometryFrame);
+      geometryFrame = 0;
+      geometryFramesLeft = 0;
+      if (resizeObserver) resizeObserver.disconnect();
+      if (mutationObserver) mutationObserver.disconnect();
+      window.removeEventListener("resize", schedulePlace);
+      window.removeEventListener("orientationchange", schedulePlace);
+      window.removeEventListener("scroll", refreshLayout);
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener("resize", schedulePlace);
+        window.visualViewport.removeEventListener("scroll", refreshLayout);
+      }
+      document.removeEventListener("load", schedulePlace, true);
+      document.removeEventListener("transitionrun", onPageMotion, true);
+      document.removeEventListener("transitionend", onPageMotion, true);
+      document.removeEventListener("animationstart", onPageMotion, true);
+      document.removeEventListener("animationend", onPageMotion, true);
       document.removeEventListener("keydown", onKey);
       overlay.removeEventListener("wheel", preventScroll);
       overlay.removeEventListener("touchmove", preventScroll);
       overlay.remove();
-      document.documentElement.classList.remove("tour-lock");
-      document.body.classList.remove("tour-lock");
+      setScrollLock(false);
       running = null;
       if (previousFocus && previousFocus.focus) previousFocus.focus();
     }
@@ -217,6 +411,7 @@
         return;
       }
       index += 1;
+      lastGeometry = "";
       place();
     }
 
@@ -244,11 +439,32 @@
     overlay.addEventListener("wheel", preventScroll, { passive: false });
     overlay.addEventListener("touchmove", preventScroll, { passive: false });
     document.addEventListener("keydown", onKey);
-    window.addEventListener("resize", layout);
+    window.addEventListener("resize", schedulePlace);
+    window.addEventListener("orientationchange", schedulePlace);
+    window.addEventListener("scroll", refreshLayout, { passive: true });
+    document.addEventListener("load", schedulePlace, true);
+    document.addEventListener("transitionrun", onPageMotion, true);
+    document.addEventListener("transitionend", onPageMotion, true);
+    document.addEventListener("animationstart", onPageMotion, true);
+    document.addEventListener("animationend", onPageMotion, true);
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", schedulePlace);
+      window.visualViewport.addEventListener("scroll", refreshLayout, { passive: true });
+    }
+    if ("ResizeObserver" in window) resizeObserver = new ResizeObserver(schedulePlace);
+    if ("MutationObserver" in window) {
+      mutationObserver = new MutationObserver(schedulePlace);
+      var tourContent = document.querySelector("main.wrap") || document.body;
+      mutationObserver.observe(tourContent, {
+        childList: true, subtree: true, attributes: true,
+        attributeFilter: ["class", "style", "hidden", "open"]
+      });
+    }
     running = { cancel: cleanup };
-    document.documentElement.classList.add("tour-lock");
+    setScrollLock(true);
     nextButton.focus();
     place();
+    stabilizeGeometry(24);
   }
 
   function boot() {

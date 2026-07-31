@@ -1,0 +1,101 @@
+:root {
+  color-scheme: light dark;
+  --tg-page-bg: var(--tg-theme-bg-color, #f7f5ff);
+  --tg-page-text: var(--tg-theme-text-color, #26233b);
+  --tg-muted: var(--tg-theme-hint-color, #77738d);
+  --tg-accent: var(--tg-theme-button-color, #554eae);
+  --tg-accent-text: var(--tg-theme-button-text-color, #fff);
+  font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body { min-height: 100%; margin: 0; }
+
+.miniapp-boot {
+  min-height: var(--tg-viewport-stable-height, 100vh);
+  display: grid;
+  place-items: center;
+  padding:
+    max(24px, var(--tg-content-safe-area-inset-top, 0px))
+    max(18px, var(--tg-content-safe-area-inset-right, 0px))
+    max(24px, var(--tg-content-safe-area-inset-bottom, 0px))
+    max(18px, var(--tg-content-safe-area-inset-left, 0px));
+  background:
+    radial-gradient(circle at 22% 12%, rgba(109, 120, 196, .18), transparent 36%),
+    radial-gradient(circle at 82% 86%, rgba(34, 142, 138, .14), transparent 34%),
+    var(--tg-page-bg);
+  color: var(--tg-page-text);
+}
+
+.miniapp-card {
+  width: min(440px, 100%);
+  padding: 34px 28px 30px;
+  border: 1px solid color-mix(in srgb, var(--tg-page-text) 11%, transparent);
+  border-radius: 28px;
+  background: color-mix(in srgb, var(--tg-page-bg) 88%, transparent);
+  box-shadow: 0 24px 70px rgba(40, 35, 90, .14);
+  text-align: center;
+}
+
+.miniapp-mark {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 14px;
+  display: grid;
+  place-items: center;
+  border-radius: 22px;
+  color: #fff;
+  background: linear-gradient(145deg, #6d78c4, #554eae 58%, #228e8a);
+  box-shadow: 0 12px 28px rgba(85, 78, 174, .28);
+  font: 700 30px/1 Georgia, serif;
+}
+
+.miniapp-card h1 { margin: 0 0 8px; font-size: 30px; }
+.miniapp-card p { margin: 0; color: var(--tg-muted); }
+.miniapp-card .miniapp-error { margin-top: 16px; color: #b84555; }
+
+.miniapp-spinner {
+  width: 30px;
+  height: 30px;
+  margin: 22px auto 0;
+  border: 3px solid color-mix(in srgb, var(--tg-accent) 18%, transparent);
+  border-top-color: var(--tg-accent);
+  border-radius: 50%;
+  animation: miniapp-spin .8s linear infinite;
+}
+
+.miniapp-actions { margin-top: 22px; display: grid; gap: 10px; }
+.miniapp-actions[hidden] { display: none; }
+.miniapp-actions button,
+.miniapp-browser-link {
+  min-height: 48px;
+  padding: 12px 18px;
+  border-radius: 15px;
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+.miniapp-primary {
+  border: 0;
+  color: var(--tg-accent-text);
+  background: var(--tg-accent);
+}
+.miniapp-secondary {
+  border: 1px solid color-mix(in srgb, var(--tg-page-text) 18%, transparent);
+  color: var(--tg-page-text);
+  background: transparent;
+}
+.miniapp-browser-link {
+  margin-top: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--tg-accent-text);
+  background: var(--tg-accent);
+  text-decoration: none;
+}
+.miniapp-browser-link[hidden] { display: none; }
+
+@keyframes miniapp-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .miniapp-spinner { animation: none; } }

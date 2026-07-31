@@ -1,20 +1,91 @@
 {% extends "admin/base.html" %}
 {% block title %}Уведомления{% endblock %}
 {% block content %}
-<h1 class="serif">Уведомления</h1>
+<div class="notif-page-head">
+  <div>
+    <h1 class="serif">Уведомления</h1>
+    <p>Вопросы и предложения времени по твоим событиям.</p>
+  </div>
+  {% if unread %}
+  <span class="notif-new-count">{{ '99+' if unread > 99 else unread }} новых</span>
+  {% endif %}
+</div>
 
-<div class="controls">
-  <div class="tabs">
-    <a href="/admin/questions" class="{{ 'on' if f != 'all' else '' }}">Непрочитанные</a>
-    <a href="/admin/questions?f=all" class="{{ 'on' if f == 'all' else '' }}">Все</a>
+<section class="notif-settings-card" aria-labelledby="notif-settings-title">
+  <div class="notif-settings-head">
+    <span class="notif-settings-icon" aria-hidden="true">
+      {% with icon='bell' %}{% include "admin/_icon.html" %}{% endwith %}
+    </span>
+    <div>
+      <h2 id="notif-settings-title">Уведомления в Telegram</h2>
+      <p>Выбери, какие сообщения бот будет присылать тебе.</p>
+    </div>
+    <span class="notif-channel-state{{ ' connected' if user['bot_linked'] else '' }}">
+      <i aria-hidden="true"></i>{{ 'Бот подключён' if user['bot_linked'] else 'Бот не подключён' }}
+    </span>
+  </div>
+
+  <form method="post" action="/admin/questions/settings" class="notif-settings-form">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="notif-prefs-grid">
+      <label class="toggle notif-pref">
+        <input type="checkbox" name="votes" value="1"{{ ' checked' if notif_settings.votes else '' }}>
+        <span class="sw" aria-hidden="true"></span>
+        <span class="tcol"><span class="t">Голоса и отказы</span><span class="d">Когда участник выбирает событие, снимает голос или отказывается.</span></span>
+      </label>
+      <label class="toggle notif-pref">
+        <input type="checkbox" name="questions" value="1"{{ ' checked' if notif_settings.questions else '' }}>
+        <span class="sw" aria-hidden="true"></span>
+        <span class="tcol"><span class="t">Вопросы и время</span><span class="d">Новые вопросы и предложения даты от участников.</span></span>
+      </label>
+      <label class="toggle notif-pref">
+        <input type="checkbox" name="proposals" value="1"{{ ' checked' if notif_settings.proposals else '' }}>
+        <span class="sw" aria-hidden="true"></span>
+        <span class="tcol"><span class="t">Предложения событий</span><span class="d">Создание, изменение и удаление предложений.</span></span>
+      </label>
+      <label class="toggle notif-pref">
+        <input type="checkbox" name="updates" value="1"{{ ' checked' if notif_settings.updates else '' }}>
+        <span class="sw" aria-hidden="true"></span>
+        <span class="tcol"><span class="t">Результаты и изменения</span><span class="d">Итоги голосований, ответы и важные изменения событий.</span></span>
+      </label>
+      <label class="toggle notif-pref">
+        <input type="checkbox" name="reminders" value="1"{{ ' checked' if notif_settings.reminders else '' }}>
+        <span class="sw" aria-hidden="true"></span>
+        <span class="tcol"><span class="t">Напоминания</span><span class="d">Перед дедлайном голосования и выбранным событием.</span></span>
+      </label>
+      <label class="toggle notif-pref">
+        <input type="checkbox" name="reviews" value="1"{{ ' checked' if notif_settings.reviews else '' }}>
+        <span class="sw" aria-hidden="true"></span>
+        <span class="tcol"><span class="t">Обзоры событий</span><span class="d">Предложение оценить прошедшее событие и новые обзоры твоих встреч.</span></span>
+      </label>
+    </div>
+    <div class="notif-settings-foot">
+      <span>Настройки сайта сохранятся, даже если бот пока не подключён.</span>
+      <button type="submit" class="btn primary notif-action-btn">Сохранить настройки</button>
+    </div>
+  </form>
+</section>
+
+<div class="controls notif-controls">
+  <div class="tabs" aria-label="Фильтр уведомлений">
+    <a href="/admin/questions" class="{{ 'on' if f != 'all' else '' }}">
+      Непрочитанные <span class="notif-tab-count">{{ unread }}</span>
+    </a>
+    <a href="/admin/questions?f=all" class="{{ 'on' if f == 'all' else '' }}">
+      Все <span class="notif-tab-count">{{ total_notifications }}</span>
+    </a>
   </div>
 </div>
 
+<div class="notif-list">
 {% for q in rows %}
-<div class="notif-card{{ ' read' if q['is_read'] and not q['answer'] else '' }}{{ ' unread' if not q['is_read'] else '' }}">
+<article class="notif-card{{ ' read' if q['is_read'] and not q['answer'] else '' }}{{ ' unread' if not q['is_read'] else '' }}">
   <div class="notif-head">
-    {% set kind = '📅' if q['suggest_starts'] else '💬' %}
-    <span class="notif-ic" aria-hidden="true">{{ kind }}</span>
+    <span class="notif-ic" aria-hidden="true">
+      {% if q['suggest_starts'] %}
+        {% with icon='calendar' %}{% include "admin/_icon.html" %}{% endwith %}
+      {% else %}?{% endif %}
+    </span>
     <div class="notif-meta">
       <div class="notif-who"><b>{{ q['gname'] }}</b>{% if q['answer'] %}<span class="badge rose">отвечено</span>{% elif not q['is_read'] %}<span class="badge amber">новое</span>{% endif %}</div>
       <div class="notif-sub">к событию «<a href="/admin/dates/{{ q['did'] }}/edit">{{ q['date_name'] }}</a>»{% if q['cat_name'] %} · {{ q['cat_name'] }}{% endif %} · {{ q['created_at'] | ts }}</div>
@@ -25,47 +96,50 @@
 
   {% if q['suggest_starts'] %}
   <div class="suggest-box">
-    <span>📅 Предлагает: <b>{{ q['suggest_starts'] | when(q['suggest_ends']) }}</b> (мск)</span>
+    <span>Предлагает: <b>{{ q['suggest_starts'] | when(q['suggest_ends']) }}</b> (мск)</span>
     {% if not q['answer'] %}
-    <form class="inline" method="post" action="/admin/questions/{{ q['id'] }}/accept_time">
-      <input type="hidden" name="csrf" value="{{ csrf }}">
-      <input type="hidden" name="next" value="/admin/questions{{ '?f=all' if f == 'all' else '' }}">
-      <button class="btn small primary">Принять — назначить время</button>
-    </form>
-    <form class="inline" method="post" action="/admin/questions/{{ q['id'] }}/decline_time">
-      <input type="hidden" name="csrf" value="{{ csrf }}">
-      <input type="hidden" name="next" value="/admin/questions{{ '?f=all' if f == 'all' else '' }}">
-      <button class="btn small">Отказаться</button>
-    </form>
+    <div class="notif-inline-actions">
+      <form class="inline" method="post" action="/admin/questions/{{ q['id'] }}/accept_time">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="next" value="/admin/questions{{ '?f=all' if f == 'all' else '' }}">
+        <button type="submit" class="btn primary notif-action-btn">Принять время</button>
+      </form>
+      <form class="inline" method="post" action="/admin/questions/{{ q['id'] }}/decline_time">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="next" value="/admin/questions{{ '?f=all' if f == 'all' else '' }}">
+        <button type="submit" class="btn notif-action-btn">Отказаться</button>
+      </form>
+    </div>
     {% endif %}
   </div>
   {% endif %}
 
-  <form method="post" action="/admin/questions/{{ q['id'] }}/answer" class="answer-form">
+  <form method="post" action="/admin/questions/{{ q['id'] }}/answer" class="answer-form notif-compose">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <input type="hidden" name="next" value="/admin/questions{{ '?f=all' if f == 'all' else '' }}">
-    <textarea name="text" maxlength="2000" placeholder="Ответ — автор вопроса увидит его на странице категории">{{ q['answer'] or '' }}</textarea>
-    <button class="btn small primary">{{ 'Обновить ответ' if q['answer'] else 'Ответить' }}</button>
+    <textarea name="text" maxlength="2000" placeholder="Напиши ответ — автор увидит его на странице события">{{ q['answer'] or '' }}</textarea>
+    <button type="submit" class="btn primary notif-action-btn">{{ 'Обновить ответ' if q['answer'] else 'Ответить' }}</button>
   </form>
 
   <div class="notif-actions">
     <form class="inline" method="post" action="/admin/questions/{{ q['id'] }}/toggle">
       <input type="hidden" name="csrf" value="{{ csrf }}">
       <input type="hidden" name="next" value="/admin/questions{{ '?f=all' if f == 'all' else '' }}">
-      <button class="btn small">{{ 'Снова «непрочитано»' if q['is_read'] else 'Прочитано ✓' }}</button>
+      <button type="submit" class="btn notif-action-btn">{{ 'Вернуть в новые' if q['is_read'] else 'Отметить прочитанным' }}</button>
     </form>
     <form class="inline" method="post" action="/admin/questions/{{ q['id'] }}/delete"
           data-confirm="Удалить вопрос?">
       <input type="hidden" name="csrf" value="{{ csrf }}">
       <input type="hidden" name="next" value="/admin/questions{{ '?f=all' if f == 'all' else '' }}">
-      <button class="btn small danger">Удалить</button>
+      <button type="submit" class="btn danger notif-action-btn">Удалить</button>
     </form>
   </div>
-</div>
+</article>
 {% else %}
 <div class="empty-state notif-empty">
-  <div class="big">🔔</div>
+  <div class="big">{% with icon='bell' %}{% include "admin/_icon.html" %}{% endwith %}</div>
   <p>{{ 'Уведомлений пока нет' if f == 'all' else 'Непрочитанных уведомлений нет' }}</p>
 </div>
 {% endfor %}
+</div>
 {% endblock %}

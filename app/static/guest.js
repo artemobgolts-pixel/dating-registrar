@@ -8,7 +8,7 @@
   const AUTH = document.body.dataset.auth === "1";   // залогинен ли посетитель
   const FRIENDS = (document.body.dataset.skin ||
     document.documentElement.dataset.skin) === "friends";
-  const FRIEND_CHECK =
+  const CHECK_ICON =
     '<svg class="ui-icon ui-icon-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
       '<circle cx="12" cy="12" r="9"></circle><path d="m8 12 2.7 2.8L16.6 9"></path>' +
     '</svg>';
@@ -32,11 +32,7 @@
       button.textContent = fullLabel;
       return;
     }
-    if (FRIENDS) {
-      button.innerHTML = FRIEND_CHECK + (mine ? " Выбрано" : " Выбрать");
-    } else {
-      button.textContent = mine ? "Выбрано ♥" : "Выбрать ♥";
-    }
+    button.innerHTML = CHECK_ICON + (mine ? " Выбрано" : " Выбрать");
   }
 
   /* Вход обязателен для любого действия. Аноним видит окно входа (модалку с

@@ -444,8 +444,9 @@ class VotingMigrationTests(unittest.TestCase):
                 "resolved_at, winner_date_id FROM categories WHERE id=1"
             ).fetchone()
             self.assertEqual(category["voting_status"], voting.STATUS_UNCONFIGURED)
-            for column in ("choice_mode", "voting_deadline", "closed_at",
-                           "resolved_at", "winner_date_id"):
+            self.assertEqual(category["choice_mode"], "multiple")
+            self.assertRegex(category["voting_deadline"], r"^\d{4}-\d{2}-\d{2}T")
+            for column in ("closed_at", "resolved_at", "winner_date_id"):
                 self.assertIsNone(category[column])
             self.assertEqual(
                 conn.execute("SELECT capacity FROM dates WHERE id=1").fetchone()[0], 1

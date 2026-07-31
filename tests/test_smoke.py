@@ -84,6 +84,7 @@ from starlette.testclient import TestClient  # noqa: E402
 import backup as bk  # noqa: E402
 import db as dbm  # noqa: E402
 import main  # noqa: E402
+import social_events as social  # noqa: E402
 
 
 def png(color=(180, 90, 110), size=(640, 480)) -> bytes:
@@ -187,6 +188,14 @@ def configure_voting(cid, mode="multiple"):
     voting.configure_category(conn, cid, owner_id, mode, deadline)
     conn.commit()
     conn.close()
+
+
+def category_data(name: str, mode: str = "multiple") -> dict[str, str]:
+    """Обязательные поля новой категории из актуальной UI-модели."""
+    deadline = (datetime.now() + timedelta(days=2)).replace(
+        second=0, microsecond=0
+    ).isoformat(timespec="minutes")
+    return {"name": name, "choice_mode": mode, "voting_deadline": deadline}
 
 
 def set_moderation(cid, on):
@@ -319,15 +328,15 @@ with TestClient(main.app, follow_redirects=False) as c:
     finally:
         main.notify.TOKEN = real_token
         main.notify.httpx.post = real_post
-    sent = [payload for method, payload in captured if method == "sendMessage"]
+    sent = [payload for method, payload in captured if method == "sendRichMessage"]
     answered = [payload for method, payload in captured
                 if method == "answerCallbackQuery"]
     assert len(sent) == 2 and all(p["chat_id"] == 660002 for p in sent), captured
     buttons = sent[0]["reply_markup"]["inline_keyboard"][0]
     assert buttons[0]["callback_data"] == f"auth_confirm:{code2}"
     assert buttons[1]["callback_data"] == f"auth_cancel:{code2}"
-    assert "войти" in sent[0]["text"].lower()
-    assert "подтверждён" in sent[1]["text"].lower()
+    assert "войти" in sent[0]["rich_message"]["html"].lower()
+    assert "подтверждён" in sent[1]["rich_message"]["html"].lower()
     assert answered == [{"callback_query_id": callback_id, "text": "Подтверждено"}]
     step("вход: /start оставляет pending, inline callback подтверждает привязанную браузерную сессию")
 
@@ -341,6 +350,12 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert "Сессия устарела" in fr.text and "⚠" in fr.text
     assert not db_one("SELECT 1 FROM categories WHERE name='Без токена'")
     step("CSRF: POST без токена отклоняется с дружелюбным flash")
+
+    missing_deadline = apost(c, "/admin/categories/create", {"name": "Без дедлайна"})
+    assert missing_deadline.status_code == 303
+    assert "дедлайн" in unquote(missing_deadline.headers["location"]).lower()
+    assert not db_one("SELECT 1 FROM categories WHERE name='Без дедлайна'")
+    step("категория не создаётся без обязательного дедлайна")
 
     # ---------- профиль кабинета ----------
     # форма открывается, в шапке — ссылка на профиль
@@ -382,7 +397,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     step("профиль: имя/ДР/пол/аватар сохраняются, будущая ДР и пустое имя отклоняются, аватар приватный")
 
     # ---------- категория и секретная ссылка ----------
-    r = apost(c, "/admin/categories/create", {"name": "Лето"})
+    r = apost(c, "/admin/categories/create", category_data("Лето"))
     assert r.status_code == 303
     page = c.get("/admin/categories").text
     cid = int(re.search(r"/admin/categories/(\d+)", page).group(1))
@@ -638,7 +653,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     # ---------- админ принимает время одной кнопкой ----------
     qid_s = db_one("SELECT id FROM questions WHERE suggest_starts IS NOT NULL")["id"]
     qpage = c.get("/admin/questions").text
-    assert "suggest-box" in qpage and "Принять — назначить время" in qpage
+    assert "suggest-box" in qpage and "Принять время" in qpage
     r = apost(c, f"/admin/questions/{qid_s}/accept_time", {"next": "/admin/questions"})
     assert r.status_code == 303
     drow = db_one("SELECT starts_at, ends_at FROM dates WHERE id=?", (did2,))
@@ -647,7 +662,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     card2 = re.search(r'<article[^>]*id="date-%d".*?</article>' % did2, page, re.S).group(0)
     assert "1 августа 2030" in card2 and "предложить дату" not in card2
     assert "✅ Принято" in card2                  # автор видит авто-ответ
-    assert "Принять — назначить время" not in c.get("/admin/questions?f=all").text
+    assert "Принять время" not in c.get("/admin/questions?f=all").text
 
     # ---------- …или вежливо отказывается ----------
     r = apost(c, "/admin/dates/new", {"name": "Качели", "categories": str(cid)})
@@ -1079,7 +1094,8 @@ with TestClient(main.app, follow_redirects=False) as c:
         status_code = 500
         text = "Internal Server Error"
     def _fake_post(url, json=None, timeout=None):
-        sent.append(json["text"])
+        sent.append((url.rsplit("/", 1)[-1],
+                     json.get("text") or json["rich_message"]["html"]))
         return _Resp()
     real_post = main.notify.httpx.post
     main.notify.httpx.post = _fake_post
@@ -1087,7 +1103,11 @@ with TestClient(main.app, follow_redirects=False) as c:
     main.notify.notify("проверка 500")        # статус уйдёт в лог, исключения нет
     _Resp.status_code = 200
     main.notify.notify("проверка 200")
-    assert sent == ["проверка 500", "проверка 200"]
+    assert [method for method, _ in sent] == [
+        "sendRichMessage", "sendMessage", "sendRichMessage"
+    ]
+    assert "проверка 500" in sent[0][1] and sent[1][1] == "проверка 500"
+    assert "проверка 200" in sent[2][1]
     main.notify.TOKEN = main.notify.CHAT = ""  # выключаем обратно
     main.notify.httpx.post = real_post
     step("notify переживает 5xx Telegram и логирует статус (через подмену httpx)")
@@ -1095,7 +1115,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     # ---------- alert: дедупликация одинаковых алёртов о сбоях ----------
     sent2 = []
     def _fake_post2(url, json=None, timeout=None):
-        sent2.append(json["text"])
+        sent2.append(json.get("text") or json["rich_message"]["html"])
         return _Resp()
     main.notify.httpx.post = _fake_post2
     main.notify.TOKEN, main.notify.CHAT = "t", "c"
@@ -1103,7 +1123,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     main.notify.alert("сбой X")
     main.notify.alert("сбой X")           # дубль в окне — не уходит
     main.notify.alert("сбой Y")
-    assert sent2 == ["сбой X", "сбой Y"], sent2
+    assert len(sent2) == 2 and "сбой X" in sent2[0] and "сбой Y" in sent2[1], sent2
     main.notify.TOKEN = main.notify.CHAT = ""
     main.notify.httpx.post = real_post
     main.notify._alert_seen.clear()
@@ -1133,7 +1153,7 @@ with TestClient(main.app, follow_redirects=False) as c:
 
     # ================= фичи v7 =================
     main._rates.clear()
-    r = apost(c, "/admin/categories/create", {"name": "Витрина"})
+    r = apost(c, "/admin/categories/create", category_data("Витрина"))
     assert r.status_code == 303
     vc = db_one("SELECT id, link_token FROM categories WHERE name='Витрина'")
     vcid, vtok = vc["id"], vc["link_token"]
@@ -1463,7 +1483,7 @@ with TestClient(main.app, follow_redirects=False) as c:
 
     # ---------- редизайн кабинета (date4you): форма, список, дашборд ----------
     main._rates.clear()
-    apost(c, "/admin/categories/create", {"name": "Поделись-кат"})
+    apost(c, "/admin/categories/create", category_data("Поделись-кат"))
     # форма создания: редактируемое превью (click-to-edit), тулбар разметки,
     # виджет времени, модификаторы
     nf = c.get("/admin/dates/new").text
@@ -1643,7 +1663,9 @@ assert {"choice_mode", "voting_deadline", "voting_status", "closed_at",
 legacy_voting = conn.execute(
     "SELECT choice_mode, voting_deadline, voting_status FROM categories "
     "WHERE name='Старая'").fetchone()
-assert tuple(legacy_voting) == (None, None, "unconfigured")
+assert legacy_voting["choice_mode"] == "multiple"
+assert legacy_voting["voting_deadline"]
+assert legacy_voting["voting_status"] == "unconfigured"
 assert "owner_id" in dcols                # v9: владелец события
 # v13: мягкая очередь модерации + per-user поля + таблица настроек
 assert "is_reviewed" in ccols and "is_reviewed" in {r[1] for r in conn.execute("PRAGMA table_info(users)")}
@@ -1810,7 +1832,7 @@ with TestClient(main.app, follow_redirects=False) as ca, \
     assert tg_login(cb, 770002, username="bob").json()["status"] == "ok"
 
     # Алиса заводит категорию и событие (с фото), привязывает
-    assert post_as(ca, "/admin/categories/create", {"name": "Алисина"}).status_code == 303
+    assert post_as(ca, "/admin/categories/create", category_data("Алисина")).status_code == 303
     catA = db_one("SELECT c.id FROM categories c JOIN users u ON u.id=c.owner_id "
                   "WHERE u.telegram_id=770001 AND c.name='Алисина'")[0]
     r = post_as(ca, "/admin/dates/new",
@@ -1853,7 +1875,7 @@ with TestClient(main.app, follow_redirects=False) as ca, \
     assert not db_one("SELECT 1 FROM dates WHERE name='Событие Алисы (копия)'")
 
     # Боб не может привязать чужое событие в СВОЮ категорию
-    assert post_as(cb, "/admin/categories/create", {"name": "Бобова"}).status_code == 303
+    assert post_as(cb, "/admin/categories/create", category_data("Бобова")).status_code == 303
     catB = db_one("SELECT c.id FROM categories c JOIN users u ON u.id=c.owner_id "
                   "WHERE u.telegram_id=770002")[0]
     assert post_as(cb, f"/admin/categories/{catB}/attach",
@@ -1989,7 +2011,9 @@ with TestClient(main.app, follow_redirects=False) as cimp, \
     icsrf = re.search(r'name="csrf" value="([^"]+)"',
                       cimp.get("/admin/profile").text).group(1)
     payload = {
-        "categories": [{"id": 7001, "name": "Импорт-Категория", "link_enabled": 1}],
+        "categories": [{"id": 7001, "name": "Импорт-Категория", "link_enabled": 1,
+                        "choice_mode": "multiple", "voting_deadline":
+                        category_data("x")["voting_deadline"]}],
         "dates": [{"name": "Импортированное событие", "place": "Кафе",
                    "comment": "из бэкапа", "categories": [7001],
                    "links": ["https://example.com"], "images": [], "videos": []}],
@@ -2068,7 +2092,7 @@ with TestClient(main.app, follow_redirects=False) as cown, \
         return cown.post(url, data=d, files=files)
 
     # владелец заводит категорию (модерация по умолчанию вкл) и публикует событие
-    assert ownpost("/admin/categories/create", {"name": "Жалобная"}).status_code == 303
+    assert ownpost("/admin/categories/create", category_data("Жалобная")).status_code == 303
     rc = db_one("SELECT id, link_token FROM categories WHERE name='Жалобная'")
     rcid, rtok = rc["id"], rc["link_token"]
     set_moderation(rcid, False)  # выкл, чтобы событие было видно (модерация — операторская)
@@ -2137,7 +2161,7 @@ with TestClient(main.app, follow_redirects=False) as cown, \
         d = dict(data or {}); d["csrf"] = own_csrf
         return cown.post(url, data=d)
 
-    assert ownp("/admin/categories/create", {"name": "Обзорная"}).status_code == 303
+    assert ownp("/admin/categories/create", category_data("Обзорная")).status_code == 303
     ovc = db_one("SELECT id, link_token FROM categories WHERE name='Обзорная'")
     ovcid = ovc["id"]
     ownp("/admin/dates/new", {"name": "Видимое", "categories": str(ovcid)})
@@ -2199,7 +2223,7 @@ with TestClient(main.app, follow_redirects=False) as cown, \
     def ownb(url, data=None):
         d = dict(data or {}); d["csrf"] = own_csrf
         return cown.post(url, data=d)
-    assert ownb("/admin/categories/create", {"name": "Бронируемая"}).status_code == 303
+    assert ownb("/admin/categories/create", category_data("Бронируемая")).status_code == 303
     bc = db_one("SELECT id, link_token FROM categories WHERE name='Бронируемая'")
     bcid, btok = bc["id"], bc["link_token"]
     set_moderation(bcid, False)                                # выкл модерацию (операторская)
@@ -2395,25 +2419,62 @@ with TestClient(main.app, follow_redirects=False) as cown, \
     def ownn(url, data=None):
         d = dict(data or {}); d["csrf"] = own_csrf
         return cown.post(url, data=d)
-    ownn("/admin/categories/create", {"name": "Уведомления"})
+    ownn("/admin/categories/create", category_data("Уведомления"))
     nc = db_one("SELECT id, link_token FROM categories WHERE name='Уведомления'")
     ntok = nc["link_token"]
     ownn("/admin/dates/new", {"name": "Кафе", "categories": str(nc["id"])})
     ndid = db_one("SELECT id FROM dates WHERE name='Кафе'")[0]
     configure_voting(nc["id"], "multiple")
 
-    # перехватываем send_to: (chat_id, text)
+    prefs_page = cown.get("/admin/questions").text
+    assert "Уведомления в Telegram" in prefs_page
+    assert all(f'name="{key}"' in prefs_page for key in
+               ("votes", "questions", "proposals", "updates", "reminders", "reviews"))
+    _badge_db = dbm.connect()
+    _badge_db.executemany(
+        "INSERT INTO questions(date_id,category_id,text,created_at) VALUES(?,?,?,?)",
+        ((ndid, nc["id"], f"badge-test-{i}", main.now_iso()) for i in range(100)),
+    )
+    _badge_db.commit(); _badge_db.close()
+    badge_page = cown.get("/admin/questions").text
+    assert re.search(r'class="bell-count"[^>]*>99\+</span>', badge_page), \
+        "счётчик в шапке должен оставаться компактным при трёхзначном числе"
+    _badge_db = dbm.connect()
+    _badge_db.execute("DELETE FROM questions WHERE text LIKE 'badge-test-%'")
+    _badge_db.commit(); _badge_db.close()
+    ownn("/admin/questions/settings", {
+        "questions": "1", "proposals": "1", "updates": "1", "reminders": "1",
+        "reviews": "1",
+    })
+    assert db_one(
+        "SELECT votes FROM notification_preferences WHERE user_id=?", (uid_n,)
+    )[0] == 0
+
+    # перехватываем send_to: текст + inline-кнопку rich message
     sent = []
+    rich_markups = []
     _saved = _nf.send_to
-    _nf.send_to = lambda chat, text, **kwargs: sent.append((chat, text))
+    def capture_notification(chat, text, **kwargs):
+        sent.append((chat, text))
+        rich_markups.append(kwargs.get("reply_markup"))
+    _nf.send_to = capture_notification
     try:
         main._rates.clear()
         assert tg_login(gn, 990333, username="guestn").json()["status"] == "ok"
         set_name(gn, ntok, "Гостья")
+        sent.clear(); rich_markups.clear()  # не считаем служебные сообщения входа гостя
         assert gn.post(f"/c/{ntok}/book", data={"date_id": ndid}).json()["booked"] is True
+        assert not sent, f"отключённые голоса не должны приходить, sent={sent}"
+
+        ownn("/admin/questions/settings", {
+            "votes": "1", "questions": "1", "proposals": "1",
+            "updates": "1", "reminders": "1", "reviews": "1",
+        })
+        assert gn.post(f"/c/{ntok}/book", data={"date_id": ndid}).json()["booked"] is False
         # фон BackgroundTasks в TestClient выполняется синхронно к этому моменту
-        assert any(c == 990300 and "Новый голос" in t for c, t in sent), \
+        assert any(c == 990300 and "Голос снят" in t for c, t in sent), \
             f"владельцу с bot_linked=1 должно уйти уведомление, sent={sent}"
+        assert any(m and m.get("inline_keyboard") for m in rich_markups), rich_markups
 
         # отключаем бота владельцу → уведомление НЕ шлётся
         _q = dbm.connect()
@@ -2538,7 +2599,7 @@ with TestClient(main.app, follow_redirects=False) as cown, \
                    cown.get("/admin/profile").text).group(1)
     cown.post("/admin/profile", data={"csrf": pc, "display_name": "Маргарита",
                                       "birth_date": "1992-03-03"})
-    cown.post("/admin/categories/create", data={"csrf": pc, "name": "Авторская"})
+    cown.post("/admin/categories/create", data={**category_data("Авторская"), "csrf": pc})
     bc = db_one("SELECT id, link_token, owner_id FROM categories WHERE name='Авторская'")
     btok2 = bc["link_token"]
     page = anon.get(f"/c/{btok2}").text
@@ -2578,7 +2639,7 @@ with TestClient(main.app, follow_redirects=False) as cown, \
     def ownq(url, data=None):
         d = dict(data or {}); d["csrf"] = own_csrf
         return cown.post(url, data=d)
-    ownq("/admin/categories/create", {"name": "Вопросная"})
+    ownq("/admin/categories/create", category_data("Вопросная"))
     qc = db_one("SELECT id, link_token FROM categories WHERE name='Вопросная'")
     qtok = qc["link_token"]
     set_moderation(qc['id'], False)   # выкл, чтобы предложения публиковались сразу
@@ -2630,7 +2691,7 @@ with TestClient(main.app, follow_redirects=False) as cuser, \
     def up(url, data=None):
         d = dict(data or {}); d["csrf"] = uc
         return cuser.post(url, data=d)
-    up("/admin/categories/create", {"name": "Чужая категория"})
+    up("/admin/categories/create", category_data("Чужая категория"))
     oc = db_one("SELECT id FROM categories WHERE name='Чужая категория'")[0]
     up("/admin/dates/new", {"name": "Чужое событие", "categories": str(oc)})
     odid = db_one("SELECT id FROM dates WHERE name='Чужое событие'")[0]
@@ -2695,7 +2756,7 @@ with TestClient(main.app, follow_redirects=False) as cadm:
     # новая категория при включённой модерации → is_reviewed=0
     nc = re.search(r'name="csrf" value="([^"]+)"',
                    cnew.get("/admin/categories").text).group(1)
-    cnew.post("/admin/categories/create", data={"csrf": nc, "name": "Свежая категория"})
+    cnew.post("/admin/categories/create", data={**category_data("Свежая категория"), "csrf": nc})
     fresh_cat = db_one("SELECT id, is_reviewed, link_enabled FROM categories WHERE name='Свежая категория'")
     assert fresh_cat["is_reviewed"] == 0 and fresh_cat["link_enabled"] == 1   # ссылка работает сразу
 
@@ -2740,7 +2801,7 @@ with TestClient(main.app, follow_redirects=False) as cown:
     assert "Не указан" in pf
     cown.post("/admin/profile", data={"csrf": pc, "display_name": "UIвладелец",
                                       "birth_date": "1991-01-01"})
-    cown.post("/admin/categories/create", data={"csrf": pc, "name": "UI-кат"})
+    cown.post("/admin/categories/create", data={**category_data("UI-кат"), "csrf": pc})
     uic = db_one("SELECT id, link_token FROM categories WHERE name='UI-кат'")
     set_moderation(uic['id'], False)  # выкл (модерация — операторская настройка)
     # событие без фото
@@ -2773,7 +2834,7 @@ with TestClient(main.app, follow_redirects=False) as cnata, \
     assert tg_login(cnata, 771001, username="nata").json()["status"] == "ok"
     assert tg_login(cgosha, 771002, username="gosha").json()["status"] == "ok"
     nc = _csrf(cnata)
-    cnata.post("/admin/categories/create", data={"csrf": nc, "name": "Ната-кат"})
+    cnata.post("/admin/categories/create", data={**category_data("Ната-кат"), "csrf": nc})
     ncat = db_one("SELECT id, link_token FROM categories WHERE name='Ната-кат'")
     set_moderation(ncat["id"], False)
 
@@ -2824,6 +2885,77 @@ with TestClient(main.app, follow_redirects=False) as cnata, \
     assert db_one("SELECT COUNT(*) FROM dates WHERE owner_id=(SELECT id FROM users "
                   "WHERE telegram_id=771002) AND name='Пикник на закате'")[0] == 1
 
+    # «Хочу сходить» независимо от копии в коллекции: хранится связь с
+    # оригиналом, появляется в профиле и получает один review-prompt.
+    gc = _csrf(cgosha)
+    shared = cgosha.get(f"/d/{pub['share_token']}").text
+    assert "Хочу сходить" in shared
+    want = cgosha.post(f"/d/{pub['share_token']}/want", data={"csrf": gc})
+    assert want.status_code == 303
+    gosha_id = db_one("SELECT id FROM users WHERE telegram_id=771002")[0]
+    assert db_one(
+        "SELECT 1 FROM date_wants WHERE user_id=? AND date_id=?",
+        (gosha_id, pub["id"]),
+    )
+    assert "Пикник на закате" in cgosha.get(f"/u/{gosha_id}?tab=want").text
+    prompt = db_one(
+        "SELECT kind,action_label FROM notification_outbox "
+        "WHERE event_key=?",
+        (social.prompt_key(pub["id"], gosha_id),),
+    )
+    assert prompt["kind"] == "review_prompt" and prompt["action_label"] == "Оставить обзор"
+
+    # Имитируем прошедшее событие. Review due следует реальному окончанию, а
+    # не более раннему дедлайну голосования; пересчёт сохраняет тот же key.
+    past_start = (datetime.now() - timedelta(hours=4)).replace(
+        second=0, microsecond=0).isoformat(timespec="minutes")
+    past_end = (datetime.now() - timedelta(hours=1)).replace(
+        second=0, microsecond=0).isoformat(timespec="minutes")
+    past_deadline = (datetime.now() - timedelta(days=1)).replace(
+        second=0, microsecond=0).isoformat(timespec="minutes")
+    sq = dbm.connect()
+    sq.execute(
+        "UPDATE categories SET voting_status='unconfigured', closed_at=NULL, "
+        "voting_deadline=? WHERE id=?", (past_deadline, ncat["id"]),
+    )
+    sq.execute(
+        "UPDATE dates SET starts_at=?, ends_at=? WHERE id=?",
+        (past_start, past_end, pub["id"]),
+    )
+    social.queue_review_prompts_for_date(sq, pub["id"])
+    sq.commit(); sq.close()
+
+    review_page = cgosha.get(f"/d/{pub['share_token']}#review").text
+    assert "Удалось сходить?" in review_page and 'name="rating"' in review_page
+    made_review = cgosha.post(f"/d/{pub['share_token']}/review", data={
+        "csrf": gc, "rating": "5", "text": "Очень тёплая встреча",
+    })
+    assert made_review.status_code == 303
+    review = db_one(
+        "SELECT id,rating,text,is_public FROM date_reviews WHERE user_id=? AND date_id=?",
+        (gosha_id, pub["id"]),
+    )
+    assert tuple(review[k] for k in ("rating", "text", "is_public")) == \
+        (5, "Очень тёплая встреча", 1)
+    assert db_one(
+        "SELECT 1 FROM notification_outbox WHERE kind='review_received' "
+        "AND user_id=?", (pub["owner_id"],),
+    )
+    own_reviews = cgosha.get(f"/u/{gosha_id}?tab=reviews").text
+    assert "Очень тёплая встреча" in own_reviews and "Убрать из профиля" in own_reviews
+
+    hidden = cgosha.post(
+        f"/u/{gosha_id}/reviews/{review['id']}/hide", data={"csrf": gc},
+    )
+    assert hidden.status_code == 303
+    assert "Очень тёплая встреча" not in cnata.get(f"/u/{gosha_id}?tab=reviews").text
+    edited = cgosha.post(
+        f"/u/{gosha_id}/reviews/{review['id']}/edit",
+        data={"csrf": gc, "rating": "4", "text": "Обновлённый обзор"},
+    )
+    assert edited.status_code == 303
+    assert "Обновлённый обзор" in cnata.get(f"/u/{gosha_id}?tab=reviews").text
+
     # C5: публичный профиль Наты перечисляет её публичные события (без приватных)
     prof = cgosha.get(f"/u/{pub['owner_id']}").text
     assert "Пикник на закате" in prof and "Секретный ужин" not in prof
@@ -2855,7 +2987,7 @@ main._rates.clear()
 with TestClient(main.app, follow_redirects=False) as cui:
     assert tg_login(cui, 771003, username="uimenu").json()["status"] == "ok"
     uc = _csrf(cui)
-    cui.post("/admin/categories/create", data={"csrf": uc, "name": "Меню-кат"})
+    cui.post("/admin/categories/create", data={**category_data("Меню-кат"), "csrf": uc})
     mcat = db_one("SELECT id, link_token FROM categories WHERE name='Меню-кат'")
 
     # B2: в списке категорий — меню ⋯ (три пункта), больше нет строки-linkbox
@@ -2865,13 +2997,15 @@ with TestClient(main.app, follow_redirects=False) as cui:
     assert "Отключить ссылку" in cats
     assert "copy-code" not in cats, "строка-ссылка на списке категорий убрана"
 
-    # B3: в редакторе категории убраны блоки «Ссылка»/«Предложения»,
-    # «Сбросить превью» рядом с «Сохранить», внизу — «Скопировать ссылку» и «Удалить»
+    # B3: в редакторе категории остаётся одно главное действие «Сохранить»,
+    # а сброс, ссылка и удаление собраны в компактном меню ⋯.
     ed = cui.get(f"/admin/categories/{mcat['id']}").text
     assert "Сбросить превью" in ed and 'id="resetPreviewForm"' in ed
-    assert "cat-actions" in ed and "Скопировать ссылку" in ed
+    assert "cat-editor-actions" in ed and "cat-editor-menu" in ed
+    assert "Скопировать ссылку" in ed
     assert "Открыть ссылку" in ed
     assert "Удалить категорию" in ed
+    assert "Никто не выбрал" not in ed
 
     # B3: «Сбросить превью» чистит и картинку, и текст превью
     cui.post(f"/admin/categories/{mcat['id']}/rename",
@@ -2971,8 +3105,10 @@ try:
                       "WHERE provider='google'")
         assert link and link["provider_uid"] == _FakeOAuthClient.provider_uid
         assert link["user_id"] == u["id"]
-        # кабинет доступен под OAuth-аккаунтом (нет telegram — не падает)
+        # Кабинет доступен под OAuth-аккаунтом (нет telegram — не падает),
+        # а в профиле остаётся предложение подключить уведомления.
         assert coa.get("/admin/").status_code == 200
+        assert "Уведомления в Telegram" in coa.get("/admin/profile").text
 
         # Подключение Telegram из OAuth-сессии дополняет ЭТОТ аккаунт, не создаёт
         # второй TG-аккаунт и не переключает user_id браузера.
@@ -2989,6 +3125,7 @@ try:
         assert linked_oauth["telegram_id"] == 773001 and linked_oauth["bot_linked"] == 1
         assert db_one("SELECT COUNT(*) FROM users WHERE telegram_id=773001")[0] == 1
         assert coa.get("/admin/").status_code == 200
+        assert "Уведомления в Telegram" not in coa.get("/admin/profile").text
 
         # повторный вход тем же провайдером НЕ плодит дубль-аккаунт
         coa2 = TestClient(main.app, follow_redirects=False)
@@ -3039,7 +3176,7 @@ main._rates.clear()
 with TestClient(main.app, follow_redirects=False) as cui2:
     assert tg_login(cui2, 773200, username="uifix").json()["status"] == "ok"
     uc2 = re.search(r'name="csrf" value="([^"]+)"', cui2.get("/admin/categories").text).group(1)
-    cui2.post("/admin/categories/create", data={"csrf": uc2, "name": "Ц"})
+    cui2.post("/admin/categories/create", data={**category_data("Ц"), "csrf": uc2})
     cc = db_one("SELECT id FROM categories WHERE name='Ц'")
     # #2: на главной больше НЕТ блока счётчиков/статистики
     dash = cui2.get("/admin/").text
@@ -3055,7 +3192,7 @@ with TestClient(main.app, follow_redirects=False) as cui2:
     assert "Дружеский" in profile and "Романтический" in profile
     assert "cursor-effects-toggle" in profile and 'name="cursor_effects"' in profile
     assert "<b>Помощь</b>" in profile and "https://t.me/artiwayn" in profile
-    assert "✈️ Связаться с поддержкой" in profile
+    assert "Связаться с поддержкой" in profile and "admin-icon-telegram" in profile
     assert "tour-course-actions" in profile
     # #2: счётчики переехали на вкладку «События» — пилюли на всех трёх вкладках
     cui2.post("/admin/dates/new", data={"csrf": uc2, "name": "Акт", "categories": str(cc["id"])})
@@ -3066,13 +3203,13 @@ with TestClient(main.app, follow_redirects=False) as cui2:
     assert "видят все пользователи в ленте на главной" not in nf
     assert 'class="capacity-stepper"' in nf and 'data-step="-1"' in nf
     assert "Создатель не считается" not in nf and "Лимит применяется" not in nf
-    # #9: кнопка ссылки в редакторе категории — красная «Отключить» (link-off)
+    # Редкие действия категории спрятаны в меню ⋯ рядом с «Сохранить».
     ed = cui2.get(f"/admin/categories/{cc['id']}").text
-    assert "link-off" in ed and "Отключить ссылку" in ed
+    assert "cat-editor-menu" in ed and "Отключить ссылку" in ed
     assert "Описание (необязательно)" in ed
     assert re.search(r'id="ogWarn"[^>]*hidden', ed)
     assert 'data-tour="category-description"' in ed
-    assert "cat-save" in ed and "Открыть ссылку" in ed
+    assert "cat-editor-actions" in ed and "Открыть ссылку" in ed
     assert 'data-tour="category-share-copy"' in ed
     assert 'type="datetime-local"' in ed and "data-picker-only" in ed
 
@@ -3100,7 +3237,7 @@ with TestClient(main.app, follow_redirects=False) as cui2:
 
     cui2.post(f"/admin/categories/{cc['id']}/toggle", data={"csrf": uc2})   # выключаем ссылку
     ed2 = cui2.get(f"/admin/categories/{cc['id']}").text
-    assert "link-on" in ed2 and "Включить ссылку" in ed2                    # теперь зелёная «Включить»
+    assert "cat-editor-menu" in ed2 and "Включить ссылку" in ed2
     # В списке — одна полноширинная кнопка создания, без старого поля и
     # без служебных плашек о необходимости настроить голосование.
     cats = cui2.get("/admin/categories").text
@@ -3173,7 +3310,7 @@ with TestClient(main.app, follow_redirects=False) as ctour:
     assert 'extra: "#communityFeed .cfeed-card:first-child"' in tour_source
     assert tour_source.index('sel: \'[data-tour="dashboard-feed"]\'') < \
         tour_source.index('sel: \'[data-tour="dashboard-share"]\'')
-    assert 'sel: \'[data-tour="category-share-copy"]\'' in tour_source
+    assert 'sel: \'[data-tour="category-actions"]\'' in tour_source
     assert "document.documentElement.classList.add(\"tour-lock\")" in tour_source
     # Автопоказ любого курса — один раз навсегда, без повторов после смены версии.
     # Ручной запуск «Основ» переживает Turbo-переход через sessionStorage.
@@ -3181,7 +3318,20 @@ with TestClient(main.app, follow_redirects=False) as ctour:
     assert "seen[id] = true" in tour_source
     assert 'var REQUEST_KEY = "d4y_tour_request"' in tour_source
     assert "sessionStorage.setItem(REQUEST_KEY, id)" in tour_source
+    assert "sessionStorage.removeItem(REQUEST_KEY)" in tour_source
     assert "start(id, true)" in tour_source
+    # Мобильный тур следит за живой геометрией изменяемых редакторов, но не
+    # измеряет layout бесконечно: observers запускают короткое окно стабилизации.
+    # Шаг сообщества прокручивает заголовок вместе с первой карточкой.
+    assert "function desiredScrollTop(step, target, r)" in tour_source
+    assert 'extraTarget(step)' in tour_source
+    assert '"ResizeObserver" in window' in tour_source
+    assert '"MutationObserver" in window' in tour_source
+    assert "geometryFramesLeft = Math.max" in tour_source
+    assert "if (geometryFramesLeft > 0) geometryFrame = requestAnimationFrame(watchGeometry)" in tour_source
+    assert 'sel: \'[data-tour="category-share-copy"]\'' not in tour_source
+    # Ручной повтор курса не связывает «Основы» с редакторами цепочкой.
+    assert "function continuation" not in tour_source
 step("новое: туры остались только в редакторах; лишние шаги события удалены")
 
 

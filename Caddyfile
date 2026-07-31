@@ -12,11 +12,11 @@
 	header {
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options nosniff
-		X-Frame-Options DENY
 		Referrer-Policy no-referrer
 		Permissions-Policy "camera=(), microphone=(), geolocation=()"
 		X-XSS-Protection "0"
-		# Content-Security-Policy выставляет приложение (per-request nonce)
+		# CSP и X-Frame-Options выставляет приложение: Mini App разрешает frame
+		# только Telegram, все остальные HTML-страницы получают DENY.
 		-Server
 	}
 

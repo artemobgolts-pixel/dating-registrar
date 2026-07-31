@@ -20,7 +20,7 @@
 
 {% if date and booked %}
 <div class="card" style="background:rgba(253,244,246,.85);border-color:#f0d9de">
-  <b>{{ '◉' if user['admin_skin'] == 'friends' else '💝' }} Кто выбрал</b>
+  <b>{% with icon='check' %}{% include "admin/_icon.html" %}{% endwith %} Кто выбрал</b>
   <div style="margin-top:8px;display:grid;gap:6px">
     {% for b in booked %}
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
@@ -48,7 +48,7 @@
       data-has-video="{{ '1' if (date and videos) else '' }}">
   <input type="hidden" name="csrf" value="{{ csrf }}">
   {# скрытые поля — источник для сервера; заполняются инлайн-редактированием #}
-  <input type="hidden" name="name" value="{{ date['name'] if date else '' }}">
+  <input type="hidden" name="name" value="{{ date['name'] if date else '' }}" required>
   <input type="hidden" name="place" value="{{ (date['place'] or '') if date else '' }}">
   <input type="hidden" name="starts_at" id="fStart" data-tr-start value="{{ (date['starts_at'] or '') if date else '' }}">
   <input type="hidden" name="ends_at" id="fEnd" data-tr-end value="{{ (date['ends_at'] or '') if date else '' }}">
@@ -116,7 +116,7 @@
 
       <div class="body">
         <h3 class="ttl">
-          <span class="ed-field" id="edTitle" data-ph="Название события">{{ date['name'] if date else '' }}</span>
+          <span class="ed-field" id="edTitle" data-ph="Название события *">{{ date['name'] if date else '' }}</span>
           {# запасное место модификатора — в заголовке, когда фото НЕТ (иначе он
              живёт бейджем на фото, см. .ed-gallery-pay). JS переключает видимость. #}
           <span class="pay" data-preview="pay" {% if not (date and date['pay_split']) or (date and photos) %}hidden{% endif %}>{{ pay_label(date['pay_split']) if date else '' }}</span>
@@ -139,7 +139,7 @@
             </span>
           </div>
           <div class="ed-place-row">
-            <span aria-hidden="true">📍</span>
+            <span aria-hidden="true">{% with icon='pin' %}{% include "admin/_icon.html" %}{% endwith %}</span>
             <span class="ed-field ed-place" id="edPlace" data-ph="Место — адрес или ссылка на карты">{{ (date['place'] or '') if date else '' }}</span>
           </div>
         </div>
@@ -151,15 +151,18 @@
           <button type="button" class="i" data-wrap="*|*" title="Курсив">К</button>
           <button type="button" class="u" data-wrap="__|__" title="Подчёркнутый">П</button>
           <button type="button" class="s" data-wrap="~~|~~" title="Зачёркнутый">З</button>
-          <button type="button" data-wrap="[|](https://)" title="Ссылка">🔗</button>
+          <button type="button" data-wrap="[|](https://)" title="Ссылка">{% with icon='link' %}{% include "admin/_icon.html" %}{% endwith %}</button>
         </div>
 
         <div class="ed-links-row">
-          <span aria-hidden="true">🔗</span>
+          <span aria-hidden="true">{% with icon='link' %}{% include "admin/_icon.html" %}{% endwith %}</span>
           <span class="ed-field ed-links" id="edLinks" data-ph="Ссылки — каждая с новой строки">{{ links_text }}</span>
         </div>
 
-        <div class="acts"><button type="button" class="bk">Выбрать{% if user['admin_skin'] == 'romantic' %} ♥{% endif %}</button><button type="button" class="ak">Спросить 💬</button></div>
+        <div class="acts">
+          <button type="button" class="bk">{% with icon='check' %}{% include "admin/_icon.html" %}{% endwith %} Выбрать</button>
+          <button type="button" class="ak">{% with icon='message' %}{% include "admin/_icon.html" %}{% endwith %} Спросить</button>
+        </div>
       </div>
     </div>
   </div>
@@ -225,5 +228,17 @@
 <div class="savebar" data-tour="date-save">
   <button class="btn primary" form="dateForm">Сохранить</button>
   <a class="btn ghost" href="/admin/dates">Отмена</a>
+  {% if date %}
+  <div class="menu-wrap cat-editor-menu-wrap">
+    <button type="button" class="more cat-editor-more" aria-label="Другие действия с событием"
+            aria-haspopup="true" aria-expanded="false">⋯</button>
+    <div class="menu cat-editor-menu">
+      <form method="post" action="/admin/dates/{{ date['id'] }}/clone">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button type="submit">Скопировать событие</button>
+      </form>
+    </div>
+  </div>
+  {% endif %}
 </div>
 {% endblock %}

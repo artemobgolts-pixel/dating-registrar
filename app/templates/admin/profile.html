@@ -108,13 +108,9 @@
   {% endif %}
 </div>
 
+{% if not user['bot_linked'] %}
 <div class="card" style="max-width:540px">
-  <b>🔔 Уведомления в Telegram</b>
-  {% if user['bot_linked'] %}
-  <p class="muted" style="margin:8px 0 0;font-size:13.5px">
-    Бот подключён — приходят уведомления, когда гость выбирает событие,
-    задаёт вопрос или предлагает идею.</p>
-  {% else %}
+  <b>{% with icon='bell' %}{% include "admin/_icon.html" %}{% endwith %} Уведомления в Telegram</b>
   <div class="tg-connect">
     <p class="muted" style="margin:8px 0 12px;font-size:13.5px">
       Подключи бота, чтобы получать уведомления о выборе событий, вопросах
@@ -124,8 +120,8 @@
     <p data-tg-hint class="hint" hidden style="margin-top:8px">Нажми <b>Start</b>, затем <b>Подтвердить</b> в боте и вернись сюда.</p>
     <p data-tg-error class="err" hidden style="margin-top:8px"></p>
   </div>
-  {% endif %}
 </div>
+{% endif %}
 
 <div class="card profile-support-card" style="max-width:540px">
   <b>Помощь</b>
@@ -141,7 +137,10 @@
     {% endif %}
   </div>
   <a class="btn profile-support-btn telegram-support-btn" href="https://t.me/artiwayn"
-     target="_blank" rel="noopener">✈️ Связаться с поддержкой</a>
+     target="_blank" rel="noopener">
+    {% with icon='telegram' %}{% include "admin/_icon.html" %}{% endwith %}
+    Связаться с поддержкой
+  </a>
 </div>
 
 <div class="card" style="max-width:540px">

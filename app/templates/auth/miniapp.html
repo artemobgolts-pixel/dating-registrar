@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#554eae">
+<title>date4you · Telegram</title>
+<link rel="stylesheet" href="{{ asset('miniapp.css') }}">
+<script src="https://telegram.org/js/telegram-web-app.js?63"></script>
+<script src="{{ asset('telegram-miniapp.js') }}" defer></script>
+</head>
+<body class="miniapp-boot"
+      data-miniapp-auth="1"
+      data-miniapp-nonce="{{ miniapp_nonce }}"
+      data-miniapp-next="{{ request.query_params.get('next', '') }}">
+  <main class="miniapp-card" aria-live="polite">
+    <div class="miniapp-mark" aria-hidden="true">4</div>
+    <h1>date4you</h1>
+    <p id="miniappStatus">Проверяем аккаунт Telegram…</p>
+    <div class="miniapp-spinner" id="miniappSpinner" aria-hidden="true"></div>
+    <div class="miniapp-actions" id="miniappActions" hidden>
+      <button type="button" class="miniapp-primary" id="miniappNotify">
+        Включить уведомления
+      </button>
+      <button type="button" class="miniapp-secondary" id="miniappContinue">
+        Продолжить без них
+      </button>
+    </div>
+    {% if bot %}
+    <a class="miniapp-browser-link" id="miniappBrowserLink"
+       href="https://t.me/{{ bot }}?start=app" hidden>Открыть в Telegram</a>
+    {% endif %}
+    {% if not miniapp_ready %}
+    <p class="miniapp-error">Mini App ещё не настроен на сервере.</p>
+    {% endif %}
+  </main>
+</body>
+</html>

@@ -105,11 +105,16 @@ class DatabasePerformanceMigrationTests(unittest.TestCase):
                 )
                 for index in V25_INDEXES:
                     conn.execute(f"DROP INDEX {index}")
-                # init_db выше создал свежую v26-схему. Для честной эмуляции
-                # старой v24 базы убираем две колонки следующей миграции, иначе
-                # после проверки v25 ALTER TABLE v26 закономерно увидит дубль.
+                # init_db выше создал свежую схему. Для честной эмуляции старой
+                # v24 базы убираем объекты следующих миграций, иначе их ALTER
+                # TABLE при повторном прогоне закономерно увидит дубль.
                 conn.execute("ALTER TABLE categories DROP COLUMN category_skin")
                 conn.execute("ALTER TABLE users DROP COLUMN admin_skin")
+                conn.execute("ALTER TABLE notification_outbox DROP COLUMN action_url")
+                conn.execute("ALTER TABLE notification_outbox DROP COLUMN action_label")
+                conn.execute("DROP TABLE date_reviews")
+                conn.execute("DROP TABLE date_wants")
+                conn.execute("DROP TABLE notification_preferences")
                 conn.execute("PRAGMA user_version=24")
                 conn.commit()
                 conn.close()

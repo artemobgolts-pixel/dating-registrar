@@ -23,6 +23,7 @@ import guests as legacy_guests
 import images
 import notify
 import places
+import social_events
 import users
 import voting
 import voting_events
@@ -274,27 +275,39 @@ def date_in_category(conn, category_id: int, date_id: int):
     ).fetchone()
 
 
-def notify_owner(bg, conn, owner_id: int, text: str) -> None:
+def notify_owner(bg, conn, owner_id: int, text: str, *,
+                 preference: str = "updates", action_url: str | None = None,
+                 action_label: str | None = None) -> None:
     """Шлёт владельцу уведомление о действии с его событием (голос, вопрос,
     предложение...). chat_id резолвим СЕЙЧАС (conn ещё открыт), а сам сетевой
     вызов уводим в фон. Если бот владельцем не подключён — тихо ничего не шлём."""
-    chat = notify.owner_chat_id(conn, owner_id)
+    chat = notify.owner_chat_id(conn, owner_id, preference)
     if chat is not None:
-        bg.add_task(notify.send_to, chat, text)
+        bg.add_task(
+            notify.send_to, chat, text,
+            reply_markup=notify.action_markup(action_label, action_url),
+        )
 
 
-def notify_user(bg, conn, user_id: int | None, text: str) -> None:
+def notify_user(bg, conn, user_id: int | None, text: str, *,
+                preference: str = "updates", action_url: str | None = None,
+                action_label: str | None = None) -> None:
     """Шлёт уведомление произвольному пользователю (автору вопроса/предложения,
     гостю при снятии голоса). Те же правила доставки, что и у владельца:
     бот подключён, активен, не легаси. None/нет бота — тихо пропускаем."""
     if user_id is None:
         return
-    chat = notify.user_chat_id(conn, user_id)
+    chat = notify.user_chat_id(conn, user_id, preference)
     if chat is not None:
-        bg.add_task(notify.send_to, chat, text)
+        bg.add_task(
+            notify.send_to, chat, text,
+            reply_markup=notify.action_markup(action_label, action_url),
+        )
 
 
-def notify_admin(bg, conn, owner_id: int | None, text: str) -> None:
+def notify_admin(bg, conn, owner_id: int | None, text: str, *,
+                 action_url: str | None = None,
+                 action_label: str | None = None) -> None:
     """Глобальный поток администратора платформы (TG_CHAT_ID): он видит КАЖДОЕ
     действие всех пользователей. Дополняем готовую карточку строкой «Владелец»,
     чтобы было подписано, чьего кабинета касается событие. Сетевой вызов — в фон.
@@ -304,7 +317,10 @@ def notify_admin(bg, conn, owner_id: int | None, text: str) -> None:
         owner = users.get_user(conn, owner_id)
         if owner:
             oname = owner["display_name"] or owner["tg_username"] or f"#{owner_id}"
-    bg.add_task(notify.notify, text + f"\nВладелец: {esc(oname)}")
+    bg.add_task(
+        notify.notify, text + f"\nВладелец: {esc(oname)}",
+        reply_markup=notify.action_markup(action_label, action_url),
+    )
 
 
 def own_proposal_or_403(conn, cat, date_id: int, guest: str | None):
@@ -447,8 +463,8 @@ def copy_date_media_and_links(conn, src_id: int, new_id: int) -> None:
     Фото/видео — отдельные файлы с новыми именами (images.copy_file); фокус кадра
     сохраняем. Битые/пропавшие файлы просто пропускаем. При ошибке удаляем уже
     скопированные файлы и пробрасываем исключение — чтобы не оставлять сирот на
-    диске. Категории/голоса/вопросы НЕ трогаем: это решает вызывающий (клон копирует
-    категории сам, «добавить себе» — нет). Коммит — на вызывающем.
+    диске. Категории/голоса/вопросы НЕ трогаем: привязки при необходимости
+    создаёт вызывающий. Коммит — на вызывающем.
 
     Используется и клонированием события админом, и «добавить себе» по /d/<токен>.
     """
@@ -1051,6 +1067,20 @@ def shared_date(token: str, request: Request, conn=Depends(get_db)):
     owner = users.get_user(conn, d["owner_id"])
     owner_name = (owner["display_name"] or owner["tg_username"] or "Автор") if owner else "Автор"
     is_mine = bool(me and me["id"] == d["owner_id"])
+    wanted_by_me = False
+    my_review = None
+    can_review = False
+    if me and not is_mine:
+        wanted_by_me = conn.execute(
+            "SELECT 1 FROM date_wants WHERE user_id=? AND date_id=?",
+            (me["id"], d["id"]),
+        ).fetchone() is not None
+        my_review = conn.execute(
+            "SELECT id, rating, text, is_public FROM date_reviews "
+            "WHERE user_id=? AND date_id=?",
+            (me["id"], d["id"]),
+        ).fetchone()
+        can_review = social_events.review_available(conn, d["id"], me["id"])
 
     payload = date_payload(conn, d)
     # Гостю (не автору) показываем полноценную карточку с действиями. Контекст
@@ -1120,6 +1150,10 @@ def shared_date(token: str, request: Request, conn=Depends(get_db)):
         "guest_name": guest_name,
         "owner_name": owner_name,
         "is_mine": is_mine,
+        "wanted_by_me": wanted_by_me,
+        "my_review": my_review,
+        "can_review": can_review,
+        "csrf": request.session.get("csrf", ""),
         "can_act": bool(act_cat),     # совместимость старой разметки
         "can_vote": bool(act_cat) and not is_mine,
         "can_cast_vote": (bool(act_cat) and not is_mine
@@ -1134,6 +1168,95 @@ def shared_date(token: str, request: Request, conn=Depends(get_db)):
     })
     resp.headers["X-Robots-Tag"] = "noindex"
     return resp
+
+
+@router.post("/d/{token}/want", dependencies=[Depends(users.current_user)])
+def shared_date_want(token: str, request: Request, conn=Depends(get_db)):
+    """Переключает независимую отметку исходного события «Хочу сходить»."""
+    d = date_by_share(conn, token)
+    if not d:
+        raise HTTPException(404, "Событие не найдено")
+    user = request.state.user
+    if int(user["id"]) == int(d["owner_id"]):
+        raise HTTPException(400, "Это твоё событие")
+    guest_throttle("want", viewer_token(user), request)
+    existing = conn.execute(
+        "SELECT 1 FROM date_wants WHERE user_id=? AND date_id=?",
+        (user["id"], d["id"]),
+    ).fetchone()
+    if existing:
+        conn.execute(
+            "DELETE FROM date_wants WHERE user_id=? AND date_id=?",
+            (user["id"], d["id"]),
+        )
+        social_events.cancel_review_prompt(
+            conn, d["id"], user["id"], "want_removed",
+        )
+        msg = "Убрано из «Хочу сходить»"
+    else:
+        stamp = now_iso()
+        conn.execute(
+            "INSERT INTO date_wants(user_id, date_id, is_public, created_at, updated_at) "
+            "VALUES(?,?,1,?,?)",
+            (user["id"], d["id"], stamp, stamp),
+        )
+        social_events.queue_review_prompt(conn, d["id"], user["id"])
+        msg = "Добавлено в «Хочу сходить»"
+    conn.commit()
+    return redir(f"/d/{token}", msg)
+
+
+@router.post("/d/{token}/review", dependencies=[Depends(users.current_user)])
+def shared_date_review(token: str, request: Request,
+                       rating: int = Form(...), text: str = Form(""),
+                       conn=Depends(get_db)):
+    """Оценка 1–5 + необязательный текст; сохранение сразу публикует обзор."""
+    d = date_by_share(conn, token)
+    if not d:
+        raise HTTPException(404, "Событие не найдено")
+    user = request.state.user
+    if int(user["id"]) == int(d["owner_id"]):
+        raise HTTPException(400, "Нельзя оставить обзор на своё событие")
+    guest_throttle("review", viewer_token(user), request)
+    if not 1 <= rating <= 5:
+        raise HTTPException(400, "Поставь оценку от 1 до 5")
+    if not social_events.review_available(conn, d["id"], user["id"]):
+        raise HTTPException(409, "Обзор станет доступен после события")
+    text = clean_text(text, 4000, "Текст обзора")
+    existing = conn.execute(
+        "SELECT id FROM date_reviews WHERE user_id=? AND date_id=?",
+        (user["id"], d["id"]),
+    ).fetchone()
+    stamp = now_iso()
+    # Секретное или черновое событие нельзя раскрыть через профиль автора
+    # обзора. Сам обзор сохраняется, но остаётся виден только владельцу.
+    publish = 1 if d["is_public"] and not d["is_draft"] else 0
+    conn.execute(
+        """
+        INSERT INTO date_reviews(
+            user_id, date_id, rating, text, is_public, created_at, updated_at
+        ) VALUES(?,?,?,?,?,?,?)
+        ON CONFLICT(user_id, date_id) DO UPDATE SET
+            rating=excluded.rating,
+            text=excluded.text,
+            is_public=excluded.is_public,
+            updated_at=excluded.updated_at
+        """,
+        (user["id"], d["id"], rating, text or None, publish, stamp, stamp),
+    )
+    review = conn.execute(
+        "SELECT id FROM date_reviews WHERE user_id=? AND date_id=?",
+        (user["id"], d["id"]),
+    ).fetchone()
+    social_events.cancel_review_prompt(conn, d["id"], user["id"], "review_published")
+    if not existing and publish:
+        social_events.queue_review_received(conn, int(review["id"]))
+    conn.commit()
+    suffix = "" if publish else " Событие приватное, поэтому обзор виден только тебе."
+    return redir(
+        f"/u/{user['id']}?tab=reviews",
+        "Обзор опубликован." + suffix,
+    )
 
 
 def _share_act_or_410(conn, token: str):
@@ -1209,8 +1332,11 @@ def shared_date_book(token: str, request: Request, bg: BackgroundTasks,
     card = notify.card(
         "💝 Новый голос" if booked else "🤍 Голос снят",
         f"«{esc(d['name'])}» · {esc(cat['name'])}", f"Кто: {esc(name)}")
-    notify_owner(bg, conn, d["owner_id"], card)
-    notify_admin(bg, conn, d["owner_id"], card)
+    action_url = f"{BASE_URL}/admin/categories/{cat['id']}"
+    notify_owner(bg, conn, d["owner_id"], card, preference="votes",
+                 action_url=action_url, action_label="Открыть категорию")
+    notify_admin(bg, conn, d["owner_id"], card, action_url=action_url,
+                 action_label="Открыть категорию")
     updates = _vote_card_updates(conn, cat["id"], (d["id"],), guest)
     conn.commit()
     return JSONResponse({"ok": True, "booked": booked, "name": name,
@@ -1272,10 +1398,12 @@ def shared_date_question(token: str, request: Request, bg: BackgroundTasks,
         (d["id"], cat["id"] if cat else None, guest, user["id"], text, now_iso()))
     conn.commit()
     card = notify.card("❓ Новый вопрос", f"«{esc(d['name'])}»",
-                       f"Кто: {esc(name)}", f"\n{esc(text)}",
-                       f"\n{BASE_URL}/admin/questions")
-    notify_owner(bg, conn, d["owner_id"], card)
-    notify_admin(bg, conn, d["owner_id"], card)
+                       f"Кто: {esc(name)}", f"\n{esc(text)}")
+    action_url = f"{BASE_URL}/admin/questions"
+    notify_owner(bg, conn, d["owner_id"], card, preference="questions",
+                 action_url=action_url, action_label="Ответить")
+    notify_admin(bg, conn, d["owner_id"], card, action_url=action_url,
+                 action_label="Открыть уведомления")
     return JSONResponse({"ok": True})
 
 
@@ -1300,10 +1428,12 @@ def shared_date_suggest(token: str, request: Request, bg: BackgroundTasks,
         (d["id"], cat["id"] if cat else None, guest, user["id"], text, starts, ends, now_iso()))
     conn.commit()
     card = notify.card("📅 Предложено время", f"«{esc(d['name'])}»",
-                       f"Кто: {esc(name)}", f"Когда: {fmt_when(starts, ends)} (мск)",
-                       f"\n{BASE_URL}/admin/questions")
-    notify_owner(bg, conn, d["owner_id"], card)
-    notify_admin(bg, conn, d["owner_id"], card)
+                       f"Кто: {esc(name)}", f"Когда: {fmt_when(starts, ends)} (мск)")
+    action_url = f"{BASE_URL}/admin/questions"
+    notify_owner(bg, conn, d["owner_id"], card, preference="questions",
+                 action_url=action_url, action_label="Выбрать ответ")
+    notify_admin(bg, conn, d["owner_id"], card, action_url=action_url,
+                 action_label="Открыть уведомления")
     return JSONResponse({"ok": True})
 
 
@@ -1515,8 +1645,11 @@ def public_book(token: str, request: Request, bg: BackgroundTasks,
     card = notify.card(
         "💝 Новый голос" if booked else "🤍 Голос снят",
         f"«{esc(d['name'])}» · {esc(cat['name'])}", f"Кто: {esc(name)}")
-    notify_owner(bg, conn, cat["owner_id"], card)
-    notify_admin(bg, conn, cat["owner_id"], card)
+    action_url = f"{BASE_URL}/admin/categories/{cat['id']}"
+    notify_owner(bg, conn, cat["owner_id"], card, preference="votes",
+                 action_url=action_url, action_label="Открыть категорию")
+    notify_admin(bg, conn, cat["owner_id"], card, action_url=action_url,
+                 action_label="Открыть категорию")
     affected = {date_id}
     affected.update(getattr(result, "removed_date_ids", ()))
     affected.update(legacy_date_ids)
@@ -1601,10 +1734,12 @@ def public_suggest_time(token: str, request: Request, bg: BackgroundTasks,
         "📅 Предложено время",
         f"«{esc(d['name'])}» · {esc(cat['name'])}",
         f"Кто: {esc(name)}",
-        f"Когда: {fmt_when(starts, ends)} (мск)",
-        f"\n{BASE_URL}/admin/questions")
-    notify_owner(bg, conn, cat["owner_id"], card)
-    notify_admin(bg, conn, cat["owner_id"], card)
+        f"Когда: {fmt_when(starts, ends)} (мск)")
+    action_url = f"{BASE_URL}/admin/questions"
+    notify_owner(bg, conn, cat["owner_id"], card, preference="questions",
+                 action_url=action_url, action_label="Выбрать ответ")
+    notify_admin(bg, conn, cat["owner_id"], card, action_url=action_url,
+                 action_label="Открыть уведомления")
     return JSONResponse({"ok": True})
 
 
@@ -1632,10 +1767,12 @@ def public_question(token: str, request: Request, bg: BackgroundTasks,
         "❓ Новый вопрос",
         f"«{esc(d['name'])}» · {esc(cat['name'])}",
         f"От: {esc(name)}",
-        f"\n{esc(text)}",
-        f"\n{BASE_URL}/admin/questions")
-    notify_owner(bg, conn, cat["owner_id"], card)
-    notify_admin(bg, conn, cat["owner_id"], card)
+        f"\n{esc(text)}")
+    action_url = f"{BASE_URL}/admin/questions"
+    notify_owner(bg, conn, cat["owner_id"], card, preference="questions",
+                 action_url=action_url, action_label="Ответить")
+    notify_admin(bg, conn, cat["owner_id"], card, action_url=action_url,
+                 action_label="Открыть уведомления")
     return JSONResponse({"ok": True})
 
 
@@ -1698,10 +1835,12 @@ def public_propose(token: str, request: Request, bg: BackgroundTasks,
         f"«{esc(name)}» · {esc(cat['name'])}",
         f"От: {esc(author)}",
         f"📍 {esc(place)}" if place else "",
-        f"🕐 {fmt_when(starts, ends)} (мск)" if fmt_when(starts, ends) else "",
-        f"\n{BASE_URL}/admin/dates/{date_id}/edit")
-    notify_owner(bg, conn, cat["owner_id"], msg)
-    notify_admin(bg, conn, cat["owner_id"], msg)
+        f"🕐 {fmt_when(starts, ends)} (мск)" if fmt_when(starts, ends) else "")
+    action_url = f"{BASE_URL}/admin/dates/{date_id}/edit"
+    notify_owner(bg, conn, cat["owner_id"], msg, preference="proposals",
+                 action_url=action_url, action_label="Открыть предложение")
+    notify_admin(bg, conn, cat["owner_id"], msg, action_url=action_url,
+                 action_label="Открыть предложение")
 
     return JSONResponse({"ok": True, "id": date_id, "moderated": moderated})
 
@@ -1832,16 +1971,15 @@ def public_propose_edit(token: str, date_id: int, request: Request, bg: Backgrou
     for v in vid_remove:
         images.delete_file(v["filename"])
 
-    notify_owner(bg, conn, cat["owner_id"], notify.card(
+    changed_card = notify.card(
         "✏️ Предложение изменено",
         f"«{esc(name)}» · {esc(cat['name'])}",
-        f"Автор: {esc(author)}",
-        f"\n{BASE_URL}/admin/dates/{date_id}/edit"))
-    notify_admin(bg, conn, cat["owner_id"], notify.card(
-        "✏️ Предложение изменено",
-        f"«{esc(name)}» · {esc(cat['name'])}",
-        f"Автор: {esc(author)}",
-        f"\n{BASE_URL}/admin/dates/{date_id}/edit"))
+        f"Автор: {esc(author)}")
+    action_url = f"{BASE_URL}/admin/dates/{date_id}/edit"
+    notify_owner(bg, conn, cat["owner_id"], changed_card, preference="proposals",
+                 action_url=action_url, action_label="Открыть предложение")
+    notify_admin(bg, conn, cat["owner_id"], changed_card, action_url=action_url,
+                 action_label="Открыть предложение")
     return JSONResponse({"ok": True})
 
 
@@ -1894,14 +2032,15 @@ def public_propose_delete(token: str, date_id: int, request: Request, bg: Backgr
     for fn in files:
         images.delete_file(fn)
 
-    notify_owner(bg, conn, cat["owner_id"], notify.card(
+    deleted_card = notify.card(
         "🗑 Предложение удалено",
         f"«{esc(d['name'])}» · {esc(cat['name'])}",
-        f"Автор: {esc(author)}"))
-    notify_admin(bg, conn, cat["owner_id"], notify.card(
-        "🗑 Предложение удалено",
-        f"«{esc(d['name'])}» · {esc(cat['name'])}",
-        f"Автор: {esc(author)}"))
+        f"Автор: {esc(author)}")
+    action_url = f"{BASE_URL}/admin/categories/{cat['id']}"
+    notify_owner(bg, conn, cat["owner_id"], deleted_card, preference="proposals",
+                 action_url=action_url, action_label="Открыть категорию")
+    notify_admin(bg, conn, cat["owner_id"], deleted_card, action_url=action_url,
+                 action_label="Открыть категорию")
     return JSONResponse({"ok": True})
 
 

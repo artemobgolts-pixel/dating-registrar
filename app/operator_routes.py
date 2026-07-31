@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 import images
+import social_events
 import settings as app_settings
 import voting
 import voting_events
@@ -402,6 +403,7 @@ def report_takedown(rid: int, request: Request, conn=Depends(get_db)):
         files += [x["filename"] for x in conn.execute(
             "SELECT filename FROM date_videos WHERE date_id=?", (tid,))]
         affected = _queue_date_removal_from_categories(conn, tid)
+        social_events.cancel_review_prompts_for_date(conn, tid)
         conn.execute("DELETE FROM dates WHERE id=?", (tid,))
         _cancel_empty_vote_deadlines(conn, affected)
     else:
@@ -410,8 +412,13 @@ def report_takedown(rid: int, request: Request, conn=Depends(get_db)):
         # События переживают удаление категории, поэтому их медиа трогать
         # нельзя. Удаляем только собственную картинку превью категории.
         files = [target_cat["og_image"]] if target_cat["og_image"] else []
+        affected_dates = [int(row["date_id"]) for row in conn.execute(
+            "SELECT date_id FROM date_categories WHERE category_id=?", (tid,),
+        ).fetchall()]
         _queue_category_removal(conn, target_cat)
         conn.execute("DELETE FROM categories WHERE id=?", (tid,))
+        for date_id in affected_dates:
+            social_events.queue_review_prompts_for_date(conn, date_id)
     conn.execute(
         "UPDATE reports SET status='resolved', resolved_at=? "
         "WHERE target_type=? AND target_id=? AND status='open'",
@@ -478,8 +485,13 @@ def cat_delete(cid: int, request: Request, conn=Depends(get_db)):
     у владельца, как и в кабинете."""
     cat = _cat_or_404(conn, cid)
     _require_category_not_frozen(conn, cat)
+    affected_dates = [int(row["date_id"]) for row in conn.execute(
+        "SELECT date_id FROM date_categories WHERE category_id=?", (cid,),
+    ).fetchall()]
     _queue_category_removal(conn, cat)
     conn.execute("DELETE FROM categories WHERE id=?", (cid,))
+    for date_id in affected_dates:
+        social_events.queue_review_prompts_for_date(conn, date_id)
     conn.commit()
     if cat["og_image"]:
         images.delete_file(cat["og_image"])
@@ -565,6 +577,7 @@ def date_delete(did: int, request: Request, conn=Depends(get_db)):
     files += [r["filename"] for r in conn.execute(
         "SELECT filename FROM date_videos WHERE date_id=?", (did,))]
     affected = _queue_date_removal_from_categories(conn, did)
+    social_events.cancel_review_prompts_for_date(conn, did)
     conn.execute("DELETE FROM dates WHERE id=?", (did,))
     _cancel_empty_vote_deadlines(conn, affected)
     conn.execute(

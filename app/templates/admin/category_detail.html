@@ -8,18 +8,21 @@
 </div>
 
 <div class="card">
-  <form method="post" action="/admin/categories/{{ cat['id'] }}/rename"
+  <form id="categoryEditForm" method="post" action="/admin/categories/{{ cat['id'] }}/rename"
         enctype="multipart/form-data" style="display:grid;gap:10px">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <div class="category-description-fields" data-tour="category-description">
-      <input name="name" value="{{ cat['name'] }}" required maxlength="200">
+      <label class="field" style="margin:0">
+        <span class="field-label">Название <span aria-hidden="true">*</span></span>
+        <input name="name" value="{{ cat['name'] }}" required maxlength="200">
+      </label>
       <label class="field-label">Описание (необязательно)</label>
       <div class="toolbar" id="catDescToolbar" data-target="catDescInput">
         <button type="button" class="b" data-wrap="**|**" title="Жирный">Ж</button>
         <button type="button" class="i" data-wrap="*|*" title="Курсив">К</button>
         <button type="button" class="u" data-wrap="__|__" title="Подчёркнутый">П</button>
         <button type="button" class="s" data-wrap="~~|~~" title="Зачёркнутый">З</button>
-        <button type="button" data-wrap="[|](https://)" title="Ссылка">🔗</button>
+        <button type="button" data-wrap="[|](https://)" title="Ссылка">{% with icon='link' %}{% include "admin/_icon.html" %}{% endwith %}</button>
       </div>
       <div class="rich-ed" id="catDescEditable" contenteditable="true"
            role="textbox" aria-multiline="true" data-placeholder="Пара слов под заголовком категории…"></div>
@@ -77,12 +80,12 @@
          data-preview-skin="{{ category_skin }}"
          data-default-image="{{ '1' if not cat['og_image'] and not auto_og else '0' }}"
          data-auto-image="{{ '1' if auto_og and not cat['og_image'] else '0' }}"
-         data-friends-src="/static/og-friends.jpg"
-         data-romantic-src="/static/og.png"
+         data-friends-src="{{ asset('og-friends.jpg') }}"
+         data-romantic-src="{{ asset('og.png') }}"
          aria-label="так ссылка выглядит при отправке">
       <div class="og-img-wrap" id="ogImgPick" title="Нажми, чтобы выбрать свою картинку">
         <img class="og-img" id="ogPreviewImg" draggable="false"
-             src="{% if cat['og_image'] or auto_og %}/admin/categories/{{ cat['id'] }}/og-preview?skin={{ category_skin }}{% elif category_skin == 'friends' %}/static/og-friends.jpg{% else %}/static/og.png{% endif %}"
+             src="{% if cat['og_image'] or auto_og %}/admin/categories/{{ cat['id'] }}/og-preview?skin={{ category_skin }}{% elif category_skin == 'friends' %}{{ asset('og-friends.jpg') }}{% else %}{{ asset('og.png') }}{% endif %}"
              alt="" style="object-position:{{ cat['og_focus'] or '50% 50%' }}">
         {# постоянная подсказка «сменить картинку» — видна всегда, ярче при наведении #}
         <span class="og-img-badge" aria-hidden="true">🖼 Сменить</span>
@@ -107,10 +110,6 @@
       <button type="button" class="og-warn-x" data-dismiss aria-label="Закрыть">✕</button>
     </div>
 
-    <div class="cat-save">
-      <button class="btn primary">Сохранить</button>
-      <button type="submit" class="btn ghost" form="resetPreviewForm">Сбросить превью</button>
-    </div>
   </form>
 
   {# «Сбросить превью» сабмитит отдельную форму (нельзя вкладывать form в form).
@@ -118,6 +117,52 @@
   <form id="resetPreviewForm" method="post"
         action="/admin/categories/{{ cat['id'] }}/preview/reset" hidden
         data-confirm="Сбросить превью ссылки — и картинку, и текст — к стандартному виду?">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+  </form>
+
+  {# Главное действие остаётся на виду. Редкие и потенциально опасные действия
+     собраны в знакомое меню «⋯», чтобы низ редактора не выглядел как панель
+     из разношёрстных кнопок. Формы ниже внешние: вложенные form невалидны. #}
+  <div class="cat-editor-actions" data-tour="category-actions">
+    <button class="btn primary" type="submit" form="categoryEditForm">Сохранить</button>
+    <div class="menu-wrap cat-editor-menu-wrap">
+      <button type="button" class="more cat-editor-more" aria-label="Другие действия с категорией"
+              aria-haspopup="true" aria-expanded="false">⋯</button>
+      <div class="menu cat-editor-menu">
+        {% if cat['link_enabled'] %}
+        <a href="/c/{{ cat['link_token'] }}" target="_blank" rel="noopener">Открыть ссылку</a>
+        <button type="button" data-tour="category-share-copy"
+                data-copy="{{ BASE_URL }}/c/{{ cat['link_token'] }}">Скопировать ссылку</button>
+        {% else %}
+        <button type="button" disabled>Ссылка отключена</button>
+        <button type="button" data-tour="category-share-copy" disabled>Скопировать ссылку</button>
+        {% endif %}
+        <button type="submit" form="cloneCategoryForm">Скопировать категорию</button>
+        <div class="sepa" aria-hidden="true"></div>
+        <button type="submit" form="resetPreviewForm">Сбросить превью</button>
+        <button type="submit" form="toggleCategoryForm">
+          {{ 'Отключить ссылку' if cat['link_enabled'] else 'Включить ссылку' }}
+        </button>
+        <div class="sepa" aria-hidden="true"></div>
+        <button type="submit" class="danger" form="deleteCategoryForm"
+                {% if not can_change_composition %}disabled title="Завершённое голосование нельзя удалить"{% endif %}>
+          Удалить категорию
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <form id="toggleCategoryForm" method="post"
+        action="/admin/categories/{{ cat['id'] }}/toggle" hidden>
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+  </form>
+  <form id="cloneCategoryForm" method="post"
+        action="/admin/categories/{{ cat['id'] }}/clone" hidden>
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+  </form>
+  <form id="deleteCategoryForm" method="post"
+        action="/admin/categories/{{ cat['id'] }}/delete" hidden
+        data-confirm="Удалить категорию? События останутся, но голоса в этой категории удалятся, а ссылка перестанет работать.">
     <input type="hidden" name="csrf" value="{{ csrf }}">
   </form>
 </div>
@@ -136,8 +181,8 @@
       <span class="badge amber">Ничья · нужен твой выбор</span>
     {% elif voting_state.status == 'resolved' %}
       <span class="badge rose">Победитель выбран</span>
-    {% else %}
-      <span class="badge">Никто не выбрал</span>
+    {% elif voting_state.status == 'no_winner' %}
+      <span class="badge">Голосование завершено</span>
     {% endif %}
   </div>
 
@@ -153,7 +198,7 @@
   <form class="voting-form" method="post" action="/admin/categories/{{ cat['id'] }}/voting">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <div class="field" style="margin:0">
-      <label class="field-label">Сколько вариантов может выбрать один человек</label>
+      <label class="field-label">Сколько вариантов может выбрать один человек <span aria-hidden="true">*</span></label>
       <div class="choice-pick">
         <label class="choice-opt">
           <input type="radio" name="choice_mode" value="single"
@@ -168,7 +213,7 @@
       </div>
     </div>
     <label class="field" style="margin:0">
-      <span class="field-label">Дедлайн голосования</span>
+      <span class="field-label">Дедлайн голосования <span aria-hidden="true">*</span></span>
       <input type="datetime-local" name="voting_deadline" required data-picker-only
              value="{{ voting_state.voting_deadline[:16] if voting_state.voting_deadline else '' }}">
       <small class="muted">Время указывается по Москве и должно быть раньше начала всех событий.</small>
@@ -179,8 +224,6 @@
   <div class="voting-tie-note">
     У лидеров одинаковое число голосов. Выбери победителя кнопкой в таблице ниже — доступны только лидеры.
   </div>
-  {% elif voting_state.status == 'no_winner' %}
-  <p class="muted" style="margin:12px 0 0">До дедлайна никто не проголосовал. Категория завершена со статусом «Никто не выбрал».</p>
   {% endif %}
 </div>
 
@@ -256,30 +299,4 @@
   {% endif %}
 </div>
 
-<div class="card" data-tour="category-actions">
-  <div class="cat-actions">
-    <div class="cat-share-actions">
-    {% if cat['link_enabled'] %}
-    <a class="btn ghost" href="/c/{{ cat['link_token'] }}" target="_blank" rel="noopener">👀 Открыть ссылку</a>
-    <button type="button" class="btn ghost" data-tour="category-share-copy"
-            data-copy="{{ BASE_URL }}/c/{{ cat['link_token'] }}">🔗 Скопировать ссылку</button>
-    {% else %}
-    <button type="button" class="btn ghost" disabled>👀 Ссылка отключена</button>
-    <button type="button" class="btn ghost" data-tour="category-share-copy"
-            disabled>🔗 Скопировать ссылку</button>
-    {% endif %}
-    </div>
-    <div class="cat-manage-actions">
-    <form class="inline" method="post" action="/admin/categories/{{ cat['id'] }}/toggle">
-      <input type="hidden" name="csrf" value="{{ csrf }}">
-      <button class="btn {{ 'link-off' if cat['link_enabled'] else 'link-on' }}">{{ 'Отключить ссылку' if cat['link_enabled'] else 'Включить ссылку' }}</button>
-    </form>
-    <form class="inline" method="post" action="/admin/categories/{{ cat['id'] }}/delete"
-          data-confirm="Удалить категорию? События останутся, но голоса в этой категории удалятся, а ссылка перестанет работать.">
-      <input type="hidden" name="csrf" value="{{ csrf }}">
-      <button class="btn danger" {% if not can_change_composition %}disabled title="Завершённое голосование нельзя удалить"{% endif %}>Удалить категорию</button>
-    </form>
-    </div>
-  </div>
-</div>
 {% endblock %}

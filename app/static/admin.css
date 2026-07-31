@@ -133,13 +133,20 @@ nav { display: flex; gap: 6px; flex-wrap: wrap; }
 }
 .bell-lb { line-height: 1; }
 .bell-count {
-  position: absolute; top: -3px; right: -3px;
-  min-width: 18px; height: 18px; padding: 0 5px;
+  position: absolute; top: -5px; right: -5px;
+  display: inline-grid; place-items: center;
+  min-width: 20px; height: 20px; padding: 0 5px;
   border-radius: 999px;
   background: var(--accent); color: #fff;
-  font-size: 11px; font-weight: 700; line-height: 18px; text-align: center;
+  font-size: 11px; font-weight: 750; line-height: 1; text-align: center;
+  font-variant-numeric: tabular-nums;
   border: 2px solid #fffdfe;
   box-shadow: 0 2px 6px rgba(150, 70, 85, .4);
+  pointer-events: none;
+}
+.bell.on .bell-count {
+  background: #fff; color: var(--accent); border-color: var(--accent);
+  box-shadow: 0 2px 7px rgba(70, 35, 45, .28);
 }
 
 /* вкладки-капсулы «жидкого стекла» — единый стиль для ПК и мобильного */
@@ -825,9 +832,10 @@ span.oauth-ico { display: grid; place-items: center; font-weight: 700; font-size
   width: 100%; min-width: 0; text-align: center;
 }
 .profile-support-btn {
-  display: flex; align-items: center; justify-content: center;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
   width: 100%; margin-top: 12px;
 }
+.profile-support-btn .admin-icon { width: 19px; height: 19px; }
 .telegram-support-btn {
   color: #fff; border-color: transparent;
   background: linear-gradient(135deg, #32aadc, #168ac1);
@@ -938,7 +946,77 @@ input.flash { background: #f8ecea !important; transition: background .4s; }
   margin: 16px 0 4px;
 }
 
-/* карточка уведомления (страница «Уведомления») — в общем «стеклянном» стиле */
+/* страница уведомлений: единая иерархия, настройки и ровные действия */
+.notif-page-head {
+  display: flex; align-items: flex-end; justify-content: space-between; gap: 18px;
+  margin: 0 0 18px;
+}
+.notif-page-head h1 { margin: 0; }
+.notif-page-head p { margin: 4px 0 0; color: var(--muted); }
+.notif-new-count {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: 32px; padding: 6px 12px; border-radius: 999px;
+  background: var(--rose-soft); color: var(--rose-2);
+  border: 1px solid color-mix(in srgb, var(--rose) 22%, transparent);
+  font-size: 12.5px; font-weight: 700; white-space: nowrap;
+}
+.notif-settings-card {
+  margin: 0 0 18px; padding: 18px;
+  border-radius: 20px; border: 1px solid rgba(255,255,255,.72);
+  background: linear-gradient(145deg, rgba(255,255,253,.72), rgba(252,242,245,.56));
+  -webkit-backdrop-filter: blur(16px) saturate(1.35);
+  backdrop-filter: blur(16px) saturate(1.35);
+  box-shadow: 0 14px 34px rgba(150,80,95,.09), inset 0 1px 0 rgba(255,255,255,.82);
+}
+.notif-settings-head {
+  display: flex; align-items: center; gap: 12px; margin-bottom: 15px;
+}
+.notif-settings-head h2 { margin: 0; font-family: var(--serif); font-size: 22px; }
+.notif-settings-head p { margin: 2px 0 0; color: var(--muted); font-size: 13.5px; }
+.notif-settings-icon {
+  width: 42px; height: 42px; flex: none; display: grid; place-items: center;
+  border-radius: 13px; color: var(--rose-2); background: var(--rose-soft);
+  border: 1px solid var(--line);
+}
+.notif-settings-icon .admin-icon { width: 21px; height: 21px; }
+.notif-channel-state {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 7px;
+  color: var(--muted); font-size: 12.5px; white-space: nowrap;
+}
+.notif-channel-state i {
+  width: 8px; height: 8px; border-radius: 50%; background: #b9aeb0;
+  box-shadow: 0 0 0 3px rgba(154,138,140,.12);
+}
+.notif-channel-state.connected { color: #15734a; }
+.notif-channel-state.connected i {
+  background: #34a967; box-shadow: 0 0 0 3px rgba(52,169,103,.14);
+}
+.notif-prefs-grid {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px;
+}
+.notif-pref.toggle {
+  min-height: 76px; margin: 0; cursor: pointer; align-items: center;
+  background: rgba(255,255,255,.5); transition: border-color .18s, background .18s;
+}
+.notif-pref.toggle:hover { border-color: color-mix(in srgb, var(--rose) 34%, var(--line)); }
+.notif-pref:last-child:nth-child(odd) { grid-column: 1 / -1; }
+.notif-pref .tcol { min-width: 0; }
+.notif-pref .t { font-weight: 650; }
+.notif-pref .d { line-height: 1.35; margin-top: 2px; }
+.notif-settings-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  margin-top: 14px;
+}
+.notif-settings-foot > span { color: var(--muted); font-size: 12.5px; }
+.notif-controls { margin-top: 4px; }
+.notif-controls .tabs a { display: inline-flex; align-items: center; gap: 7px; }
+.notif-tab-count {
+  min-width: 20px; height: 20px; padding: 0 6px; display: inline-grid; place-items: center;
+  border-radius: 999px; background: rgba(125,105,112,.1); color: var(--muted);
+  font-size: 11px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums;
+}
+.notif-controls .tabs a.on .notif-tab-count { background: rgba(255,255,255,.22); color: #fff; }
+.notif-list { display: grid; gap: 14px; }
 .notif-card {
   position: relative;
   background: linear-gradient(150deg, rgba(255,253,252,.62), rgba(255,246,246,.46));
@@ -947,17 +1025,18 @@ input.flash { background: #f8ecea !important; transition: background .4s; }
   border: 1px solid rgba(255, 255, 255, .65);
   border-radius: 16px;
   box-shadow: 0 12px 30px rgba(150, 80, 95, .08), inset 0 1px 0 rgba(255, 255, 255, .8);
-  padding: 16px 18px; margin-bottom: 14px;
+  padding: 18px; margin: 0;
 }
 /* непрочитанное — акцентная кромка слева */
 .notif-card.unread { border-left: 3px solid var(--rose); }
-.notif-card.read { opacity: .72; }
+.notif-card.read { opacity: .82; }
 .notif-head { display: flex; align-items: flex-start; gap: 12px; }
 .notif-ic {
   flex: none; width: 38px; height: 38px; border-radius: 12px;
-  display: grid; place-items: center; font-size: 18px;
+  display: grid; place-items: center; font-size: 18px; font-weight: 750;
   background: var(--rose-soft); border: 1px solid var(--line);
 }
+.notif-ic .admin-icon { width: 19px; height: 19px; }
 .notif-meta { min-width: 0; flex: 1; }
 .notif-who { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 15px; color: var(--ink); }
 .notif-sub { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
@@ -974,6 +1053,26 @@ input.flash { background: #f8ecea !important; transition: background .4s; }
 .notif-actions { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; align-items: center; }
 .notif-actions .inline { display: contents; }
 .notif-actions .btn { margin: 0; }
+.notif-action-btn {
+  min-height: 38px; padding: 0 15px; border-radius: 999px;
+  display: inline-flex; align-items: center; justify-content: center;
+  line-height: 1.2; font-size: 13px; font-weight: 650; white-space: nowrap;
+}
+.notif-action-btn.primary {
+  background: linear-gradient(135deg, var(--rose), var(--rose-2));
+  border-color: transparent; box-shadow: 0 5px 13px rgba(150,70,85,.2);
+}
+.notif-action-btn.danger { background: transparent; }
+.notif-compose { margin-top: 12px; }
+.notif-compose textarea { min-height: 76px; background: rgba(255,255,255,.58); }
+.notif-inline-actions {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+  flex: 1 1 100%; width: 100%;
+}
+.notif-inline-actions .notif-action-btn,
+.notif-actions .notif-action-btn { flex: 1 1 170px; }
+.notif-empty .big { display: grid; place-items: center; color: var(--muted); }
+.notif-empty .big .admin-icon { width: 38px; height: 38px; }
 
 /* предложение времени от гостя в карточке вопроса */
 .suggest-box {
@@ -989,6 +1088,32 @@ input.flash { background: #f8ecea !important; transition: background .4s; }
 .suggest-box > span { flex: 1 1 100%; }
 .suggest-box .inline { display: contents; }
 .suggest-box .btn { margin: 0; }
+
+@media (max-width: 720px) {
+  .notif-page-head { align-items: flex-start; margin-bottom: 14px; }
+  .notif-page-head p { font-size: 13px; }
+  .notif-new-count { min-height: 29px; padding: 5px 10px; }
+  .notif-settings-card { padding: 15px; border-radius: 18px; }
+  .notif-settings-head { align-items: flex-start; flex-wrap: wrap; }
+  .notif-settings-head > div { flex: 1; min-width: 0; }
+  .notif-channel-state { width: 100%; margin: 0 0 0 54px; }
+  .notif-prefs-grid { grid-template-columns: 1fr; }
+  .notif-pref:last-child:nth-child(odd) { grid-column: auto; }
+  .notif-settings-foot { align-items: stretch; flex-direction: column; }
+  .notif-settings-foot .notif-action-btn { width: 100%; }
+  .notif-card { padding: 15px; border-radius: 18px; }
+  .notif-actions { align-items: stretch; }
+}
+
+@media (max-width: 420px) {
+  .notif-page-head { gap: 10px; }
+  .notif-page-head p { max-width: 235px; }
+  .notif-head { gap: 10px; }
+  .notif-ic { width: 36px; height: 36px; }
+  .notif-inline-actions .notif-action-btn,
+  .notif-actions .notif-action-btn { flex-basis: 100%; width: 100%; }
+  .notif-compose .notif-action-btn { width: 100%; }
+}
 
 
 /* ===== итерация 6: ровная шапка и общий бьюти-пас ========================= */
@@ -1535,7 +1660,7 @@ html.ink-static .bg-smoke span {
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(208px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: 16px;
 }
 .dcard {
@@ -1679,11 +1804,27 @@ html.ink-static .bg-smoke span {
 .quick .btn .lbl-short { display: none; }
 .quick .btn .lbl-full { display: inline; }
 
-.category-create-row { margin-bottom: 16px; }
+.category-create-row {
+  display: grid; grid-template-columns: minmax(180px, 1.25fr) minmax(170px, .8fr)
+    minmax(210px, 1fr) auto;
+  gap: 12px; align-items: end; margin-bottom: 16px; padding: 16px;
+  border: 1px solid var(--line); border-radius: 16px; background: var(--card);
+  box-shadow: var(--shadow-soft);
+}
+.category-create-row .field { margin: 0; min-width: 0; }
 .category-create-btn {
-  display: flex; width: 100%; min-height: 48px;
+  display: flex; min-height: 48px;
   align-items: center; justify-content: center;
   border-radius: 14px; font-size: 16px; font-weight: 600;
+}
+@media (max-width: 900px) {
+  .category-create-row { grid-template-columns: 1fr 1fr; }
+  .category-create-row .field:first-of-type { grid-column: 1 / -1; }
+}
+@media (max-width: 560px) {
+  .category-create-row { grid-template-columns: 1fr; padding: 14px; }
+  .category-create-row .field:first-of-type { grid-column: auto; }
+  .category-create-btn { width: 100%; }
 }
 
 .share-grid {
@@ -1931,45 +2072,41 @@ html.ink-static .bg-smoke span {
 .category-description-fields { display: grid; gap: 10px; }
 .og-zone { margin-top: 2px; }
 .og-zone .dz-ico { font-size: 20px; }
-/* Два действия превью делят всю ширину строки поровну. */
-.cat-save {
-  margin-top: 4px; display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px;
+/* Низ редактора категории: одно очевидное главное действие и компактное
+   меню для редких операций. Меню использует общий cardMenu из ui.js. */
+.cat-editor-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
 }
-.cat-save .btn {
-  width: 100%; justify-content: center;
-  font-size: 15px; font-weight: 600; padding: 10px 16px; border-radius: 12px;
+.cat-editor-actions > .btn.primary {
+  width: 100%;
+  justify-content: center;
+  min-height: 44px;
+  padding: 10px 18px;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 650;
 }
-/* нижний ряд действий категории: «Скопировать ссылку» / вкл-выкл / «Удалить» —
-   единый вид и размер, деструктив прижат вправо */
-.cat-actions { display: grid; gap: 10px; }
-.cat-actions .inline { margin: 0; }
-.cat-actions .btn { font-size: 14.5px; font-weight: 600; padding: 9px 18px; border-radius: 12px; }
-.cat-share-actions,
-.cat-manage-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-.cat-share-actions .btn,
-.cat-manage-actions .btn { display: flex; width: 100%; height: 100%; justify-content: center; }
-.cat-manage-actions .inline { min-width: 0; }
-/* #10: «Удалить категорию» — красный фон и тёмный текст (заметный деструктив),
-   прижата вправо. */
-.cat-actions .btn.danger {
-  background: #f2b8b5; border: 1px solid #e59895; color: #3a1210;
+.cat-editor-more {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  font-size: 23px;
+  color: var(--rose-2);
 }
-.cat-actions .btn.danger:hover { background: #eda6a2; border-color: #db8783; }
-/* красная «Отключить ссылку» / зелёная «Включить ссылку» */
-.btn.link-off {
-  background: #fdecec; border: 1px solid #f2c4c4; color: #b3261e;
+.cat-editor-menu {
+  right: 0;
+  bottom: 52px;
+  min-width: 224px;
 }
-.btn.link-off:hover { background: #fbdede; }
-.btn.link-on {
-  background: #e7f6ee; border: 1px solid #b7e0c8; color: #15734a;
+.cat-editor-menu button:disabled {
+  cursor: default;
+  opacity: .45;
 }
-.btn.link-on:hover { background: #d8f0e3; }
-@media (max-width: 560px) {
-  .cat-share-actions,
-  .cat-manage-actions { gap: 8px; }
-  .cat-actions .btn { padding-inline: 8px; font-size: 13px; }
-}
+.cat-editor-menu button:disabled:hover { background: none; }
 
 /* закрываемое предупреждение про перегенерацию ссылки */
 .og-warn {
@@ -2393,7 +2530,7 @@ html.ink-static .bg-smoke span {
    ============================================================ */
 .cfeed {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: 16px;
 }
 .cfeed-card {
@@ -2431,6 +2568,19 @@ html.ink-static .bg-smoke span {
 .cfeed-ava-ph { display: grid; place-items: center; background: #f3e6e9; font-size: 15px; }
 .cfeed-owner-name { max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cfeed-sentinel { grid-column: 1 / -1; height: 1px; }
+
+/* На телефоне карточка всегда занимает отдельную строку, включая landscape.
+   На более широком окне auto-fit выше сам подбирает 2/3/4 колонки. Вид
+   «Список» остаётся отдельной `.dlist` и этим правилом не затрагивается. */
+@media (max-width: 720px) {
+  .grid, .cfeed { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 950px) and (max-height: 600px) and (pointer: coarse) {
+  /* Телефон в landscape шире 720px, но по-прежнему показывает одну встречу
+     в строке и не возвращается к сохранённому табличному виду. */
+  .grid, .cfeed { grid-template-columns: minmax(0, 1fr); }
+  .controls .viewtog { display: none; }
+}
 
 /* модалка мини-виджета */
 .community-dlg {
@@ -2512,6 +2662,8 @@ body.tour-lock {
    чтобы окно не «захватывало» зону под целью и не налезало на соседний контент. */
 .tour-pop {
   position: fixed; z-index: 302; width: min(320px, calc(100vw - 24px));
+  max-height: calc(100vh - 24px); max-height: calc(100dvh - 24px);
+  overflow-y: auto; overscroll-behavior: contain;
   background: #fffdfe; border-radius: 16px; padding: 13px 16px 12px;
   box-shadow: 0 24px 60px rgba(120, 60, 72, .34);
   transition: top .25s ease, left .25s ease;
@@ -2526,6 +2678,11 @@ body.tour-lock {
 }
 .tour-skip:hover { color: var(--ink); }
 .tour-next { padding: 8px 20px; font-size: 14px; font-weight: 600; }
+@media (max-width: 720px) {
+  /* На телефоне раскладка и высота viewport меняются заметнее. Без инерции
+     spotlight и подсказка точно следуют за пересчитанной геометрией. */
+  .tour-spot, .tour-pop { transition: none; }
+}
 @media (prefers-reduced-motion: reduce) {
   .tour-spot, .tour-pop { transition: none; }
 }
@@ -2702,6 +2859,21 @@ html[data-theme="dark"] .login-vpn {
   border-color: var(--line);
   color: var(--ink);
 }
+html[data-theme="dark"] .notif-settings-card {
+  background: linear-gradient(145deg, rgba(44,34,41,.82), rgba(31,25,31,.72));
+  border-color: rgba(255,255,255,.12);
+  box-shadow: 0 14px 34px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.07);
+}
+html[data-theme="dark"] .notif-pref.toggle,
+html[data-theme="dark"] .notif-compose textarea {
+  background: rgba(38,31,37,.76);
+}
+html[data-theme="dark"] .notif-new-count,
+html[data-theme="dark"] .notif-settings-icon {
+  background: rgba(105,62,76,.55);
+  border-color: rgba(255,255,255,.1);
+}
+html[data-theme="dark"] .notif-tab-count { background: rgba(255,255,255,.08); }
 html[data-theme="dark"] .og-preview {
   background: rgba(31, 25, 30, .94);
   border-color: var(--line);
@@ -2770,9 +2942,6 @@ html[data-theme="dark"] .cat-card .cat-tail .more[aria-expanded="true"] {
 }
 html[data-theme="dark"] .dcard.nocover .card-menu .more { background: rgba(47,37,44,.9); }
 html[data-theme="dark"] .og-warn { background: #3d3122; border-color: #655437; color: #e0c189; }
-html[data-theme="dark"] .btn.link-off { background: #42272b; border-color: #6d3b42; color: #ffaaa8; }
-html[data-theme="dark"] .btn.link-on { background: #243b2d; border-color: #385b45; color: #86d2a4; }
-
 /* Настройки группового голосования — те же мягкие стеклянные поверхности,
    что и остальной редактор, без отдельной «технической» панели. */
 .capacity-field { display: grid; gap: 9px; margin: 16px 0 0; }
@@ -2875,23 +3044,18 @@ html[data-theme="dark"] .login-theme { background: rgba(42,33,40,.78); }
    ============================================================ */
 
 .admin-icon {
-  display: block;
+  display: inline-block;
   width: 1em;
   height: 1em;
+  flex: none;
+  vertical-align: -.15em;
   fill: none;
   stroke: currentColor;
   stroke-width: 1.8;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-.skin-icon-friends { display: none; }
-html[data-skin="friends"] .skin-icon-romantic { display: none; }
-html[data-skin="friends"] .skin-icon-friends {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
+.admin-icon .admin-icon-fill { fill: currentColor; stroke: none; }
 .skin-setting {
   min-width: 0;
   margin: 10px 0 4px;
@@ -3301,6 +3465,23 @@ html[data-theme="dark"][data-skin="friends"] .badge.amber {
   background: #443923;
   color: #efc675;
 }
+html[data-skin="friends"] .notif-settings-card {
+  background: linear-gradient(145deg, rgba(255,255,252,.72), rgba(241,247,246,.58));
+  box-shadow: 0 16px 38px rgba(53,66,103,.1), inset 0 1px 0 rgba(255,255,255,.84);
+}
+html[data-skin="friends"] .notif-settings-icon,
+html[data-skin="friends"] .notif-new-count {
+  color: var(--accent); background: var(--rose-soft);
+}
+html[data-theme="dark"][data-skin="friends"] .notif-settings-card {
+  background: linear-gradient(145deg, rgba(35,42,59,.82), rgba(27,34,47,.74));
+  border-color: rgba(255,255,255,.11);
+  box-shadow: 0 16px 38px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.06);
+}
+html[data-theme="dark"][data-skin="friends"] .notif-pref.toggle,
+html[data-theme="dark"][data-skin="friends"] .notif-compose textarea {
+  background: rgba(29,36,51,.84);
+}
 html[data-skin="friends"] .vote-progress { accent-color: var(--friends-teal); }
 html[data-skin="friends"] .voting-winner { background: rgba(75,89,166,.08); }
 html[data-theme="dark"][data-skin="friends"] .voting-winner { background: rgba(146,160,255,.11); }
@@ -3359,5 +3540,30 @@ html[data-theme="dark"][data-skin="friends"] .bg-smoke span:nth-child(4) {
   html[data-skin="friends"] .top nav.glass-nav .tab-ind {
     background: linear-gradient(135deg, #5365bc, #354483);
     box-shadow: 0 4px 12px rgba(58,70,139,.31);
+  }
+}
+
+/* Telegram Mini App: Telegram Desktop/Web может менять высоту webview, а на
+   телефонах системные панели и вырезы не должны перекрывать шапку и tab bar. */
+html.tg-miniapp {
+  min-height: var(--tg-viewport-stable-height, 100%);
+}
+html.tg-miniapp .top {
+  padding-left: max(18px, var(--tg-content-safe-area-inset-left, 0px));
+  padding-right: max(18px, var(--tg-content-safe-area-inset-right, 0px));
+}
+@media (max-width: 720px) {
+  html.tg-miniapp .top {
+    padding-top: max(9px, var(--tg-content-safe-area-inset-top, 0px));
+    padding-left: max(14px, var(--tg-content-safe-area-inset-left, 0px));
+    padding-right: max(14px, var(--tg-content-safe-area-inset-right, 0px));
+  }
+  html.tg-miniapp .top nav.glass-nav {
+    left: max(10px, var(--tg-content-safe-area-inset-left, 0px));
+    right: max(10px, var(--tg-content-safe-area-inset-right, 0px));
+    bottom: max(10px, var(--tg-content-safe-area-inset-bottom, 0px));
+  }
+  html.tg-miniapp .wrap {
+    padding-bottom: calc(96px + var(--tg-content-safe-area-inset-bottom, 0px));
   }
 }

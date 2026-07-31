@@ -82,6 +82,8 @@ class VotingEventTests(unittest.TestCase):
         ).fetchall()
         self.assertEqual(len(rows), 1)
         self.assertIn("Ваш вариант победил", rows[0]["text"])
+        self.assertEqual(rows[0]["action_label"], "Посмотреть результат")
+        self.assertTrue(rows[0]["action_url"].endswith("/c/лето"))
         self.assertEqual(
             self.conn.execute(
                 "SELECT COUNT(*) FROM notification_outbox "

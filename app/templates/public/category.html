@@ -9,7 +9,7 @@
   <title>{{ cat.name }}</title>
   <meta property="og:title" content="{{ cat['og_title'] or ('Собираемся вместе' if active_skin == 'friends' else 'Тебя ждёт сюрприз ♥') }}">
   <meta property="og:description" content="{{ cat['og_desc'] or ('Открой и выбери удобный вариант' if active_skin == 'friends' else 'Открой — внутри кое-что приятное') }}">
-  <meta property="og:image" content="{% if og_available %}{{ BASE_URL }}/c/{{ token }}/og-image?skin={{ active_skin }}{% else %}{{ BASE_URL }}/static/{{ 'og-friends.jpg' if active_skin == 'friends' else 'og.png' }}{% endif %}">
+  <meta property="og:image" content="{% if og_available %}{{ BASE_URL }}/c/{{ token }}/og-image?skin={{ active_skin }}{% else %}{{ BASE_URL }}{{ asset('og-friends.jpg' if active_skin == 'friends' else 'og.png') }}{% endif %}">
   <meta property="og:type" content="website">
   <meta name="theme-color" content="{{ '#554eae' if active_skin == 'friends' else '#b65f6f' }}">
   <script src="{{ asset('theme.js') }}"></script>
@@ -131,7 +131,7 @@
   {% if bot and (not me or not me['bot_linked']) %}
   <section class="notify-cta tg-connect" data-return-to="/c/{{ token }}"
            aria-label="Уведомления в Telegram">
-    <div class="notify-cta-icon" aria-hidden="true">🔔</div>
+    <div class="notify-cta-icon" aria-hidden="true">{{ icon('bell') }}</div>
     <div class="notify-cta-copy">
       <b>Подключите уведомления в Telegram</b>
       <span>Пришлём результат голосования, важные изменения и напоминания о победившем событии.</span>
@@ -209,7 +209,7 @@
       {% if not d.images and not d.videos and d.is_winner %}<div class="winner-ribbon inflow">{% if active_skin == 'friends' %}{{ icon('spark') }} Общий выбор{% else %}Победитель ♥{% endif %}</div>{% endif %}
       <div class="meta">
         {% if d.starts_at %}
-        <div class="when"><span class="meta-icon" aria-hidden="true">{% if active_skin == 'friends' %}{{ icon('clock') }}{% else %}🕐{% endif %}</span>
+        <div class="when"><span class="meta-icon" aria-hidden="true">{{ icon('clock') }}</span>
           <span>{{ d.starts_at | when(d.ends_at) }}</span>
           {% if not d.past and d.gcal %}
           <a href="#" class="cal-link" data-gcal="{{ d.gcal }}"
@@ -219,11 +219,11 @@
         {% elif not d.past and not d.pending %}
         <div class="when">
           <button type="button" class="chip-suggest suggest"
-                  data-id="{{ d.id }}" data-name="{{ d.name }}">{% if active_skin == 'friends' %}{{ icon('calendar') }}{% else %}📅{% endif %} предложить дату</button>
+                  data-id="{{ d.id }}" data-name="{{ d.name }}">{{ icon('calendar') }} предложить дату</button>
         </div>
         {% endif %}
         {% if d.place %}
-        <div class="place"><span class="meta-icon" aria-hidden="true">{% if active_skin == 'friends' %}{{ icon('pin') }}{% else %}📍{% endif %}</span>
+        <div class="place"><span class="meta-icon" aria-hidden="true">{{ icon('pin') }}</span>
           <span><a href="{{ d.place_url or (d.place | ymaps) }}" target="_blank" rel="noopener">{{ d.place | placename }}</a></span>
         </div>
         {% endif %}
@@ -231,7 +231,7 @@
       {% if d.comment %}<p class="comment">{{ d.comment | rich }}</p>{% endif %}
       {% if d.links %}
       <div class="links">
-        {% for l in d.links %}<a href="{{ l.url }}" target="_blank" rel="noopener">{% if active_skin == 'friends' %}{{ icon('link') }}{% else %}🔗{% endif %} {{ l.url | host }}</a>{% endfor %}
+        {% for l in d.links %}<a href="{{ l.url }}" target="_blank" rel="noopener">{{ icon('link') }} {{ l.url | host }}</a>{% endfor %}
       </div>
       {% endif %}
 
@@ -307,11 +307,11 @@
         <div class="actions">
           {% if vote_state.status == 'open' and not viewer_is_owner %}
             {% if d.booked_by_me %}
-            <button class="btn book on" data-id="{{ d.id }}">{% if active_skin == 'friends' %}{{ icon('check') }} Выбрано{% else %}Выбрано ♥{% endif %}</button>
+            <button class="btn book on" data-id="{{ d.id }}">{{ icon('check') }} Выбрано</button>
             {% elif d.is_full %}
             <button class="btn book" data-id="{{ d.id }}" disabled>Набрано {{ d.vote_count }}/{{ d.capacity }}</button>
             {% else %}
-            <button class="btn book" data-id="{{ d.id }}">{% if active_skin == 'friends' %}{{ icon('check') }} Выбрать{% else %}Выбрать ♥{% endif %}</button>
+            <button class="btn book" data-id="{{ d.id }}">{{ icon('check') }} Выбрать</button>
             {% endif %}
           {% elif vote_state.status == 'unconfigured' and d.booked_by_me and not viewer_is_owner %}
             <button class="btn book on" data-id="{{ d.id }}">Снять старый выбор</button>
@@ -321,7 +321,7 @@
           {% elif d.is_winner and d.participation_withdrawn %}
           <span class="withdrawn-note">Ты отказался(-ась); результат не пересчитывается.</span>
           {% endif %}
-          <button class="btn ghost ask" data-id="{{ d.id }}" data-name="{{ d.name }}">{% if active_skin == 'friends' %}{{ icon('message') }} Спросить{% else %}Спросить 💬{% endif %}</button>
+          <button class="btn ghost ask" data-id="{{ d.id }}" data-name="{{ d.name }}">{{ icon('message') }} Спросить</button>
         </div>
         {% endif %}
         {% if d.editable %}
@@ -363,7 +363,7 @@
   {% endif %}
   {% else %}
   <div class="empty">
-    <div class="big">{% if active_skin == 'friends' %}{{ icon('gather') }}{% else %}🌷{% endif %}</div>
+    <div class="big">{% if active_skin == 'friends' %}{{ icon('gather') }}{% else %}{{ icon('heart') }}{% endif %}</div>
     Здесь пока пусто.{% if vote_state.status in ('unconfigured', 'open') %}<br>Предложи первое событие{% if active_skin == 'romantic' %} — кнопка внизу ♥{% else %} — кнопка внизу.{% endif %}{% endif %}
   </div>
   {% endif %}
@@ -414,7 +414,7 @@
     </div>
     <div class="dlg-actions">
       <button type="button" class="btn ghost" id="askCancel">Отмена</button>
-      <button type="submit" class="btn book">{% if active_skin == 'friends' %}{{ icon('mail') }} Отправить{% else %}Отправить 💌{% endif %}</button>
+      <button type="submit" class="btn book">{{ icon('mail') }} Отправить</button>
     </div>
   </form>
 </dialog>
@@ -470,7 +470,7 @@
     </details>
     <div class="dlg-actions">
       <button type="button" class="btn ghost" id="timeCancel">Отмена</button>
-      <button type="submit" class="btn book">{% if active_skin == 'friends' %}{{ icon('calendar') }} Предложить{% else %}Предложить 📅{% endif %}</button>
+      <button type="submit" class="btn book">{{ icon('calendar') }} Предложить</button>
     </div>
   </form>
 </dialog>
@@ -513,7 +513,7 @@
 
           <div class="body">
             <h3 class="ttl">
-              <span class="ed-field" id="propEdTitle" data-ph="Название события"></span>
+              <span class="ed-field" id="propEdTitle" data-ph="Название события *"></span>
               <span class="pay" id="propPayPill" hidden></span>
             </h3>
             <div class="pmeta">
@@ -532,7 +532,7 @@
                 </span>
               </div>
               <div class="ed-place-row">
-                <span aria-hidden="true">{% if active_skin == 'friends' %}{{ icon('pin') }}{% else %}📍{% endif %}</span>
+                <span aria-hidden="true">{{ icon('pin') }}</span>
                 <span class="ed-field ed-place" id="propEdPlace" data-ph="Место — адрес или ссылка на карты"></span>
               </div>
             </div>
@@ -544,15 +544,15 @@
               <button type="button" class="i" data-wrap="*|*" title="Курсив">К</button>
               <button type="button" class="u" data-wrap="__|__" title="Подчёркнутый">П</button>
               <button type="button" class="s" data-wrap="~~|~~" title="Зачёркнутый">З</button>
-              <button type="button" data-wrap="[|](https://)" title="Ссылка">{% if active_skin == 'friends' %}{{ icon('link') }}{% else %}🔗{% endif %}</button>
+              <button type="button" data-wrap="[|](https://)" title="Ссылка">{{ icon('link') }}</button>
             </div>
             <div class="ed-links-row">
-              <span aria-hidden="true">{% if active_skin == 'friends' %}{{ icon('link') }}{% else %}🔗{% endif %}</span>
+              <span aria-hidden="true">{{ icon('link') }}</span>
               <span class="ed-field ed-links" id="propEdLinks" data-ph="Ссылки — каждая с новой строки"></span>
             </div>
             <div class="acts">
-              <button type="button" class="bk">{% if active_skin == 'friends' %}{{ icon('check') }} Выбрать{% else %}Выбрать ♥{% endif %}</button>
-              <button type="button" class="ak">{% if active_skin == 'friends' %}{{ icon('message') }} Спросить{% else %}Спросить 💬{% endif %}</button>
+              <button type="button" class="bk">{{ icon('check') }} Выбрать</button>
+              <button type="button" class="ak">{{ icon('message') }} Спросить</button>
             </div>
           </div>
         </div>
@@ -571,7 +571,7 @@
             </div>
           </div>
           <label class="field capacity-field">
-            <span>Количество участников</span>
+            <span>Количество участников <span aria-hidden="true">*</span></span>
             <span class="capacity-stepper" data-number-stepper>
               <button type="button" class="capacity-step" data-step="-1"
                       aria-label="Уменьшить количество участников">−</button>
@@ -585,7 +585,7 @@
         <section class="sec date-widget-context">
           <h2><span class="n">2</span> Категория</h2>
           <div class="chips-cat">
-            <span class="chip-cat selected">{% if active_skin == 'friends' %}{{ icon('link') }}{% else %}🔗{% endif %} {{ cat.name }}</span>
+            <span class="chip-cat selected">{{ icon('link') }} {{ cat.name }}</span>
           </div>
           <p>Событие добавится в эту подборку. Если включена модерация, сначала его увидит организатор.</p>
         </section>

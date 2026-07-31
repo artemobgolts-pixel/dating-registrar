@@ -23,6 +23,10 @@ TG_BOT_USERNAME = os.getenv("TG_BOT_USERNAME", "").strip().lstrip("@")
 # Секрет вебхука: Telegram шлёт его в заголовке X-Telegram-Bot-Api-Secret-Token.
 # Без него вебхук принимать нельзя — иначе кто угодно «подтвердит» чужой код.
 TG_WEBHOOK_SECRET = os.getenv("TG_WEBHOOK_SECRET", "").strip()
+# HTTPS-точка входа Mini App. По умолчанию приложение живёт на том же домене,
+# что и сайт; отдельная переменная полезна для тестового бота/стейджинга.
+TG_MINI_APP_URL = (os.getenv("TG_MINI_APP_URL", "").strip()
+                   or f"{BASE_URL}/tg/app")
 
 # --- OAuth-провайдеры (заготовки) ---
 # Пока только каркас: владелец добавит реальные client_id/secret и redirect-URI
