@@ -12,6 +12,7 @@ import backup
 import db
 import notify
 import notification_outbox
+import social_events
 import voting_events
 from config import TG_BACKUP_CHAT_ID
 from helpers import _parse, now_iso, now_naive
@@ -93,7 +94,13 @@ def autoarchive_once(conn: sqlite3.Connection | None = None, *,
             start = _parse(r["starts_at"])
             if start is None:
                 continue
-            end = start.replace(hour=23, minute=59, second=59)
+            # Поздний старт не должен архивироваться раньше принятой в обзорах
+            # длительности «начало + 3 часа». Для обычного времени сохраняем
+            # прежнее правило конца календарного дня.
+            end = max(
+                start.replace(hour=23, minute=59, second=59),
+                start + social_events.DEFAULT_EVENT_DURATION,
+            )
         if end < n:
             archive_ids.add(int(r["id"]))
 
@@ -142,7 +149,20 @@ def autoarchive_once(conn: sqlite3.Connection | None = None, *,
                 "UPDATE dates SET archived_at=? WHERE id=? AND archived_at IS NULL",
                 (stamp, date_id),
             )
-            archived += max(0, cursor.rowcount)
+            changed = max(0, cursor.rowcount)
+            archived += changed
+            if not changed:
+                continue
+            # Переход в архив — надёжная точка для вопроса «Удалось сходить?».
+            # Outbox дедуплицирован по user/date, а review_queue имеет составной
+            # PK, поэтому повторный минутный цикл не создаст дублей.
+            for user_id in social_events.review_user_ids(conn, date_id):
+                social_events.queue_archive_review_prompt(
+                    conn, date_id, user_id, now=n,
+                )
+                social_events.mark_review_waiting(
+                    conn, date_id, user_id, "due", now=n,
+                )
     if archived:
         conn.commit()
     if own:

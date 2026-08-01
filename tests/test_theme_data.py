@@ -14,6 +14,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
+from PIL import ImageChops
 from starlette.datastructures import UploadFile
 
 
@@ -126,20 +127,37 @@ class ThemeMigrationTests(unittest.TestCase):
 
 
 class ThemePreviewTests(unittest.TestCase):
-    def test_romantic_preview_is_exact_og_png(self):
-        path = APP / "static" / "og.png"
-        self.assertTrue(path.is_file())
-        with images.Image.open(path) as preview:
-            self.assertEqual(preview.format, "PNG")
-            self.assertEqual(preview.size, (1200, 630))
-
-    def test_friends_preview_is_exact_lightweight_og_image(self):
-        path = APP / "static" / "og-friends.jpg"
+    def test_both_themes_share_exact_default_preview(self):
+        path = APP / "static" / "og-default.jpg"
         self.assertTrue(path.is_file())
         self.assertLess(path.stat().st_size, 200_000)
         with images.Image.open(path) as preview:
             self.assertEqual(preview.format, "JPEG")
             self.assertEqual(preview.size, (1200, 630))
+
+        for relative in (
+            "templates/public/category.html",
+            "templates/public/share.html",
+            "templates/public/profile_review.html",
+            "templates/admin/dashboard.html",
+            "templates/admin/category_detail.html",
+        ):
+            with self.subTest(template=relative):
+                source = (APP / relative).read_text("utf-8")
+                self.assertIn("og-default.jpg", source)
+                self.assertNotIn("og-friends.jpg", source)
+
+    def test_browser_favicons_are_dedicated_tightly_cropped_assets(self):
+        static = APP / "static"
+        for filename in ("favicon-standard.png", "favicon-romantic.png"):
+            with self.subTest(filename=filename), images.Image.open(
+                    static / filename) as icon:
+                self.assertEqual(icon.size, (128, 128))
+
+        login = (APP / "templates/auth/login.html").read_text("utf-8")
+        self.assertIn("favicon-standard.png", login)
+        self.assertIn("favicon-romantic.png", login)
+        self.assertIn('href="{{ asset(\'favicon-standard.png\') }}"', login)
 
     def test_friends_install_icons_do_not_fall_back_to_romantic_assets(self):
         static = APP / "static"
@@ -165,15 +183,22 @@ class ThemePreviewTests(unittest.TestCase):
         filenames = ["first.webp", "second.webp"]
         friends = images.og_collage_name(filenames, appearance.FRIENDS)
         romantic = images.og_collage_name(filenames, appearance.ROMANTIC)
-        old_digest = hashlib.sha256(
-            ("brand-v5\n" + "\n".join(filenames)).encode()
+        romantic_digest = hashlib.sha256(
+            (f"{images.OG_BRAND_VERSION}:romantic\n" +
+             "\n".join(filenames)).encode()
         ).hexdigest()[:24]
-        self.assertEqual(romantic, f"og_{old_digest}.webp")
+        self.assertEqual(romantic, f"og_{romantic_digest}.webp")
         self.assertNotEqual(friends, romantic)
         self.assertEqual(
             images.og_collage_name(filenames, "invalid-skin"),
             romantic,
         )
+
+    def test_collage_overlay_is_shared_and_applied(self):
+        base = images.Image.new("RGB", (images.OG_W, images.OG_H), "#ffffff")
+        branded = images._draw_og_brand_overlay(base)
+        self.assertEqual(branded.size, base.size)
+        self.assertIsNotNone(ImageChops.difference(base, branded).getbbox())
 
 
 class ThemeRouteDataTests(unittest.IsolatedAsyncioTestCase):

@@ -12,11 +12,11 @@
 <meta name="turbo-prefetch" content="false">
 <title>{% block title %}Кабинет{% endblock %} · date4you</title>
 {% if user and user['admin_skin'] == 'romantic' %}
-<link rel="icon" href="{{ asset('logo-romantic.png') }}">
+<link rel="icon" href="{{ asset('favicon-romantic.png') }}">
 <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
 <link rel="manifest" href="/static/manifest.json">
 {% else %}
-<link rel="icon" href="{{ asset('logo-standard.png') }}">
+<link rel="icon" href="{{ asset('favicon-standard.png') }}">
 <link rel="apple-touch-icon" href="/static/apple-touch-icon-friends.png">
 <link rel="manifest" href="/static/manifest-friends.json">
 {% endif %}
@@ -27,6 +27,7 @@
 {% endif %}
 <script src="{{ asset('theme.js') }}" data-turbo-track="reload"></script>
 <link rel="stylesheet" href="{{ asset('admin.css') }}" data-turbo-track="reload">
+<script src="{{ asset('confirm.js') }}" data-turbo-track="reload" defer></script>
 <!-- Turbo Drive: мгновенная навигация без полной перезагрузки (self-hosted).
      Грузим в <head> с defer, чтобы перехват кликов работал с первого экрана. -->
 <script src="{{ asset('vendor/turbo.min.js') }}" data-turbo-track="reload" defer></script>

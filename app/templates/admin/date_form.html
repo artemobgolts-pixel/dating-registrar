@@ -5,7 +5,7 @@
    снимок формы (категории выглядели «сброшенными»). #}
 {% block head %}<meta name="turbo-cache-control" content="no-cache">{% endblock %}
 {% block content %}
-<a class="btn ghost editor-back" href="{{ editor_return_url | default('/admin/dates', true) }}">← Назад</a>
+<a class="btn ghost editor-back date-editor-back" href="{{ editor_return_url | default('/admin/dates', true) }}">← Назад</a>
 <div class="crumb">Встречи › {{ 'Редактирование' if date else 'Новое' }}</div>
 <div class="bar">
   <h1 class="serif" style="margin:0">{{ 'Редактировать событие' if date else 'Новое событие' }}</h1>

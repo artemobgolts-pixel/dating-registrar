@@ -908,11 +908,15 @@ window.UI = (() => {
     };
     repos.alive = function () { return container.isConnected; };
     _tabRepos.push(repos);
-    // Если при первом расчёте webfont ещё догружался, после его готовности тихо
-    // уточняем ширину, чтобы следующий переход начинался из точной позиции.
+    // Если при первом расчёте webfont ещё догружался, уточняем геометрию через
+    // тот же анимированный put. Мгновенный repos() здесь мог выполниться раньше
+    // стартового requestAnimationFrame и «съесть» всё движение индикатора.
     if (document.fonts && document.fonts.ready) {
       document.fonts.ready.then(function () {
-        if (container.isConnected) repos();
+        if (!container.isConnected) return;
+        requestAnimationFrame(function () {
+          if (container.isConnected) put(geom(active()), true);
+        });
       });
     }
     // На клике индикатор и `.on` намеренно не двигаем: Turbo вот-вот уничтожит
@@ -1148,26 +1152,54 @@ window.UI = (() => {
       if (!Number.isFinite(deadline)) return;
 
       var timer = null;
+      var day = 86400;
+      var greenHue = 132;
+      var orangeHue = 32;
+
+      function stop() {
+        if (timer) clearInterval(timer);
+        timer = null;
+      }
+
+      function hueFor(seconds) {
+        if (seconds >= day * 2) return greenHue;
+        if (seconds >= day) {
+          var greenMix = (seconds - day) / day;
+          return orangeHue + (greenHue - orangeHue) * greenMix;
+        }
+        return orangeHue * (seconds / day);
+      }
+
       function render() {
+        if (!el.isConnected) {
+          stop();
+          return false;
+        }
         var seconds = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+        var hue = hueFor(seconds);
+        el.style.setProperty("--countdown-hue", hue.toFixed(2));
+        if (el.dataset.countdownScale !== "fixed") {
+          var urgency = 1 - Math.min(seconds, day * 2) / (day * 2);
+          el.style.setProperty("--countdown-font-size", (18 + urgency * 8).toFixed(2) + "px");
+        }
         if (seconds <= 0) {
           el.textContent = "Голосование завершается…";
-          if (timer) clearInterval(timer);
-          return;
+          stop();
+          return false;
         }
-        var days = Math.floor(seconds / 86400);
-        var hours = Math.floor((seconds % 86400) / 3600);
+        var days = Math.floor(seconds / day);
+        var hours = Math.floor((seconds % day) / 3600);
         var minutes = Math.floor((seconds % 3600) / 60);
         var secs = seconds % 60;
         var parts = [];
         if (days) parts.push(days + " дн.");
         if (days || hours) parts.push(hours + " ч.");
         parts.push(minutes + " мин.");
-        if (!days) parts.push(secs + " сек.");
+        parts.push(secs + " сек.");
         el.textContent = "До конца голосования осталось: " + parts.join(" ");
+        return true;
       }
-      render();
-      timer = setInterval(render, 1000);
+      if (render()) timer = setInterval(render, 1000);
     });
   }
 

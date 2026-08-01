@@ -77,6 +77,9 @@
         «неактивными». Старые черновики владельцев становятся активными, но
         приватными, чтобы миграция сама не опубликовала ранее скрытый контент;
         гостевые предложения на модерации не затрагиваются.
+  v30 — фиксированное стандартное превью категории и пользовательская очередь
+        событий, которые ждут обзора после завершения, отказа или удаления
+        ранее созданного обзора.
 
 Свежая база создаётся сразу по последней схеме. Существующая —
 докатывается миграциями при старте приложения.
@@ -90,7 +93,7 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "app.db"
 
-LATEST_VERSION = 29
+LATEST_VERSION = 30
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -195,6 +198,8 @@ CREATE TABLE IF NOT EXISTS categories (
     og_desc TEXT,              -- описание превью ссылки (NULL = дефолт)
     og_image TEXT,             -- картинка превью ссылки, WebP-файл (NULL = дефолт skin)
     og_focus TEXT,             -- точка фокуса своей картинки превью: «X% Y%» (NULL = центр)
+    use_default_preview INTEGER NOT NULL DEFAULT 0
+        CHECK(use_default_preview IN (0, 1)), -- 1 = не заменять дефолт авто-коллажем
     choice_mode TEXT CHECK(choice_mode IN ('single', 'multiple')),
     voting_deadline TEXT,      -- задаётся владельцем явно, время МСК
     voting_status TEXT NOT NULL DEFAULT 'unconfigured'
@@ -259,6 +264,21 @@ CREATE INDEX IF NOT EXISTS idx_date_reviews_profile
     ON date_reviews(user_id, is_public, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_date_reviews_date
     ON date_reviews(date_id, is_public, updated_at DESC);
+
+-- Очередь центра уведомлений «Ждут отзыва». Строка появляется, когда обзор
+-- становится уместен, пользователь откладывает его или удаляет уже созданный.
+-- Удаление упоминания не затрагивает само событие и право оставить обзор позже.
+CREATE TABLE IF NOT EXISTS review_queue (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    date_id INTEGER NOT NULL REFERENCES dates(id) ON DELETE CASCADE,
+    reason TEXT NOT NULL DEFAULT 'due'
+        CHECK(reason IN ('due', 'declined', 'review_deleted')),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, date_id)
+);
+CREATE INDEX IF NOT EXISTS idx_review_queue_user
+    ON review_queue(user_id, updated_at DESC);
 
 CREATE TABLE IF NOT EXISTS date_links (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1213,6 +1233,24 @@ MIGRATIONS: dict[int, str] = {
         CREATE INDEX IF NOT EXISTS idx_categories_winner_date
             ON categories(winner_date_id)
             WHERE voting_status='resolved' AND winner_date_id IS NOT NULL;
+    """,
+    30: """
+        -- Явный opt-in фиксирует фирменную картинку и запрещает новым событиям
+        -- автоматически заменять её коллажем.
+        ALTER TABLE categories ADD COLUMN use_default_preview INTEGER NOT NULL DEFAULT 0
+            CHECK(use_default_preview IN (0, 1));
+
+        CREATE TABLE IF NOT EXISTS review_queue (
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            date_id INTEGER NOT NULL REFERENCES dates(id) ON DELETE CASCADE,
+            reason TEXT NOT NULL DEFAULT 'due'
+                CHECK(reason IN ('due', 'declined', 'review_deleted')),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (user_id, date_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_review_queue_user
+            ON review_queue(user_id, updated_at DESC);
     """,
 }
 

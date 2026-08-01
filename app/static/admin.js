@@ -20,10 +20,6 @@
         setTimeout(function () { btn.textContent = o; }, 1500);
       });
     };
-    document.addEventListener("submit", function (e) {
-      var msg = e.target.getAttribute("data-confirm");
-      if (msg && !confirm(msg)) e.preventDefault();
-    });
     document.addEventListener("click", function (e) {
       var b = e.target.closest("[data-copy]");
       if (b) window.copyText(b.getAttribute("data-copy"), b);
@@ -139,6 +135,38 @@
       if (window.Turbo && Turbo.visit) Turbo.visit(location.href, { action: "replace" });
       else location.reload();
       return;
+    }
+
+    var bulkForm = document.getElementById("datesBulkForm");
+    if (bulkForm && !bulkForm.dataset.ready) {
+      bulkForm.dataset.ready = "1";
+      var bulkAll = bulkForm.querySelector("[data-bulk-all]");
+      var bulkCount = bulkForm.querySelector("[data-bulk-count]");
+      var bulkItems = Array.from(document.querySelectorAll("[data-bulk-item]"));
+      var bulkActions = Array.from(bulkForm.querySelectorAll('button[name="action"]'));
+
+      function syncBulkSelection() {
+        var selected = bulkItems.filter(function (item) { return item.checked; }).length;
+        if (bulkCount) bulkCount.textContent = "Выбрано: " + selected;
+        if (bulkAll) {
+          bulkAll.checked = bulkItems.length > 0 && selected === bulkItems.length;
+          bulkAll.indeterminate = selected > 0 && selected < bulkItems.length;
+        }
+        bulkActions.forEach(function (button) { button.disabled = selected === 0; });
+        bulkItems.forEach(function (item) {
+          var row = item.closest(".drow");
+          if (row) row.classList.toggle("is-selected", item.checked);
+        });
+      }
+
+      if (bulkAll) bulkAll.addEventListener("change", function () {
+        bulkItems.forEach(function (item) { item.checked = bulkAll.checked; });
+        syncBulkSelection();
+      });
+      bulkItems.forEach(function (item) {
+        item.addEventListener("change", syncBulkSelection);
+      });
+      syncBulkSelection();
     }
 
     var tog = document.getElementById("viewtog");
@@ -323,12 +351,12 @@
     if (addFirst) addFirst.addEventListener("click", openPicker);
 
     // удаление сохранённого фото/видео — сразу на сервер (как было в старом редакторе)
-    slidesEl.addEventListener("click", function (e) {
+    slidesEl.addEventListener("click", async function (e) {
       var rmP = e.target.closest("[data-rm-saved]");
       var rmV = e.target.closest("[data-rm-video]");
       if (rmP) {
         e.stopPropagation();
-        if (!confirm("Удалить фото?")) return;
+        if (!await window.d4yConfirm("Удалить фото?", { danger: true })) return;
         var pid = rmP.getAttribute("data-rm-saved");
         postForm("/admin/dates/" + did + "/images/" + pid + "/delete").then(function (ok) {
           if (ok) { var s = rmP.closest(".ed-slide"); if (s) s.remove(); renderNew(); }
@@ -336,7 +364,7 @@
         });
       } else if (rmV) {
         e.stopPropagation();
-        if (!confirm("Удалить видео?")) return;
+        if (!await window.d4yConfirm("Удалить видео?", { danger: true })) return;
         var vid = rmV.getAttribute("data-rm-video");
         postForm("/admin/dates/" + did + "/videos/" + vid + "/delete").then(function (ok) {
           if (ok) { var s = rmV.closest(".ed-slide"); if (s) s.remove(); renderNew(); }
@@ -671,12 +699,9 @@
       note.classList.toggle("saved", ok === true);
       note.classList.toggle("err", ok === false);
     }
-    async function save() {
-      var name = form.querySelector('[name="display_name"]');
-      if (name && !name.value.trim()) { flash("Имя не может быть пустым", false); return; }
+    var saveChain = Promise.resolve();
+    async function save(fd) {
       flash("Сохранение…");
-      var fd = new FormData(form);
-      fd.delete("avatar");
       try {
         var r = await fetch("/admin/profile", {
           method: "POST", body: fd, keepalive: true,
@@ -688,7 +713,20 @@
       }
     }
     function runSave() {
-      var pending = save();
+      var name = form.querySelector('[name="display_name"]');
+      if (name && !name.value.trim()) {
+        flash("Имя не может быть пустым", false);
+        return Promise.resolve(false);
+      }
+      // Снимок формы ставим в последовательную очередь. При быстрых кликах
+      // старый POST физически не может завершиться после нового и перезаписать
+      // выбранное оформление устаревшим значением.
+      var fd = new FormData(form);
+      fd.delete("avatar");
+      var pending = saveChain.catch(function () {}).then(function () {
+        return save(fd);
+      });
+      saveChain = pending;
       // profile.js дождётся именно этого запроса перед переходом в редактор:
       // иначе быстрый клик после смены skin мог получить старую тему с сервера.
       window.d4yProfileSave = pending;
@@ -1053,6 +1091,7 @@
     initNav();
     if (window.UI && UI.numberSteppers) UI.numberSteppers(document);
     if (window.UI && UI.lazyVideos) UI.lazyVideos(document);
+    if (window.UI && UI.voteCountdowns) UI.voteCountdowns(document);
     document.querySelectorAll("[data-picker-only]").forEach(function (input) {
       if (input.dataset.pickerReady) return;
       input.dataset.pickerReady = "1";

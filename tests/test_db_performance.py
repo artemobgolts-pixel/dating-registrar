@@ -115,6 +115,8 @@ class DatabasePerformanceMigrationTests(unittest.TestCase):
                 conn.execute("DROP TABLE date_reviews")
                 conn.execute("DROP TABLE date_wants")
                 conn.execute("DROP TABLE notification_preferences")
+                conn.execute("DROP TABLE review_queue")
+                conn.execute("ALTER TABLE categories DROP COLUMN use_default_preview")
                 conn.execute("PRAGMA user_version=24")
                 conn.commit()
                 conn.close()

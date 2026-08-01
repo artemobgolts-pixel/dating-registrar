@@ -82,12 +82,8 @@
 
   document.addEventListener("submit", function (event) {
     var form = event.target;
-    var message = form.getAttribute("data-confirm");
-    if (message && !window.confirm(message)) {
-      event.preventDefault();
-      return;
-    }
-
+    // data-confirm обрабатывает общий confirm.js в capture-фазе. Сюда
+    // подтверждённая форма приходит повторно с исходной submit-кнопкой.
     // Даём понятную обратную связь, но не блокируем повторно формы, для которых
     // браузер остановил отправку из-за HTML-валидации.
     window.setTimeout(function () {

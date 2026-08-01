@@ -253,7 +253,10 @@
 
   document.querySelectorAll(".withdraw-vote").forEach((b) => {
     b.addEventListener("click", () => requireAuth(async () => {
-      if (!confirm("Отказаться от участия? Победитель и результат голосования не изменятся.")) return;
+      if (!await window.d4yConfirm(
+        "Отказаться от участия? Победитель и результат голосования не изменятся.",
+        { trigger: b }
+      )) return;
       const withdrawUrl = document.body.dataset.withdrawUrl || (`/c/${TOKEN}/withdraw`);
       const res = await post(withdrawUrl, new FormData());
       if (!res.ok) return;
@@ -607,7 +610,7 @@
   document.querySelectorAll(".mine-actions .del").forEach((b) => {
     b.addEventListener("click", async () => {
       if (!AUTH) { goLogin(); return; }
-      if (!confirm(`Удалить «${b.dataset.name}»?`)) return;
+      if (!await window.d4yConfirm(`Удалить «${b.dataset.name}»?`, { trigger: b })) return;
       const res = await post(`/c/${TOKEN}/propose/${b.dataset.id}/delete`, new FormData());
       if (!res.ok) return;
       toast("Удалено");

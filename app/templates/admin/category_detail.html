@@ -74,22 +74,22 @@
 
     <div class="og-preview editable" id="ogPreview" data-tour="category-preview"
          data-cid="{{ cat['id'] }}"
-         data-has-image="{{ '1' if cat['og_image'] else '' }}"
+         data-has-image="{{ '1' if cat['og_image'] and not cat['use_default_preview'] else '' }}"
          data-preview-skin="{{ category_skin }}"
-         data-default-image="{{ '1' if not cat['og_image'] and not auto_og else '0' }}"
-         data-auto-image="{{ '1' if auto_og and not cat['og_image'] else '0' }}"
-         data-friends-src="{{ asset('og-friends.jpg') }}"
-         data-romantic-src="{{ asset('og.png') }}"
+         data-default-image="{{ '1' if cat['use_default_preview'] or (not cat['og_image'] and not auto_og) else '0' }}"
+         data-auto-image="{{ '1' if auto_og and not cat['og_image'] and not cat['use_default_preview'] else '0' }}"
+         data-friends-src="{{ asset('og-default.jpg') }}"
+         data-romantic-src="{{ asset('og-default.jpg') }}"
          aria-label="так ссылка выглядит при отправке">
       <div class="og-img-wrap" id="ogImgPick" title="Нажми, чтобы выбрать свою картинку">
         <img class="og-img" id="ogPreviewImg" draggable="false"
-             src="{% if cat['og_image'] or auto_og %}/admin/categories/{{ cat['id'] }}/og-preview?skin={{ category_skin }}{% elif category_skin == 'friends' %}{{ asset('og-friends.jpg') }}{% else %}{{ asset('og.png') }}{% endif %}"
+             src="{% if cat['use_default_preview'] or cat['og_image'] or auto_og %}/admin/categories/{{ cat['id'] }}/og-preview?skin={{ category_skin }}{% else %}{{ asset('og-default.jpg') }}{% endif %}"
              alt="" style="object-position:{{ cat['og_focus'] or '50% 50%' }}">
         {# постоянная подсказка «сменить картинку» — видна всегда, ярче при наведении #}
         <span class="og-img-badge" aria-hidden="true">🖼 Сменить</span>
         <span class="og-img-hint" aria-hidden="true">🖼 Нажми, чтобы выбрать свою картинку</span>
         {# подсказка «двигай кадр» — только когда картинка своя (её можно кропать) #}
-        <span class="og-focus-hint" id="ogFocusHint" aria-hidden="true"{% if not cat['og_image'] %} hidden{% endif %}>↔ двигай, чтобы выбрать кадр</span>
+        <span class="og-focus-hint" id="ogFocusHint" aria-hidden="true"{% if not cat['og_image'] or cat['use_default_preview'] %} hidden{% endif %}>↔ двигай, чтобы выбрать кадр</span>
       </div>
       <div class="og-text">
         <div class="og-title ed-field" id="ogTitleEd"
@@ -99,7 +99,7 @@
         <div class="og-host">date4you.online</div>
       </div>
     </div>
-    <p class="muted" style="font-size:12px;margin:2px 0 0">Кликай по тексту и картинке — правь прямо здесь. Пусто — покажем стандартный текст{% if auto_og %} и коллаж из фото событий{% endif %}.</p>
+    <p class="muted" style="font-size:12px;margin:2px 0 0">Кликай по тексту и картинке — правь прямо здесь. Пусто — покажем стандартный текст{% if cat['use_default_preview'] %} и зафиксированную фирменную фотографию{% elif auto_og %} и коллаж из фото событий{% endif %}.</p>
 
     <div class="og-warn" id="ogWarn" role="alert" hidden>
       <span class="og-warn-ic" aria-hidden="true">⚠</span>
@@ -138,12 +138,11 @@
         <button type="button" disabled>Ссылка отключена</button>
         <button type="button" data-tour="category-share-copy" disabled>Скопировать ссылку</button>
         {% endif %}
-        <button type="submit" form="cloneCategoryForm">Скопировать категорию</button>
         <div class="sepa" aria-hidden="true"></div>
-        <button type="submit" form="resetPreviewForm">Сбросить превью</button>
-        <button type="submit" form="toggleCategoryForm">
-          {{ 'Отключить ссылку' if cat['link_enabled'] else 'Включить ссылку' }}
+        <button type="submit" form="defaultPreviewForm">
+          {{ 'Убрать стандартное превью' if cat['use_default_preview'] else 'Установить стандартное превью' }}
         </button>
+        <button type="submit" form="resetPreviewForm">Сбросить превью</button>
         <div class="sepa" aria-hidden="true"></div>
         <button type="submit" class="danger" form="deleteCategoryForm"
                 {% if not can_change_composition %}disabled title="Завершённое голосование нельзя удалить"{% endif %}>
@@ -153,12 +152,8 @@
     </div>
   </div>
 
-  <form id="toggleCategoryForm" method="post"
-        action="/admin/categories/{{ cat['id'] }}/toggle" hidden>
-    <input type="hidden" name="csrf" value="{{ csrf }}">
-  </form>
-  <form id="cloneCategoryForm" method="post"
-        action="/admin/categories/{{ cat['id'] }}/clone" hidden>
+  <form id="defaultPreviewForm" method="post"
+        action="/admin/categories/{{ cat['id'] }}/default_preview" hidden>
     <input type="hidden" name="csrf" value="{{ csrf }}">
   </form>
   <form id="deleteCategoryForm" method="post"
@@ -228,12 +223,12 @@
   {% endif %}
 </div>
 
-<div class="card">
+<div class="card" id="categoryDates">
   <div class="bar category-fill-head" data-tour="category-dates">
     <b>События в категории</b>
     {% if can_change_composition %}
       <a class="btn small primary"
-         href="/admin/dates/new?category={{ cat['id'] }}&amp;return_to={{ ('/admin/categories/' ~ cat['id']) | urlencode }}">+ Новое событие</a>
+         href="/admin/dates/new?category={{ cat['id'] }}&amp;return_to={{ ('/admin/categories/' ~ cat['id'] ~ '#categoryDates') | urlencode }}">+ Новое событие</a>
     {% else %}
       <span class="badge">Состав зафиксирован</span>
     {% endif %}

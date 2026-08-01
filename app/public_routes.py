@@ -9,6 +9,7 @@ import json
 import re
 import sqlite3
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from fastapi import (APIRouter, BackgroundTasks, Depends, File, Form,
                      HTTPException, Request, UploadFile)
@@ -686,7 +687,7 @@ def home_head():
 
 @router.get("/favicon.ico", include_in_schema=False)
 def favicon():
-    return FileResponse("static/apple-touch-icon.png", media_type="image/png",
+    return FileResponse("static/favicon-standard.png", media_type="image/png",
                         headers={"Cache-Control": "public, max-age=86400"})
 
 
@@ -841,7 +842,9 @@ def public_category(token: str, request: Request, conn=Depends(get_db)):
         "vote_state": vote_state,
         # есть ли картинка для og:image — своя или авто (первое фото события).
         # Если да, мета-тег ведёт на /c/<токен>/og-image, иначе на skin-fallback.
-        "og_available": bool(cat["og_image"]) or any(d.get("images") for d in dates),
+        "og_available": bool(cat["use_default_preview"] or cat["og_image"]) or (
+            not cat["use_default_preview"] and any(d.get("images") for d in dates)
+        ),
         # бот для вход-модалки (Telegram Login Widget). Анониму — кнопка «Войти»
         # открывает окно с этим виджетом прямо на гостевой.
         "bot": auth_routes.BOT_USERNAME,
@@ -914,6 +917,12 @@ def public_og_image(token: str, conn=Depends(get_db)):
     cat = cat_by_token(conn, token)
     if not cat or not cat["link_enabled"]:
         raise HTTPException(404)
+    if cat["use_default_preview"]:
+        return FileResponse(
+            Path(__file__).with_name("static") / "og-default.jpg",
+            media_type="image/jpeg",
+            headers={"Cache-Control": "public, max-age=3600"},
+        )
     fn = cat["og_image"]
     if fn:
         if not images.SAFE_FILENAME.match(fn):
@@ -1192,6 +1201,7 @@ def shared_profile_review(token: str, review_id: int, request: Request,
     row = conn.execute(
         "SELECT r.id AS review_id, r.user_id, r.rating, r.text AS review_text, "
         "r.is_public AS review_public, d.id AS date_id, d.name, d.share_token, "
+        "d.owner_id AS event_owner_id, "
         "d.is_public AS date_public, d.is_draft AS date_draft, "
         "u.display_name, u.tg_username, u.admin_skin "
         "FROM date_reviews r JOIN dates d ON d.id=r.date_id "
@@ -1205,6 +1215,7 @@ def shared_profile_review(token: str, review_id: int, request: Request,
     review = dict(row)
     media = _batch_media(conn, [int(row["date_id"])])
     review["images"] = media["images"].get(int(row["date_id"]), [])
+    me = viewer(request, conn)
     response = templates.TemplateResponse(
         request, "public/profile_review.html",
         {"request": request, "review": review, "is_me": False,
@@ -1212,7 +1223,14 @@ def shared_profile_review(token: str, review_id: int, request: Request,
          "reviewer_display": row["display_name"] or row["tg_username"]
          or f"Человек #{row['user_id']}",
          "category_skin": appearance.normalize_skin(row["admin_skin"]),
-         "profile_return_url": "", "review_share_url": ""},
+         "profile_return_url": "", "review_share_url": "",
+         "token": token, "me": me,
+         "event_owner_id": int(row["event_owner_id"]),
+         "csrf": request.session.get("csrf", ""),
+         "bot": auth_routes.BOT_USERNAME,
+         "oauth": auth_routes._oauth_buttons(),
+         "widget_state": (auth_routes.issue_widget_state(request)
+                          if auth_routes.BOT_USERNAME and not me else None)},
     )
     response.headers["X-Robots-Tag"] = "noindex"
     return response
@@ -1306,15 +1324,42 @@ def shared_date_review(token: str, request: Request,
         "SELECT id FROM date_reviews WHERE user_id=? AND date_id=?",
         (user["id"], d["id"]),
     ).fetchone()
+    social_events.clear_review_waiting(conn, d["id"], user["id"])
     social_events.cancel_review_prompt(conn, d["id"], user["id"], "review_published")
     if not existing and publish:
         social_events.queue_review_received(conn, int(review["id"]))
     conn.commit()
     suffix = "" if publish else " Событие приватное, поэтому обзор виден только тебе."
     return redir(
-        f"/u/{user['id']}?tab=reviews",
+        f"/u/{user['id']}?tab=reviews#profileCollection",
         "Обзор опубликован." + suffix,
     )
+
+
+@router.post("/d/{token}/review/decline", dependencies=[Depends(users.current_user)])
+def shared_date_review_decline(token: str, request: Request,
+                               conn=Depends(get_db)):
+    """Откладывает обзор в центр «Ждут отзыва» без удаления события."""
+    d = date_by_share(conn, token)
+    if not d:
+        raise HTTPException(404, "Событие не найдено")
+    user = request.state.user
+    if int(user["id"]) == int(d["owner_id"]):
+        raise HTTPException(400, "Это твоё событие")
+    guest_throttle("review-decline", viewer_token(user), request)
+    if conn.execute(
+        "SELECT 1 FROM date_reviews WHERE user_id=? AND date_id=?",
+        (user["id"], d["id"]),
+    ).fetchone():
+        raise HTTPException(409, "Обзор уже создан")
+    if not social_events.mark_review_waiting(
+            conn, d["id"], user["id"], "declined"):
+        raise HTTPException(409, "Обзор пока недоступен")
+    social_events.cancel_review_prompt(conn, d["id"], user["id"], "review_declined")
+    conn.commit()
+    if request.headers.get("x-requested-with") == "fetch":
+        return JSONResponse({"ok": True, "message": "Событие добавлено в «Ждут отзыва»"})
+    return redir(f"/d/{token}", "Событие добавлено в «Ждут отзыва»")
 
 
 def _share_act_or_410(conn, token: str):
@@ -2142,4 +2187,43 @@ def public_report(token: str, request: Request, bg: BackgroundTasks,
             f"Категория: {esc(cat['name'])}",
             f"Причина: {esc(reason or 'без описания')}",
             f"\n{BASE_URL}/operator/reports"))
+    return JSONResponse({"ok": True})
+
+
+@router.post("/d/{token}/report")
+def shared_date_report(token: str, request: Request, bg: BackgroundTasks,
+                       target_type: str = Form("date"), target_id: int = Form(0),
+                       reason: str = Form(""), conn=Depends(get_db)):
+    """Жалоба со страницы события или его публичного обзора.
+
+    Операторская модель жалоб знает события и категории, поэтому кнопка обзора
+    намеренно указывает на исходное событие и не подменяет id типом ``review``.
+    """
+    d = date_by_share(conn, token)
+    if not d:
+        raise HTTPException(404, "Событие не найдено")
+    user = acting_user(request, conn)
+    reporter = viewer_token(user)
+    guest_throttle("report", reporter, request)
+    if target_type != "date" or (target_id and int(target_id) != int(d["id"])):
+        raise HTTPException(400, "Некорректная цель жалобы")
+    duplicate = conn.execute(
+        "SELECT 1 FROM reports WHERE target_type='date' AND target_id=? "
+        "AND reporter=? AND status='open'", (d["id"], reporter),
+    ).fetchone()
+    reason = clean_text(reason, 1000, "Причина") or None
+    if not duplicate:
+        conn.execute(
+            "INSERT INTO reports(target_type,target_id,reporter,reason,status,created_at) "
+            "VALUES('date',?,?,?,'open',?)",
+            (d["id"], reporter, reason, now_iso()),
+        )
+        conn.commit()
+        bg.add_task(notify.notify, notify.card(
+            "🚩 Жалоба",
+            f"На событие: «{esc(d['name'])}»",
+            "Источник: публичная ссылка или обзор",
+            f"Причина: {esc(reason or 'без описания')}",
+            f"\n{BASE_URL}/operator/reports",
+        ))
     return JSONResponse({"ok": True})

@@ -24,29 +24,42 @@
 
     {% if is_me %}
     <form class="profile-review-editor" method="post"
+          data-review-id="{{ review['review_id'] }}"
           action="/u/{{ review['user_id'] }}/reviews/{{ review['review_id'] }}/edit">
       <input type="hidden" name="csrf" value="{{ request.session.get('csrf', '') }}">
       <input type="hidden" name="next" value="{{ profile_return_url }}">
       <fieldset class="profile-rating">
         <legend>Оценка<sup class="required-mark" aria-hidden="true">*</sup></legend>
-        {% for score in range(1, 6) %}
-        <label><input type="radio" name="rating" value="{{ score }}"
-                      {{ 'checked' if review['rating'] == score else '' }} required>{{ score }} ★</label>
+        <div class="profile-rating-stars">
+        {% for score in range(5, 0, -1) %}
+        <input type="radio" id="profile-rating-{{ review['review_id'] }}-{{ score }}"
+               name="rating" value="{{ score }}"
+               {{ 'checked' if review['rating'] == score else '' }} required>
+        <label for="profile-rating-{{ review['review_id'] }}-{{ score }}"
+               title="{{ score }} из 5">★<span class="sr-only">{{ score }} из 5</span></label>
         {% endfor %}
+        </div>
       </fieldset>
       <textarea name="text" maxlength="4000"
-                placeholder="Текст необязателен">{{ review['review_text'] or '' }}</textarea>
-      <button type="submit" class="btn primary">Сохранить обзор</button>
+                 placeholder="Текст необязателен">{{ review['review_text'] or '' }}</textarea>
+      <div class="profile-review-actions{{ ' is-single' if not shareable else '' }}">
+        <button type="submit" class="btn primary">Сохранить обзор</button>
+        {% if shareable %}
+        <button type="button" class="btn ghost profile-review-share" data-community-share
+                data-share-url="{{ review_share_url }}"
+                data-share-title="Обзор события «{{ review['name'] }}»"
+                data-share-text="Посмотри мой обзор события в date4you">Поделиться</button>
+        {% endif %}
+      </div>
     </form>
+    {% if not shareable %}
+    <p class="profile-review-private-note">Скрытым обзором нельзя поделиться.</p>
     {% endif %}
-
-    {% if shareable %}
+    {% elif shareable %}
     <button type="button" class="btn ghost profile-review-share" data-community-share
             data-share-url="{{ review_share_url }}"
             data-share-title="Обзор события «{{ review['name'] }}»"
             data-share-text="Посмотри мой обзор события в date4you">Поделиться</button>
-    {% elif is_me %}
-    <p class="profile-review-private-note">Скрытым обзором нельзя поделиться.</p>
     {% endif %}
   </div>
 </article>

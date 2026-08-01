@@ -4,25 +4,9 @@
 {% block content %}
 <h1>Категории</h1>
 
-<form method="post" action="/admin/categories/create" class="category-create-row" data-tour="category-create">
-  <input type="hidden" name="csrf" value="{{ csrf }}">
-  <label class="field">
-    <span class="field-label">Название<sup class="required-mark" aria-hidden="true">*</sup></span>
-    <input type="text" name="name" maxlength="200" placeholder="Например, Летние планы" required>
-  </label>
-  <label class="field">
-    <span class="field-label">Режим голосования<sup class="required-mark" aria-hidden="true">*</sup></span>
-    <select name="choice_mode" required>
-      <option value="single">Один вариант</option>
-      <option value="multiple">Несколько вариантов</option>
-    </select>
-  </label>
-  <label class="field">
-    <span class="field-label">Дедлайн голосования<sup class="required-mark" aria-hidden="true">*</sup></span>
-    <input type="datetime-local" name="voting_deadline" min="{{ deadline_min }}" required data-picker-only>
-  </label>
-  <button class="btn primary category-create-btn">Создать категорию</button>
-</form>
+<div class="category-create-only" data-tour="category-create">
+  <a class="btn primary category-create-btn" href="/admin/categories/new">Создать категорию</a>
+</div>
 
 <div data-tour="categories-collection">
 {% for c in cats %}

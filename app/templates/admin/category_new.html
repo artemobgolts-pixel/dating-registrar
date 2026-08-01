@@ -1,0 +1,36 @@
+{% extends "admin/base.html" %}
+{% block title %}Новая категория{% endblock %}
+{% block content %}
+<a class="btn editor-back" href="/admin/categories">← Назад</a>
+<div class="bar">
+  <h1 class="serif" style="margin:0">Новая категория</h1>
+</div>
+
+<div class="card category-new-card">
+  <form method="post" action="/admin/categories/create" class="category-new-form">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label class="field">
+      <span class="field-label">Название<sup class="required-mark" aria-hidden="true">*</sup></span>
+      <input type="text" name="name" maxlength="200"
+             placeholder="Например, Летние планы" required autofocus>
+    </label>
+    <label class="field">
+      <span class="field-label">Сколько вариантов сможет выбрать участник<sup class="required-mark" aria-hidden="true">*</sup></span>
+      <select name="choice_mode" required>
+        <option value="single">Один вариант</option>
+        <option value="multiple">Несколько вариантов</option>
+      </select>
+    </label>
+    <label class="field">
+      <span class="field-label">Дедлайн голосования<sup class="required-mark" aria-hidden="true">*</sup></span>
+      <input type="datetime-local" name="voting_deadline" min="{{ deadline_min }}"
+             value="{{ default_deadline }}" required data-picker-only>
+      <small class="muted">Его всегда можно изменить в редакторе категории.</small>
+    </label>
+    <div class="category-new-actions">
+      <button class="btn primary" type="submit">Создать категорию</button>
+      <a class="btn ghost" href="/admin/categories">Отмена</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

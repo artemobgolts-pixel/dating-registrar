@@ -99,11 +99,72 @@ def prompt_key(date_id: int, user_id: int) -> str:
     return f"review:date:{int(date_id)}:user:{int(user_id)}:prompt"
 
 
+def archive_prompt_key(date_id: int, user_id: int) -> str:
+    return f"review:date:{int(date_id)}:user:{int(user_id)}:archived"
+
+
+def review_user_ids(conn: sqlite3.Connection, date_id: int) -> list[int]:
+    """Пользователи, которым событие действительно доступно для обзора.
+
+    Отметка «Хочу сходить» даёт право независимо от результата голосования;
+    бронь — только участнику победившего варианта, который не отказался.
+    """
+    return [int(row["user_id"]) for row in conn.execute(
+        "SELECT user_id FROM date_wants WHERE date_id=? "
+        "UNION "
+        "SELECT b.user_id FROM bookings b JOIN categories c ON c.id=b.category_id "
+        "WHERE b.date_id=? AND b.user_id IS NOT NULL "
+        "AND b.participation_withdrawn_at IS NULL "
+        "AND c.voting_status='resolved' AND c.winner_date_id=b.date_id",
+        (date_id, date_id),
+    ).fetchall()]
+
+
+def mark_review_waiting(conn: sqlite3.Connection, date_id: int, user_id: int,
+                        reason: str = "due", *, now: datetime | None = None,
+                        require_available: bool = True) -> bool:
+    """Добавляет событие в пользовательскую очередь «Ждут отзыва»."""
+    if reason not in {"due", "declined", "review_deleted"}:
+        raise ValueError("Некорректная причина ожидания обзора")
+    current = (now or now_naive()).replace(tzinfo=None, microsecond=0)
+    if require_available and not review_available(
+            conn, date_id, user_id, now=current):
+        return False
+    if not require_available and not conn.execute(
+        "SELECT 1 FROM dates WHERE id=?", (date_id,),
+    ).fetchone():
+        return False
+    if conn.execute(
+        "SELECT 1 FROM date_reviews WHERE user_id=? AND date_id=?",
+        (user_id, date_id),
+    ).fetchone():
+        return False
+    stamp = current.isoformat(sep="T")
+    conn.execute(
+        "INSERT INTO review_queue(user_id,date_id,reason,created_at,updated_at) "
+        "VALUES(?,?,?,?,?) "
+        "ON CONFLICT(user_id,date_id) DO UPDATE SET "
+        "reason=excluded.reason, updated_at=excluded.updated_at",
+        (user_id, date_id, reason, stamp, stamp),
+    )
+    return True
+
+
+def clear_review_waiting(conn: sqlite3.Connection, date_id: int,
+                         user_id: int) -> int:
+    cur = conn.execute(
+        "DELETE FROM review_queue WHERE user_id=? AND date_id=?",
+        (user_id, date_id),
+    )
+    return max(cur.rowcount, 0)
+
+
 def cancel_review_prompt(conn: sqlite3.Connection, date_id: int, user_id: int,
                          reason: str = "review_not_needed") -> int:
     return notification_outbox.cancel(
         conn,
-        event_key=prompt_key(date_id, user_id),
+        event_prefix=f"review:date:{int(date_id)}:user:{int(user_id)}:",
+        kind="review_prompt",
         reason=reason,
     )
 
@@ -154,19 +215,52 @@ def queue_review_prompt(conn: sqlite3.Connection, date_id: int,
     )
 
 
+def queue_archive_review_prompt(conn: sqlite3.Connection, date_id: int,
+                                user_id: int, *, now: datetime | None = None) -> int | None:
+    """Ставит отдельное уведомление именно после перехода события в архив.
+
+    Обычный prompt мог быть доставлен сразу после времени встречи. Отдельный
+    idempotency-key гарантирует понятную реакцию на исчезновение из «Хочу
+    сходить» и при этом не размножается на повторных фоновых проходах.
+    """
+    current = (now or now_naive()).replace(tzinfo=None, microsecond=0)
+    # Не отправляем кнопку раньше, чем по ней действительно откроется форма.
+    # Это особенно важно для поздних starts-only событий и старых импортов.
+    if not review_available(conn, date_id, user_id, now=current):
+        return None
+    if conn.execute(
+        "SELECT 1 FROM date_reviews WHERE user_id=? AND date_id=?",
+        (user_id, date_id),
+    ).fetchone():
+        return None
+    row = conn.execute(
+        "SELECT name, share_token FROM dates WHERE id=?", (date_id,),
+    ).fetchone()
+    if not row or not row["share_token"]:
+        return None
+    return notification_outbox.enqueue(
+        conn,
+        user_id=user_id,
+        kind="review_prompt",
+        event_key=archive_prompt_key(date_id, user_id),
+        text=notify.card(
+            "⭐ Событие завершилось",
+            f"«{notify.esc(row['name'])}»",
+            "Удалось сходить? Если да — оставь обзор.",
+        ),
+        action_url=f"{BASE_URL}/d/{row['share_token']}#review",
+        action_label="Оставить обзор",
+        send_at=current,
+        expires_at=current + REVIEW_PROMPT_TTL,
+        now=current,
+    )
+
+
 def queue_review_prompts_for_date(conn: sqlite3.Connection, date_id: int) -> int:
     """Пересчитывает prompt желающих и участников победившего варианта."""
     queued = 0
-    for row in conn.execute(
-        "SELECT user_id FROM date_wants WHERE date_id=? "
-        "UNION "
-        "SELECT b.user_id FROM bookings b JOIN categories c ON c.id=b.category_id "
-        "WHERE b.date_id=? AND b.user_id IS NOT NULL "
-        "AND b.participation_withdrawn_at IS NULL "
-        "AND c.voting_status='resolved' AND c.winner_date_id=b.date_id",
-        (date_id, date_id),
-    ).fetchall():
-        if queue_review_prompt(conn, date_id, int(row["user_id"])) is not None:
+    for user_id in review_user_ids(conn, date_id):
+        if queue_review_prompt(conn, date_id, user_id) is not None:
             queued += 1
     return queued
 
@@ -203,6 +297,15 @@ def _review_entitled(conn: sqlite3.Connection, date_id: int, user_id: int) -> bo
 
 def review_available(conn: sqlite3.Connection, date_id: int, user_id: int,
                      *, now: datetime | None = None) -> bool:
+    # Строка очереди создаётся только после уже наступившего due. Она сохраняет
+    # право вернуться к обзору, даже если затем пользователь снял «Хочу
+    # сходить»/отказался от участия. Для review_deleted это также доказательство,
+    # что обзор этого события ранее действительно существовал.
+    if conn.execute(
+        "SELECT 1 FROM review_queue WHERE user_id=? AND date_id=?",
+        (user_id, date_id),
+    ).fetchone():
+        return True
     if not _review_entitled(conn, date_id, user_id):
         return False
     due = review_due(conn, date_id)

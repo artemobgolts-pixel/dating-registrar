@@ -69,15 +69,19 @@
 }
 .profile-tabs::-webkit-scrollbar { display: none; }
 .profile-tabs a {
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px;
   flex: 0 0 auto; padding: 9px 13px; border: 1px solid var(--line); border-radius: 999px;
   color: var(--rose-2); background: color-mix(in srgb, var(--card) 58%, transparent);
-  text-decoration: none; font-size: 13px; font-weight: 650;
+  text-decoration: none; font-size: 13px; font-weight: 650; line-height: 1;
 }
 .profile-tabs a.on {
   color: #fff; border-color: var(--rose); background: var(--rose);
   box-shadow: 0 6px 16px color-mix(in srgb, var(--rose) 28%, transparent);
 }
-.profile-tabs b { font-size: 11px; opacity: .78; }
+.profile-tabs b {
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 11px; line-height: 1; opacity: .78;
+}
 .review-card {
   position: relative; display: grid; grid-template-columns: 132px minmax(0, 1fr);
   overflow: visible; border: 1px solid var(--line); border-radius: 16px;
@@ -125,9 +129,31 @@
 }
 .review-menu-pop a:hover, .review-menu-pop button:hover { background: var(--rose-soft); }
 .review-menu-pop .danger { color: #a44552; }
-.profile-rating { display: flex; gap: 8px; flex-wrap: wrap; border: 0; padding: 0; margin: 0; }
-.profile-rating legend { width: 100%; color: var(--ink); font-size: 13px; font-weight: 700; }
-.profile-rating label { display: inline-flex; align-items: center; gap: 3px; cursor: pointer; color: #9b7b22; font-weight: 700; }
+.profile-rating { border: 0; padding: 0; margin: 0; }
+.profile-rating legend { color: var(--ink); font-size: 13px; font-weight: 700; }
+.profile-rating-stars {
+  display: flex; flex-direction: row-reverse; justify-content: flex-end; gap: 4px;
+  width: max-content; max-width: 100%; margin-top: 4px;
+}
+.profile-rating-stars input {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+  overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%);
+  border: 0; white-space: nowrap;
+}
+.profile-rating-stars label {
+  display: block; color: color-mix(in srgb, var(--muted) 35%, transparent);
+  cursor: pointer; font-size: 40px; line-height: 1; transition: color .14s ease, transform .14s ease;
+}
+.profile-rating-stars input:checked ~ label { color: #d99f2b; }
+.profile-rating-stars:hover label {
+  color: color-mix(in srgb, var(--muted) 35%, transparent);
+}
+.profile-rating-stars label:hover,
+.profile-rating-stars label:hover ~ label { color: #d99f2b; }
+.profile-rating-stars input:focus-visible + label {
+  outline: 2px solid var(--rose); outline-offset: 3px; border-radius: 4px;
+}
+.profile-rating-stars label:hover { transform: translateY(-1px) scale(1.05); }
 
 /* Обзор раскрывается отдельным виджетом: здесь намеренно нет действий события. */
 .profile-review-widget { overflow: hidden; border-radius: 20px; background: var(--card); }
@@ -159,8 +185,22 @@
   border: 1px solid var(--line); border-radius: 11px;
   color: var(--ink); background: var(--card); font: inherit;
 }
-.profile-review-editor .btn, .profile-review-share { width: 100%; justify-content: center; }
-.profile-review-share { margin-top: 12px; }
+.profile-review-actions {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px;
+}
+.profile-review-actions.is-single { grid-template-columns: minmax(0, 1fr); }
+.profile-review-actions .btn {
+  width: 100%; min-width: 0; min-height: 52px; padding: 13px 8px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 14px; font-size: clamp(13.5px, 4vw, 16px); font-weight: 700;
+}
+.profile-review-actions .btn.primary {
+  border-color: var(--accent, var(--rose)); color: #fff;
+  background: var(--accent, var(--rose));
+}
+.profile-review-widget-body > .profile-review-share {
+  width: 100%; margin-top: 12px; justify-content: center;
+}
 .profile-review-private-note { margin: 12px 0 0; font-size: 13px; }
 .profile-review-page {
   position: relative; z-index: 1; width: min(560px, calc(100% - 28px));
@@ -250,6 +290,15 @@
   .pub-dates.profile-public-owner { padding-inline: 0; }
   .profile-tabs { justify-content: flex-start; }
   .pub-grid { grid-template-columns: 1fr; }
+  .pub-dates.profile-tab-events .pub-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px;
+  }
+  .profile-tab-events .pub-card .ph { height: clamp(92px, 29vw, 126px); }
+  .profile-tab-events .pub-card .cb { padding: 9px 9px 11px; }
+  .profile-tab-events .pub-card .t { font-size: 15px; overflow-wrap: anywhere; }
+  .profile-tab-events .pub-card .m {
+    font-size: 11px; line-height: 1.35; overflow-wrap: anywhere;
+  }
   .review-card { grid-template-columns: 96px minmax(0, 1fr); }
   .review-card .review-cover { min-height: 132px; }
   .review-card-body { padding-left: 13px; }

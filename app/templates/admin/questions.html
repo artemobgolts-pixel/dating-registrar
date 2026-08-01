@@ -4,7 +4,7 @@
 <div class="notif-page-head">
   <div>
     <h1 class="serif">Уведомления</h1>
-    <p>Вопросы и предложения времени по твоим событиям.</p>
+    <p>Вопросы, предложения времени и события, которые ждут твоего отзыва.</p>
   </div>
   {% if unread %}
   <span class="notif-new-count">{{ '99+' if unread > 99 else unread }} новых</span>
@@ -17,11 +17,13 @@
       {% with icon='bell' %}{% include "admin/_icon.html" %}{% endwith %}
     </span>
     <span class="notif-settings-copy">
-      <span class="notif-settings-title" id="notif-settings-title" role="heading" aria-level="2">Уведомления в Telegram</span>
+      <span class="notif-settings-title-row">
+        <span class="notif-settings-title" id="notif-settings-title" role="heading" aria-level="2">Уведомления в Telegram</span>
+        <span class="notif-channel-state{{ ' connected' if user['bot_linked'] else '' }}">
+          <i aria-hidden="true"></i>{{ 'Бот подключён' if user['bot_linked'] else 'Бот не подключён' }}
+        </span>
+      </span>
       <span class="notif-settings-hint">Выбери, какие сообщения бот будет присылать тебе.</span>
-    </span>
-    <span class="notif-channel-state{{ ' connected' if user['bot_linked'] else '' }}">
-      <i aria-hidden="true"></i>{{ 'Бот подключён' if user['bot_linked'] else 'Бот не подключён' }}
     </span>
     <span class="notif-settings-chevron" aria-hidden="true"></span>
   </summary>
@@ -68,17 +70,62 @@
 </details>
 
 <div class="controls notif-controls">
-  <div class="tabs" aria-label="Фильтр уведомлений">
-    <a href="/admin/questions" class="{{ 'on' if f != 'all' else '' }}">
-      Непрочитанные <span class="notif-tab-count">{{ unread }}</span>
+  <div class="tabs" data-glass-key="notification-filters" aria-label="Фильтр уведомлений">
+    <a href="/admin/questions" class="{{ 'on' if f == 'unread' else '' }}">
+      Непрочитанные <span class="notif-tab-count">{{ question_unread }}</span>
     </a>
     <a href="/admin/questions?f=all" class="{{ 'on' if f == 'all' else '' }}">
       Все <span class="notif-tab-count">{{ total_notifications }}</span>
+    </a>
+    <a href="/admin/questions?f=reviews" class="{{ 'on' if f == 'reviews' else '' }}">
+      Ждут отзыва <span class="notif-tab-count">{{ review_waiting }}</span>
     </a>
   </div>
 </div>
 
 <div class="notif-list">
+{% if f == 'reviews' %}
+{% for review in review_rows %}
+<article class="notif-card notif-review-card">
+  <div class="notif-head">
+    <span class="notif-ic notif-review-ic" aria-hidden="true">★</span>
+    <div class="notif-meta">
+      <div class="notif-who"><b>{{ review['date_name'] }}</b><span class="badge amber">ждёт отзыва</span></div>
+      <div class="notif-sub">
+        {{ review['starts_at'] | when(review['ends_at']) or 'Дата события не указана' }}
+        · напоминание от {{ review['updated_at'] | ts }}
+      </div>
+    </div>
+  </div>
+
+  <p class="notif-review-reason">
+    {% if review['reason'] == 'review_deleted' %}
+      Ты удалил обзор этого события. Можно написать новый или убрать упоминание.
+    {% elif review['reason'] == 'declined' %}
+      Ты отложил отзыв. Вернись к нему, когда будет удобно.
+    {% else %}
+      Событие завершилось — расскажи, как всё прошло.
+    {% endif %}
+  </p>
+
+  <div class="notif-actions">
+    {% if review['share_token'] %}
+    <a class="btn primary notif-action-btn" href="/d/{{ review['share_token'] }}#review">Оставить обзор</a>
+    {% endif %}
+    <form class="inline" method="post" action="/admin/questions/reviews/{{ review['date_id'] }}/dismiss"
+          data-confirm="Полностью удалить это упоминание?">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button type="submit" class="btn danger notif-action-btn">Удалить упоминание</button>
+    </form>
+  </div>
+</article>
+{% else %}
+<div class="empty-state notif-empty">
+  <div class="big">★</div>
+  <p>Событий, которые ждут отзыва, нет</p>
+</div>
+{% endfor %}
+{% else %}
 {% for q in rows %}
 <article class="notif-card{{ ' read' if q['is_read'] and not q['answer'] else '' }}{{ ' unread' if not q['is_read'] else '' }}">
   <div class="notif-head">
@@ -146,5 +193,6 @@
   <p>{{ 'Уведомлений пока нет' if f == 'all' else 'Непрочитанных уведомлений нет' }}</p>
 </div>
 {% endfor %}
+{% endif %}
 </div>
 {% endblock %}

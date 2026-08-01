@@ -87,7 +87,7 @@ class PublicProfileTabsTests(unittest.TestCase):
         with TestClient(main.app, follow_redirects=False) as owner, \
                 TestClient(main.app, follow_redirects=False) as other:
             owner_id, owner_csrf = login(owner, 991001, "Алина")
-            other_id, _ = login(other, 991002, "Борис")
+            other_id, other_csrf = login(other, 991002, "Борис")
 
             conn = db.connect()
             own_public = self._date(
@@ -141,8 +141,12 @@ class PublicProfileTabsTests(unittest.TestCase):
             conn.close()
 
             own_events = owner.get("/admin/profile?tab=events").text
+            self.assertIn('class="pub-dates profile-tab-events', own_events)
             self.assertNotIn("Открыть публичный профиль", own_events)
             self.assertIn("<h2>Коллекция событий</h2>", own_events)
+            self.assertNotIn(
+                "Так твои события, планы и обзоры собраны в профиле.", own_events,
+            )
             for title in ("Публичные события", "Хочу сходить", "Обзоры"):
                 self.assertIn(title, own_events)
             self.assertIn("Публичное событие Алины", own_events)
@@ -167,17 +171,31 @@ class PublicProfileTabsTests(unittest.TestCase):
             self.assertIn('id="profileEventDlg"', own_events)
 
             own_wants = owner.get("/admin/profile?tab=want").text
+            self.assertIn('class="pub-dates profile-tab-want', own_wants)
             self.assertIn("Открытая прогулка", own_wants)
             self.assertIn("Закрытая прогулка", own_wants)
             self.assertIn("Хочу сходить <b>2</b>", own_wants)
 
             own_reviews = owner.get("/admin/profile?tab=reviews").text
+            self.assertIn('class="pub-dates profile-tab-reviews', own_reviews)
             self.assertIn("Публичный обзор", own_reviews)
             self.assertIn("Личный обзор", own_reviews)
             self.assertIn("Обзоры <b>2</b>", own_reviews)
             self.assertIn("Изменить", own_reviews)
             self.assertIn("Удалить", own_reviews)
             self.assertNotIn("Убрать из профиля", own_reviews)
+            self.assertIn(
+                f'action="/u/{owner_id}/reviews/{public_review_id}/hide"',
+                own_reviews,
+            )
+            self.assertIn(
+                f'action="/u/{owner_id}/reviews/{private_review_id}/hide"',
+                own_reviews,
+            )
+            self.assertIn(
+                'data-confirm="Удалить обзор? Событие появится во вкладке «Ждут отзыва»."',
+                own_reviews,
+            )
             self.assertIn('class="review-menu-dots" viewBox="0 0 20 6"', own_reviews)
             self.assertIn(
                 f'data-profile-widget="/u/{owner_id}/reviews/{public_review_id}/widget',
@@ -194,6 +212,9 @@ class PublicProfileTabsTests(unittest.TestCase):
             )
             self.assertEqual(review_widget.status_code, 200)
             self.assertIn("Сохранить обзор", review_widget.text)
+            self.assertIn('class="profile-rating-stars"', review_widget.text)
+            self.assertIn('class="profile-review-actions', review_widget.text)
+            self.assertIn(">Поделиться</button>", review_widget.text)
             self.assertIn(
                 f"https://profile-tabs.test/d/review-public/review/{public_review_id}",
                 review_widget.text,
@@ -215,6 +236,26 @@ class PublicProfileTabsTests(unittest.TestCase):
             self.assertEqual(anonymous_widget.headers["location"], "/login")
             self.assertIn("Публичный обзор", shared_review.text)
             self.assertNotIn("Сохранить обзор", shared_review.text)
+            reported = other.post(
+                "/d/review-public/report",
+                data={"csrf": other_csrf, "target_type": "date",
+                      "target_id": str(reviewed_public), "reason": "Проверить обзор"},
+            )
+            self.assertEqual(reported.status_code, 200, reported.text)
+            self.assertTrue(reported.json()["ok"])
+            duplicate_report = other.post(
+                "/d/review-public/report",
+                data={"csrf": other_csrf, "target_type": "date",
+                      "target_id": str(reviewed_public), "reason": "Повтор"},
+            )
+            self.assertEqual(duplicate_report.status_code, 200)
+            conn = db.connect()
+            self.assertEqual(conn.execute(
+                "SELECT COUNT(*) FROM reports WHERE target_type='date' "
+                "AND target_id=? AND reporter=?",
+                (reviewed_public, f"u{other_id}"),
+            ).fetchone()[0], 1)
+            conn.close()
             self.assertEqual(
                 owner.get(
                     f"/d/review-private/review/{private_review_id}",
@@ -227,6 +268,20 @@ class PublicProfileTabsTests(unittest.TestCase):
                 ).status_code,
                 404,
             )
+            edited_json = owner.post(
+                f"/u/{owner_id}/reviews/{public_review_id}/edit",
+                data={"csrf": owner_csrf, "rating": "4", "text": "Обзор без перехода",
+                      "next": "/admin/profile?tab=reviews"},
+                headers={"Accept": "application/json"},
+            )
+            self.assertEqual(edited_json.status_code, 200, edited_json.text)
+            self.assertEqual(edited_json.json(), {
+                "ok": True,
+                "message": "Обзор обновлён",
+                "rating": 4,
+                "text": "Обзор без перехода",
+                "is_public": True,
+            })
             edited = owner.post(
                 f"/u/{owner_id}/reviews/{public_review_id}/edit",
                 data={"csrf": owner_csrf, "rating": "5", "text": "Публичный обзор",
@@ -344,6 +399,23 @@ class PublicProfileTabsTests(unittest.TestCase):
                 unquote(saved.headers["location"]),
             )
 
+            deleted = owner.post(
+                f"/u/{owner_id}/reviews/{private_review_id}/hide",
+                data={"csrf": owner_csrf, "next": "/admin/profile?tab=reviews"},
+            )
+            self.assertEqual(deleted.status_code, 303)
+            conn = db.connect()
+            self.assertIsNone(conn.execute(
+                "SELECT 1 FROM date_reviews WHERE id=?", (private_review_id,),
+            ).fetchone())
+            queued = conn.execute(
+                "SELECT reason FROM review_queue WHERE user_id=? AND date_id=?",
+                (owner_id, reviewed_private),
+            ).fetchone()
+            self.assertIsNotNone(queued)
+            self.assertEqual(queued["reason"], "review_deleted")
+            conn.close()
+
     def test_profile_pagination_uses_anchored_arrow_controls(self):
         with TestClient(main.app, follow_redirects=False) as owner, \
                 TestClient(main.app, follow_redirects=False) as viewer:
@@ -396,8 +468,10 @@ class PublicProfileTabsTests(unittest.TestCase):
         self.assertIsNotNone(avatar_delete)
         self.assertIn("background: transparent", avatar_delete.group(1))
         self.assertIn("color: #dc3545", avatar_delete.group(1))
-        self.assertIn("right: 6.5px", avatar_delete.group(1))
-        self.assertIn("top: 3px", avatar_delete.group(1))
+        self.assertIn("width: 34px", avatar_delete.group(1))
+        self.assertIn("height: 34px", avatar_delete.group(1))
+        self.assertIn("right: 2px", avatar_delete.group(1))
+        self.assertIn("top: 2px", avatar_delete.group(1))
         self.assertNotIn("box-shadow", avatar_delete.group(1))
         self.assertIn(".avatar-delete::before", css)
         self.assertIn(".social-state-add::after", css)

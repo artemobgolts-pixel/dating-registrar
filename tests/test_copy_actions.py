@@ -8,8 +8,10 @@ import re
 import sys
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
-from urllib.parse import unquote
+from unittest import mock
+from urllib.parse import unquote_plus
 
 from PIL import Image
 from starlette.testclient import TestClient
@@ -32,6 +34,8 @@ os.environ.update({
 
 import db  # noqa: E402
 import main  # noqa: E402
+import admin_routes  # noqa: E402
+import social_events  # noqa: E402
 
 
 HEADERS = {"X-Telegram-Bot-Api-Secret-Token": "copy-hook-secret"}
@@ -84,12 +88,12 @@ class CopyActionTests(unittest.TestCase):
         category_id = int(conn.execute(
             "INSERT INTO categories("
             "owner_id,name,category_skin,link_token,link_enabled,description,"
-            "og_title,og_desc,og_image,og_focus,choice_mode,voting_deadline,"
+            "og_title,og_desc,og_image,og_focus,use_default_preview,choice_mode,voting_deadline,"
             "voting_status,created_at"
-            ") VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            ") VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (uid, "Маршрут", "romantic", f"cat-{telegram_id}", 1,
              "Описание", "Заголовок", "Подпись", og_name, "30% 70%",
-             "single", "2030-01-03T10:00", "open", NOW),
+             1, "single", "2030-01-03T10:00", "open", NOW),
         ).lastrowid)
         date_id = int(conn.execute(
             "INSERT INTO dates("
@@ -128,18 +132,11 @@ class CopyActionTests(unittest.TestCase):
         conn.close()
         return category_id, date_id, {og_name, photo_name, video_name}
 
-    def test_category_copy_is_independent_and_owner_guarded(self):
+    def test_category_copy_reuses_events_and_is_owner_guarded(self):
         with TestClient(main.app, follow_redirects=False) as owner:
             csrf = login(owner, 880101)
             source_category, source_date, source_files = self._seed_source(880101)
 
-            detail = owner.get(f"/admin/categories/{source_category}").text
-            self.assertIn("Скопировать категорию", detail)
-            self.assertIn(f'action="/admin/categories/{source_category}/clone"', detail)
-            category_list = owner.get("/admin/categories").text
-            self.assertIn(
-                f'action="/admin/categories/{source_category}/clone"', category_list,
-            )
             event_editor = owner.get(
                 f"/admin/dates/{source_date}/edit",
                 params={"return_to": "/admin/dates?view=active&f=public&page=2"},
@@ -167,9 +164,15 @@ class CopyActionTests(unittest.TestCase):
                 f'href="/admin/categories/{source_category}"', from_category,
             )
 
-            response = owner.post(
-                f"/admin/categories/{source_category}/clone", data={"csrf": csrf},
-            )
+            # Даже при копировании давно завершённой категории нельзя сдвигать
+            # её дедлайн вперёд: события теперь общие, и новый срок временно
+            # закрыл бы форму обзора у исходного события.
+            with mock.patch.object(
+                    admin_routes, "now_naive",
+                    return_value=datetime(2031, 1, 1, 10, 0)):
+                response = owner.post(
+                    f"/admin/categories/{source_category}/clone", data={"csrf": csrf},
+                )
             self.assertEqual(response.status_code, 303)
 
             conn = db.connect()
@@ -185,41 +188,62 @@ class CopyActionTests(unittest.TestCase):
             self.assertEqual(copied_category["link_enabled"], 0)
             self.assertNotEqual(copied_category["og_image"], "copy-880101-og.webp")
             self.assertEqual(copied_category["og_focus"], "30% 70%")
+            self.assertEqual(copied_category["use_default_preview"], 1)
 
-            copied_date = conn.execute(
-                "SELECT d.*, dc.position AS cat_position FROM dates d "
-                "JOIN date_categories dc ON dc.date_id=d.id "
-                "WHERE dc.category_id=?",
+            copied_link = conn.execute(
+                "SELECT date_id,position FROM date_categories WHERE category_id=?",
                 (copied_category["id"],),
             ).fetchone()
-            self.assertEqual(copied_date["name"], "Прогулка (копия)")
-            self.assertNotEqual(copied_date["id"], source_date)
-            self.assertNotEqual(copied_date["share_token"], "date-880101")
-            self.assertEqual(copied_date["is_public"], 0)
-            self.assertEqual(copied_date["is_draft"], 0)
-            self.assertEqual(copied_date["cat_position"], 7)
+            self.assertEqual(copied_link["date_id"], source_date)
+            self.assertEqual(copied_link["position"], 7)
             self.assertEqual(conn.execute(
-                "SELECT url FROM date_links WHERE date_id=?", (copied_date["id"],),
+                "SELECT COUNT(*) FROM dates WHERE owner_id=?", (copied_category["owner_id"],),
+            ).fetchone()[0], 1)
+            self.assertEqual(conn.execute(
+                "SELECT COUNT(*) FROM dates WHERE name='Прогулка (копия)'",
+            ).fetchone()[0], 0)
+            self.assertEqual(conn.execute(
+                "SELECT url FROM date_links WHERE date_id=?", (source_date,),
             ).fetchone()[0], "https://example.com/route")
-            copied_media = {row["filename"] for row in conn.execute(
+            linked_media = {row["filename"] for row in conn.execute(
                 "SELECT filename FROM date_images WHERE date_id=?",
-                (copied_date["id"],),
+                (source_date,),
             )}
-            copied_media.update(row["filename"] for row in conn.execute(
+            linked_media.update(row["filename"] for row in conn.execute(
                 "SELECT filename FROM date_videos WHERE date_id=?",
-                (copied_date["id"],),
+                (source_date,),
             ))
-            self.assertTrue(copied_media.isdisjoint(source_files))
+            self.assertEqual(
+                linked_media,
+                {"copy-880101-photo.webp", "copy-880101-video.mp4"},
+            )
             self.assertEqual(conn.execute(
-                "SELECT focus FROM date_images WHERE date_id=?", (copied_date["id"],),
+                "SELECT COUNT(*) FROM date_images",
+            ).fetchone()[0], 1)
+            self.assertEqual(conn.execute(
+                "SELECT COUNT(*) FROM date_videos",
+            ).fetchone()[0], 1)
+            self.assertEqual(conn.execute(
+                "SELECT focus FROM date_images WHERE date_id=?", (source_date,),
             ).fetchone()[0], "25% 75%")
             self.assertEqual(conn.execute(
-                "SELECT COUNT(*) FROM bookings WHERE date_id=?", (copied_date["id"],),
+                "SELECT COUNT(*) FROM bookings WHERE category_id=?",
+                (copied_category["id"],),
             ).fetchone()[0], 0)
             self.assertEqual(conn.execute(
-                "SELECT COUNT(*) FROM questions WHERE date_id=?", (copied_date["id"],),
+                "SELECT COUNT(*) FROM questions WHERE category_id=?",
+                (copied_category["id"],),
             ).fetchone()[0], 0)
-            copied_files = copied_media | {copied_category["og_image"]}
+            conn.execute(
+                "INSERT INTO date_wants(user_id,date_id,created_at,updated_at) "
+                "VALUES(?,?,?,?)",
+                (copied_category["owner_id"], source_date, NOW, NOW),
+            )
+            self.assertTrue(social_events.review_available(
+                conn, source_date, copied_category["owner_id"],
+                now=datetime(2031, 1, 1, 10, 0),
+            ))
+            copied_files = {copied_category["og_image"]}
             conn.close()
             self.assertTrue(all((main.images.UPLOAD_DIR / name).exists()
                                 for name in source_files | copied_files))
@@ -238,7 +262,7 @@ class CopyActionTests(unittest.TestCase):
                 # POST-ошибки кабинета превращаются в дружелюбный flash-redirect,
                 # но owner-гейт не должен создать ни одной строки/копии.
                 self.assertEqual(forbidden.status_code, 303)
-                self.assertIn("Категория не найдена", unquote(forbidden.headers["location"]))
+                self.assertIn("Категория не найдена", unquote_plus(forbidden.headers["location"]))
                 after = db.connect()
                 self.assertEqual(after.execute(
                     "SELECT COUNT(*) FROM categories",
@@ -251,7 +275,9 @@ class CopyActionTests(unittest.TestCase):
             ".cfeed {\n  display: grid;\n  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));",
             css,
         )
-        self.assertIn(".grid, .cfeed { grid-template-columns: minmax(0, 1fr); }", css)
+        self.assertIn(".grid { grid-template-columns: repeat(2, minmax(0, 1fr));", css)
+        self.assertIn(".cfeed { grid-template-columns: minmax(0, 1fr); }", css)
+        self.assertNotIn(".grid, .cfeed { grid-template-columns: minmax(0, 1fr); }", css)
         self.assertIn(
             "(max-width: 950px) and (max-height: 600px) and (pointer: coarse)", css,
         )
@@ -266,6 +292,7 @@ class CopyActionTests(unittest.TestCase):
         date_form = (APP / "templates/admin/date_form.html").read_text(encoding="utf-8")
         public_category = (APP / "templates/public/category.html").read_text(encoding="utf-8")
         self.assertIn('class="required-title"', date_form)
+        self.assertIn('class="btn ghost editor-back date-editor-back"', date_form)
         self.assertIn('class="required-title"', public_category)
         self.assertIn(".required-mark {", css)
         self.assertIn(

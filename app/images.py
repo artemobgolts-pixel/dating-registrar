@@ -19,7 +19,7 @@ import hashlib
 import subprocess
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont, ImageOps
+from PIL import Image, ImageOps
 
 import appearance
 
@@ -419,6 +419,8 @@ def save_videos_batch(uploads) -> list[str]:
 # ---------------------------------------------------------------------------
 
 OG_W, OG_H = 1200, 630
+OG_BRAND_OVERLAY = Path(__file__).parent / "static" / "og-collage-overlay.png"
+OG_BRAND_VERSION = "brand-v7:preview-overlay"
 
 
 def _grid_for(n: int) -> tuple[int, int]:
@@ -440,47 +442,43 @@ def og_collage_name(
     if not files:
         return None
     skin = appearance.normalize_skin(skin, default=appearance.ROMANTIC)
-    # Версия входит в ключ: при изменении фирменного оформления старый кэш
-    # автоматически перестаёт использоваться.
-    # Romantic-рендер не изменился: оставляем его прежний brand-v5 ключ, чтобы
-    # после деплоя не пересобирать синхронно весь уже прогретый OG-кэш. Новый
-    # namespace нужен только для визуально другого friends-коллажа.
-    brand_key = "brand-v5\n" if skin == appearance.ROMANTIC else "brand-v6:friends\n"
+    # Версия входит в ключ: при изменении фирменного оверлея старый кэш
+    # автоматически перестаёт использоваться. Skin оставляем в namespace:
+    # пользователь может переключать оформление прямо в редакторе превью.
+    brand_key = f"{OG_BRAND_VERSION}:{skin}\n"
     h = hashlib.sha256(
         (brand_key + "\n".join(files)).encode()).hexdigest()[:24]
     return f"og_{h}.webp"
 
 
-def _draw_friends_og_mark(canvas: Image.Image) -> Image.Image:
-    """Нейтральная подпись дружеского коллажа: четыре участника сходятся вместе."""
+def _draw_og_brand_overlay(canvas: Image.Image) -> Image.Image:
+    """Накладывает единый полупрозрачный знак ``превью.png`` на OG-коллаж.
+
+    У исходника большие декоративные поля. Центральный кроп сохраняет знак и
+    подпись date4you, но не закрывает пользовательские фотографии всей картинкой.
+    Если ассет повреждён, коллаж всё равно отдаётся без оверлея.
+    """
+    try:
+        with Image.open(OG_BRAND_OVERLAY) as source:
+            source.load()
+            mark = source.convert("RGBA")
+    except (OSError, ValueError):
+        return canvas
+
+    width, height = mark.size
+    mark = mark.crop((
+        round(width * 0.22), round(height * 0.12),
+        round(width * 0.78), round(height * 0.88),
+    ))
+    mark.thumbnail((460, 360), Image.LANCZOS)
+    alpha = mark.getchannel("A").point(lambda value: round(value * 0.72))
+    mark.putalpha(alpha)
+
     overlay = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
-    draw = ImageDraw.Draw(overlay)
-    cx, cy = OG_W // 2, OG_H // 2
-
-    # Светлая площадка удерживает знак читаемым на любом пользовательском фото.
-    plate = (cx - 118, cy - 118, cx + 118, cy + 118)
-    draw.rounded_rectangle(
-        plate, radius=58, fill=(250, 247, 240, 225),
-        outline=(255, 255, 255, 220), width=3)
-
-    navy = (39, 40, 59, 255)
-    indigo = (91, 91, 214, 255)
-    teal = (56, 166, 161, 255)
-    amber = (230, 165, 74, 255)
-    arc_boxes = (
-        ((cx - 63, cy - 66, cx + 54, cy + 48), 205, 282, navy),
-        ((cx - 48, cy - 60, cx + 67, cy + 55), 298, 372, indigo),
-        ((cx - 57, cy - 45, cx + 58, cy + 70), 28, 104, amber),
-        ((cx - 69, cy - 55, cx + 49, cy + 66), 116, 192, teal),
+    overlay.alpha_composite(
+        mark,
+        ((OG_W - mark.width) // 2, (OG_H - mark.height) // 2),
     )
-    for bounds, start, end, color in arc_boxes:
-        draw.arc(bounds, start=start, end=end, fill=color, width=9)
-    for x, y, color in (
-            (cx - 58, cy - 61, navy),
-            (cx + 61, cy - 49, indigo),
-            (cx + 54, cy + 62, amber),
-            (cx - 63, cy + 54, teal)):
-        draw.ellipse((x - 12, y - 12, x + 12, y + 12), fill=color)
     return Image.alpha_composite(canvas.convert("RGBA"), overlay).convert("RGB")
 
 
@@ -528,25 +526,7 @@ def build_og_collage(
         y = (idx // cols) * cell_h
         canvas.paste(tile, (x, y))
 
-    if skin == appearance.FRIENDS:
-        canvas = _draw_friends_og_mark(canvas)
-    else:
-        # Лёгкая фирменная подпись по центру: она остаётся читаемой и на светлых,
-        # и на тёмных кадрах, но не перекрывает сам коллаж плотной плашкой.
-        overlay = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
-        draw = ImageDraw.Draw(overlay)
-        try:
-            font_path = Path(__file__).parent / "static" / "fonts" / "great-vibes-latin-400-normal.woff2"
-            brand_font = ImageFont.truetype(str(font_path), 150)
-        except (OSError, ValueError):
-            brand_font = ImageFont.load_default()
-        center = (OG_W // 2, OG_H // 2)
-        draw.text((center[0] + 3, center[1] + 5), "date4you", font=brand_font,
-                  anchor="mm", fill=(35, 18, 25, 92))
-        draw.text(center, "date4you", font=brand_font, anchor="mm",
-                  fill=(244, 170, 188, 255), stroke_width=1,
-                  stroke_fill=(122, 45, 67, 210))
-        canvas = Image.alpha_composite(canvas.convert("RGBA"), overlay).convert("RGB")
+    canvas = _draw_og_brand_overlay(canvas)
 
     tmp = out.with_suffix(".tmp.webp")
     canvas.save(tmp, "WEBP", quality=82, method=4)

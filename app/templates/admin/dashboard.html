@@ -28,9 +28,15 @@
       {% else %}
       <div class="share-cat">{{ share['name'] }}</div>
       {% endif %}
+      {% if share['voting_status'] == 'open' and share['voting_deadline'] %}
+      <div class="dashboard-vote-countdown">
+        <b role="timer" data-vote-countdown data-countdown-scale="fixed"
+           data-deadline="{{ share['voting_deadline'] }}+03:00">До конца голосования осталось…</b>
+      </div>
+      {% endif %}
       {% set share_friends = share['category_skin'] == 'friends' %}
       <div class="og-preview" aria-label="так ссылка выглядит при отправке">
-        <img class="og-img" src="{% if share_has_og %}/admin/categories/{{ share['id'] }}/og-preview?skin={{ share['category_skin'] }}{% elif share_friends %}{{ asset('og-friends.jpg') }}{% else %}{{ asset('og.png') }}{% endif %}" alt="">
+        <img class="og-img" src="{% if share_has_og %}/admin/categories/{{ share['id'] }}/og-preview?skin={{ share['category_skin'] }}{% else %}{{ asset('og-default.jpg') }}{% endif %}" alt="">
         <div class="og-text">
           <div class="og-title">{{ share['og_title'] or ('Собираемся вместе' if share_friends else 'Тебя ждёт сюрприз ♥') }}</div>
           <div class="og-desc">{{ share['og_desc'] or ('Открой и выбери удобный вариант' if share_friends else 'Открой — внутри кое-что приятное') }}</div>

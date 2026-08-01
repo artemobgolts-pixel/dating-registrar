@@ -12,6 +12,11 @@
   var MAX_AGE = 60 * 60 * 24 * 365;
   var root = document.documentElement;
   var transitionBusy = false;
+  // View Transition держит снимок страницы до конца волны. Менять DOM второй
+  // раз посреди этой волны нельзя: снимок и фактическая тема расходятся. Быстрые
+  // клики поэтому схлопываем до последнего намерения и выполняем его после
+  // текущего перехода, не меняя длительность самой анимации.
+  var queuedAppearance = null;
 
   function savedTheme() {
     var match = document.cookie.match(new RegExp("(?:^|;\\s*)" + COOKIE + "=(light|dark)(?:;|$)"));
@@ -141,9 +146,14 @@
   }
 
   function animateAppearance(change, source, event, timing) {
-    if (!canAnimateAppearance() || transitionBusy) {
-      // Состояние важнее анимации: быстрый второй выбор не должен теряться.
+    if (!canAnimateAppearance()) {
       change();
+      return;
+    }
+    if (transitionBusy) {
+      queuedAppearance = function () {
+        animateAppearance(change, source, event, timing);
+      };
       return;
     }
 
@@ -197,11 +207,20 @@
     transition.finished.finally(function () {
       root.classList.remove("d4y-theme-transition");
       transitionBusy = false;
+      var next = queuedAppearance;
+      queuedAppearance = null;
+      if (next) next();
     });
   }
 
   function animateTheme(theme, source, event) {
     theme = theme === "dark" ? "dark" : "light";
+    if (transitionBusy) {
+      queuedAppearance = function () {
+        animateTheme(theme, source, event);
+      };
+      return;
+    }
     if (theme === root.dataset.theme) {
       applyTheme(theme, true);
       return;
@@ -213,6 +232,12 @@
 
   function animateSkin(skin, source, event, persist) {
     skin = skin === "romantic" ? "romantic" : "friends";
+    if (transitionBusy) {
+      queuedAppearance = function () {
+        animateSkin(skin, source, event, persist);
+      };
+      return;
+    }
     if (skin === root.dataset.skin) {
       applySkin(skin, persist);
       return;
@@ -281,17 +306,17 @@
     syncSkin();
     updateChrome(root.dataset.theme || "light");
     updateButtons(root.dataset.theme || "light");
-    updateSkinButtons(root.dataset.skin || "romantic");
+    updateSkinButtons(root.dataset.skin || "friends");
   });
   document.addEventListener("d4y:skinchange", function () {
     updateChrome(root.dataset.theme || "light");
-    updateSkinButtons(root.dataset.skin || "romantic");
+    updateSkinButtons(root.dataset.skin || "friends");
   });
   // Turbo заменяет body, но не перезапускает этот скрипт.
   document.addEventListener("turbo:load", function () {
     syncSkin();
     updateChrome(root.dataset.theme || "light");
     updateButtons(root.dataset.theme || "light");
-    updateSkinButtons(root.dataset.skin || "romantic");
+    updateSkinButtons(root.dataset.skin || "friends");
   });
 })();

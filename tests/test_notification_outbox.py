@@ -369,6 +369,8 @@ class NotificationOutboxMigrationTests(unittest.TestCase):
                 # просил миграцию повторно добавить существующие колонки.
                 conn.execute("ALTER TABLE categories DROP COLUMN category_skin")
                 conn.execute("ALTER TABLE users DROP COLUMN admin_skin")
+                conn.execute("DROP TABLE review_queue")
+                conn.execute("ALTER TABLE categories DROP COLUMN use_default_preview")
                 conn.execute("PRAGMA user_version=22")
                 conn.commit()
                 conn.close()
@@ -400,6 +402,8 @@ class NotificationOutboxMigrationTests(unittest.TestCase):
                 conn.execute("ALTER TABLE notification_outbox DROP COLUMN action_url")
                 conn.execute("ALTER TABLE notification_outbox DROP COLUMN action_label")
                 conn.execute("DROP TABLE notification_preferences")
+                conn.execute("DROP TABLE review_queue")
+                conn.execute("ALTER TABLE categories DROP COLUMN use_default_preview")
                 conn.execute("PRAGMA user_version=26")
                 conn.commit()
                 conn.close()

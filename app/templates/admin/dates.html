@@ -91,7 +91,9 @@
       <img src="/admin/uploads/{{ r['cover'] }}?w=480"
         srcset="/admin/uploads/{{ r['cover'] }}?w=480 480w,
                 /admin/uploads/{{ r['cover'] }}?w=960 960w"
-        sizes="(max-width: 560px) calc(100vw - 40px), 280px"
+        sizes="(max-width: 720px) calc((100vw - 48px) / 2),
+               (max-width: 950px) and (max-height: 600px) calc((100vw - 48px) / 2),
+               280px"
         alt="" loading="lazy" fetchpriority="low" decoding="async"
         {% if r['cover_focus'] %}style="object-position:{{ r['cover_focus'] }}"{% endif %}>
       <div class="badges">
@@ -133,9 +135,35 @@
   {% endfor %}
 </div>
 {% else %}
+<form class="dates-bulk-form" id="datesBulkForm" method="post" action="/admin/dates/bulk">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="next" value="{{ current_list_url }}">
+  <div class="dates-bulk-selection">
+    <label class="dates-bulk-all">
+      <input type="checkbox" data-bulk-all>
+      <span>Выбрать все</span>
+    </label>
+    <span class="dates-bulk-count" data-bulk-count aria-live="polite">Выбрано: 0</span>
+  </div>
+  <div class="dates-bulk-actions" aria-label="Действия с выбранными событиями">
+    {% if view == 'archived' %}
+    <button type="submit" class="btn small" name="action" value="restore">Вернуть из архива</button>
+    {% else %}
+    <button type="submit" class="btn small" name="action" value="archive">В архив</button>
+    {% endif %}
+    <button type="submit" class="btn small" name="action" value="make_public">Сделать публичными</button>
+    <button type="submit" class="btn small" name="action" value="make_private">Сделать непубличными</button>
+    <button type="submit" class="btn small danger" name="action" value="delete"
+            data-confirm="Удалить выбранные события безвозвратно? Фото, голоса и вопросы к ним тоже удалятся.">Удалить</button>
+  </div>
+</form>
 <div class="dlist" data-tour="dates-collection">
   {% for r in rows %}
   <div class="drow{{ ' archived' if r['archived_at'] else '' }}">
+    <label class="drow-select" title="Выбрать «{{ r['name'] }}»">
+      <input type="checkbox" class="drow-check" name="date_ids" value="{{ r['id'] }}"
+             form="datesBulkForm" data-bulk-item aria-label="Выбрать «{{ r['name'] }}»">
+    </label>
     <a class="drow-link" href="/admin/dates/{{ r['id'] }}/edit?{{ editor_return_query }}" aria-label="Редактировать «{{ r['name'] }}»"></a>
     {% if r['cover'] %}
     <a class="drow-cover g{{ r['id'] % 4 }}" href="/admin/dates/{{ r['id'] }}/edit?{{ editor_return_query }}" aria-label="Редактировать">
@@ -166,7 +194,7 @@
       <a class="btn small" href="/admin/dates/{{ r['id'] }}/edit?{{ editor_return_query }}">Редактировать</a>
       {% if r['share_token'] %}
       <a class="btn small open-date" href="/d/{{ r['share_token'] }}" target="_blank" rel="noopener">Открыть</a>
-      <button type="button" class="btn small" data-copy="{{ BASE_URL }}/d/{{ r['share_token'] }}">{% with icon='link' %}{% include "admin/_icon.html" %}{% endwith %} Поделиться</button>
+      <button type="button" class="btn small" data-copy="{{ BASE_URL }}/d/{{ r['share_token'] }}">Поделиться</button>
       {% endif %}
       <div class="menu-wrap">
       <button type="button" class="more" aria-label="Ещё действия" aria-haspopup="true" aria-expanded="false">⋯</button>

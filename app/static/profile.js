@@ -102,6 +102,68 @@
       });
     }
 
+    function updateReviewDisplay(root, rating, text) {
+      if (!root) return;
+      var stars = root.querySelector(".review-stars");
+      if (stars && Number.isFinite(rating)) {
+        stars.setAttribute("aria-label", "Оценка " + rating + " из 5");
+        stars.querySelectorAll("span").forEach(function (star, index) {
+          star.classList.toggle("off", index >= rating);
+        });
+      }
+      var copy = root.querySelector(".profile-review-copy, .review-copy");
+      if (copy) {
+        copy.textContent = text || "Без текста";
+        copy.classList.toggle("empty", !text);
+      }
+    }
+
+    function saveReview(form) {
+      if (form.dataset.saving === "1") return;
+      var submit = form.querySelector('[type="submit"]');
+      var previous = submit ? submit.textContent : "";
+      var payload = new FormData(form);
+      form.dataset.saving = "1";
+      if (submit) {
+        submit.disabled = true;
+        submit.textContent = "Сохраняю…";
+      }
+      jsonRequest(form.action, {
+        method: "POST",
+        credentials: "same-origin",
+        body: payload,
+        headers: {
+          "Accept": "application/json",
+          "X-Requested-With": "fetch"
+        }
+      }).then(function (result) {
+        var saved = result.review || result;
+        var rating = parseInt(
+          saved.rating != null ? saved.rating : payload.get("rating"),
+          10
+        );
+        var textValue = saved.text;
+        if (textValue == null) textValue = saved.review_text;
+        if (textValue == null) textValue = payload.get("text") || "";
+        textValue = String(textValue).trim();
+        updateReviewDisplay(form.closest(".profile-review-widget"), rating, textValue);
+        updateReviewDisplay(
+          document.getElementById("review-" + form.dataset.reviewId),
+          rating,
+          textValue
+        );
+        toast(result.message || "Обзор сохранён");
+      }).catch(function (error) {
+        toast(error.message || "Не удалось сохранить обзор");
+      }).finally(function () {
+        form.dataset.saving = "0";
+        if (submit) {
+          submit.disabled = false;
+          submit.textContent = previous;
+        }
+      });
+    }
+
     function toggleWant(button) {
       var data = new FormData();
       data.append("csrf", document.body.dataset.csrf || "");
@@ -259,6 +321,12 @@
         event.preventDefault();
         shareEvent(share);
       }
+    });
+    if (body) body.addEventListener("submit", function (event) {
+      var form = event.target.closest(".profile-review-editor");
+      if (!form || !body.contains(form)) return;
+      event.preventDefault();
+      saveReview(form);
     });
   }
 

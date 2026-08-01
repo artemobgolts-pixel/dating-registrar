@@ -10,6 +10,7 @@ import tempfile
 import unittest
 from datetime import datetime
 from pathlib import Path
+from unittest.mock import patch
 
 
 APP = Path(__file__).resolve().parents[1] / "app"
@@ -86,6 +87,10 @@ class EventLifecycleTests(unittest.TestCase):
             "INSERT INTO date_categories(date_id,category_id) VALUES(?,?)",
             (conflict, category),
         )
+        # Свежая фикстура уже содержит объекты v30; убираем их, чтобы версия 28
+        # честно прогнала обе последующие миграции.
+        conn.execute("DROP TABLE review_queue")
+        conn.execute("ALTER TABLE categories DROP COLUMN use_default_preview")
         conn.execute("PRAGMA user_version=28")
         conn.commit()
         conn.close()
@@ -109,7 +114,9 @@ class EventLifecycleTests(unittest.TestCase):
                              (1, 1), "архив миграция не переписывает")
             self.assertEqual((rows[conflict]["is_draft"], rows[conflict]["is_public"]),
                              (1, 0), "конфликт DB-инварианта остаётся скрытым")
-            self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 29)
+            self.assertEqual(
+                conn.execute("PRAGMA user_version").fetchone()[0], db.LATEST_VERSION,
+            )
             self.assertIsNotNone(conn.execute(
                 "SELECT 1 FROM sqlite_master WHERE type='index' "
                 "AND name='idx_categories_winner_date'",
@@ -249,6 +256,48 @@ class EventLifecycleTests(unittest.TestCase):
         self.assertFalse(
             social_events.want_action_available(conn, archived, viewer),
         )
+        conn.close()
+        self.conn = None
+
+    def test_late_start_waits_three_hours_before_archive_and_review_prompt(self):
+        conn = db.connect()
+        self.conn = conn
+        owner = self._user(conn, 85001, "Организатор")
+        viewer = self._user(conn, 85002, "Участник")
+        late = self._date(
+            conn, owner, "Поздняя встреча",
+            starts_at="2030-01-01T23:30:00", share_token="late-review",
+        )
+        conn.execute(
+            "INSERT INTO date_wants(user_id,date_id,created_at,updated_at) "
+            "VALUES(?,?,?,?)", (viewer, late, STAMP, STAMP),
+        )
+        conn.commit()
+
+        with patch.object(
+                tasks, "now_naive", return_value=datetime(2030, 1, 1, 23, 59, 59)), \
+                patch.object(tasks, "now_iso", return_value="2030-01-01T23:59:59"):
+            self.assertEqual(tasks.autoarchive_once(conn), 0)
+        self.assertIsNone(conn.execute(
+            "SELECT archived_at FROM dates WHERE id=?", (late,),
+        ).fetchone()[0])
+        self.assertEqual(conn.execute(
+            "SELECT COUNT(*) FROM review_queue WHERE date_id=?", (late,),
+        ).fetchone()[0], 0)
+
+        with patch.object(
+                tasks, "now_naive", return_value=datetime(2030, 1, 2, 2, 31, 0)), \
+                patch.object(tasks, "now_iso", return_value="2030-01-02T02:31:00"):
+            self.assertEqual(tasks.autoarchive_once(conn), 1)
+        self.assertEqual(conn.execute(
+            "SELECT reason FROM review_queue WHERE user_id=? AND date_id=?",
+            (viewer, late),
+        ).fetchone()[0], "due")
+        self.assertEqual(conn.execute(
+            "SELECT COUNT(*) FROM notification_outbox "
+            "WHERE user_id=? AND kind='review_prompt'",
+            (viewer,),
+        ).fetchone()[0], 1)
         conn.close()
         self.conn = None
 

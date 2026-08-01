@@ -3,7 +3,7 @@
 import os
 import hashlib
 import re
-from urllib.parse import quote
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from fastapi import Request
 from fastapi.responses import RedirectResponse
@@ -95,5 +95,11 @@ def redir(url: str, msg: str | None = None) -> RedirectResponse:
     if not url.startswith("/") or url.startswith("//"):
         url = "/admin/"
     if msg:
-        url += ("&" if "?" in url else "?") + "msg=" + quote(msg)
+        # Query обязан стоять ДО #fragment. Простая конкатенация превращала
+        # `/page#section` в `/page#section?msg=...`: браузер искал неверный
+        # id и после сохранения бросал пользователя наверх страницы.
+        parts = urlsplit(url)
+        query = parse_qsl(parts.query, keep_blank_values=True)
+        query.append(("msg", msg))
+        url = urlunsplit(("", "", parts.path, urlencode(query), parts.fragment))
     return RedirectResponse(url, status_code=303)

@@ -1,5 +1,5 @@
 {% from "public/_icons.html" import icon %}
-{% set active_skin = category_skin if category_skin is defined else (cat.category_skin if cat.category_skin is defined else 'romantic') %}
+{% set active_skin = category_skin if category_skin is defined else (cat.category_skin if cat.category_skin is defined else 'friends') %}
 <!doctype html>
 <html lang="ru" data-skin="{{ active_skin }}">
 <head>
@@ -9,18 +9,18 @@
   <title>{{ cat.name }}</title>
   <meta property="og:title" content="{{ cat['og_title'] or ('Собираемся вместе' if active_skin == 'friends' else 'Тебя ждёт сюрприз ♥') }}">
   <meta property="og:description" content="{{ cat['og_desc'] or ('Открой и выбери удобный вариант' if active_skin == 'friends' else 'Открой — внутри кое-что приятное') }}">
-  <meta property="og:image" content="{% if og_available %}{{ BASE_URL }}/c/{{ token }}/og-image?skin={{ active_skin }}{% else %}{{ BASE_URL }}{{ asset('og-friends.jpg' if active_skin == 'friends' else 'og.png') }}{% endif %}">
+  <meta property="og:image" content="{% if og_available %}{{ BASE_URL }}/c/{{ token }}/og-image?skin={{ active_skin }}{% else %}{{ BASE_URL }}{{ asset('og-default.jpg') }}{% endif %}">
   <meta property="og:type" content="website">
   <meta name="theme-color" content="{{ '#554eae' if active_skin == 'friends' else '#b65f6f' }}">
   <script src="{{ asset('theme.js') }}"></script>
   {% if active_skin == 'friends' %}
   <link rel="apple-touch-icon" href="/static/apple-touch-icon-friends.png">
   <link rel="manifest" href="/static/manifest-friends.json">
-  <link rel="icon" href="{{ asset('logo-standard.png') }}">
+  <link rel="icon" href="{{ asset('favicon-standard.png') }}">
   {% else %}
   <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
   <link rel="manifest" href="/static/manifest.json">
-  <link rel="icon" href="{{ asset('logo-romantic.png') }}">
+  <link rel="icon" href="{{ asset('favicon-romantic.png') }}">
   {% endif %}
   <link rel="stylesheet" href="{{ asset('public.css') }}">
 </head>
@@ -147,8 +147,7 @@
   {% if vote_state.status != 'unconfigured' %}
   <section class="vote-summary vote-{{ vote_state.status }}">
     {% if vote_state.status == 'open' %}
-      <b data-vote-countdown data-deadline="{{ vote_state.voting_deadline }}+03:00">До конца голосования осталось…</b>
-      <span>{% if vote_state.choice_mode == 'single' %}Можно выбрать один вариант — новый выбор заменит предыдущий.{% else %}Можно выбрать несколько вариантов.{% endif %} Участники и прогресс видны всем.</span>
+      <b role="timer" data-vote-countdown data-deadline="{{ vote_state.voting_deadline }}+03:00">До конца голосования осталось…</b>
     {% elif vote_state.status == 'tie' %}
       <b>Голосование завершено — ничья</b>
       <span>Организатор вручную выберет один из вариантов-лидеров. Голоса уже зафиксированы.</span>
@@ -630,6 +629,7 @@
 <script src="{{ asset('ink.js') }}" defer></script>
 <script src="{{ asset('ui.js') }}"></script>
 {% if not me or not me['bot_linked'] %}<script nonce="{{ csp_nonce }}" src="{{ asset('auth.js') }}"></script>{% endif %}
+<script src="{{ asset('confirm.js') }}" defer></script>
 <script src="{{ asset('guest.js') }}" defer></script>
 </body>
 </html>

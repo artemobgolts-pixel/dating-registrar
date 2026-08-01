@@ -1,3 +1,4 @@
+{% from "public/_icons.html" import icon %}
 <!doctype html>
 <html lang="ru" data-skin="{{ category_skin }}">
 <head>
@@ -10,22 +11,167 @@
   {% if review['images'] %}
   <meta property="og:image" content="{{ BASE_URL }}/d/{{ review['share_token'] }}/image/{{ review['images'][0]['filename'] }}">
   {% else %}
-  <meta property="og:image" content="{{ BASE_URL }}{{ asset('og-friends.jpg' if category_skin == 'friends' else 'og.png') }}">
+  <meta property="og:image" content="{{ BASE_URL }}{{ asset('og-default.jpg') }}">
   {% endif %}
   <meta property="og:type" content="article">
-  <link rel="icon" href="{{ asset('logo-standard.png' if category_skin == 'friends' else 'logo-romantic.png') }}">
+  <link rel="icon" href="{{ asset('favicon-standard.png' if category_skin == 'friends' else 'favicon-romantic.png') }}">
   <meta name="theme-color" content="{{ '#554eae' if category_skin == 'friends' else '#b65f6f' }}">
   <script src="{{ asset('theme.js') }}"></script>
   <link rel="stylesheet" href="{{ asset('public.css') }}">
   <link rel="stylesheet" href="{{ asset('profile.css') }}">
 </head>
-<body data-skin="{{ category_skin }}">
-  <button type="button" class="theme-float" data-theme-toggle aria-label="Включить тёмную тему">
-    <span class="theme-moon-icon" data-theme-icon aria-hidden="true"></span>
+<body class="review-share-page"
+      data-token="{{ token }}"
+      data-auth="{{ '1' if me else '' }}"
+      data-csrf="{{ csrf }}"
+      data-skin="{{ category_skin }}">
+
+{% if category_skin == 'friends' %}
+<div class="bg-gather" aria-hidden="true">
+  <span class="orbit o1"></span><span class="orbit o2"></span>
+  <span class="dot d1"></span><span class="dot d2"></span><span class="dot d3"></span>
+  <span class="spark s1">✦</span><span class="spark s2">✦</span>
+</div>
+{% else %}
+<div class="bg-hearts" aria-hidden="true">
+  <span>♥</span><span>♡</span><span>♥</span><span>♡</span><span>♥</span><span>♡</span><span>♥</span>
+</div>
+{% endif %}
+<div class="bg-smoke" aria-hidden="true">
+  <svg class="turb" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice">
+    <defs>
+      <radialGradient id="smokeFade" cx="50%" cy="42%" r="62%">
+        <stop offset="0%" stop-color="#b65f6f" stop-opacity="0.55"/>
+        <stop offset="55%" stop-color="#cf7d92" stop-opacity="0.32"/>
+        <stop offset="100%" stop-color="#cf7d92" stop-opacity="0"/>
+      </radialGradient>
+      <filter id="smokeWisp" x="-30%" y="-30%" width="160%" height="160%">
+        <feTurbulence type="fractalNoise" baseFrequency="0.006 0.011" numOctaves="4"
+                      seed="11" stitchTiles="stitch" result="noise"/>
+        <feDisplacementMap in="SourceGraphic" in2="noise" scale="230"
+                           xChannelSelector="R" yChannelSelector="G"/>
+        <feGaussianBlur stdDeviation="7"/>
+      </filter>
+    </defs>
+    <g filter="url(#smokeWisp)">
+      <ellipse class="plume p1" cx="30%" cy="28%" rx="24%" ry="40%" fill="url(#smokeFade)"/>
+      <ellipse class="plume p2" cx="72%" cy="40%" rx="22%" ry="42%" fill="url(#smokeFade)"/>
+      <ellipse class="plume p3" cx="48%" cy="68%" rx="28%" ry="44%" fill="url(#smokeFade)"/>
+    </g>
+  </svg>
+  <span></span><span></span><span></span>
+</div>
+
+<div class="corner-actions">
+  <button type="button" class="promo-btn theme-toggle icon-only" data-theme-toggle
+          aria-label="Включить тёмную тему">
+    <span class="promo-ic theme-moon-icon" data-theme-icon aria-hidden="true"></span>
   </button>
+  {% if not me %}
+  <button type="button" class="login-corner" id="loginOpen">Войти</button>
+  {% endif %}
+</div>
+
+<div class="wrap review-share-wrap">
+  <header class="hero review-share-hero">
+    <span class="review-share-eyebrow">Публичный обзор</span>
+    <h1>{{ review['name'] }}</h1>
+    {% if category_skin == 'friends' %}
+    <div class="hero-mark" aria-hidden="true">{{ icon('gather') }}</div>
+    {% else %}
+    <div class="hearts" aria-hidden="true"><span>♥</span><span>♥</span><span>♥</span></div>
+    {% endif %}
+    <p class="review-share-lead">{{ reviewer_display }} делится впечатлениями после встречи.</p>
+  </header>
+
   <main class="profile-review-page">
     <a class="profile-review-back" href="/d/{{ review['share_token'] }}">← К событию</a>
-    {% include "public/_profile_review_widget.html" %}
+
+    <div class="review-share-card-shell{{ ' has-cover' if review['images'] else '' }}">
+      {% include "public/_profile_review_widget.html" %}
+      {% if not me or me['id'] != event_owner_id %}
+      <button type="button" class="report-link review-share-report"
+              data-report-open data-id="{{ review['date_id'] }}"
+              data-name="{{ review['name'] }}">пожаловаться</button>
+      {% endif %}
+    </div>
+
+    <section class="review-share-cta" aria-labelledby="review-add-title">
+      {% if me and me['id'] == event_owner_id %}
+      <h2 id="review-add-title">Событие уже в твоей коллекции</h2>
+      <p>Это обзор твоего события — исходная карточка доступна в кабинете.</p>
+      <a class="btn ghost" href="/admin/dates">Открыть мои события</a>
+      {% elif me %}
+      <h2 id="review-add-title">Хочешь сохранить идею?</h2>
+      <p>Добавь событие в свою коллекцию, чтобы вернуться к нему позже или включить в категорию.</p>
+      <form method="post" action="/d/{{ token }}/add">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button type="submit" class="btn book">{{ icon('plus') }} Добавить событие в коллекцию</button>
+      </form>
+      {% else %}
+      <h2 id="review-add-title">Хочешь сохранить идею?</h2>
+      <p>Войди, чтобы добавить событие в свою коллекцию.</p>
+      <button type="button" class="btn book" data-login-open>Войти и добавить</button>
+      {% endif %}
+    </section>
   </main>
+
+  <footer>
+    {% if category_skin == 'friends' %}
+    <div class="footer-mark" aria-hidden="true">{{ icon('gather') }}</div>
+    придумано, чтобы встречаться
+    {% else %}
+    <div class="hearts">♥ ♥ ♥</div>
+    сделано с любовью
+    {% endif %}
+    <div class="foot-legal">
+      <a href="/about">О проекте</a> · <a href="/terms">Соглашение</a> ·
+      <a href="/privacy">Конфиденциальность</a>
+    </div>
+  </footer>
+</div>
+
+{% if not me %}
+<dialog id="loginDlg" class="login-dlg" aria-labelledby="reviewLoginTitle">
+  <button type="button" class="dlg-x" id="loginClose" aria-label="Закрыть">✕</button>
+  <div class="login-dlg-head">
+    <div class="ld-heart" aria-hidden="true">
+      {% if category_skin == 'friends' %}{{ icon('gather') }}{% else %}♥{% endif %}
+    </div>
+    <h2 class="dlg-head" id="reviewLoginTitle">Войти в date4you</h2>
+    <p class="dlg-sub">Сохрани событие или отправь жалобу, не покидая страницу.</p>
+  </div>
+  {% set next_url = "/d/" ~ token ~ "/review/" ~ review['review_id'] %}
+  {% if bot or oauth %}
+    {% include "auth/_login_methods.html" %}
+  {% else %}
+    <div class="err">Способы входа пока не настроены.</div>
+  {% endif %}
+</dialog>
+{% endif %}
+
+<dialog id="reportDlg" aria-labelledby="reviewReportTitle">
+  <h2 class="dlg-head" id="reviewReportTitle">Пожаловаться на «<span id="reportTitle"></span>»</h2>
+  <p class="dlg-sub">Сообщи, если контент нарушает правила — модератор проверит.</p>
+  <form id="reportForm" method="post" action="/d/{{ token }}/report">
+    <input type="hidden" name="target_type" value="date">
+    <input type="hidden" name="target_id" id="reportTargetId" value="{{ review['date_id'] }}">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="field">
+      <textarea name="reason" id="reportReason" maxlength="1000"
+                placeholder="Что не так? (необязательно)"></textarea>
+    </div>
+    <div class="dlg-actions">
+      <button type="button" class="btn ghost" id="reportCancel">Отмена</button>
+      <button type="submit" class="btn book">Отправить жалобу</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+{% if not me %}<script nonce="{{ csp_nonce }}" src="{{ asset('auth.js') }}"></script>{% endif %}
+<script src="{{ asset('confirm.js') }}" defer></script>
+<script src="{{ asset('public_review.js') }}" defer></script>
 </body>
 </html>

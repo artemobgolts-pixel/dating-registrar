@@ -9,18 +9,18 @@
   <title>{{ d.name }} · date4you</title>
   <meta property="og:title" content="Событие: {{ d.name }}">
   <meta property="og:description" content="{{ 'Открой и выбери удобный вариант' if active_skin == 'friends' else 'Тебе предлагают событие — открой ♥' }}">
-  <meta property="og:image" content="{{ BASE_URL }}{{ asset('og-friends.jpg' if active_skin == 'friends' else 'og.png') }}">
+  <meta property="og:image" content="{{ BASE_URL }}{{ asset('og-default.jpg') }}">
   <meta property="og:type" content="website">
   <meta name="theme-color" content="{{ '#554eae' if active_skin == 'friends' else '#b65f6f' }}">
   <script src="{{ asset('theme.js') }}"></script>
   {% if active_skin == 'friends' %}
   <link rel="apple-touch-icon" href="/static/apple-touch-icon-friends.png">
   <link rel="manifest" href="/static/manifest-friends.json">
-  <link rel="icon" href="{{ asset('logo-standard.png') }}">
+  <link rel="icon" href="{{ asset('favicon-standard.png') }}">
   {% else %}
   <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
   <link rel="manifest" href="/static/manifest.json">
-  <link rel="icon" href="{{ asset('logo-romantic.png') }}">
+  <link rel="icon" href="{{ asset('favicon-romantic.png') }}">
   {% endif %}
   <link rel="stylesheet" href="{{ asset('public.css') }}">
   <style>
@@ -128,7 +128,7 @@
 
   {% if vote_state and vote_state.status != 'unconfigured' %}
   <section class="vote-summary vote-{{ vote_state.status }}">
-    {% if vote_state.status == 'open' %}<b data-vote-countdown data-deadline="{{ vote_state.voting_deadline }}+03:00">До конца голосования осталось…</b><span>{% if vote_state.choice_mode == 'single' %}Можно выбрать один вариант.{% else %}Можно выбрать несколько вариантов.{% endif %}</span>
+    {% if vote_state.status == 'open' %}<b role="timer" data-vote-countdown data-deadline="{{ vote_state.voting_deadline }}+03:00">До конца голосования осталось…</b>
     {% elif vote_state.status == 'tie' %}<b>Ничья</b><span>Организатор вручную выбирает победителя среди лидеров.</span>
     {% elif vote_state.status == 'no_winner' %}<b>Никто не выбрал</b><span>Голосование завершено без победителя.</span>
     {% else %}<b>Голосование завершено</b><span>{% if d.is_winner %}{{ 'Это общий выбор участников.' if active_skin == 'friends' else 'Это победившее событие ♥' }}{% else %}Победил другой вариант категории.{% endif %}</span>{% endif %}
@@ -281,7 +281,7 @@
     {% endif %}
   </div>
 
-  {% if me and not is_mine and has_want %}
+  {% if me and not is_mine and (has_want or can_review or my_review) %}
   <section class="review-cta" id="review" aria-labelledby="review-title">
     {% if can_review %}
     <h2 id="review-title">{{ 'Изменить обзор' if my_review else 'Удалось сходить?' }}</h2>
@@ -302,6 +302,12 @@
       </label>
       <button type="submit" class="btn book">{{ 'Сохранить и опубликовать' if my_review else 'Опубликовать обзор' }}</button>
     </form>
+    {% if not my_review %}
+    <form method="post" action="/d/{{ token }}/review/decline" class="review-decline-form">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button type="submit" class="btn ghost">Не оставлять сейчас</button>
+    </form>
+    {% endif %}
     {% if not d.is_public or d.is_draft %}
     <p class="review-private-note">Событие приватное: обзор сохранится, но не раскроет секретную ссылку в публичном профиле.</p>
     {% endif %}
@@ -445,6 +451,7 @@
 <script src="{{ asset('ink.js') }}" defer></script>
 <script src="{{ asset('ui.js') }}"></script>
 {% if not me or not me['bot_linked'] %}<script nonce="{{ csp_nonce }}" src="{{ asset('auth.js') }}"></script>{% endif %}
+<script src="{{ asset('confirm.js') }}" defer></script>
 <script src="{{ asset('guest.js') }}" defer></script>
 </body>
 </html>

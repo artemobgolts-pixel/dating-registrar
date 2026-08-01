@@ -11,6 +11,7 @@ import os
 import tempfile
 import zipfile
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import segno
 
@@ -121,13 +122,20 @@ def _validate_start_after_open_deadlines(conn, category_ids: list[int] | set[int
 
 def actx(request: Request, conn, **extra) -> dict:
     user = request.state.user
+    question_unread = conn.execute(
+        "SELECT COUNT(*) FROM questions q WHERE q.is_read=0 "
+        "AND q.date_id IN (SELECT id FROM dates WHERE owner_id=?)",
+        (user["id"],),
+    ).fetchone()[0]
+    review_waiting = conn.execute(
+        "SELECT COUNT(*) FROM review_queue WHERE user_id=?", (user["id"],),
+    ).fetchone()[0]
     ctx = {
         "request": request,
         "user": user,
-        "unread": conn.execute(
-            "SELECT COUNT(*) FROM questions q WHERE q.is_read=0 "
-            "AND q.date_id IN (SELECT id FROM dates WHERE owner_id=?)",
-            (user["id"],)).fetchone()[0],
+        "question_unread": question_unread,
+        "review_waiting": review_waiting,
+        "unread": question_unread + review_waiting,
         "csrf": request.session.get("csrf", ""),
     }
     ctx.update(extra)
@@ -291,7 +299,8 @@ def dashboard(request: Request, conn=Depends(get_db)):
     # Для выбранной (или первой) рисуем QR прямо на сервере — инлайновый SVG,
     # под CSP не нужен ни внешний скрипт, ни data:-картинка.
     share_cats = conn.execute(
-        "SELECT id, name, category_skin, link_token, og_title, og_desc, og_image "
+        "SELECT id, name, category_skin, link_token, og_title, og_desc, og_image, "
+        "use_default_preview, choice_mode, voting_deadline, voting_status "
         "FROM categories "
         "WHERE owner_id=? AND link_enabled=1 AND link_token IS NOT NULL "
         "ORDER BY created_at DESC", (uid,)).fetchall()
@@ -304,7 +313,7 @@ def dashboard(request: Request, conn=Depends(get_db)):
         share_url = f"{BASE_URL}/c/{share['link_token']}"
         qr_svg = _qr_svg(share_url, request.state.user["admin_skin"])
         # превью ссылки: своя картинка ИЛИ коллаж из фото активных событий
-        share_has_og = bool(share["og_image"]) or conn.execute(
+        share_has_og = bool(share["use_default_preview"] or share["og_image"]) or conn.execute(
             "SELECT 1 FROM date_categories dc JOIN dates d ON d.id=dc.date_id "
             "JOIN date_images di ON di.date_id=d.id "
             "WHERE dc.category_id=? AND d.archived_at IS NULL AND d.is_draft=0 LIMIT 1",
@@ -715,7 +724,7 @@ def categories_list(request: Request, conn=Depends(get_db)):
         "(SELECT COUNT(*) FROM date_categories dc WHERE dc.category_id=c.id) AS dcount, "
         # есть ли превью ссылки: своя картинка ИЛИ хотя бы одно фото активного
         # события категории (тогда соберётся коллаж). Для миниатюры в списке.
-        "(c.og_image IS NOT NULL OR EXISTS("
+        "(c.use_default_preview=1 OR c.og_image IS NOT NULL OR EXISTS("
         "  SELECT 1 FROM date_categories dc JOIN dates d ON d.id=dc.date_id "
         "  JOIN date_images di ON di.date_id=d.id "
         "  WHERE dc.category_id=c.id AND d.archived_at IS NULL AND d.is_draft=0)) AS has_og "
@@ -724,8 +733,21 @@ def categories_list(request: Request, conn=Depends(get_db)):
     ).fetchall()
     return templates.TemplateResponse(
         request, "admin/categories.html",
-        actx(request, conn, active="cats", cats=cats,
-             deadline_min=now_naive().strftime("%Y-%m-%dT%H:%M")))
+        actx(request, conn, active="cats", cats=cats))
+
+
+@router.get("/categories/new", response_class=HTMLResponse)
+def category_new(request: Request, conn=Depends(get_db)):
+    """Отдельный спокойный экран вместо перегруженной быстрой формы списка."""
+    now = now_naive().replace(second=0, microsecond=0)
+    return templates.TemplateResponse(
+        request, "admin/category_new.html",
+        actx(
+            request, conn, active="cats",
+            deadline_min=now.strftime("%Y-%m-%dT%H:%M"),
+            default_deadline=(now + timedelta(days=7)).strftime("%Y-%m-%dT%H:%M"),
+        ),
+    )
 
 
 @router.post("/categories/create")
@@ -773,12 +795,12 @@ def _cat_or_404(conn, cid: int, user):
 
 @router.post("/categories/{cid}/clone")
 def category_clone(cid: int, request: Request, conn=Depends(get_db)):
-    """Создаёт независимую копию категории вместе с её событиями.
+    """Копирует категорию, сохраняя ссылки на уже существующие события.
 
-    Новая категория получает собственную секретную ссылку, а каждое событие —
-    собственную запись, share-токен и физические копии фото/видео. Голоса,
-    вопросы и завершённый результат голосования намеренно не переносятся:
-    копия начинает новый жизненный цикл и не зависит от исходной категории.
+    У копии собственные настройки и секретная ссылка, но ``date_categories``
+    указывает на те же события. Так фотографии и записи событий не дублируются,
+    а правки события закономерно видны во всех категориях, где оно включено.
+    Голоса и вопросы привязаны к категории и поэтому не копируются.
     """
     src = _cat_or_404(conn, cid, request.state.user)
     if not src["choice_mode"] or not src["voting_deadline"]:
@@ -786,19 +808,24 @@ def category_clone(cid: int, request: Request, conn=Depends(get_db)):
             409,
             "Сначала задай исходной категории режим и обязательный дедлайн",
         )
-    owner_id = int(request.state.user["id"])
+    # Оператор может править чужую категорию. Копия остаётся у её владельца,
+    # иначе общие события оказались бы привязаны к категории другого аккаунта.
+    owner_id = int(src["owner_id"])
     suffix = " (копия)"
     name = src["name"][:200 - len(suffix)].rstrip() + suffix
     reviewed = 0 if app_settings.is_on(conn, app_settings.MODERATE_CATEGORIES) else 1
     copied_files: list[str] = []
     try:
-        source_deadline = datetime.fromisoformat(src["voting_deadline"])
+        # События теперь общие для исходной категории и копии. Поэтому нельзя
+        # молча переносить старый дедлайн на неделю вперёд: будущая дата копии
+        # делала уже завершённое общее событие временно недоступным для обзора.
+        # Сохраняем исходный срок; перед открытием новой ссылки редактор всё
+        # равно потребует явно настроить актуальное голосование.
+        copied_deadline = datetime.fromisoformat(
+            src["voting_deadline"],
+        ).replace(microsecond=0).isoformat()
     except (TypeError, ValueError):
-        source_deadline = now_naive()
-    copied_deadline = (
-        source_deadline if source_deadline > now_naive()
-        else now_naive() + timedelta(days=7)
-    ).replace(microsecond=0).isoformat()
+        raise HTTPException(409, "У исходной категории некорректный дедлайн")
 
     try:
         # Собственная OG-картинка тоже должна быть независимым файлом. Если
@@ -810,54 +837,27 @@ def category_clone(cid: int, request: Request, conn=Depends(get_db)):
             "INSERT INTO categories("
             "owner_id, name, category_skin, link_token, link_enabled, "
             "moderate_proposals, is_reviewed, description, og_title, og_desc, "
-            "og_image, og_focus, choice_mode, voting_deadline, voting_status, created_at"
-            ") VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "og_image, og_focus, use_default_preview, choice_mode, "
+            "voting_deadline, voting_status, created_at"
+            ") VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (owner_id, name, src["category_skin"], new_link_token(),
              0, src["moderate_proposals"], reviewed,
              src["description"], src["og_title"], src["og_desc"], og_image,
-             src["og_focus"] if og_image else None, src["choice_mode"],
+             src["og_focus"] if og_image else None, src["use_default_preview"],
+             src["choice_mode"],
              copied_deadline, voting.STATUS_UNCONFIGURED,
              now_iso()),
         )
         new_cid = int(cursor.lastrowid)
-
-        source_dates = conn.execute(
-            "SELECT d.*, dc.position AS category_position "
-            "FROM dates d JOIN date_categories dc ON dc.date_id=d.id "
-            "WHERE dc.category_id=? ORDER BY dc.position, d.id",
-            (cid,),
-        ).fetchall()
-        for source in source_dates:
-            date_name = source["name"][:200 - len(suffix)].rstrip() + suffix
-            new_did = insert_date(
-                conn, name=date_name, place=source["place"],
-                starts=source["starts_at"], ends=source["ends_at"],
-                comment=source["comment"], origin="admin", guest_token=None,
-                owner_id=owner_id, draft=0,
-                pay_split=source["pay_split"], place_url=source["place_url"],
-                # Копия сразу активна в кабинете, но не возникает неожиданно в
-                # общей ленте до проверки владельцем.
-                is_public=0, capacity=source["capacity"],
-            )
-            copy_date_media_and_links(conn, int(source["id"]), new_did)
-            copied_files.extend(r["filename"] for r in conn.execute(
-                "SELECT filename FROM date_images WHERE date_id=?",
-                (new_did,),
-            ))
-            copied_files.extend(r["filename"] for r in conn.execute(
-                "SELECT filename FROM date_videos WHERE date_id=?",
-                (new_did,),
-            ))
-            if source["archived_at"]:
-                conn.execute(
-                    "UPDATE dates SET archived_at=? WHERE id=?",
-                    (source["archived_at"], new_did),
-                )
-            conn.execute(
-                "INSERT INTO date_categories(date_id, category_id, position) "
-                "VALUES(?,?,?)",
-                (new_did, new_cid, source["category_position"]),
-            )
+        conn.execute(
+            "INSERT INTO date_categories(date_id, category_id, position) "
+            "SELECT date_id, ?, position FROM date_categories WHERE category_id=?",
+            (new_cid, cid),
+        )
+        count = conn.execute(
+            "SELECT COUNT(*) FROM date_categories WHERE category_id=?",
+            (new_cid,),
+        ).fetchone()[0]
         conn.commit()
     except Exception:
         conn.rollback()
@@ -865,11 +865,11 @@ def category_clone(cid: int, request: Request, conn=Depends(get_db)):
             images.delete_file(filename)
         raise
 
-    count = len(source_dates)
     return redir(
         f"/admin/categories/{new_cid}",
-        f"Категория и {count} {plural(count, 'событие', 'события', 'событий')} "
-        "скопированы — проверь дедлайн, публичность и включи ссылку после правок",
+        f"Категория скопирована; подключено {count} "
+        f"{plural(count, 'существующее событие', 'существующих события', 'существующих событий')}. "
+        "Проверь дедлайн и включи ссылку после правок",
     )
 
 
@@ -900,7 +900,7 @@ def category_detail(cid: int, request: Request, conn=Depends(get_db)):
     # событий этой категории (тот же, что уйдёт в og:image). Здесь — только
     # флаг наличия; саму картинку отдаёт /admin/categories/{cid}/og-preview.
     auto_og = False
-    if not cat["og_image"]:
+    if not cat["use_default_preview"] and not cat["og_image"]:
         auto_og = conn.execute(
             "SELECT 1 FROM date_categories dc "
             "JOIN dates d ON d.id=dc.date_id "
@@ -979,7 +979,8 @@ def prewarm_date_collages(did: int) -> None:
     try:
         categories = conn.execute(
             "SELECT c.id, c.category_skin FROM categories c "
-            "JOIN date_categories dc ON dc.category_id=c.id WHERE dc.date_id=?",
+            "JOIN date_categories dc ON dc.category_id=c.id WHERE dc.date_id=? "
+            "AND c.use_default_preview=0 AND c.og_image IS NULL",
             (did,)).fetchall()
         for category in categories:
             cid = category["id"]
@@ -999,6 +1000,12 @@ def category_og_preview(cid: int, request: Request, skin: str | None = None,
     """Коллаж-превью ссылки для редактора категории (когда своей картинки нет).
     Та же сборка, что и публичный og:image, но за owner-гейтом."""
     cat = _cat_or_404(conn, cid, request.state.user)
+    if cat["use_default_preview"]:
+        return FileResponse(
+            Path(__file__).with_name("static") / "og-default.jpg",
+            media_type="image/jpeg",
+            headers={"Cache-Control": "private, max-age=300"},
+        )
     if cat["og_image"]:
         # своя картинка — кропаем в 1200×630 по точке фокуса (как уйдёт в og:image)
         if not images.SAFE_FILENAME.match(cat["og_image"]):
@@ -1052,7 +1059,8 @@ def category_rename(cid: int, request: Request, name: str = Form(...),
         # новая картинка — фокус к центру (старая точка к ней не относится)
         conn.execute(
             "UPDATE categories SET name=?, description=?, og_title=?, og_desc=?, "
-            "category_skin=?, og_image=?, og_focus=NULL WHERE id=?",
+            "category_skin=?, og_image=?, og_focus=NULL, use_default_preview=0 "
+            "WHERE id=?",
             (name, description, og_title, og_desc, skin, new_image, cid))
     else:
         conn.execute(
@@ -1084,12 +1092,33 @@ def category_preview_reset(cid: int, request: Request, conn=Depends(get_db)):
     cat = _cat_or_404(conn, cid, request.state.user)
     old = cat["og_image"]
     conn.execute(
-        "UPDATE categories SET og_image=NULL, og_title=NULL, og_desc=NULL, og_focus=NULL WHERE id=?",
+        "UPDATE categories SET og_image=NULL, og_title=NULL, og_desc=NULL, "
+        "og_focus=NULL, use_default_preview=0 WHERE id=?",
         (cid,))
     conn.commit()
     if old:
         images.delete_file(old)
     return redir(f"/admin/categories/{cid}", "Превью сброшено к стандартному")
+
+
+@router.post("/categories/{cid}/default_preview")
+def category_default_preview(cid: int, request: Request, conn=Depends(get_db)):
+    """Фиксирует фирменное превью либо возвращает динамический режим.
+
+    Пользовательская картинка сохраняется на диске: после отключения режима она
+    снова станет активной. Новые события не влияют на фиксированное превью.
+    """
+    cat = _cat_or_404(conn, cid, request.state.user)
+    value = 0 if cat["use_default_preview"] else 1
+    conn.execute(
+        "UPDATE categories SET use_default_preview=? WHERE id=?", (value, cid),
+    )
+    conn.commit()
+    return redir(
+        f"/admin/categories/{cid}",
+        "Стандартное превью установлено" if value
+        else "Стандартное превью отключено",
+    )
 
 
 @router.post("/categories/{cid}/og_focus")
@@ -1230,7 +1259,10 @@ def category_attach(cid: int, request: Request, date_id: int = Form(...),
     # только отдельным действием владельца.
     social_events.queue_review_prompts_for_date(conn, date_id)
     conn.commit()
-    return redir(f"/admin/categories/{cid}", "Событие добавлено в категорию")
+    return redir(
+        f"/admin/categories/{cid}#categoryDates",
+        "Событие добавлено в категорию",
+    )
 
 
 @router.post("/categories/{cid}/dates_reorder")
@@ -1577,7 +1609,7 @@ def _safe_date_editor_return(raw: str, owner_id: int) -> str:
             or (parsed.path not in allowed_paths and not is_category_return)):
         return fallback
     if is_category_return:
-        return parsed.path
+        return parsed.path + ("#categoryDates" if parsed.fragment == "categoryDates" else "")
     query = dict(parse_qsl(parsed.query, keep_blank_values=False))
     if parsed.path == "/admin/dates":
         clean_dates = []
@@ -1827,6 +1859,147 @@ def date_publish(did: int, request: Request, bg: BackgroundTasks,
     return redir(next, "Опубликовано — гости теперь видят это событие")
 
 
+def _bulk_set_archived(conn, d, *, archived: bool) -> bool:
+    """Меняет архивный статус с теми же побочными эффектами, что одиночная кнопка."""
+    did = int(d["id"])
+    if bool(d["archived_at"]) == archived:
+        return False
+    _require_date_not_in_closed_vote(
+        conn, did,
+        "перенести событие в архив" if archived else "вернуть событие из архива",
+    )
+    if not archived:
+        category_ids = [int(r["category_id"]) for r in conn.execute(
+            "SELECT category_id FROM date_categories WHERE date_id=?", (did,),
+        )]
+        _validate_start_after_open_deadlines(conn, category_ids, d["starts_at"])
+        conn.execute("UPDATE dates SET archived_at=NULL WHERE id=?", (did,))
+        return True
+
+    for cat in conn.execute(
+        "SELECT c.* FROM categories c JOIN date_categories dc ON dc.category_id=c.id "
+        "WHERE dc.date_id=?", (did,),
+    ).fetchall():
+        affected_users = [int(r["user_id"]) for r in conn.execute(
+            "SELECT DISTINCT user_id FROM bookings WHERE date_id=? AND category_id=? "
+            "AND user_id IS NOT NULL", (did, cat["id"]),
+        )]
+        voting_events.queue_date_removed(
+            conn, did, d["name"], cat["id"], cat["name"], cat["link_token"],
+        )
+        conn.execute(
+            "DELETE FROM bookings WHERE date_id=? AND category_id=?", (did, cat["id"]),
+        )
+        for user_id in affected_users:
+            if not conn.execute(
+                "SELECT 1 FROM bookings WHERE category_id=? AND user_id=? LIMIT 1",
+                (cat["id"], user_id),
+            ).fetchone():
+                voting_events.cancel_deadline_reminder(conn, cat["id"], user_id)
+    conn.execute("UPDATE dates SET archived_at=? WHERE id=?", (now_iso(), did))
+    return True
+
+
+def _bulk_delete_date(conn, d) -> list[str]:
+    """Удаляет событие внутри общей транзакции; файлы возвращает для post-commit."""
+    did = int(d["id"])
+    _require_date_not_in_closed_vote(conn, did, "удалить событие")
+    affected_by_cat: dict[int, list[int]] = {}
+    for cat in conn.execute(
+        "SELECT c.* FROM categories c JOIN date_categories dc ON dc.category_id=c.id "
+        "WHERE dc.date_id=?", (did,),
+    ).fetchall():
+        affected_by_cat[int(cat["id"])] = [int(r["user_id"]) for r in conn.execute(
+            "SELECT DISTINCT user_id FROM bookings WHERE date_id=? AND category_id=? "
+            "AND user_id IS NOT NULL", (did, cat["id"]),
+        )]
+        voting_events.queue_date_removed(
+            conn, did, d["name"], cat["id"], cat["name"], cat["link_token"],
+        )
+    files = [r["filename"] for r in conn.execute(
+        "SELECT filename FROM date_images WHERE date_id=? UNION ALL "
+        "SELECT filename FROM date_videos WHERE date_id=?", (did, did),
+    ).fetchall()]
+    social_events.cancel_review_prompts_for_date(conn, did)
+    conn.execute("DELETE FROM dates WHERE id=?", (did,))
+    for category_id, user_ids in affected_by_cat.items():
+        for user_id in user_ids:
+            if not conn.execute(
+                "SELECT 1 FROM bookings WHERE category_id=? AND user_id=? LIMIT 1",
+                (category_id, user_id),
+            ).fetchone():
+                voting_events.cancel_deadline_reminder(conn, category_id, user_id)
+    return files
+
+
+@router.post("/dates/bulk")
+def dates_bulk(request: Request, bg: BackgroundTasks,
+               action: str = Form(...), date_ids: list[int] = Form(default=[]),
+               next: str = Form("/admin/dates"), conn=Depends(get_db)):
+    """Массовые действия desktop-списка с полной проверкой владения и lifecycle."""
+    allowed = {"archive", "restore", "make_public", "make_private", "delete"}
+    if action not in allowed:
+        raise HTTPException(400, "Неизвестное массовое действие")
+    ids = list(dict.fromkeys(int(did) for did in date_ids if int(did) > 0))
+    if not ids:
+        raise HTTPException(400, "Выбери хотя бы одно событие")
+    if len(ids) > 100:
+        raise HTTPException(400, "За один раз можно изменить не больше 100 событий")
+    uid = int(request.state.user["id"])
+    user_throttle("datebulk", uid, request)
+    placeholders = ",".join("?" for _ in ids)
+    owned = conn.execute(
+        f"SELECT * FROM dates WHERE owner_id=? AND id IN ({placeholders})",
+        (uid, *ids),
+    ).fetchall()
+    if len(owned) != len(ids):
+        raise HTTPException(404, "Одно из событий не найдено")
+    by_id = {int(row["id"]): row for row in owned}
+    ordered = [by_id[did] for did in ids]
+    changed = 0
+    files: list[str] = []
+    deleted_rows = []
+    if action in {"archive", "restore"}:
+        target = action == "archive"
+        for row in ordered:
+            changed += int(_bulk_set_archived(conn, row, archived=target))
+    elif action in {"make_public", "make_private"}:
+        value = 1 if action == "make_public" else 0
+        for row in ordered:
+            if int(row["is_public"]) == value:
+                continue
+            conn.execute("UPDATE dates SET is_public=? WHERE id=?", (value, row["id"]))
+            changed += 1
+    else:
+        for row in ordered:
+            files.extend(_bulk_delete_date(conn, row))
+            deleted_rows.append(row)
+            changed += 1
+    conn.commit()
+    for filename in files:
+        images.delete_file(filename)
+    actor = request.state.user["display_name"] or request.state.user["tg_username"] or "—"
+    for row in deleted_rows:
+        notify_admin(bg, conn, row["owner_id"], notify.card(
+            "🗑 Удалено событие",
+            f"«{notify.esc(row['name'])}»",
+            f"Кто: {notify.esc(actor)}",
+        ))
+    labels = {
+        "archive": "Перенесено в архив",
+        "restore": "Возвращено из архива",
+        "make_public": "Публичность включена",
+        "make_private": "Публичность отключена",
+        "delete": "Удалено",
+    }
+    target = _safe_date_editor_return(next, uid)
+    return redir(
+        target,
+        f"{labels[action]}: {changed} "
+        f"{plural(changed, 'событие', 'события', 'событий')}",
+    )
+
+
 @router.post("/dates/{did}/archive")
 def date_archive(did: int, request: Request, next: str = Form("/admin/dates"),
                   conn=Depends(get_db)):
@@ -2064,18 +2237,29 @@ def date_image_focus(did: int, img_id: int, request: Request, focus: str = Form(
 
 @router.get("/questions", response_class=HTMLResponse)
 def questions_list(request: Request, conn=Depends(get_db)):
-    f = "all" if request.query_params.get("f") == "all" else "unread"
-    where = ("q.date_id IN (SELECT id FROM dates WHERE owner_id=?)"
-             + ("" if f == "all" else " AND q.is_read=0"))
-    rows = conn.execute(
-        f"SELECT q.*, d.name AS date_name, d.id AS did, c.name AS cat_name, "
-        f"{GNAME_SQL.format(t='q.guest_token')} AS gname "
-        f"FROM questions q JOIN dates d ON d.id=q.date_id "
-        f"LEFT JOIN categories c ON c.id=q.category_id "
-        f"LEFT JOIN guests g ON g.token=q.guest_token "
-        f"WHERE {where} ORDER BY q.created_at DESC",
-        (request.state.user["id"],)
-    ).fetchall()
+    requested = request.query_params.get("f")
+    f = requested if requested in {"all", "reviews"} else "unread"
+    rows = []
+    if f != "reviews":
+        where = ("q.date_id IN (SELECT id FROM dates WHERE owner_id=?)"
+                 + ("" if f == "all" else " AND q.is_read=0"))
+        rows = conn.execute(
+            f"SELECT q.*, d.name AS date_name, d.id AS did, c.name AS cat_name, "
+            f"{GNAME_SQL.format(t='q.guest_token')} AS gname "
+            f"FROM questions q JOIN dates d ON d.id=q.date_id "
+            f"LEFT JOIN categories c ON c.id=q.category_id "
+            f"LEFT JOIN guests g ON g.token=q.guest_token "
+            f"WHERE {where} ORDER BY q.created_at DESC",
+            (request.state.user["id"],)
+        ).fetchall()
+    review_rows = conn.execute(
+        "SELECT rq.*, d.name AS date_name, d.share_token, d.starts_at, d.ends_at, "
+        "(SELECT filename FROM date_images di WHERE di.date_id=d.id "
+        " ORDER BY di.position, di.id LIMIT 1) AS cover "
+        "FROM review_queue rq JOIN dates d ON d.id=rq.date_id "
+        "WHERE rq.user_id=? ORDER BY rq.updated_at DESC",
+        (request.state.user["id"],),
+    ).fetchall() if f == "reviews" else []
     total_notifications = conn.execute(
         "SELECT COUNT(*) FROM questions q "
         "WHERE q.date_id IN (SELECT id FROM dates WHERE owner_id=?)",
@@ -2083,9 +2267,23 @@ def questions_list(request: Request, conn=Depends(get_db)):
     ).fetchone()[0]
     return templates.TemplateResponse(
         request, "admin/questions.html",
-        actx(request, conn, active="q", rows=rows, f=f,
+        actx(request, conn, active="q", rows=rows, review_rows=review_rows, f=f,
              notif_settings=notify.get_preferences(conn, request.state.user["id"]),
              total_notifications=total_notifications))
+
+
+@router.post("/questions/reviews/{date_id}/dismiss")
+def review_waiting_dismiss(date_id: int, request: Request,
+                           conn=Depends(get_db)):
+    """Удаляет только напоминание, не событие и не право написать обзор."""
+    deleted = conn.execute(
+        "DELETE FROM review_queue WHERE user_id=? AND date_id=?",
+        (request.state.user["id"], date_id),
+    ).rowcount
+    if not deleted:
+        raise HTTPException(404, "Напоминание не найдено")
+    conn.commit()
+    return redir("/admin/questions?f=reviews", "Упоминание удалено")
 
 
 @router.post("/questions/settings")
@@ -2498,10 +2696,19 @@ def public_profile_review_edit(user_id: int, review_id: int, request: Request,
         "WHERE id=? AND user_id=?",
         (rating, text or None, publish, now_iso(), review_id, user_id),
     )
+    social_events.clear_review_waiting(conn, int(review["date_id"]), user_id)
     if publish:
         social_events.queue_review_received(conn, review_id)
     conn.commit()
     msg = "Обзор обновлён" if publish else "Обзор обновлён и оставлен скрытым"
+    if "application/json" in request.headers.get("accept", ""):
+        return JSONResponse({
+            "ok": True,
+            "message": msg,
+            "rating": rating,
+            "text": text,
+            "is_public": bool(publish),
+        })
     return redir(_safe_profile_return(next, user_id), msg)
 
 
@@ -2514,14 +2721,17 @@ def public_profile_review_hide(user_id: int, review_id: int, request: Request,
     review = _owned_profile_review(conn, review_id, user_id)
     if not review:
         raise HTTPException(404, "Обзор не найден")
+    date_id = int(review["date_id"])
+    social_events.cancel_review_received(conn, review_id, "review_deleted")
     conn.execute(
-        "UPDATE date_reviews SET is_public=0, updated_at=? WHERE id=? AND user_id=?",
-        (now_iso(), review_id, user_id),
+        "DELETE FROM date_reviews WHERE id=? AND user_id=?", (review_id, user_id),
     )
-    social_events.cancel_review_received(conn, review_id, "review_hidden")
+    social_events.mark_review_waiting(
+        conn, date_id, user_id, "review_deleted", require_available=False,
+    )
     conn.commit()
     return redir(_safe_profile_return(next, user_id),
-                 "Обзор убран из публичного профиля")
+                 "Обзор удалён; событие перенесено в «Ждут отзыва»")
 
 
 @user_router.get("/{user_id}/avatar")

@@ -415,7 +415,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     cid = int(re.search(r"/admin/categories/(\d+)", page).group(1))
     detail = c.get(f"/admin/categories/{cid}").text
     tok = re.search(r"https://t\.local/c/([A-Za-z0-9_-]+)", detail).group(1)
-    assert len(tok) >= 22, "новые capability-ссылки должны иметь не меньше 128 бит"
+    assert len(tok) == 11, "новые capability-ссылки должны иметь 64 бита энтропии"
     # модерация предложений по умолчанию ВЫКЛючена — оператор включает её осознанно;
     # иначе бейдж «модерация» висел на каждой новой категории (баг)
     assert db_one("SELECT moderate_proposals FROM categories WHERE id=?", (cid,))[0] == 0
@@ -424,7 +424,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     r = c.get(f"/c/{tok}")
     assert r.status_code == 200 and "пусто" in r.text
     assert 'data-skin="friends"' in r.text
-    assert "bg-gather" in r.text and "og-friends.jpg" in r.text
+    assert "bg-gather" in r.text and "og-default.jpg" in r.text
     assert "Собираемся вместе" in r.text
     category_editor = c.get(f"/admin/categories/{cid}").text
     assert 'name="category_skin"' in category_editor
@@ -440,7 +440,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert rr.status_code == 303
     romantic_page = c.get(f"/c/{tok}").text
     assert 'data-skin="romantic"' in romantic_page
-    assert "bg-hearts" in romantic_page and "/static/og.png" in romantic_page
+    assert "bg-hearts" in romantic_page and "og-default.jpg" in romantic_page
     rr = apost(c, f"/admin/categories/{cid}/rename", {
         "name": "Лето", "category_skin": "friends",
     })
@@ -2537,6 +2537,9 @@ with TestClient(main.app, follow_redirects=False) as cl:
     assert "login-mark-standard" in lp and "logo-standard.png" in lp
     assert "login-mark-romantic" in lp and "logo-romantic.png" in lp
     assert 'transform="translate(2.41 2.64) scale(.78)"' in lp
+    assert '<circle cx="12" cy="12" r="11" fill="#FC3F1D"/>' in lp
+    assert '<html lang="ru" data-skin="friends" data-skin-switchable>' in lp
+    assert "favicon-standard.png" in lp and "favicon-romantic.png" in lp
     assert 'href="/terms"' in lp and 'href="/privacy"' in lp
     # способы входа активны сразу; Telegram — официальный Login Widget,
     # который auth.js подставляет лениво (в dialog — только после открытия).
@@ -2971,6 +2974,10 @@ with TestClient(main.app, follow_redirects=False) as cnata, \
         "csrf": gc, "rating": "5", "text": "Очень тёплая встреча",
     })
     assert made_review.status_code == 303
+    assert made_review.headers["location"].startswith(
+        f"/u/{gosha_id}?tab=reviews&msg="
+    )
+    assert made_review.headers["location"].endswith("#profileCollection")
     review = db_one(
         "SELECT id,rating,text,is_public FROM date_reviews WHERE user_id=? AND date_id=?",
         (gosha_id, pub["id"]),
@@ -2998,11 +3005,28 @@ with TestClient(main.app, follow_redirects=False) as cnata, \
     )
     assert hidden.status_code == 303
     assert "Очень тёплая встреча" not in cnata.get(f"/u/{gosha_id}?tab=reviews").text
+    assert not db_one(
+        "SELECT 1 FROM date_reviews WHERE id=?", (review["id"],),
+    )
+    queued_review = db_one(
+        "SELECT reason FROM review_queue WHERE user_id=? AND date_id=?",
+        (gosha_id, pub["id"]),
+    )
+    assert queued_review["reason"] == "review_deleted"
+    assert "Пикник на закате" in cgosha.get("/admin/questions?f=reviews").text
     edited = cgosha.post(
         f"/u/{gosha_id}/reviews/{review['id']}/edit",
         data={"csrf": gc, "rating": "4", "text": "Обновлённый обзор"},
     )
-    assert edited.status_code == 303
+    assert edited.status_code == 404
+    recreated = cgosha.post(f"/d/{pub['share_token']}/review", data={
+        "csrf": gc, "rating": "4", "text": "Обновлённый обзор",
+    })
+    assert recreated.status_code == 303
+    assert not db_one(
+        "SELECT 1 FROM review_queue WHERE user_id=? AND date_id=?",
+        (gosha_id, pub["id"]),
+    )
     assert "Обновлённый обзор" in cnata.get(f"/u/{gosha_id}?tab=reviews").text
 
     # C5: публичный профиль Наты перечисляет её публичные события (без приватных)
@@ -3265,7 +3289,7 @@ with TestClient(main.app, follow_redirects=False) as cui2:
     assert ">Неактивные<" not in dpage
     # #4: под тумблером публичности больше нет пояснительного текста
     nf = cui2.get("/admin/dates/new").text
-    assert 'class="btn ghost editor-back"' in nf and "← Назад" in nf
+    assert 'class="btn ghost editor-back date-editor-back"' in nf and "← Назад" in nf
     assert "видят все пользователи в ленте на главной" not in nf
     assert 'class="capacity-stepper"' in nf and 'data-step="-1"' in nf
     assert "Создатель не считается" not in nf and "Лимит применяется" not in nf
@@ -3273,7 +3297,8 @@ with TestClient(main.app, follow_redirects=False) as cui2:
     ed = cui2.get(f"/admin/categories/{cc['id']}").text
     assert 'class="btn editor-back"' in ed and "← Назад" in ed
     assert "← Все категории" not in ed
-    assert "cat-editor-menu" in ed and "Отключить ссылку" in ed
+    assert "cat-editor-menu" in ed and "Установить стандартное превью" in ed
+    assert "Отключить ссылку" not in ed and "Скопировать категорию" not in ed
     assert ">Описание</label>" in ed and "Описание (необязательно)" not in ed
     assert re.search(r'id="ogWarn"[^>]*hidden', ed)
     assert 'data-tour="category-description"' in ed
@@ -3307,13 +3332,17 @@ with TestClient(main.app, follow_redirects=False) as cui2:
 
     cui2.post(f"/admin/categories/{cc['id']}/toggle", data={"csrf": uc2})   # выключаем ссылку
     ed2 = cui2.get(f"/admin/categories/{cc['id']}").text
-    assert "cat-editor-menu" in ed2 and "Включить ссылку" in ed2
+    assert "cat-editor-menu" in ed2 and "Ссылка отключена" in ed2
+    assert "Включить ссылку" not in ed2
     # В списке — одна полноширинная кнопка создания, без старого поля и
     # без служебных плашек о необходимости настроить голосование.
     cats = cui2.get("/admin/categories").text
-    assert ">Создать категорию</button>" in cats
+    assert ">Создать категорию</a>" in cats
     assert "Название новой категории" not in cats
     assert "настрой голосование" not in cats.lower()
+    category_new = cui2.get("/admin/categories/new").text
+    assert 'action="/admin/categories/create"' in category_new
+    assert "Новая категория" in category_new and "Например, Летние планы" in category_new
     # #10: ⋯-меню идёт ПЕРЕД стрелкой (menu-wrap раньше cat-arrow)
     assert cats.index("menu-wrap") < cats.index("cat-arrow")
 
@@ -3368,6 +3397,7 @@ with TestClient(main.app, follow_redirects=False) as ctour:
     assert "prefers-reduced-motion: reduce" in theme_source
     assert "getBoundingClientRect" in theme_source
     assert "animateSkin" in theme_source and "animateAppearance" in theme_source
+    assert "queuedAppearance" in theme_source
     assert "minDuration: 1050" in theme_source and "maxDuration: 1550" in theme_source
     assert 'SKIN_COOKIE = "d4y_skin"' in theme_source
     assert 'root.dataset.theme = theme' in theme_source

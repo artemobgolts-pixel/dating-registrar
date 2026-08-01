@@ -1,4 +1,4 @@
-<section class="pub-dates{{ ' profile-public-owner' if profile_embedded else '' }}"
+<section class="pub-dates profile-tab-{{ tab }}{{ ' profile-public-owner' if profile_embedded else '' }}"
          id="profileCollection">
   <nav class="profile-tabs" aria-label="Разделы профиля">
     <a href="{{ profile_base_url }}?tab=events{{ profile_skin_suffix }}#profileCollection" class="{{ 'on' if tab == 'events' else '' }}">{{ public_events_label }} <b>{{ event_total }}</b></a>
@@ -19,7 +19,7 @@
         src="/d/{{ d['share_token'] }}/image/{{ d['images'][0]['filename'] }}?w=480"
         srcset="/d/{{ d['share_token'] }}/image/{{ d['images'][0]['filename'] }}?w=480 480w,
                 /d/{{ d['share_token'] }}/image/{{ d['images'][0]['filename'] }}?w=960 960w"
-        sizes="(max-width: 520px) calc(100vw - 40px), 340px" alt=""
+        sizes="(max-width: 520px) calc((100vw - 42px) / 2), 340px" alt=""
         loading="{{ 'eager' if loop.first else 'lazy' }}"
         fetchpriority="{{ 'high' if loop.first else 'low' }}" decoding="async"
         {% if d['images'][0]['focus'] %}style="object-position:{{ d['images'][0]['focus'] }}"{% endif %}></div>
@@ -75,13 +75,12 @@
         <summary aria-label="Действия с обзором"><svg class="review-menu-dots" viewBox="0 0 20 6" aria-hidden="true"><circle cx="3" cy="3" r="1.5"/><circle cx="10" cy="3" r="1.5"/><circle cx="17" cy="3" r="1.5"/></svg></summary>
         <div class="review-menu-pop">
           <button type="button" data-profile-widget="{{ review_widget_url }}">Изменить</button>
-          {% if r['review_public'] and r['date_public'] and not r['date_draft'] %}
-          <form method="post" action="/u/{{ u['id'] }}/reviews/{{ r['review_id'] }}/hide">
+          <form method="post" action="/u/{{ u['id'] }}/reviews/{{ r['review_id'] }}/hide"
+                data-confirm="Удалить обзор? Событие появится во вкладке «Ждут отзыва»." >
             <input type="hidden" name="csrf" value="{{ csrf }}">
             <input type="hidden" name="next" value="{{ profile_return_url }}">
             <button type="submit" class="danger">Удалить</button>
           </form>
-          {% endif %}
         </div>
       </details>
       {% endif %}
