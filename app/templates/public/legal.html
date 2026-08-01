@@ -5,7 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <title>{% if doc == 'terms' %}Пользовательское соглашение{% else %}Политика конфиденциальности{% endif %} · date4you</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>♥</text></svg>">
+<link rel="icon" data-skin-asset
+      data-href-friends="{{ asset('logo-standard.png') }}"
+      data-href-romantic="{{ asset('logo-romantic.png') }}"
+      href="{{ asset('logo-romantic.png') }}">
 <meta name="theme-color" content="#b65f6f">
 <script src="{{ asset('theme.js') }}"></script>
 <link rel="stylesheet" href="{{ asset('public.css') }}">

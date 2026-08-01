@@ -203,7 +203,7 @@ async def csp_headers(request: Request, call_next):
                 "img-src 'self' data: blob: https://t.me; font-src 'self'; "
                 "connect-src 'self'; frame-src https://oauth.telegram.org; "
                 "frame-ancestors https://telegram.org https://*.telegram.org; "
-                "base-uri 'self'; form-action 'self'")
+                "object-src 'none'; base-uri 'none'; form-action 'self'")
         elif p == "/login" or p.startswith("/c/") or p.startswith("/d/"):
             resp.headers["Content-Security-Policy"] = (
                 "default-src 'self'; "
@@ -213,14 +213,16 @@ async def csp_headers(request: Request, call_next):
                 "img-src 'self' data: blob: https://t.me; font-src 'self'; "
                 "connect-src 'self'; "
                 "frame-src https://oauth.telegram.org; "
-                "frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+                "frame-ancestors 'none'; object-src 'none'; "
+                "base-uri 'none'; form-action 'self'")
         else:
             resp.headers["Content-Security-Policy"] = (
                 "default-src 'self'; "
                 f"script-src 'self' 'nonce-{request.state.csp_nonce}'; "
                 "style-src 'self' 'unsafe-inline'; "
                 "img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; "
-                "frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+                "frame-ancestors 'none'; object-src 'none'; "
+                "base-uri 'none'; form-action 'self'")
     return resp
 
 app.mount("/static", CachedStatic(directory="static"), name="static")

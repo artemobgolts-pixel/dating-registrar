@@ -202,7 +202,7 @@
             <td data-label="Событие"><span class="cell-primary">{{ d['name'] }}</span></td>
             <td data-label="Статус">
               {% if d['archived_at'] %}<span class="badge neutral">архив</span>
-              {% elif d['is_draft'] %}<span class="badge warning">неактивно</span>
+              {% elif d['is_draft'] %}<span class="badge warning">{{ 'на модерации' if d['origin']=='guest' else 'нужно исправить' }}</span>
               {% else %}<span class="badge success">активно</span>{% endif %}
             </td>
             <td data-label="Источник" class="muted">{{ 'Гость' if d['origin']=='guest' else 'Владелец' }}</td>

@@ -73,6 +73,10 @@
   v28 — социальные отметки событий и обзоры: независимое «Хочу сходить»,
         публичные отзывы с рейтингом и отдельная настройка уведомлений об
         обзорах.
+  v29 — пользовательские события без категории больше не считаются
+        «неактивными». Старые черновики владельцев становятся активными, но
+        приватными, чтобы миграция сама не опубликовала ранее скрытый контент;
+        гостевые предложения на модерации не затрагиваются.
 
 Свежая база создаётся сразу по последней схеме. Существующая —
 докатывается миграциями при старте приложения.
@@ -86,7 +90,7 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "app.db"
 
-LATEST_VERSION = 28
+LATEST_VERSION = 29
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -357,6 +361,9 @@ CREATE INDEX IF NOT EXISTS idx_categories_og_image
 CREATE INDEX IF NOT EXISTS idx_categories_open_deadline
     ON categories(voting_deadline)
     WHERE voting_status='open' AND closed_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_categories_winner_date
+    ON categories(winner_date_id)
+    WHERE voting_status='resolved' AND winner_date_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_dates_owner ON dates(owner_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_dates_share ON dates(share_token);
 -- лента комьюнити на главной: свежие публичные активные события
@@ -1178,6 +1185,34 @@ MIGRATIONS: dict[int, str] = {
             ON date_reviews(user_id, is_public, updated_at DESC);
         CREATE INDEX IF NOT EXISTS idx_date_reviews_date
             ON date_reviews(date_id, is_public, updated_at DESC);
+    """,
+    29: """
+        -- is_draft остаётся только техническим флагом модерации гостевых
+        -- предложений (и редких легаси-конфликтов с уже открытым голосованием).
+        -- Ранее скрытые owner-created события сначала делаем приватными: иначе
+        -- DEFAULT is_public=1 внезапно раскрыл бы их в общей ленте при startup.
+        UPDATE dates SET is_public=0
+        WHERE is_draft=1 AND origin<>'guest' AND archived_at IS NULL;
+
+        UPDATE dates SET is_draft=0
+        WHERE is_draft=1
+          AND origin<>'guest'
+          AND archived_at IS NULL
+          -- Не обходим DB-инвариант v24. Такая строка остаётся видна владельцу
+          -- в общем списке с пометкой «нужно исправить», но не публикуется.
+          AND NOT EXISTS (
+              SELECT 1
+              FROM date_categories dc
+              JOIN categories c ON c.id=dc.category_id
+              WHERE dc.date_id=dates.id
+                AND c.voting_status='open'
+                AND dates.starts_at IS NOT NULL
+                AND c.voting_deadline>=dates.starts_at
+          );
+
+        CREATE INDEX IF NOT EXISTS idx_categories_winner_date
+            ON categories(winner_date_id)
+            WHERE voting_status='resolved' AND winner_date_id IS NOT NULL;
     """,
 }
 

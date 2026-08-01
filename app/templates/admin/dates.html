@@ -1,20 +1,18 @@
 {% extends "admin/base.html" %}
 {% block title %}Встречи{% endblock %}
-{# Список меняется после каждой правки (активные/неактивные/архив). Запрещаем
-   Turbo показывать устаревший кэш-снимок — иначе реактивированное событие
-   «оставалось» в Неактивных до жёсткой перезагрузки. #}
+{# Список меняется после каждой правки (активные/архив). Запрещаем Turbo
+   показывать устаревший кэш-снимок после мутаций. #}
 {% block head %}<meta name="turbo-cache-control" content="no-cache">{% endblock %}
 {% block content %}
 <div class="bar">
   <h1 class="serif" style="margin:0">Встречи</h1>
-  <a class="btn primary" href="/admin/dates/new" data-tour="dates-create">+ Новое событие</a>
+  <a class="btn primary" href="/admin/dates/new?{{ editor_return_query }}" data-tour="dates-create">+ Новое событие</a>
 </div>
 
 <div class="controls">
   <div class="tabs dates-status-tabs" data-tour="dates-statuses"
        data-glass-key="dates-status">
     <a href="/admin/dates?view=active{{ qs_keep }}" class="{{ 'on' if view == 'active' else '' }}">Активные{% if active_n %} <span class="pill">{{ active_n }}</span>{% endif %}</a>
-    <a href="/admin/dates?view=drafts{{ qs_keep }}" class="{{ 'on' if view == 'drafts' else '' }}">Неактивные{% if drafts_n %} <span class="pill">{{ drafts_n }}</span>{% endif %}</a>
     <a href="/admin/dates?view=archived{{ qs_keep }}" class="{{ 'on' if view == 'archived' else '' }}">Архив{% if archived_n %} <span class="pill">{{ archived_n }}</span>{% endif %}</a>
   </div>
 
@@ -50,35 +48,41 @@
 <div class="grid" data-tour="dates-collection">
   {% for r in rows %}
   <div class="dcard{{ ' archived' if r['archived_at'] else '' }}{{ ' nocover' if not r['cover'] else '' }}">
-    <a class="dcard-link" href="/admin/dates/{{ r['id'] }}/edit" aria-label="Редактировать «{{ r['name'] }}»"></a>
+    <a class="dcard-link" href="/admin/dates/{{ r['id'] }}/edit?{{ editor_return_query }}" aria-label="Редактировать «{{ r['name'] }}»"></a>
     <div class="menu-wrap card-menu">
       <button type="button" class="more" aria-label="Ещё действия" aria-haspopup="true" aria-expanded="false">⋯</button>
       <div class="menu">
         {% if r['is_draft'] and not r['archived_at'] and r['cats'] %}
         <form method="post" action="/admin/dates/{{ r['id'] }}/publish">
           <input type="hidden" name="csrf" value="{{ csrf }}">
-          <input type="hidden" name="next" value="/admin/dates?view={{ view }}{{ qs_keep }}">
-          <button type="submit">✓ Опубликовать</button>
+          <input type="hidden" name="next" value="{{ current_list_url }}">
+          <button type="submit">Опубликовать</button>
         </form>
         {% endif %}
         <form method="post" action="/admin/dates/{{ r['id'] }}/clone">
           <input type="hidden" name="csrf" value="{{ csrf }}">
-          <input type="hidden" name="next" value="/admin/dates?view={{ view }}{{ qs_keep }}">
-          <button type="submit">📋 Скопировать событие</button>
+          <input type="hidden" name="next" value="{{ current_list_url }}">
+          <button type="submit">Скопировать событие</button>
         </form>
         {% if r['share_token'] %}
         <button type="button" data-copy="{{ BASE_URL }}/d/{{ r['share_token'] }}">{% with icon='link' %}{% include "admin/_icon.html" %}{% endwith %} Поделиться</button>
         {% endif %}
         <form method="post" action="/admin/dates/{{ r['id'] }}/archive">
           <input type="hidden" name="csrf" value="{{ csrf }}">
-          <input type="hidden" name="next" value="/admin/dates?view={{ view }}{{ qs_keep }}">
-          <button type="submit">{{ '↩ Вернуть из архива' if r['archived_at'] else '🗄 В архив' }}</button>
+          <input type="hidden" name="next" value="{{ current_list_url }}">
+          <button type="submit">{{ 'Вернуть из архива' if r['archived_at'] else 'В архив' }}</button>
+        </form>
+        <form method="post" action="/admin/dates/{{ r['id'] }}/visibility">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <input type="hidden" name="next" value="{{ current_list_url }}">
+          <button type="submit">{{ 'Сделать непубличным' if r['is_public'] else 'Сделать публичным' }}</button>
         </form>
         <div class="sepa"></div>
         <form method="post" action="/admin/dates/{{ r['id'] }}/delete"
               data-confirm="Удалить событие безвозвратно? Фото, голоса и вопросы к нему тоже удалятся.">
           <input type="hidden" name="csrf" value="{{ csrf }}">
-          <button type="submit" class="danger">🗑 Удалить</button>
+          <input type="hidden" name="next" value="{{ current_list_url }}">
+          <button type="submit" class="danger">Удалить</button>
         </form>
       </div>
     </div>
@@ -93,7 +97,7 @@
       <div class="badges">
         {% if r['pay_split'] %}<span class="bdg pay">{{ r['pay_split'] | pay_label }}</span>{% endif %}
         {% if r['origin'] == 'guest' %}<span class="bdg guest">💡 предложено</span>{% endif %}
-        {% if r['is_draft'] %}<span class="bdg draft">{{ 'на модерации' if r['origin'] == 'guest' else 'неактивно' }}</span>{% endif %}
+        {% if r['is_draft'] %}<span class="bdg draft">{{ 'на модерации' if r['origin'] == 'guest' else 'нужно исправить' }}</span>{% endif %}
       </div>
       {% if r['booked_names'] %}<div class="badges book-corner"><span class="bdg book">{% with icon='check' %}{% include "admin/_icon.html" %}{% endwith %} {{ r['booked_names'] }}</span></div>{% endif %}
     </div>
@@ -103,11 +107,11 @@
       <div class="badges inflow">
         {% if r['pay_split'] %}<span class="bdg pay">{{ r['pay_split'] | pay_label }}</span>{% endif %}
         {% if r['origin'] == 'guest' %}<span class="bdg guest">💡 предложено</span>{% endif %}
-        {% if r['is_draft'] %}<span class="bdg draft">{{ 'на модерации' if r['origin'] == 'guest' else 'неактивно' }}</span>{% endif %}
+        {% if r['is_draft'] %}<span class="bdg draft">{{ 'на модерации' if r['origin'] == 'guest' else 'нужно исправить' }}</span>{% endif %}
         {% if r['booked_names'] %}<span class="bdg book">{% with icon='check' %}{% include "admin/_icon.html" %}{% endwith %} {{ r['booked_names'] }}</span>{% endif %}
       </div>
       {% endif %}
-      <h3 class="ttl serif"><a href="/admin/dates/{{ r['id'] }}/edit">{{ r['name'] }}</a></h3>
+      <h3 class="ttl serif"><a href="/admin/dates/{{ r['id'] }}/edit?{{ editor_return_query }}">{{ r['name'] }}</a></h3>
       {% set when_str = r['starts_at'] | when(r['ends_at']) %}
       {# Показываем ТОЛЬКО заполненные поля — без пустых строк-подсказок
          «назначить дату»/«указать место» (по просьбе: не заполнять карточку
@@ -119,7 +123,7 @@
         {% if not cat and r['cats'] %}<span class="mrow mcats">{% with icon='categories' %}{% include "admin/_icon.html" %}{% endwith %} {{ r['cats'] }}</span>{% endif %}
       </div>
       <div class="foot">
-        <a class="edit-hint" href="/admin/dates/{{ r['id'] }}/edit">Редактировать</a>
+        <a class="edit-hint" href="/admin/dates/{{ r['id'] }}/edit?{{ editor_return_query }}">Редактировать</a>
         {% if r['share_token'] %}
         <a class="btn small open-date" href="/d/{{ r['share_token'] }}" target="_blank" rel="noopener" title="Открыть страницу события">Открыть</a>
         {% endif %}
@@ -132,9 +136,9 @@
 <div class="dlist" data-tour="dates-collection">
   {% for r in rows %}
   <div class="drow{{ ' archived' if r['archived_at'] else '' }}">
-    <a class="drow-link" href="/admin/dates/{{ r['id'] }}/edit" aria-label="Редактировать «{{ r['name'] }}»"></a>
+    <a class="drow-link" href="/admin/dates/{{ r['id'] }}/edit?{{ editor_return_query }}" aria-label="Редактировать «{{ r['name'] }}»"></a>
     {% if r['cover'] %}
-    <a class="drow-cover g{{ r['id'] % 4 }}" href="/admin/dates/{{ r['id'] }}/edit" aria-label="Редактировать">
+    <a class="drow-cover g{{ r['id'] % 4 }}" href="/admin/dates/{{ r['id'] }}/edit?{{ editor_return_query }}" aria-label="Редактировать">
       <img src="/admin/uploads/{{ r['cover'] }}?w=480"
         srcset="/admin/uploads/{{ r['cover'] }}?w=480 480w,
                 /admin/uploads/{{ r['cover'] }}?w=960 960w"
@@ -144,8 +148,8 @@
     {% endif %}
     <div class="drow-main">
       <div class="drow-ttl">
-        <a href="/admin/dates/{{ r['id'] }}/edit" class="serif">{{ r['name'] }}</a>
-        {% if r['is_draft'] %}<span class="badge amber">{{ 'на модерации' if r['origin'] == 'guest' else 'неактивно' }}</span>{% endif %}
+        <a href="/admin/dates/{{ r['id'] }}/edit?{{ editor_return_query }}" class="serif">{{ r['name'] }}</a>
+        {% if r['is_draft'] %}<span class="badge amber">{{ 'на модерации' if r['origin'] == 'guest' else 'нужно исправить' }}</span>{% endif %}
         {% if r['origin'] == 'guest' %}<span class="badge">💡 предложено</span>{% endif %}
         {% if r['pay_split'] %}<span class="badge rose">{{ r['pay_split'] | pay_label }}</span>{% endif %}
       </div>
@@ -159,7 +163,7 @@
       {% endif %}
     </div>
     <div class="drow-act">
-      <a class="btn small" href="/admin/dates/{{ r['id'] }}/edit">Редактировать</a>
+      <a class="btn small" href="/admin/dates/{{ r['id'] }}/edit?{{ editor_return_query }}">Редактировать</a>
       {% if r['share_token'] %}
       <a class="btn small open-date" href="/d/{{ r['share_token'] }}" target="_blank" rel="noopener">Открыть</a>
       <button type="button" class="btn small" data-copy="{{ BASE_URL }}/d/{{ r['share_token'] }}">{% with icon='link' %}{% include "admin/_icon.html" %}{% endwith %} Поделиться</button>
@@ -170,25 +174,31 @@
         {% if r['is_draft'] and not r['archived_at'] and r['cats'] %}
         <form method="post" action="/admin/dates/{{ r['id'] }}/publish">
           <input type="hidden" name="csrf" value="{{ csrf }}">
-          <input type="hidden" name="next" value="/admin/dates?view={{ view }}{{ qs_keep }}">
-          <button type="submit">✓ Опубликовать</button>
+          <input type="hidden" name="next" value="{{ current_list_url }}">
+          <button type="submit">Опубликовать</button>
         </form>
         {% endif %}
         <form method="post" action="/admin/dates/{{ r['id'] }}/clone">
           <input type="hidden" name="csrf" value="{{ csrf }}">
-          <input type="hidden" name="next" value="/admin/dates?view={{ view }}{{ qs_keep }}">
-          <button type="submit">📋 Скопировать событие</button>
+          <input type="hidden" name="next" value="{{ current_list_url }}">
+          <button type="submit">Скопировать событие</button>
         </form>
         <form method="post" action="/admin/dates/{{ r['id'] }}/archive">
           <input type="hidden" name="csrf" value="{{ csrf }}">
-          <input type="hidden" name="next" value="/admin/dates?view={{ view }}{{ qs_keep }}">
-          <button type="submit">{{ '↩ Вернуть из архива' if r['archived_at'] else '🗄 В архив' }}</button>
+          <input type="hidden" name="next" value="{{ current_list_url }}">
+          <button type="submit">{{ 'Вернуть из архива' if r['archived_at'] else 'В архив' }}</button>
+        </form>
+        <form method="post" action="/admin/dates/{{ r['id'] }}/visibility">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <input type="hidden" name="next" value="{{ current_list_url }}">
+          <button type="submit">{{ 'Сделать непубличным' if r['is_public'] else 'Сделать публичным' }}</button>
         </form>
         <div class="sepa"></div>
         <form method="post" action="/admin/dates/{{ r['id'] }}/delete"
               data-confirm="Удалить событие безвозвратно? Фото, голоса и вопросы к нему тоже удалятся.">
           <input type="hidden" name="csrf" value="{{ csrf }}">
-          <button type="submit" class="danger">🗑 Удалить</button>
+          <input type="hidden" name="next" value="{{ current_list_url }}">
+          <button type="submit" class="danger">Удалить</button>
         </form>
       </div>
       </div>
@@ -212,14 +222,10 @@
     {% if view == 'archived' %}
     <div class="big">🗄</div>
     <p>Архив пуст. Сюда уезжают прошедшие события.</p>
-    {% elif view == 'drafts' %}
-    <div class="big">📝</div>
-    <p>Неактивных событий нет. Сюда попадают события без категории и предложения на модерации.</p>
-    <a class="btn primary" href="/admin/dates/new">+ Создать событие</a>
     {% else %}
     <div class="big">{% if user['admin_skin'] == 'friends' %}{% with icon='gather' %}{% include "admin/_icon.html" %}{% endwith %}{% else %}{% with icon='heart' %}{% include "admin/_icon.html" %}{% endwith %}{% endif %}</div>
     <p>Пока нет ни одного события — давай создадим первое.</p>
-    <a class="btn primary" href="/admin/dates/new">+ Создать событие</a>
+    <a class="btn primary" href="/admin/dates/new?{{ editor_return_query }}">+ Создать событие</a>
     {% endif %}
   </div>
 </div>

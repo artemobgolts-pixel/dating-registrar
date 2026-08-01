@@ -7,17 +7,16 @@
 <meta name="robots" content="noindex, nofollow">
 <!-- Turbo: префетч отключён намеренно. Он держит ОТДЕЛЬНЫЙ кэш (наведение на
      ссылку заранее тянет страницу и запоминает её), который Turbo.cache.clear()
-     после мутации НЕ чистит — из-за этого реактивированное событие оставалось
-     в «Неактивных» до жёсткого refresh (клик отдавал устаревший префетч-снимок).
+     после мутации НЕ чистит и может отдать устаревший снимок списка.
      Навигация и без префетча мгновенная (Turbo Drive подменяет <body>). -->
 <meta name="turbo-prefetch" content="false">
 <title>{% block title %}Кабинет{% endblock %} · date4you</title>
 {% if user and user['admin_skin'] == 'romantic' %}
-<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='80' font-size='80'&gt;%E2%9D%A4&lt;/text&gt;&lt;/svg&gt;">
+<link rel="icon" href="{{ asset('logo-romantic.png') }}">
 <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
 <link rel="manifest" href="/static/manifest.json">
 {% else %}
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='11' r='8' fill='%234b59a6'/%3E%3Ccircle cx='53' cy='32' r='8' fill='%23228e8a'/%3E%3Ccircle cx='32' cy='53' r='8' fill='%23e1a83b'/%3E%3Ccircle cx='11' cy='32' r='8' fill='%236d78c4'/%3E%3C/svg%3E">
+<link rel="icon" href="{{ asset('logo-standard.png') }}">
 <link rel="apple-touch-icon" href="/static/apple-touch-icon-friends.png">
 <link rel="manifest" href="/static/manifest-friends.json">
 {% endif %}

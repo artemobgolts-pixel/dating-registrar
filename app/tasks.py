@@ -57,11 +57,14 @@ async def voting_close_loop() -> None:
 def autoarchive_once(conn: sqlite3.Connection | None = None, *,
                      category_id: int | None = None,
                      owner_id: int | None = None) -> int:
-    """Переносит в архив события, чья дата прошла.
+    """Переносит в архив завершённые события.
 
     Правило: если задан конец диапазона — истекает в этот момент;
     если задано только одно время — истекает в конце того же дня (23:59 МСК).
-    Без даты/времени — только ручной перенос.
+    Событие без времени также завершается, когда оно стало победителем
+    голосования и реальный (не отказавшийся) участник победившего варианта
+    оставил обзор. Одной отметки «Хочу сходить» или обзора постороннего для
+    архивации недостаточно.
 
     category_id/owner_id оставлены для адресных служебных запусков. Обычные
     GET-запросы эту функцию не вызывают и не конкурируют за writer-lock:
@@ -71,7 +74,7 @@ def autoarchive_once(conn: sqlite3.Connection | None = None, *,
     if own:
         conn = db.connect()
     n = now_naive()
-    archived = 0
+    archive_ids: set[int] = set()
     where = "d.archived_at IS NULL AND (d.starts_at IS NOT NULL OR d.ends_at IS NOT NULL)"
     params: list = []
     if category_id is not None:
@@ -92,8 +95,54 @@ def autoarchive_once(conn: sqlite3.Connection | None = None, *,
                 continue
             end = start.replace(hour=23, minute=59, second=59)
         if end < n:
-            conn.execute("UPDATE dates SET archived_at=? WHERE id=?", (now_iso(), r["id"]))
-            archived += 1
+            archive_ids.add(int(r["id"]))
+
+    # У недатированного победителя нет календарного конца, но опубликованный
+    # обзор участника однозначно подтверждает, что встреча состоялась. Связываем
+    # review с booking того же пользователя и той же resolved-категории: иначе
+    # любой человек с прямой /d-ссылкой и отметкой want мог бы заархивировать
+    # чужое событие своим обзором.
+    completed_where = (
+        "d.archived_at IS NULL "
+        "AND c.voting_status='resolved' AND c.winner_date_id=d.id "
+        "AND b.date_id=d.id AND b.category_id=c.id "
+        "AND b.user_id IS NOT NULL AND b.participation_withdrawn_at IS NULL "
+        "AND r.date_id=d.id AND r.user_id=b.user_id "
+        # Одна строка dates может участвовать сразу в нескольких категориях.
+        # Не прячем победителя глобально, пока где-то ещё идёт голосование или
+        # владелец не разрешил ничью: иначе вариант исчезнет из второго опроса.
+        "AND NOT EXISTS ("
+        " SELECT 1 FROM date_categories pending_dc "
+        " JOIN categories pending_c ON pending_c.id=pending_dc.category_id "
+        " WHERE pending_dc.date_id=d.id "
+        " AND pending_c.voting_status IN ('open','tie')"
+        ")"
+    )
+    completed_params: list = []
+    if category_id is not None:
+        completed_where += " AND c.id=?"
+        completed_params.append(category_id)
+    if owner_id is not None:
+        completed_where += " AND d.owner_id=?"
+        completed_params.append(owner_id)
+    archive_ids.update(int(row["id"]) for row in conn.execute(
+        "SELECT DISTINCT d.id FROM dates d "
+        "JOIN categories c ON c.winner_date_id=d.id "
+        "JOIN bookings b ON b.category_id=c.id AND b.date_id=d.id "
+        "JOIN date_reviews r ON r.date_id=d.id AND r.user_id=b.user_id "
+        f"WHERE {completed_where}",
+        completed_params,
+    ).fetchall())
+
+    archived = 0
+    if archive_ids:
+        stamp = now_iso()
+        for date_id in archive_ids:
+            cursor = conn.execute(
+                "UPDATE dates SET archived_at=? WHERE id=? AND archived_at IS NULL",
+                (stamp, date_id),
+            )
+            archived += max(0, cursor.rowcount)
     if archived:
         conn.commit()
     if own:

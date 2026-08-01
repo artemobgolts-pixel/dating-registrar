@@ -2,9 +2,9 @@
 {% block title %}{{ cat['name'] }}{% endblock %}
 {% block head %}<meta name="turbo-cache-control" content="no-cache">{% endblock %}
 {% block content %}
+<a class="btn editor-back" href="/admin/categories">← Назад</a>
 <div class="bar">
   <h1 style="margin:0">{{ cat['name'] }}</h1>
-  <a class="btn" href="/admin/categories">← Все категории</a>
 </div>
 
 <div class="card">
@@ -41,7 +41,7 @@
           <input type="radio" name="category_skin" value="friends"
                  {% if category_skin == 'friends' %}checked{% endif %}>
           <span class="skin-option-preview skin-option-preview-friends" aria-hidden="true">
-            <span class="skin-option-symbol">{% with icon='gather' %}{% include "admin/_icon.html" %}{% endwith %}</span>
+            <span class="skin-option-symbol"><img src="{{ asset('logo-standard.png') }}" alt=""></span>
             <span class="skin-option-lines"><i></i><i></i><i></i></span>
           </span>
           <span class="skin-option-copy">
@@ -53,7 +53,7 @@
           <input type="radio" name="category_skin" value="romantic"
                  {% if category_skin == 'romantic' %}checked{% endif %}>
           <span class="skin-option-preview skin-option-preview-romantic" aria-hidden="true">
-            <span class="skin-option-symbol">{% with icon='heart' %}{% include "admin/_icon.html" %}{% endwith %}</span>
+            <span class="skin-option-symbol"><img src="{{ asset('logo-romantic.png') }}" alt=""></span>
             <span class="skin-option-lines"><i></i><i></i><i></i></span>
           </span>
           <span class="skin-option-copy">
@@ -232,7 +232,8 @@
   <div class="bar category-fill-head" data-tour="category-dates">
     <b>События в категории</b>
     {% if can_change_composition %}
-      <a class="btn small primary" href="/admin/dates/new?category={{ cat['id'] }}">+ Новое событие</a>
+      <a class="btn small primary"
+         href="/admin/dates/new?category={{ cat['id'] }}&amp;return_to={{ ('/admin/categories/' ~ cat['id']) | urlencode }}">+ Новое событие</a>
     {% else %}
       <span class="badge">Состав зафиксирован</span>
     {% endif %}
@@ -248,10 +249,10 @@
         {% if can_change_composition %}data-sort="1"{% endif %} data-did="{{ d['id'] }}">
       <td class="drag-h" {% if can_change_composition %}title="Перетащи, чтобы изменить порядок"{% endif %}>{{ '⋮⋮' if can_change_composition else '·' }}</td>
       <td>
-        <a href="/admin/dates/{{ d['id'] }}/edit">{{ d['name'] }}</a>
+        <a href="/admin/dates/{{ d['id'] }}/edit?return_to={{ ('/admin/categories/' ~ cat['id']) | urlencode }}">{{ d['name'] }}</a>
         {% if cat['winner_date_id'] == d['id'] %}<span class="badge rose">Победитель</span>{% endif %}
         {% if voting_state.status == 'tie' and d['id'] in leader_ids %}<span class="badge amber">Лидер</span>{% endif %}
-        {% if d['is_draft'] %}<span class="badge amber">{{ 'на модерации' if d['origin'] == 'guest' else 'неактивно' }}</span>{% endif %}
+        {% if d['is_draft'] %}<span class="badge amber">{{ 'на модерации' if d['origin'] == 'guest' else 'нужно исправить' }}</span>{% endif %}
         {% if d['origin'] == 'guest' %}<span class="badge">💡 предложено</span>{% endif %}
         {% if d['archived_at'] %}<span class="badge">архив</span>{% endif %}
       </td>

@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 import db
 import notification_outbox as outbox
 import notify
+import social_events
 import voting
 from config import BASE_URL
 from helpers import fmt_when, now_naive
@@ -248,6 +249,10 @@ def close_due_once(conn: sqlite3.Connection | None = None, *,
             try:
                 state = voting.close_category(conn, int(row["id"]), now=current)
                 queue_category_outcome(conn, state, now=current)
+                if state.winner_date_id is not None:
+                    social_events.queue_review_prompts_for_date(
+                        conn, int(state.winner_date_id),
+                    )
                 count += 1
             except voting.VotingError:
                 log.exception("Не удалось закрыть категорию id=%s", row["id"])

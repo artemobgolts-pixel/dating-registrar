@@ -9,9 +9,10 @@ from markupsafe import Markup, escape
 
 from config import MSK
 
-# Длина токена ссылки в байтах. 8 байт = 64 бита энтропии → ссылка ~11 символов
-# (base64url). Перебрать нереально, а ссылка втрое короче прежних 24 байт.
-LINK_TOKEN_BYTES = 8
+# Capability-ссылка фактически является секретом доступа. Для новых ссылок
+# используем минимум 128 бит энтропии (base64url ≈ 22 символа); уже выданные
+# короткие токены остаются валидными и могут быть перевыпущены владельцем.
+LINK_TOKEN_BYTES = 16
 
 
 def new_link_token() -> str:
@@ -243,4 +244,3 @@ def pay_label(value) -> str:
         return PAY_LABELS.get(int(value or 0), "")
     except (TypeError, ValueError):
         return ""
-

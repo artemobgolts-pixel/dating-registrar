@@ -57,13 +57,15 @@ def viewer(request, conn):
         "SELECT * FROM users WHERE id=? AND is_active=1", (uid,)).fetchone()
 
 
-def acting_user(request, conn):
+def acting_user(request, conn, csrf: str = ""):
     """Для POST-действий гостя: нужен вход. Нет валидной сессии → 401 с флагом
-    need_login (фронт уводит на /login?next=…)."""
+    need_login (фронт уводит на /login?next=…). Валидная сессия сама по себе
+    недостаточна: каждое изменение требует CSRF-токен этой сессии."""
     u = viewer(request, conn)
     if not u:
         raise HTTPException(401, {"need_login": True,
                                   "msg": "Войди в аккаунт, чтобы продолжить ♥"})
+    users.require_csrf(request, csrf)
     return u
 
 
@@ -847,6 +849,7 @@ def public_category(token: str, request: Request, conn=Depends(get_db)):
         "widget_state": (auth_routes.issue_widget_state(request)
                          if auth_routes.BOT_USERNAME and not me else None),
         "token": token,
+        "csrf": request.session.get("csrf", ""),
     })
     resp.headers["X-Robots-Tag"] = "noindex"
     return resp
@@ -1182,6 +1185,39 @@ def shared_date(token: str, request: Request, conn=Depends(get_db)):
     return resp
 
 
+@router.get("/d/{token}/review/{review_id}", response_class=HTMLResponse)
+def shared_profile_review(token: str, review_id: int, request: Request,
+                          conn=Depends(get_db)):
+    """Публичная share-ссылка ведёт на конкретный обзор, не на событие."""
+    row = conn.execute(
+        "SELECT r.id AS review_id, r.user_id, r.rating, r.text AS review_text, "
+        "r.is_public AS review_public, d.id AS date_id, d.name, d.share_token, "
+        "d.is_public AS date_public, d.is_draft AS date_draft, "
+        "u.display_name, u.tg_username, u.admin_skin "
+        "FROM date_reviews r JOIN dates d ON d.id=r.date_id "
+        "JOIN users u ON u.id=r.user_id AND u.is_active=1 "
+        "WHERE r.id=? AND d.share_token=? AND r.is_public=1 "
+        "AND d.is_public=1 AND d.is_draft=0",
+        (review_id, token),
+    ).fetchone()
+    if not row:
+        return templates.TemplateResponse(request, "public/gone.html", status_code=404)
+    review = dict(row)
+    media = _batch_media(conn, [int(row["date_id"])])
+    review["images"] = media["images"].get(int(row["date_id"]), [])
+    response = templates.TemplateResponse(
+        request, "public/profile_review.html",
+        {"request": request, "review": review, "is_me": False,
+         "shareable": False,
+         "reviewer_display": row["display_name"] or row["tg_username"]
+         or f"Человек #{row['user_id']}",
+         "category_skin": appearance.normalize_skin(row["admin_skin"]),
+         "profile_return_url": "", "review_share_url": ""},
+    )
+    response.headers["X-Robots-Tag"] = "noindex"
+    return response
+
+
 @router.post("/d/{token}/want", dependencies=[Depends(users.current_user)])
 def shared_date_want(token: str, request: Request, conn=Depends(get_db)):
     """Переключает независимую отметку исходного события «Хочу сходить»."""
@@ -1499,7 +1535,8 @@ def shared_date_video(token: str, filename: str, request: Request, conn=Depends(
 
 
 @router.post("/d/{token}/add")
-def shared_date_add(token: str, request: Request, conn=Depends(get_db)):
+def shared_date_add(token: str, request: Request, csrf: str = Form(""),
+                    conn=Depends(get_db)):
     """Добавить копию события себе в коллекцию (нужен вход).
 
     Копия — отдельное активное событие получателя со СВОИМ свежим share_token
@@ -1509,7 +1546,7 @@ def shared_date_add(token: str, request: Request, conn=Depends(get_db)):
     d = date_by_share(conn, token)
     if not d:
         raise HTTPException(404, "Событие не найдено")
-    user = acting_user(request, conn)
+    user = acting_user(request, conn, csrf)
     guest_throttle("dadd", viewer_token(user), request)
     if user["id"] == d["owner_id"]:
         raise HTTPException(400, "Это твоё событие — оно уже в твоей коллекции")

@@ -5,10 +5,10 @@
    снимок формы (категории выглядели «сброшенными»). #}
 {% block head %}<meta name="turbo-cache-control" content="no-cache">{% endblock %}
 {% block content %}
+<a class="btn ghost editor-back" href="{{ editor_return_url | default('/admin/dates', true) }}">← Назад</a>
 <div class="crumb">Встречи › {{ 'Редактирование' if date else 'Новое' }}</div>
 <div class="bar">
   <h1 class="serif" style="margin:0">{{ 'Редактировать событие' if date else 'Новое событие' }}</h1>
-  <a class="btn ghost" href="/admin/dates">← К списку</a>
 </div>
 
 {% if date and date['origin'] == 'guest' %}
@@ -28,7 +28,8 @@
       <form class="inline" method="post" action="/admin/bookings/{{ b['bid'] }}/delete"
             data-confirm="Снять выбор «{{ b['name'] }}»? Освободится одно место.">
         <input type="hidden" name="csrf" value="{{ csrf }}">
-        <input type="hidden" name="next" value="/admin/dates/{{ date['id'] }}/edit">
+        <input type="hidden" name="next"
+               value="/admin/dates/{{ date['id'] }}/edit?return_to={{ editor_return_url | urlencode }}">
         <button class="btn small danger" type="submit">✕ снять</button>
       </form>
     </div>
@@ -195,7 +196,7 @@
 
     <div class="sec" data-tour="date-visibility">
       <h2 class="serif"><span class="n">2</span> Категории</h2>
-      <p class="muted" style="margin:0 0 10px;font-size:13px">Пока событие не добавлено ни в одну категорию, оно неактивно — гости его не видят.</p>
+      <p class="muted" style="margin:0 0 10px;font-size:13px">Категории нужны для общего голосования. Событие без категории всё равно остаётся активным в твоей коллекции.</p>
       <div class="chips-cat">
         {% for c in cats %}
         <label class="chip-cat{% if c['id'] in locked_cat_ids %} locked{% endif %}"
@@ -227,7 +228,7 @@
 
 <div class="savebar" data-tour="date-save">
   <button class="btn primary" form="dateForm">Сохранить</button>
-  <a class="btn ghost" href="/admin/dates">Отмена</a>
+  <a class="btn ghost" href="{{ editor_return_url | default('/admin/dates', true) }}">Отмена</a>
   {% if date %}
   <div class="menu-wrap cat-editor-menu-wrap">
     <button type="button" class="more cat-editor-more" aria-label="Другие действия с событием"
@@ -235,6 +236,7 @@
     <div class="menu cat-editor-menu">
       <form method="post" action="/admin/dates/{{ date['id'] }}/clone">
         <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="next" value="{{ editor_return_url | default('/admin/dates', true) }}">
         <button type="submit">Скопировать событие</button>
       </form>
     </div>

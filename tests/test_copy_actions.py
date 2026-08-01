@@ -58,7 +58,9 @@ def login(client: TestClient, telegram_id: int) -> str:
     assert response.status_code == 200
     assert client.get(f"/auth/poll?code={code}").json()["status"] == "ok"
     page = client.get("/admin/categories")
-    return re.search(r'name="csrf" value="([^"]+)"', page.text).group(1)
+    csrf = re.search(r'name="csrf" value="([^"]+)"', page.text).group(1)
+    client.headers["X-CSRF-Token"] = csrf
+    return csrf
 
 
 class CopyActionTests(unittest.TestCase):
@@ -138,9 +140,32 @@ class CopyActionTests(unittest.TestCase):
             self.assertIn(
                 f'action="/admin/categories/{source_category}/clone"', category_list,
             )
-            event_editor = owner.get(f"/admin/dates/{source_date}/edit").text
+            event_editor = owner.get(
+                f"/admin/dates/{source_date}/edit",
+                params={"return_to": "/admin/dates?view=active&f=public&page=2"},
+            ).text
             self.assertIn("Другие действия с событием", event_editor)
             self.assertIn("Скопировать событие", event_editor)
+            self.assertIn(
+                f'value="/admin/dates/{source_date}/edit?return_to='
+                '/admin/dates%3Fview%3Dactive%26f%3Dpublic%26page%3D2"',
+                event_editor,
+            )
+            category_editor = owner.get(
+                f"/admin/categories/{source_category}",
+            ).text
+            category_return = f"/admin/categories/{source_category}"
+            self.assertIn(
+                f"/admin/dates/{source_date}/edit?return_to={category_return}",
+                category_editor,
+            )
+            from_category = owner.get(
+                f"/admin/dates/{source_date}/edit",
+                params={"return_to": f"/admin/categories/{source_category}"},
+            ).text
+            self.assertIn(
+                f'href="/admin/categories/{source_category}"', from_category,
+            )
 
             response = owner.post(
                 f"/admin/categories/{source_category}/clone", data={"csrf": csrf},
@@ -170,8 +195,8 @@ class CopyActionTests(unittest.TestCase):
             self.assertEqual(copied_date["name"], "Прогулка (копия)")
             self.assertNotEqual(copied_date["id"], source_date)
             self.assertNotEqual(copied_date["share_token"], "date-880101")
-            self.assertEqual(copied_date["is_public"], 1)
-            self.assertEqual(copied_date["is_draft"], 1)
+            self.assertEqual(copied_date["is_public"], 0)
+            self.assertEqual(copied_date["is_draft"], 0)
             self.assertEqual(copied_date["cat_position"], 7)
             self.assertEqual(conn.execute(
                 "SELECT url FROM date_links WHERE date_id=?", (copied_date["id"],),
@@ -358,7 +383,7 @@ class CopyActionTests(unittest.TestCase):
 
     def test_dates_visibility_filter_executes_and_survives_status_navigation(self):
         with TestClient(main.app, follow_redirects=False) as client:
-            login(client, 880401)
+            csrf = login(client, 880401)
             conn = db.connect()
             owner_id = int(conn.execute(
                 "SELECT id FROM users WHERE telegram_id=880401",
@@ -370,32 +395,46 @@ class CopyActionTests(unittest.TestCase):
                 [
                     (owner_id, "Фильтр: публичное активное", 1, 0, None, NOW),
                     (owner_id, "Фильтр: непубличное активное", 0, 0, None, NOW),
-                    (owner_id, "Фильтр: публичный черновик", 1, 1, None, NOW),
-                    (owner_id, "Фильтр: непубличный черновик", 0, 1, None, NOW),
+                    (owner_id, "Фильтр: публичное на модерации", 1, 1, None, NOW),
+                    (owner_id, "Фильтр: непубличное на модерации", 0, 1, None, NOW),
                     (owner_id, "Фильтр: публичный архив", 1, 0, NOW, NOW),
                     (owner_id, "Фильтр: непубличный архив", 0, 0, NOW, NOW),
                 ],
             )
             conn.commit()
+            event_id = int(conn.execute(
+                "SELECT id FROM dates WHERE owner_id=? AND name=?",
+                (owner_id, "Фильтр: публичное активное"),
+            ).fetchone()[0])
             conn.close()
 
             public_active = client.get("/admin/dates?view=active&f=public")
             self.assertEqual(public_active.status_code, 200)
             self.assertIn("Фильтр: публичное активное", public_active.text)
             self.assertNotIn("Фильтр: непубличное активное", public_active.text)
-            self.assertNotIn("Фильтр: публичный черновик", public_active.text)
+            self.assertIn("Фильтр: публичное на модерации", public_active.text)
+            self.assertNotIn("Фильтр: непубличное на модерации", public_active.text)
             self.assertRegex(
                 public_active.text,
                 r'<option value="public"\s+selected>Публичные</option>',
             )
             self.assertIn(
-                'href="/admin/dates?view=drafts&amp;f=public"',
-                public_active.text,
-            )
-            self.assertIn(
                 'href="/admin/dates?view=archived&amp;f=public"',
                 public_active.text,
             )
+            self.assertNotIn(">Неактивные<", public_active.text)
+            self.assertIn(
+                'name="next" value="/admin/dates?view=active&amp;f=public"',
+                public_active.text,
+            )
+            self.assertIn("Сделать непубличным", public_active.text)
+            for old_label in ("✓ Опубликовать", "📋 Скопировать", "🗄 В архив",
+                              "↩ Вернуть", "🗑 Удалить"):
+                self.assertNotIn(old_label, public_active.text)
+            self.assertIn("editor-back", client.get(
+                f"/admin/dates/{event_id}/edit",
+                params={"return_to": "/admin/dates?view=active&f=public"},
+            ).text)
             self.assertIn(
                 '<input type="hidden" name="view" value="active">',
                 public_active.text,
@@ -403,24 +442,12 @@ class CopyActionTests(unittest.TestCase):
 
             private_active = client.get("/admin/dates?view=active&f=private")
             self.assertIn("Фильтр: непубличное активное", private_active.text)
+            self.assertIn("Фильтр: непубличное на модерации", private_active.text)
             self.assertNotIn("Фильтр: публичное активное", private_active.text)
             self.assertRegex(
                 private_active.text,
                 r'<option value="private"\s+selected>Непубличные</option>',
             )
-            self.assertIn(
-                'href="/admin/dates?view=drafts&amp;f=private"',
-                private_active.text,
-            )
-
-            public_drafts = client.get("/admin/dates?view=drafts&f=public")
-            self.assertIn("Фильтр: публичный черновик", public_drafts.text)
-            self.assertNotIn("Фильтр: непубличный черновик", public_drafts.text)
-            self.assertIn(
-                'href="/admin/dates?view=active&amp;f=public"',
-                public_drafts.text,
-            )
-
             private_archive = client.get("/admin/dates?view=archived&f=private")
             self.assertIn("Фильтр: непубличный архив", private_archive.text)
             self.assertNotIn("Фильтр: публичный архив", private_archive.text)
@@ -428,6 +455,22 @@ class CopyActionTests(unittest.TestCase):
                 'href="/admin/dates?view=active&amp;f=private"',
                 private_archive.text,
             )
+
+            toggled = client.post(
+                f"/admin/dates/{event_id}/visibility",
+                data={"csrf": csrf, "next": "/admin/dates?view=active&f=public"},
+            )
+            self.assertEqual(toggled.status_code, 303)
+            self.assertTrue(toggled.headers["location"].startswith(
+                "/admin/dates?view=active&f=public&msg="
+            ))
+            conn = db.connect()
+            try:
+                self.assertEqual(conn.execute(
+                    "SELECT is_public FROM dates WHERE id=?", (event_id,),
+                ).fetchone()[0], 0)
+            finally:
+                conn.close()
 
 
 if __name__ == "__main__":

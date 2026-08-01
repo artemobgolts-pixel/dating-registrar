@@ -810,9 +810,12 @@ window.UI = (() => {
   }
 
   /* --- POST с прогрессом загрузки (fetch не умеет upload-progress) ------- */
-  function postWithProgress(url, formData, onProgress) {    return new Promise((resolve) => {
+  function postWithProgress(url, formData, onProgress) {
+    return new Promise((resolve) => {
       const xhr = new XMLHttpRequest();
       xhr.open("POST", url);
+      const csrf = document.body && document.body.dataset.csrf;
+      if (csrf) xhr.setRequestHeader("X-CSRF-Token", csrf);
       if (xhr.upload && onProgress) {
         xhr.upload.addEventListener("progress", (e) => {
           if (e.lengthComputable) onProgress(e.loaded / e.total);
@@ -870,7 +873,7 @@ window.UI = (() => {
     }
     // Важно задать геометрию ДО вставки нового индикатора. Иначе браузер
     // успевал показать один кадр width:0 и отдельную fallback-заливку `.on`,
-    // что особенно заметно на счётчиках Активные/Неактивные/Архив.
+    // что особенно заметно на счётчиках Активные/Архив.
     container.classList.add("no-anim");
     ind.style.width = start.w + "px";
     ind.style.transform = "translateX(" + start.x + "px)";
@@ -1135,12 +1138,46 @@ window.UI = (() => {
     });
   }
 
+  /* Живой остаток до дедлайна голосования. Сервер передаёт ISO со смещением
+     +03:00, поэтому отсчёт одинаков для посетителя из любого часового пояса. */
+  function voteCountdowns(root) {
+    (root || document).querySelectorAll("[data-vote-countdown]").forEach(function (el) {
+      if (el.dataset.countdownReady) return;
+      el.dataset.countdownReady = "1";
+      var deadline = Date.parse(el.dataset.deadline || "");
+      if (!Number.isFinite(deadline)) return;
+
+      var timer = null;
+      function render() {
+        var seconds = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+        if (seconds <= 0) {
+          el.textContent = "Голосование завершается…";
+          if (timer) clearInterval(timer);
+          return;
+        }
+        var days = Math.floor(seconds / 86400);
+        var hours = Math.floor((seconds % 86400) / 3600);
+        var minutes = Math.floor((seconds % 3600) / 60);
+        var secs = seconds % 60;
+        var parts = [];
+        if (days) parts.push(days + " дн.");
+        if (days || hours) parts.push(hours + " ч.");
+        parts.push(minutes + " мин.");
+        if (!days) parts.push(secs + " сек.");
+        el.textContent = "До конца голосования осталось: " + parts.join(" ");
+      }
+      render();
+      timer = setInterval(render, 1000);
+    });
+  }
+
   // На публичных страницах ui.js стоит внизу body; в кабинете он defer.
   // Оба варианта уже имеют DOM, а Turbo-страницы переинициализирует admin.js.
   lazyVideos(document);
+  voteCountdowns(document);
 
   return { sortable, burst, uploader, mediaUploader, lazyVideos, dateChips, postWithProgress,
            editorPreview, richEditor, cardMenu, renderMarkup, glassTabs,
            inlineEdit: inlineEdit, timeRange: timeRange,
-           numberSteppers: numberSteppers };
+           numberSteppers: numberSteppers, voteCountdowns: voteCountdowns };
 })();

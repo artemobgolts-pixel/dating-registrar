@@ -5,17 +5,68 @@
 """
 
 import secrets
+from urllib.parse import urlsplit
 
 from fastapi import Depends, HTTPException, Request
 
 import settings as app_settings
-from config import OPERATOR_TG_IDS
+from config import BASE_URL, OPERATOR_TG_IDS
 from helpers import now_iso
 from web import get_db
 
 
 class NeedLogin(Exception):
     """Нет валидной сессии — middleware/обработчик редиректит на /login."""
+
+
+def _origin_key(value: str) -> tuple[str, str, int] | None:
+    """Нормализованный origin для строгого same-origin сравнения."""
+    try:
+        parsed = urlsplit(value)
+        if (parsed.scheme not in {"http", "https"} or not parsed.hostname
+                or parsed.username is not None or parsed.password is not None):
+            return None
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        return parsed.scheme, parsed.hostname.lower().rstrip("."), port
+    except (TypeError, ValueError):
+        return None
+
+
+def require_csrf(request: Request, token: str = "", *,
+                 allow_header: bool = True) -> None:
+    """Проверяет CSRF-токен и браузерные признаки same-origin запроса.
+
+    JS может передать токен заголовком ``X-CSRF-Token``; обычные формы — полем
+    ``csrf``. Нестандартный заголовок заодно заставляет кросс-доменный fetch
+    пройти CORS-preflight, который приложение не разрешает.
+    """
+    # Явное поле формы имеет приоритет: нельзя «перекрыть» поддельное поле
+    # валидным заголовком, случайно оставшимся в клиенте/тестовом окружении.
+    supplied = str(
+        token or (request.headers.get("x-csrf-token") if allow_header else "") or ""
+    )
+    good = str(request.session.get("csrf") or "")
+    if not (supplied and good and secrets.compare_digest(supplied, good)):
+        raise HTTPException(
+            403, "Сессия устарела — обнови страницу и попробуй ещё раз",
+        )
+
+    # Origin присутствует у современных браузеров на POST. Отсутствие не
+    # блокируем ради обычных клиентов/старых браузеров: секретный токен уже
+    # является основной защитой. Но присланный Origin обязан быть своим.
+    # BASE_URL нужен за reverse proxy: внутренний request может иметь схему
+    # http, тогда как браузер и публичный сайт всегда используют https.
+    origin = request.headers.get("origin")
+    expected_origins = {
+        key for key in (
+            _origin_key(str(request.base_url)),
+            _origin_key(BASE_URL),
+        ) if key is not None
+    }
+    if origin and _origin_key(origin) not in expected_origins:
+        raise HTTPException(403, "Запрос с другого сайта отклонён")
+    if request.headers.get("sec-fetch-site", "").lower() == "cross-site":
+        raise HTTPException(403, "Запрос с другого сайта отклонён")
 
 
 def get_user(conn, user_id: int):
@@ -136,10 +187,10 @@ async def current_user(request: Request, conn=Depends(get_db)):
         request.session["csrf"] = secrets.token_urlsafe(16)
     if request.method == "POST":
         form = await request.form()
-        token = str(form.get("csrf") or "")
-        good = request.session.get("csrf") or ""
-        if not (token and secrets.compare_digest(token, good)):
-            raise HTTPException(403, "Сессия устарела — обнови страницу и попробуй ещё раз")
+        # Кабинетные HTML-формы обязаны явно нести поле csrf. Заголовок здесь
+        # не принимаем, чтобы случайный глобальный заголовок клиента не скрыл
+        # сломанную/забытую защиту конкретной формы.
+        require_csrf(request, str(form.get("csrf") or ""), allow_header=False)
     request.state.user = user
     return user
 

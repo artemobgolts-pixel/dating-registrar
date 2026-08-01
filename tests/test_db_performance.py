@@ -131,12 +131,17 @@ class DatabasePerformanceMigrationTests(unittest.TestCase):
                     conn.execute("PRAGMA user_version").fetchone()[0],
                     db.LATEST_VERSION,
                 )
-                drafts = dict(conn.execute("SELECT name, is_draft FROM dates"))
-                self.assertEqual(drafts["repair"], 0)
-                self.assertEqual(drafts["guest"], 1)
-                self.assertEqual(drafts["archived"], 1)
-                self.assertEqual(drafts["unlinked"], 1)
-                self.assertEqual(drafts["deadline-conflict"], 1)
+                states = {
+                    name: (is_draft, is_public)
+                    for name, is_draft, is_public in conn.execute(
+                        "SELECT name, is_draft, is_public FROM dates"
+                    )
+                }
+                self.assertEqual(states["repair"], (0, 1))
+                self.assertEqual(states["guest"], (1, 1))
+                self.assertEqual(states["archived"], (1, 1))
+                self.assertEqual(states["unlinked"], (0, 0))
+                self.assertEqual(states["deadline-conflict"], (1, 0))
                 indexes = {
                     row[0]
                     for row in conn.execute(

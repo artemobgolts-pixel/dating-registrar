@@ -503,7 +503,7 @@ label.chk {
 
 .stat span { color: var(--muted); font-size: 13px; }
 
-/* счётчики событий на главной (активные/неактивные/архив) — как вкладки-пилюли */
+/* счётчики событий на главной (активные/архив) — как вкладки-пилюли */
 .dcount-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
 .dcount {
   display: inline-flex; align-items: center; gap: 8px;
@@ -658,6 +658,27 @@ label.chk {
   margin-bottom: 14px;
 }
 
+/* Возврат из длинных редакторов всегда остаётся у левого края. На широком
+   экране кнопка живёт в свободном поле рядом с контентом; на узком становится
+   sticky внутри колонки и не перекрывает форму. */
+.editor-back {
+  position: fixed;
+  top: 84px;
+  left: max(12px, calc(50vw - 690px));
+  z-index: 9;
+  white-space: nowrap;
+  box-shadow: 0 7px 20px rgba(88, 65, 72, .12);
+}
+
+@media (max-width: 1380px) {
+  .editor-back {
+    position: sticky;
+    top: 76px;
+    display: table;
+    margin: 0 0 12px;
+  }
+}
+
 /* ---------- логин ---------- */
 
 .login-page {
@@ -702,11 +723,18 @@ label.chk {
 }
 
 .login-card .login-mark {
-  text-align: center;
-  margin: 0 0 6px;
-  color: var(--accent);
-  font-size: 72px;
+  display: grid;
+  place-items: center;
+  width: 112px;
+  height: 112px;
+  margin: 0 auto 8px;
   line-height: 1;
+}
+.login-card .login-mark img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 24px;
 }
 .login-mark-standard { display: none; }
 
@@ -1131,7 +1159,7 @@ input.flash { background: #f8ecea !important; transition: background .4s; }
 /* ряд действий уведомления: кнопки одной высоты и по базовой линии. form.inline
    раскрываем в contents, чтобы её кнопка была ПРЯМЫМ flex-ребёнком ряда —
    иначе inline-форма сбивала выравнивание (кнопки «прыгали», #7). */
-.notif-actions { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; align-items: center; }
+.notif-actions { display: flex; gap: 8px; margin-top: 14px; flex-wrap: nowrap; align-items: center; }
 .notif-actions .inline { display: contents; }
 .notif-actions .btn { margin: 0; }
 .notif-action-btn {
@@ -1150,8 +1178,10 @@ input.flash { background: #f8ecea !important; transition: background .4s; }
   display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
   flex: 1 1 100%; width: 100%;
 }
-.notif-inline-actions .notif-action-btn,
-.notif-actions .notif-action-btn { flex: 1 1 170px; }
+.notif-inline-actions .notif-action-btn { flex: 1 1 170px; }
+.notif-actions .notif-action-btn { flex: 1 1 0; min-width: 0; }
+.notif-read-action { margin-top: 8px; }
+.notif-read-action .notif-action-btn { min-height: 34px; padding-inline: 11px; font-size: 12px; }
 .notif-empty .big { display: grid; place-items: center; color: var(--muted); }
 .notif-empty .big .admin-icon { width: 38px; height: 38px; }
 
@@ -1193,8 +1223,7 @@ input.flash { background: #f8ecea !important; transition: background .4s; }
   .notif-page-head p { max-width: 235px; }
   .notif-head { gap: 10px; }
   .notif-ic { width: 36px; height: 36px; }
-  .notif-inline-actions .notif-action-btn,
-  .notif-actions .notif-action-btn { flex-basis: 100%; width: 100%; }
+  .notif-inline-actions .notif-action-btn { flex-basis: 100%; width: 100%; }
   .notif-compose .notif-action-btn { width: 100%; }
 }
 
@@ -2679,7 +2708,7 @@ html[data-theme="dark"][data-skin="friends"] .share-qr {
   /* фильтры списка событий: на телефоне переносим и не даём «уезжать» вбок */
   .controls .filters { flex-wrap: wrap; width: 100%; }
   .controls .filters select { flex: 1 1 auto; min-width: 0; }
-  /* Вкладки Активные/Неактивные/Архив — во всю ширину, вкладки делят её поровну.
+  /* Вкладки Активные/Архив — во всю ширину, вкладки делят её поровну.
      Текст/шрифт/паддинг НЕ трогаем (тот же «сочный» вид) — влезаем за счёт того,
      что счётчик стал маленьким кружком-суперскриптом (см. .tabs .pill), а не
      широкой пилюлей, которая раньше и вызывала горизонтальный скролл. */
@@ -3255,7 +3284,9 @@ html[data-theme="dark"] .bg-smoke span:nth-child(4) {
   cursor: pointer; transition: color .18s, background .18s, transform .15s, box-shadow .18s;
 }
 .login-skin-choice:hover { color: var(--ink); transform: translateY(-1px); }
-.login-skin-choice .admin-icon { width: 21px; height: 21px; stroke-width: 2; }
+.login-skin-choice img {
+  width: 27px; height: 27px; display: block; object-fit: cover; border-radius: 50%;
+}
 .login-skin-choice[data-skin-set="friends"][aria-pressed="true"] {
   color: #fff; background: linear-gradient(135deg, #5365bc, #354483);
   box-shadow: 0 4px 11px rgba(58,70,139,.3);
@@ -3402,6 +3433,9 @@ html[data-theme="dark"] .login-skin-pick { background: rgba(42,33,40,.78); }
   place-items: center;
 }
 .skin-option-symbol .admin-icon { width: 25px; height: 25px; stroke-width: 2; }
+.skin-option-symbol img {
+  width: 30px; height: 30px; display: block; object-fit: cover; border-radius: 9px;
+}
 .skin-option-lines {
   position: relative;
   z-index: 1;
@@ -3510,11 +3544,7 @@ html[data-theme="dark"][data-skin="friends"] .login-card {
 }
 html[data-skin="friends"] .login-mark-romantic { display: none; }
 html[data-skin="friends"] .login-mark-standard {
-  display: inline-grid; place-items: center; width: 72px; height: 72px;
-  color: var(--rose);
-}
-html[data-skin="friends"] .login-mark-standard .admin-icon {
-  width: 64px; height: 64px; stroke-width: 1.65;
+  display: block;
 }
 html[data-skin="friends"] .login-brand,
 html[data-skin="friends"] .login-brand .d4 {

@@ -8,9 +8,18 @@
      доменный iframe) красит свою подложку в чёрный — «чёрный прямоугольник». -->
 <meta name="color-scheme" content="light">
 <title>Вход · date4you</title>
-<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='80' font-size='80'&gt;%E2%9D%A4&lt;/text&gt;&lt;/svg&gt;">
-<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
-<link rel="manifest" href="/static/manifest.json">
+<link rel="icon" data-skin-asset
+      data-href-friends="{{ asset('logo-standard.png') }}"
+      data-href-romantic="{{ asset('logo-romantic.png') }}"
+      href="{{ asset('logo-romantic.png') }}">
+<link rel="apple-touch-icon" data-skin-asset
+      data-href-friends="/static/apple-touch-icon-friends.png"
+      data-href-romantic="/static/apple-touch-icon.png"
+      href="/static/apple-touch-icon.png">
+<link rel="manifest" data-skin-asset
+      data-href-friends="/static/manifest-friends.json"
+      data-href-romantic="/static/manifest.json"
+      href="/static/manifest.json">
 <meta name="theme-color" content="#b65f6f">
 <script src="{{ asset('theme.js') }}"></script>
 <link rel="stylesheet" href="{{ asset('admin.css') }}">
@@ -24,11 +33,11 @@
   <div class="login-skin-pick" role="group" aria-label="Тема оформления">
     <button type="button" class="login-skin-choice" data-skin-set="friends"
             aria-label="Стандартная тема" title="Стандартная тема">
-      {% with icon='gather' %}{% include "admin/_icon.html" %}{% endwith %}
+      <img src="{{ asset('logo-standard.png') }}" alt="">
     </button>
     <button type="button" class="login-skin-choice" data-skin-set="romantic"
             aria-label="Романтическая тема" title="Романтическая тема">
-      {% with icon='heart' %}{% include "admin/_icon.html" %}{% endwith %}
+      <img src="{{ asset('logo-romantic.png') }}" alt="">
     </button>
   </div>
 </div>
@@ -36,8 +45,8 @@
   <div class="login-center">
   <div class="login-card">
     <h1 class="login-mark" aria-hidden="true">
-      <span class="login-mark-romantic">♥</span>
-      <span class="login-mark-standard">{% with icon='gather' %}{% include "admin/_icon.html" %}{% endwith %}</span>
+      <img class="login-mark-romantic" src="{{ asset('logo-romantic.png') }}" alt="">
+      <img class="login-mark-standard" src="{{ asset('logo-standard.png') }}" alt="">
     </h1>
     <div class="login-brand">date<span class="d4">4</span>you</div>
     <p class="login-lead">Войди, чтобы создавать события и организовывать встречи.</p>

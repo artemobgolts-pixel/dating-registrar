@@ -115,19 +115,16 @@
   </div>
   {% endif %}
 
-  <form method="post" action="/admin/questions/{{ q['id'] }}/answer" class="answer-form notif-compose">
+  <form id="notif-answer-{{ q['id'] }}" method="post"
+        action="/admin/questions/{{ q['id'] }}/answer" class="answer-form notif-compose">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <input type="hidden" name="next" value="/admin/questions{{ '?f=all' if f == 'all' else '' }}">
     <textarea name="text" maxlength="2000" placeholder="Напиши ответ — автор увидит его на странице события">{{ q['answer'] or '' }}</textarea>
-    <button type="submit" class="btn primary notif-action-btn">{{ 'Обновить ответ' if q['answer'] else 'Ответить' }}</button>
   </form>
 
   <div class="notif-actions">
-    <form class="inline" method="post" action="/admin/questions/{{ q['id'] }}/toggle">
-      <input type="hidden" name="csrf" value="{{ csrf }}">
-      <input type="hidden" name="next" value="/admin/questions{{ '?f=all' if f == 'all' else '' }}">
-      <button type="submit" class="btn notif-action-btn">{{ 'Вернуть в новые' if q['is_read'] else 'Отметить прочитанным' }}</button>
-    </form>
+    <button type="submit" form="notif-answer-{{ q['id'] }}"
+            class="btn primary notif-action-btn">{{ 'Обновить ответ' if q['answer'] else 'Ответить' }}</button>
     <form class="inline" method="post" action="/admin/questions/{{ q['id'] }}/delete"
           data-confirm="Удалить вопрос?">
       <input type="hidden" name="csrf" value="{{ csrf }}">
@@ -135,6 +132,13 @@
       <button type="submit" class="btn danger notif-action-btn">Удалить</button>
     </form>
   </div>
+  {% if not q['is_read'] %}
+  <form class="notif-read-action" method="post" action="/admin/questions/{{ q['id'] }}/toggle">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="next" value="/admin/questions{{ '?f=all' if f == 'all' else '' }}">
+    <button type="submit" class="btn ghost notif-action-btn">Отметить прочитанным</button>
+  </form>
+  {% endif %}
 </article>
 {% else %}
 <div class="empty-state notif-empty">

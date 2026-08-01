@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from urllib.parse import unquote
 
 from starlette.testclient import TestClient
 
@@ -58,6 +59,7 @@ def login(client: TestClient, telegram_id: int, name: str) -> tuple[int, str]:
     assert client.get(f"/auth/poll?code={code}").json()["status"] == "ok"
     profile = client.get("/admin/profile")
     csrf = re.search(r'name="csrf" value="([^"]+)"', profile.text).group(1)
+    client.headers["X-CSRF-Token"] = csrf
     conn = db.connect()
     try:
         user_id = int(conn.execute(
@@ -128,6 +130,10 @@ class PublicProfileTabsTests(unittest.TestCase):
                 "SELECT id FROM date_reviews WHERE user_id=? AND text=?",
                 (owner_id, "Публичный обзор"),
             ).fetchone()[0])
+            private_review_id = int(conn.execute(
+                "SELECT id FROM date_reviews WHERE user_id=? AND text=?",
+                (owner_id, "Личный обзор"),
+            ).fetchone()[0])
             conn.execute(
                 "UPDATE users SET admin_skin='romantic' WHERE id=?", (owner_id,),
             )
@@ -142,9 +148,11 @@ class PublicProfileTabsTests(unittest.TestCase):
             self.assertIn("Публичное событие Алины", own_events)
             self.assertNotIn("Личное событие Алины", own_events)
             self.assertIn(f"Публичные события <b>1</b>", own_events)
-            self.assertIn(f'href="/admin/dates/{own_public}/edit"', own_events)
             self.assertIn(
-                f'data-profile-editor="/admin/dates/{own_public}/edit"',
+                f'href="/admin/dates/{own_public}/edit?return_to=', own_events,
+            )
+            self.assertIn(
+                f'data-profile-editor="/admin/dates/{own_public}/edit?return_to=',
                 own_events,
             )
             self.assertRegex(own_events, r'<html lang="ru"\s+data-skin="romantic">')
@@ -168,7 +176,57 @@ class PublicProfileTabsTests(unittest.TestCase):
             self.assertIn("Личный обзор", own_reviews)
             self.assertIn("Обзоры <b>2</b>", own_reviews)
             self.assertIn("Изменить", own_reviews)
-            self.assertIn("Убрать из профиля", own_reviews)
+            self.assertIn("Удалить", own_reviews)
+            self.assertNotIn("Убрать из профиля", own_reviews)
+            self.assertIn('class="review-menu-dots" viewBox="0 0 20 6"', own_reviews)
+            self.assertIn(
+                f'data-profile-widget="/u/{owner_id}/reviews/{public_review_id}/widget',
+                own_reviews,
+            )
+            self.assertNotIn(
+                f'data-profile-editor="/admin/dates/{reviewed_public}/edit"',
+                own_reviews,
+            )
+
+            review_widget = owner.get(
+                f"/u/{owner_id}/reviews/{public_review_id}/widget"
+                "?next=/admin/profile%3Ftab%3Dreviews",
+            )
+            self.assertEqual(review_widget.status_code, 200)
+            self.assertIn("Сохранить обзор", review_widget.text)
+            self.assertIn(
+                f"https://profile-tabs.test/d/review-public/review/{public_review_id}",
+                review_widget.text,
+            )
+            for event_action in (
+                    "Добавить себе", "Сохранить к себе", "Спросить",
+                    "Предложить дату"):
+                self.assertNotIn(event_action, review_widget.text)
+
+            with TestClient(main.app, follow_redirects=False) as anonymous:
+                shared_review = anonymous.get(
+                    f"/d/review-public/review/{public_review_id}",
+                )
+                anonymous_widget = anonymous.get(
+                    f"/u/{owner_id}/reviews/{public_review_id}/widget",
+                )
+            self.assertEqual(shared_review.status_code, 200)
+            self.assertEqual(anonymous_widget.status_code, 303)
+            self.assertEqual(anonymous_widget.headers["location"], "/login")
+            self.assertIn("Публичный обзор", shared_review.text)
+            self.assertNotIn("Сохранить обзор", shared_review.text)
+            self.assertEqual(
+                owner.get(
+                    f"/d/review-private/review/{private_review_id}",
+                ).status_code,
+                404,
+            )
+            self.assertEqual(
+                owner.get(
+                    f"/d/review-private/review/{public_review_id}",
+                ).status_code,
+                404,
+            )
             edited = owner.post(
                 f"/u/{owner_id}/reviews/{public_review_id}/edit",
                 data={"csrf": owner_csrf, "rating": "5", "text": "Публичный обзор",
@@ -216,7 +274,18 @@ class PublicProfileTabsTests(unittest.TestCase):
             self.assertIn("Обзоры <b>1</b>", foreign_reviews)
             self.assertRegex(
                 foreign_reviews,
-                r'class="review-card"[^>]+role="link"[^>]+data-profile-editor=',
+                rf'class="review-card"[^>]+role="link"[^>]+data-profile-widget="/u/{owner_id}/reviews/{public_review_id}/widget',
+            )
+            foreign_review_widget = other.get(
+                f"/u/{owner_id}/reviews/{public_review_id}/widget",
+            )
+            self.assertEqual(foreign_review_widget.status_code, 200)
+            self.assertNotIn("Сохранить обзор", foreign_review_widget.text)
+            self.assertEqual(
+                other.get(
+                    f"/u/{owner_id}/reviews/{private_review_id}/widget",
+                ).status_code,
+                404,
             )
 
             # Виджет разрешает ровно те отношения, которые могут появиться в
@@ -251,6 +320,30 @@ class PublicProfileTabsTests(unittest.TestCase):
                 404,
             )
 
+            # После сохранения редактор сохраняет безопасный возврат в ту же
+            # вкладку профиля, а не сбрасывает пользователя на /admin/dates.
+            editor_url = (
+                f"/admin/dates/{own_public}/edit?return_to="
+                "%2Fadmin%2Fprofile%3Ftab%3Devents%26page%3D1"
+                "%23profileCollection"
+            )
+            editor = owner.get(editor_url)
+            self.assertIn(
+                'href="/admin/profile?tab=events#profileCollection"',
+                editor.text,
+            )
+            saved = owner.post(editor_url, data={
+                "csrf": owner_csrf, "name": "Публичное событие Алины",
+                "place": "", "starts_at": "", "ends_at": "",
+                "links": "", "comment": "", "capacity": "1",
+                "is_public": "1",
+            })
+            self.assertEqual(saved.status_code, 303)
+            self.assertIn(
+                "/admin/profile?tab=events#profileCollection",
+                unquote(saved.headers["location"]),
+            )
+
     def test_profile_pagination_uses_anchored_arrow_controls(self):
         with TestClient(main.app, follow_redirects=False) as owner, \
                 TestClient(main.app, follow_redirects=False) as viewer:
@@ -277,15 +370,19 @@ class PublicProfileTabsTests(unittest.TestCase):
             self.assertIn('aria-label="Предыдущая страница"', second)
             self.assertNotIn("Ещё →", first)
             self.assertNotIn("← Новее", second)
+            self.assertEqual(first.count('class="pub-page-arrow-icon"'), 2)
+            self.assertIn('d="m9.5 5.5 6.5 6.5-6.5 6.5"', first)
             self.assertIn('src="/static/profile.js?', first)
             profile_js = (APP / "static/profile.js").read_text(encoding="utf-8")
             self.assertIn("section._d4yWidgetReady", profile_js)
             self.assertIn("new AbortController()", profile_js)
             self.assertIn("widgetRequest === controller", profile_js)
+            self.assertIn("!response.ok || response.redirected", profile_js)
             self.assertIn("window.d4yProfileSave", profile_js)
             admin_js = (APP / "static/admin.js").read_text(encoding="utf-8")
             self.assertIn("keepalive: true", admin_js)
             self.assertIn("window.d4yProfileSave = pending", admin_js)
+            self.assertIn('(pointer: coarse) and (max-width: 900px)', profile_js)
 
     def test_profile_icons_and_notification_hover_contract(self):
         profile = (APP / "templates/admin/profile.html").read_text(encoding="utf-8")
@@ -304,6 +401,9 @@ class PublicProfileTabsTests(unittest.TestCase):
         self.assertNotIn("box-shadow", avatar_delete.group(1))
         self.assertIn(".avatar-delete::before", css)
         self.assertIn(".social-state-add::after", css)
+        profile_css = (APP / "static/profile.css").read_text(encoding="utf-8")
+        self.assertIn(".review-menu-dots", profile_css)
+        self.assertIn("place-items: center", profile_css)
         self.assertNotIn(".notif-settings-head:hover", css)
         self.assertNotIn(".notif-pref.toggle:hover", css)
 

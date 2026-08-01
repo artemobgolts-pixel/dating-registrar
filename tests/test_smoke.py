@@ -16,13 +16,15 @@ import threading
 import time
 import subprocess
 import sys
+import tempfile
 import zipfile
 from datetime import datetime, timedelta
 from urllib.parse import unquote
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1] / "app"
-DATA = Path("/tmp/bdata")
+DATA = Path(tempfile.gettempdir()) / f"date4you-smoke-{os.getpid()}"
+FAILFAST_DATA = Path(tempfile.gettempdir()) / f"date4you-smoke-ff-{os.getpid()}"
 
 ENV = {
     "DATA_DIR": str(DATA),
@@ -53,7 +55,7 @@ def step(msg: str) -> None:
 def check_failfast(missing: str) -> None:
     env = {**os.environ, **ENV}
     env.pop(missing, None)
-    env["DATA_DIR"] = "/tmp/bdata-ff"
+    env["DATA_DIR"] = str(FAILFAST_DATA)
     r = subprocess.run([sys.executable, "-c", "import main"],
                        cwd=ROOT, env=env, capture_output=True, text=True)
     assert r.returncode != 0, f"без {missing} приложение обязано падать"
@@ -73,7 +75,7 @@ step("docker-entrypoint.sh: синтаксис sh корректен")
 # ---------- подготовка ----------
 
 shutil.rmtree(DATA, ignore_errors=True)
-shutil.rmtree("/tmp/bdata-ff", ignore_errors=True)
+shutil.rmtree(FAILFAST_DATA, ignore_errors=True)
 os.environ.update(ENV)
 os.chdir(ROOT)
 sys.path.insert(0, str(ROOT))
@@ -145,7 +147,12 @@ def tg_login(c, telegram_id, username="user", first_name="Тест"):
     pending = c.get(f"/auth/poll?code={code}")
     assert pending.status_code == 200 and pending.json()["status"] == "pending"
     tg_confirm_login(c, code, telegram_id, username, first_name)
-    return c.get(f"/auth/poll?code={code}")
+    result = c.get(f"/auth/poll?code={code}")
+    if result.status_code == 200 and result.json().get("status") == "ok":
+        page = c.get("/admin/categories")
+        csrf = re.search(r'name="csrf" value="([^"]+)"', page.text).group(1)
+        c.headers["X-CSRF-Token"] = csrf
+    return result
 
 
 def apost(c, url, data=None, files=None):
@@ -408,6 +415,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     cid = int(re.search(r"/admin/categories/(\d+)", page).group(1))
     detail = c.get(f"/admin/categories/{cid}").text
     tok = re.search(r"https://t\.local/c/([A-Za-z0-9_-]+)", detail).group(1)
+    assert len(tok) >= 22, "новые capability-ссылки должны иметь не меньше 128 бит"
     # модерация предложений по умолчанию ВЫКЛючена — оператор включает её осознанно;
     # иначе бейдж «модерация» висел на каждой новой категории (баг)
     assert db_one("SELECT moderate_proposals FROM categories WHERE id=?", (cid,))[0] == 0
@@ -502,6 +510,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert m, csp
     assert "script-src 'self' 'nonce-" in csp
     assert "script-src 'self' 'unsafe-inline'" not in csp
+    assert "object-src 'none'" in csp and "base-uri 'none'" in csp
     assert "/static/guest.js" in rr.text          # весь гостевой JS вынесен
     assert "<script nonce=" not in rr.text        # инлайна на гостевой больше нет
     rr2 = c.get("/admin/")
@@ -832,25 +841,25 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert "Кино под пледом" not in ga.get(f"/c/{tok}").text
     step("чужому правка запрещена; удаление чистит файлы; роут /choose выпилен")
 
-    # ---------- неактивные: событие без категории скрыто от гостей ----------
-    r = apost(c, "/admin/dates/new", {"name": "Сюрприз"})   # без категорий → неактивно
+    # ---------- событие активно и без категории, но не входит в голосование ----------
+    r = apost(c, "/admin/dates/new", {"name": "Сюрприз"})
     assert r.status_code == 303
     did4 = db_one("SELECT id FROM dates WHERE name='Сюрприз'")["id"]
-    assert db_one("SELECT is_draft FROM dates WHERE id=?", (did4,))["is_draft"] == 1
+    assert db_one("SELECT is_draft FROM dates WHERE id=?", (did4,))["is_draft"] == 0
     assert "Сюрприз" not in ga.get(f"/c/{tok}").text
-    dpage = c.get("/admin/dates?view=drafts").text
-    assert "Сюрприз" in dpage and "неактивно" in dpage
-    # привязка к категории активирует событие автоматически
+    dpage = c.get("/admin/dates?view=active").text
+    assert "Сюрприз" in dpage and ">Неактивные<" not in dpage
+    # привязка к категории добавляет событие в голосование, не меняя статус
     r = apost(c, f"/admin/categories/{cid}/attach", {"date_id": str(did4)})
     assert r.status_code == 303
     assert db_one("SELECT is_draft FROM dates WHERE id=?", (did4,))["is_draft"] == 0
     assert "Сюрприз" in ga.get(f"/c/{tok}").text
-    # отвязка от последней категории снова делает его неактивным
+    # отвязка убирает из голосования, но событие остаётся активным в коллекции
     r = apost(c, f"/admin/categories/{cid}/detach", {"date_id": str(did4)})
     assert r.status_code == 303
-    assert db_one("SELECT is_draft FROM dates WHERE id=?", (did4,))["is_draft"] == 1
+    assert db_one("SELECT is_draft FROM dates WHERE id=?", (did4,))["is_draft"] == 0
     assert "Сюрприз" not in ga.get(f"/c/{tok}").text
-    step("неактивное: без категории скрыто от гостей; привязка/отвязка переключает активность")
+    step("событие без категории активно в коллекции; привязка управляет только голосованием")
 
     # ---------- модерация предложений ----------
     r = apost(c, f"/admin/categories/{cid}/moderation", {})
@@ -872,16 +881,16 @@ with TestClient(main.app, follow_redirects=False) as c:
     other_page = g2.get(f"/c/{tok}").text
     assert "Тайное место" not in other_page
     assert g2.get(f"/c/{tok}/image/{fn2}").status_code == 404
-    assert "на модерации" in c.get("/admin/dates?view=drafts").text
+    assert "на модерации" in c.get("/admin/dates?view=active").text
 
-    r = apost(c, f"/admin/dates/{pid2}/publish", {"next": "/admin/dates?view=drafts"})
+    r = apost(c, f"/admin/dates/{pid2}/publish", {"next": "/admin/dates?view=active"})
     assert "Тайное место" in g2.get(f"/c/{tok}").text
     apost(c, f"/admin/categories/{cid}/moderation", {})  # выключить обратно
     step("модерация: предложение и фото видны только автору до публикации")
 
     # ---------- архив виден гостям, брони считаются по активным ----------
     # блок статистики убран с главной; счётчики событий переехали в пилюли
-    # вкладок на странице «События» (Активные/Неактивные/Архив).
+    # вкладок на странице «События» (Активные/Архив).
     dash = c.get("/admin/").text
     assert "dcount-row" not in dash and "броней сейчас" not in dash
     dpage = c.get("/admin/dates?view=active").text
@@ -1288,10 +1297,10 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert r.status_code == 303
     clone = db_one("SELECT * FROM dates WHERE name='Оригинал (копия)'")
     assert clone is not None and clone["id"] != orig["id"]
-    assert clone["is_draft"] == 1                       # клон неактивен (без категории)
+    assert clone["is_draft"] == 0 and clone["is_public"] == 0
     assert clone["place"] == "Парк" and clone["pay_split"] == 1
     assert clone["comment"] == "будет здорово"
-    # ссылка перенесена; категории НЕ переносятся — клон неактивен, пока его не добавят
+    # ссылка перенесена; категории НЕ переносятся, клон активен, но непубличен
     assert db_one("SELECT url FROM date_links WHERE date_id=?", (clone["id"],))["url"] \
         == "https://ya.ru"
     assert db_one("SELECT 1 FROM date_categories WHERE date_id=? AND category_id=?",
@@ -1308,7 +1317,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     # удаление клона не задевает файлы оригинала
     apost(c, f"/admin/dates/{clone['id']}/delete", {})
     assert all((main.images.UPLOAD_DIR / fn).exists() for fn in orig_files)
-    step("клон события: дубль-черновик, копии файлов с новыми именами, брони не переносятся")
+    step("клон события: активный непубличный дубль, новые файлы, без броней")
 
     # ---------- поделиться событием → добавить себе (/d/<share_token>) ----------
     # владелец A создаёт активное событие с фото+видео+ссылкой; у него есть
@@ -1479,12 +1488,11 @@ with TestClient(main.app, follow_redirects=False) as c:
     _qc.close()
     for i in range(1, 32):
         apost(c, "/admin/dates/new", {"name": f"Лист {i:02d}"})
-    # события без категории неактивны → живут во вкладке «Неактивные»;
-    # проверяем пагинацию именно там (30 на страницу, старые уезжают дальше)
-    p1 = c.get("/admin/dates?view=drafts").text
+    # события без категории остаются активными; 30 новых карточек на странице.
+    p1 = c.get("/admin/dates?view=active").text
     assert "Лист 31" in p1 and "Лист 01" not in p1
     assert "стр. 1 из 2" in p1 and "page=2" in p1
-    p2 = c.get("/admin/dates?view=drafts&page=2").text
+    p2 = c.get("/admin/dates?view=active&page=2").text
     assert "Лист 01" in p2
     step("пагинация: 30 на страницу, старые уезжают на следующую")
 
@@ -2526,8 +2534,9 @@ with TestClient(main.app, follow_redirects=False) as cl:
     assert 'data-skin-switchable' in lp
     assert 'data-skin-set="friends"' in lp and 'data-skin-set="romantic"' in lp
     assert "Стандартная тема" in lp and "Романтическая тема" in lp
-    assert "login-mark-standard" in lp and "admin-icon-gather" in lp
-    assert 'transform="translate(1.65 1.8) scale(.85)"' in lp
+    assert "login-mark-standard" in lp and "logo-standard.png" in lp
+    assert "login-mark-romantic" in lp and "logo-romantic.png" in lp
+    assert 'transform="translate(2.41 2.64) scale(.78)"' in lp
     assert 'href="/terms"' in lp and 'href="/privacy"' in lp
     # способы входа активны сразу; Telegram — официальный Login Widget,
     # который auth.js подставляет лениво (в dialog — только после открытия).
@@ -2701,7 +2710,7 @@ with TestClient(main.app, follow_redirects=False) as cown, \
         assert rp.json()["moderated"] is True
         ppid = rp.json()["id"]
         sent.clear()
-        ownq(f"/admin/dates/{ppid}/publish", {"next": "/admin/dates?view=drafts"})
+        ownq(f"/admin/dates/{ppid}/publish", {"next": "/admin/dates?view=active"})
         assert any(c == 992102 and "опубликовано" in t for c, t in sent), sent
     finally:
         _nf3.send_to = _saved
@@ -2973,7 +2982,14 @@ with TestClient(main.app, follow_redirects=False) as cnata, \
         "AND user_id=?", (pub["owner_id"],),
     )
     own_reviews = cgosha.get(f"/u/{gosha_id}?tab=reviews").text
-    assert "Очень тёплая встреча" in own_reviews and "Убрать из профиля" in own_reviews
+    assert "Очень тёплая встреча" in own_reviews and "Удалить" in own_reviews
+    assert f'/u/{gosha_id}/reviews/{review["id"]}/widget' in own_reviews
+    own_review_widget = cgosha.get(
+        f'/u/{gosha_id}/reviews/{review["id"]}/widget',
+    ).text
+    assert "Сохранить обзор" in own_review_widget
+    assert "Добавить себе" not in own_review_widget and "Спросить" not in own_review_widget
+    assert f'/d/{pub["share_token"]}/review/{review["id"]}' in own_review_widget
     assert "Пикник на закате" not in cgosha.get(f"/u/{gosha_id}?tab=want").text, \
         "после обзора встреча не дублируется в «Хочу сходить»"
 
@@ -3237,18 +3253,26 @@ with TestClient(main.app, follow_redirects=False) as cui2:
     assert "<b>Помощь</b>" in profile and "https://t.me/artiwayn" in profile
     assert "Связаться с поддержкой" in profile and "admin-icon-telegram" in profile
     assert "tour-course-actions" in profile
+    assert "Короткие подсказки по основным разделам" not in profile
+    help_actions = re.search(r'<div class="tour-course-actions">(.*?)</div>', profile, re.S).group(1)
+    assert "События</a>" in help_actions and "Встречи</a>" not in help_actions
+    assert help_actions.index("Категории") < help_actions.index("События")
     assert 'class="social-links"' in profile and "social-service" in profile
-    # #2: счётчики переехали на вкладку «События» — пилюли на всех трёх вкладках
+    # Счётчики событий живут в двух статусах: Активные/Архив.
     cui2.post("/admin/dates/new", data={"csrf": uc2, "name": "Акт", "categories": str(cc["id"])})
     dpage = cui2.get("/admin/dates?view=active").text
     assert re.search(r'view=active[^>]*>Активные\s*<span class="pill">1</span>', dpage)
+    assert ">Неактивные<" not in dpage
     # #4: под тумблером публичности больше нет пояснительного текста
     nf = cui2.get("/admin/dates/new").text
+    assert 'class="btn ghost editor-back"' in nf and "← Назад" in nf
     assert "видят все пользователи в ленте на главной" not in nf
     assert 'class="capacity-stepper"' in nf and 'data-step="-1"' in nf
     assert "Создатель не считается" not in nf and "Лимит применяется" not in nf
     # Редкие действия категории спрятаны в меню ⋯ рядом с «Сохранить».
     ed = cui2.get(f"/admin/categories/{cc['id']}").text
+    assert 'class="btn editor-back"' in ed and "← Назад" in ed
+    assert "← Все категории" not in ed
     assert "cat-editor-menu" in ed and "Отключить ссылку" in ed
     assert ">Описание</label>" in ed and "Описание (необязательно)" not in ed
     assert re.search(r'id="ogWarn"[^>]*hidden', ed)
@@ -3267,6 +3291,8 @@ with TestClient(main.app, follow_redirects=False) as cui2:
     assert "Создатель не считается" not in public_page
     assert 'class="capacity-stepper"' in public_page
     assert "Голосование пока не открыто" not in public_page
+    assert "До конца голосования осталось" in public_page
+    assert "Голосование идёт до" not in public_page
     assert all(f'name="pay" value="{v}"' in public_page for v in range(4))
     proposed = cui2.post(
         f"/c/{cat_token}/propose",
@@ -3297,7 +3323,7 @@ with TestClient(main.app, follow_redirects=False) as cui2:
     conn = dbm.connect()
     conn.execute("UPDATE dates SET is_draft=1 WHERE id=?", (stuck["id"],))  # искусственно «залипло»
     conn.commit(); conn.close()
-    cui2.get("/admin/dates?view=drafts")
+    cui2.get("/admin/dates?view=active")
     assert db_one("SELECT is_draft FROM dates WHERE id=?", (stuck["id"],))[0] == 1
     conn = dbm.connect()
     conn.execute("UPDATE dates SET is_draft=0 WHERE id=?", (stuck["id"],))
@@ -3309,7 +3335,7 @@ with TestClient(main.app, follow_redirects=False) as cui2:
     gp = conn.execute("SELECT id FROM dates WHERE name='Гостевое'").fetchone()["id"]
     conn.execute("INSERT INTO date_categories(date_id,category_id,position) VALUES(?,?,0)", (gp, cc["id"]))
     conn.commit(); conn.close()
-    cui2.get("/admin/dates?view=drafts")
+    cui2.get("/admin/dates?view=active")
     assert db_one("SELECT is_draft FROM dates WHERE id=?", (gp,))[0] == 1, "гостевое предложение не авто-публикуется"
 step("новое UI: счётчики на вкладке «События», red/green toggle, ⋯ перед стрелкой; GET списка не пишет в БД")
 
@@ -3342,6 +3368,7 @@ with TestClient(main.app, follow_redirects=False) as ctour:
     assert "prefers-reduced-motion: reduce" in theme_source
     assert "getBoundingClientRect" in theme_source
     assert "animateSkin" in theme_source and "animateAppearance" in theme_source
+    assert "minDuration: 1050" in theme_source and "maxDuration: 1550" in theme_source
     assert 'SKIN_COOKIE = "d4y_skin"' in theme_source
     assert 'root.dataset.theme = theme' in theme_source
     assert 'root.dataset.skin = skin' in theme_source

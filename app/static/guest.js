@@ -4,6 +4,7 @@
 (() => {
   "use strict";
   const TOKEN = document.body.dataset.token;
+  const CSRF = document.body.dataset.csrf || "";
   let MYNAME = document.body.dataset.name || "";
   const AUTH = document.body.dataset.auth === "1";   // залогинен ли посетитель
   const FRIENDS = (document.body.dataset.skin ||
@@ -73,7 +74,12 @@
 
   async function post(url, fd) {
     let r;
-    try { r = await fetch(url, { method: "POST", body: fd }); }
+    try {
+      r = await fetch(url, {
+        method: "POST", body: fd, credentials: "same-origin",
+        headers: { "X-CSRF-Token": CSRF }
+      });
+    }
     catch (_) { toast("Нет связи — попробуй ещё раз"); return { ok: false }; }
     let j = {};
     try { j = await r.json(); } catch (_) {}

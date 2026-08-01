@@ -11,8 +11,9 @@
   <div class="pub-grid">
     {% for d in dates %}
     {% set opens_editor = d['owner_id'] == request.state.user['id'] %}
-    <a class="pub-card" href="{{ '/admin/dates/' ~ d['id'] ~ '/edit' if opens_editor else '/d/' ~ d['share_token'] }}"
-       {% if opens_editor %}data-profile-editor="/admin/dates/{{ d['id'] }}/edit"{% else %}data-profile-widget="/u/{{ u['id'] }}/date/{{ d['id'] }}/widget"{% endif %}>
+    {% set editor_url = '/admin/dates/' ~ d['id'] ~ '/edit?return_to=' ~ ((profile_return_url ~ '#profileCollection') | urlencode) %}
+    <a class="pub-card" href="{{ editor_url if opens_editor else '/d/' ~ d['share_token'] }}"
+       {% if opens_editor %}data-profile-editor="{{ editor_url }}"{% else %}data-profile-widget="/u/{{ u['id'] }}/date/{{ d['id'] }}/widget"{% endif %}>
       {% if d['images'] %}
       <div class="ph"><img
         src="/d/{{ d['share_token'] }}/image/{{ d['images'][0]['filename'] }}?w=480"
@@ -37,8 +38,9 @@
   <div class="pub-grid">
     {% for d in want_dates %}
     {% set opens_editor = d['owner_id'] == request.state.user['id'] %}
-    <a class="pub-card" href="{{ '/admin/dates/' ~ d['id'] ~ '/edit' if opens_editor else '/d/' ~ d['share_token'] }}"
-       {% if opens_editor %}data-profile-editor="/admin/dates/{{ d['id'] }}/edit"{% else %}data-profile-widget="/u/{{ u['id'] }}/date/{{ d['id'] }}/widget"{% endif %}>
+    {% set editor_url = '/admin/dates/' ~ d['id'] ~ '/edit?return_to=' ~ ((profile_return_url ~ '#profileCollection') | urlencode) %}
+    <a class="pub-card" href="{{ editor_url if opens_editor else '/d/' ~ d['share_token'] }}"
+       {% if opens_editor %}data-profile-editor="{{ editor_url }}"{% else %}data-profile-widget="/u/{{ u['id'] }}/date/{{ d['id'] }}/widget"{% endif %}>
       {% if d['images'] %}
       <div class="ph"><img src="/d/{{ d['share_token'] }}/image/{{ d['images'][0]['filename'] }}?w=480"
         alt="" loading="{{ 'eager' if loop.first else 'lazy' }}" decoding="async"
@@ -55,10 +57,10 @@
   {% elif tab == 'reviews' and reviews %}
   <div class="pub-grid review-grid">
     {% for r in reviews %}
-    {% set opens_editor = r['owner_id'] == request.state.user['id'] %}
+    {% set review_widget_url = '/u/' ~ u['id'] ~ '/reviews/' ~ r['review_id'] ~ '/widget?next=' ~ (profile_return_url | urlencode) %}
     <article class="review-card" id="review-{{ r['review_id'] }}" role="link" tabindex="0"
              aria-label="Открыть «{{ r['name'] }}»"
-             {% if opens_editor %}data-profile-editor="/admin/dates/{{ r['id'] }}/edit"{% else %}data-profile-widget="/u/{{ u['id'] }}/date/{{ r['id'] }}/widget"{% endif %}>
+             data-profile-widget="{{ review_widget_url }}">
       <div class="review-cover" aria-hidden="true">
         {% if r['images'] %}<img src="/d/{{ r['share_token'] }}/image/{{ r['images'][0]['filename'] }}?w=480" alt="" loading="{{ 'eager' if loop.first else 'lazy' }}" decoding="async"{% if r['images'][0]['focus'] %} style="object-position:{{ r['images'][0]['focus'] }}"{% endif %}>{% endif %}
       </div>
@@ -70,33 +72,18 @@
       </div>
       {% if is_me %}
       <details class="review-menu">
-        <summary aria-label="Действия с обзором">⋯</summary>
+        <summary aria-label="Действия с обзором"><svg class="review-menu-dots" viewBox="0 0 20 6" aria-hidden="true"><circle cx="3" cy="3" r="1.5"/><circle cx="10" cy="3" r="1.5"/><circle cx="17" cy="3" r="1.5"/></svg></summary>
         <div class="review-menu-pop">
-          <a href="{{ profile_base_url }}?tab=reviews&page={{ page }}{{ profile_skin_suffix }}&edit={{ r['review_id'] }}#review-{{ r['review_id'] }}">Изменить</a>
+          <button type="button" data-profile-widget="{{ review_widget_url }}">Изменить</button>
           {% if r['review_public'] and r['date_public'] and not r['date_draft'] %}
           <form method="post" action="/u/{{ u['id'] }}/reviews/{{ r['review_id'] }}/hide">
             <input type="hidden" name="csrf" value="{{ csrf }}">
             <input type="hidden" name="next" value="{{ profile_return_url }}">
-            <button type="submit" class="danger">Убрать из профиля</button>
+            <button type="submit" class="danger">Удалить</button>
           </form>
           {% endif %}
         </div>
       </details>
-      {% if edit_review_id == r['review_id'] %}
-      <div class="review-edit">
-        <h3>Изменить обзор</h3>
-        <form method="post" action="/u/{{ u['id'] }}/reviews/{{ r['review_id'] }}/edit">
-          <input type="hidden" name="csrf" value="{{ csrf }}">
-          <input type="hidden" name="next" value="{{ profile_return_url }}">
-          <fieldset class="profile-rating">
-            <legend>Оценка<sup class="required-mark" aria-hidden="true">*</sup></legend>
-            {% for score in range(1, 6) %}<label><input type="radio" name="rating" value="{{ score }}" {{ 'checked' if r['rating'] == score else '' }} required>{{ score }} ★</label>{% endfor %}
-          </fieldset>
-          <textarea name="text" maxlength="4000" placeholder="Текст необязателен">{{ r['review_text'] or '' }}</textarea>
-          <div class="review-edit-actions"><button type="submit" class="btn">Сохранить и опубликовать</button><a class="btn ghost" href="{{ profile_base_url }}?tab=reviews{{ profile_skin_suffix }}#review-{{ r['review_id'] }}">Отмена</a></div>
-        </form>
-      </div>
-      {% endif %}
       {% endif %}
     </article>
     {% endfor %}
@@ -108,13 +95,13 @@
   <nav class="pub-pager" aria-label="Страницы раздела">
     {% if page > 1 %}
     <a class="pub-page-arrow" href="{{ profile_base_url }}?tab={{ tab }}&page={{ page - 1 }}{{ profile_skin_suffix }}#profileCollection"
-       aria-label="Предыдущая страница" title="Предыдущая страница">←</a>
-    {% else %}<span class="pub-page-arrow is-disabled" aria-hidden="true">←</span>{% endif %}
+       aria-label="Предыдущая страница" title="Предыдущая страница"><svg class="pub-page-arrow-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 5.5 8 12l6.5 6.5"/></svg></a>
+    {% else %}<span class="pub-page-arrow is-disabled" aria-hidden="true"><svg class="pub-page-arrow-icon" viewBox="0 0 24 24"><path d="M14.5 5.5 8 12l6.5 6.5"/></svg></span>{% endif %}
     <span class="pub-page">{{ page }} / {{ pages }}</span>
     {% if page < pages %}
     <a class="pub-page-arrow" href="{{ profile_base_url }}?tab={{ tab }}&page={{ page + 1 }}{{ profile_skin_suffix }}#profileCollection"
-       aria-label="Следующая страница" title="Следующая страница">→</a>
-    {% else %}<span class="pub-page-arrow is-disabled" aria-hidden="true">→</span>{% endif %}
+       aria-label="Следующая страница" title="Следующая страница"><svg class="pub-page-arrow-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 5.5 6.5 6.5-6.5 6.5"/></svg></a>
+    {% else %}<span class="pub-page-arrow is-disabled" aria-hidden="true"><svg class="pub-page-arrow-icon" viewBox="0 0 24 24"><path d="m9.5 5.5 6.5 6.5-6.5 6.5"/></svg></span>{% endif %}
   </nav>
   {% endif %}
 

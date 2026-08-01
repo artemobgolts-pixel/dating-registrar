@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ru" data-skin="{{ category_skin }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Обзор: {{ review['name'] }} · date4you</title>
+  <meta property="og:title" content="Обзор события «{{ review['name'] }}»">
+  <meta property="og:description" content="{{ review['review_text'] or ('Оценка: ' ~ review['rating'] ~ ' из 5') }}">
+  {% if review['images'] %}
+  <meta property="og:image" content="{{ BASE_URL }}/d/{{ review['share_token'] }}/image/{{ review['images'][0]['filename'] }}">
+  {% else %}
+  <meta property="og:image" content="{{ BASE_URL }}{{ asset('og-friends.jpg' if category_skin == 'friends' else 'og.png') }}">
+  {% endif %}
+  <meta property="og:type" content="article">
+  <link rel="icon" href="{{ asset('logo-standard.png' if category_skin == 'friends' else 'logo-romantic.png') }}">
+  <meta name="theme-color" content="{{ '#554eae' if category_skin == 'friends' else '#b65f6f' }}">
+  <script src="{{ asset('theme.js') }}"></script>
+  <link rel="stylesheet" href="{{ asset('public.css') }}">
+  <link rel="stylesheet" href="{{ asset('profile.css') }}">
+</head>
+<body data-skin="{{ category_skin }}">
+  <button type="button" class="theme-float" data-theme-toggle aria-label="Включить тёмную тему">
+    <span class="theme-moon-icon" data-theme-icon aria-hidden="true"></span>
+  </button>
+  <main class="profile-review-page">
+    <a class="profile-review-back" href="/d/{{ review['share_token'] }}">← К событию</a>
+    {% include "public/_profile_review_widget.html" %}
+  </main>
+</body>
+</html>

@@ -317,6 +317,55 @@ def send_photo_to(chat_id: int | str, path, caption: str,
     return send_to(chat_id, caption, reply_markup=reply_markup)
 
 
+def send_video_to(chat_id: int | str, path, caption: str,
+                  *, reply_markup: dict | None = None) -> bool:
+    """Шлёт приветственный MP4 нативным ``sendVideo``.
+
+    Сначала сохраняем актуальные styled-кнопки Bot API, затем один раз
+    повторяем запрос с legacy-разметкой. Любая ошибка медиа оставляет текстовый
+    fallback, чтобы вход через Telegram не зависел от доставки ролика.
+    """
+    if not TOKEN:
+        return False
+    path = str(path)
+
+    def upload(markup: dict | None):
+        data: dict[str, str] = {
+            "chat_id": str(chat_id),
+            "caption": caption,
+            "parse_mode": "HTML",
+            "supports_streaming": "true",
+        }
+        if markup:
+            data["reply_markup"] = json.dumps(
+                markup, ensure_ascii=False, separators=(",", ":"),
+            )
+        with open(path, "rb") as video:
+            return httpx.post(
+                f"https://api.telegram.org/bot{TOKEN}/sendVideo",
+                data=data,
+                files={"video": (os.path.basename(path), video, "video/mp4")},
+                timeout=45,
+            )
+
+    try:
+        response = upload(reply_markup)
+        if response.status_code < 400:
+            return True
+        log.warning("Telegram styled sendVideo %s, fallback: %s",
+                    response.status_code, response.text[:200])
+
+        legacy_markup = _legacy_markup(reply_markup)
+        response = upload(legacy_markup)
+        if response.status_code < 400:
+            return True
+        log.warning("Telegram legacy sendVideo %s, text fallback: %s",
+                    response.status_code, response.text[:200])
+    except Exception as e:
+        log.warning("Не удалось отправить видео в Telegram, fallback: %s", e)
+    return send_to(chat_id, caption, reply_markup=reply_markup)
+
+
 def answer_callback(query_id: str, text: str = "") -> bool:
     """Закрывает индикатор inline-кнопки Telegram; ошибка не ломает вход."""
     if not TOKEN or not query_id:

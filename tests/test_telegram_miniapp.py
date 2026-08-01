@@ -179,8 +179,8 @@ class TelegramMiniAppTests(unittest.TestCase):
 
     def test_plain_start_registers_only_from_private_chat_and_returns_web_app(self):
         sent = []
-        original = notify.send_photo_to
-        notify.send_photo_to = lambda chat, path, caption, **kwargs: sent.append(
+        original = notify.send_video_to
+        notify.send_video_to = lambda chat, path, caption, **kwargs: sent.append(
             (chat, Path(path), caption, kwargs)) or True
         try:
             group = self.client.post(
@@ -203,7 +203,7 @@ class TelegramMiniAppTests(unittest.TestCase):
                 }},
             )
         finally:
-            notify.send_photo_to = original
+            notify.send_video_to = original
         self.assertEqual(private.status_code, 200)
         conn = db.connect()
         self.assertIsNone(conn.execute(
@@ -214,7 +214,7 @@ class TelegramMiniAppTests(unittest.TestCase):
         ).fetchone()
         conn.close()
         self.assertEqual((row["bot_linked"], row["display_name"]), (1, "Новый"))
-        self.assertEqual(sent[0][1], auth_routes.START_LOGO_PATH)
+        self.assertEqual(sent[0][1], auth_routes.START_VIDEO_PATH)
         self.assertTrue(sent[0][1].is_file())
         self.assertIn("Добро пожаловать", sent[0][2])
         button = sent[0][3]["reply_markup"]["inline_keyboard"][0][0]
@@ -389,7 +389,7 @@ class TelegramRichMessageTests(unittest.TestCase):
         finally:
             notify.httpx.post = original
 
-    def test_start_photo_is_flush_native_media_and_has_legacy_fallback(self):
+    def test_start_video_is_native_media_and_has_legacy_fallback(self):
         calls = []
 
         class Response:
@@ -408,13 +408,14 @@ class TelegramRichMessageTests(unittest.TestCase):
                 return Response(200)
 
             notify.httpx.post = post
-            self.assertTrue(notify.send_photo_to(
-                880021, auth_routes.START_LOGO_PATH, "<b>Добро пожаловать</b>",
+            self.assertTrue(notify.send_video_to(
+                880021, auth_routes.START_VIDEO_PATH, "<b>Добро пожаловать</b>",
                 reply_markup=markup,
             ))
             method, data, files = calls[0]
-            self.assertEqual(method, "sendPhoto")
-            self.assertIn("photo", files)
+            self.assertEqual(method, "sendVideo")
+            self.assertIn("video", files)
+            self.assertEqual(data["supports_streaming"], "true")
             self.assertEqual(data["caption"], "<b>Добро пожаловать</b>")
             self.assertEqual(data["parse_mode"], "HTML")
             keyboard = json.loads(data["reply_markup"])["inline_keyboard"]
@@ -432,12 +433,12 @@ class TelegramRichMessageTests(unittest.TestCase):
             notify.send_to = lambda chat, text, **kwargs: (
                 fallbacks.append((chat, text, kwargs)) or True
             )
-            self.assertTrue(notify.send_photo_to(
-                880021, auth_routes.START_LOGO_PATH, "Привет",
+            self.assertTrue(notify.send_video_to(
+                880021, auth_routes.START_VIDEO_PATH, "Привет",
                 reply_markup=markup,
             ))
             self.assertEqual([call[0] for call in calls],
-                             ["sendPhoto", "sendPhoto"])
+                             ["sendVideo", "sendVideo"])
             styled = json.loads(calls[0][1]["reply_markup"])
             legacy = json.loads(calls[1][1]["reply_markup"])
             self.assertEqual(styled["inline_keyboard"][0][0]["style"], "primary")

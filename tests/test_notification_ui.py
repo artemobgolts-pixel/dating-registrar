@@ -38,6 +38,22 @@ class NotificationUiTests(unittest.TestCase):
             self.assertIn(selector, css)
             self.assertIn("-webkit-tap-highlight-color: transparent", css)
 
+    def test_answer_and_delete_share_one_action_row(self):
+        template = (APP / "templates/admin/questions.html").read_text(
+            encoding="utf-8",
+        )
+        css = (APP / "static/admin.css").read_text(encoding="utf-8")
+
+        self.assertNotIn("Вернуть в новые", template)
+        self.assertIn('form="notif-answer-{{ q[\'id\'] }}"', template)
+        action_row = template.split('<div class="notif-actions">', 1)[1].split(
+            "</div>", 1,
+        )[0]
+        self.assertIn("Обновить ответ", action_row)
+        self.assertIn(">Удалить</button>", action_row)
+        self.assertIn("flex-wrap: nowrap", css)
+        self.assertIn(".notif-actions .notif-action-btn { flex: 1 1 0", css)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

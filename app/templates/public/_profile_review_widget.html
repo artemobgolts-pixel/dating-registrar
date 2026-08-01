@@ -1,0 +1,52 @@
+<article class="profile-review-widget">
+  {% if review['images'] %}
+  <div class="profile-review-cover">
+    <img src="/d/{{ review['share_token'] }}/image/{{ review['images'][0]['filename'] }}?w=960"
+         srcset="/d/{{ review['share_token'] }}/image/{{ review['images'][0]['filename'] }}?w=480 480w,
+                 /d/{{ review['share_token'] }}/image/{{ review['images'][0]['filename'] }}?w=960 960w"
+         sizes="(max-width: 620px) calc(100vw - 36px), 540px" alt=""
+         decoding="async"{% if review['images'][0]['focus'] %}
+         style="object-position:{{ review['images'][0]['focus'] }}"{% endif %}>
+  </div>
+  {% endif %}
+  <div class="profile-review-widget-body">
+    <span class="profile-review-kicker">Обзор события</span>
+    <h3 class="profile-review-title serif">{{ review['name'] }}</h3>
+    <p class="profile-review-author">{{ reviewer_display }}</p>
+    <div class="review-stars" aria-label="Оценка {{ review['rating'] }} из 5">
+      {% for score in range(1, 6) %}<span class="{{ 'off' if score > review['rating'] else '' }}">★</span>{% endfor %}
+    </div>
+    {% if review['review_text'] %}
+    <p class="profile-review-copy">{{ review['review_text'] }}</p>
+    {% else %}
+    <p class="profile-review-copy empty">Без текста</p>
+    {% endif %}
+
+    {% if is_me %}
+    <form class="profile-review-editor" method="post"
+          action="/u/{{ review['user_id'] }}/reviews/{{ review['review_id'] }}/edit">
+      <input type="hidden" name="csrf" value="{{ request.session.get('csrf', '') }}">
+      <input type="hidden" name="next" value="{{ profile_return_url }}">
+      <fieldset class="profile-rating">
+        <legend>Оценка<sup class="required-mark" aria-hidden="true">*</sup></legend>
+        {% for score in range(1, 6) %}
+        <label><input type="radio" name="rating" value="{{ score }}"
+                      {{ 'checked' if review['rating'] == score else '' }} required>{{ score }} ★</label>
+        {% endfor %}
+      </fieldset>
+      <textarea name="text" maxlength="4000"
+                placeholder="Текст необязателен">{{ review['review_text'] or '' }}</textarea>
+      <button type="submit" class="btn primary">Сохранить обзор</button>
+    </form>
+    {% endif %}
+
+    {% if shareable %}
+    <button type="button" class="btn ghost profile-review-share" data-community-share
+            data-share-url="{{ review_share_url }}"
+            data-share-title="Обзор события «{{ review['name'] }}»"
+            data-share-text="Посмотри мой обзор события в date4you">Поделиться</button>
+    {% elif is_me %}
+    <p class="profile-review-private-note">Скрытым обзором нельзя поделиться.</p>
+    {% endif %}
+  </div>
+</article>

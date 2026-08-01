@@ -68,7 +68,7 @@
           <input type="radio" name="admin_skin" value="friends"
                  {% if profile_skin == 'friends' %}checked{% endif %}>
           <span class="skin-option-preview skin-option-preview-friends" aria-hidden="true">
-            <span class="skin-option-symbol">{% with icon='gather' %}{% include "admin/_icon.html" %}{% endwith %}</span>
+            <span class="skin-option-symbol"><img src="{{ asset('logo-standard.png') }}" alt=""></span>
             <span class="skin-option-lines"><i></i><i></i><i></i></span>
           </span>
           <span class="skin-option-copy">
@@ -80,7 +80,7 @@
           <input type="radio" name="admin_skin" value="romantic"
                  {% if profile_skin == 'romantic' %}checked{% endif %}>
           <span class="skin-option-preview skin-option-preview-romantic" aria-hidden="true">
-            <span class="skin-option-symbol">{% with icon='heart' %}{% include "admin/_icon.html" %}{% endwith %}</span>
+            <span class="skin-option-symbol"><img src="{{ asset('logo-romantic.png') }}" alt=""></span>
             <span class="skin-option-lines"><i></i><i></i><i></i></span>
           </span>
           <span class="skin-option-copy">
@@ -128,16 +128,14 @@
 
 <div class="card profile-support-card" style="max-width:540px">
   <b>Помощь</b>
-  <p class="muted" style="margin:8px 0 12px;font-size:13.5px">
-    Короткие подсказки по основным разделам. Каждый курс можно повторить.</p>
   <div class="tour-course-actions">
     <button type="button" class="btn small primary" data-tour-start="dashboard">Основы</button>
-    <a class="btn small primary" href="/admin/dates/new#tour=date-editor">Встречи</a>
     {% if first_category_id %}
     <a class="btn small primary" href="/admin/categories/{{ first_category_id }}#tour=category-editor">Категории</a>
     {% else %}
     <a class="btn small primary" href="/admin/categories">Категории</a>
     {% endif %}
+    <a class="btn small primary" href="/admin/dates/new#tour=date-editor">События</a>
   </div>
   <a class="btn profile-support-btn telegram-support-btn" href="https://t.me/artiwayn"
      target="_blank" rel="noopener">

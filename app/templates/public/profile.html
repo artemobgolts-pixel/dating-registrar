@@ -6,9 +6,9 @@
 <meta name="robots" content="noindex, nofollow">
 <title>{{ u['display_name'] or 'Профиль' }} · date4you</title>
 {% if profile_skin == 'friends' %}
-<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22><circle cx=%227%22 cy=%227%22 r=%223%22 fill=%22%234f46a5%22/><circle cx=%2217%22 cy=%227%22 r=%223%22 fill=%22%230f8f8a%22/><circle cx=%227%22 cy=%2217%22 r=%223%22 fill=%22%23d39a32%22/><circle cx=%2217%22 cy=%2217%22 r=%223%22 fill=%22%236b68c9%22/></svg>">
+<link rel="icon" href="{{ asset('logo-standard.png') }}">
 {% else %}
-<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>♥</text></svg>">
+<link rel="icon" href="{{ asset('logo-romantic.png') }}">
 {% endif %}
 <meta name="theme-color" content="{{ '#554eae' if profile_skin == 'friends' else '#b65f6f' }}">
 <script src="{{ asset('theme.js') }}"></script>

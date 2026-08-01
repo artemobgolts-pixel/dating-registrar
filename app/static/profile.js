@@ -71,7 +71,11 @@
         signal: controller.signal
       })
         .then(function (response) {
-          if (!response.ok) throw new Error("widget unavailable");
+          // Истёкшая сессия даёт 303 на /login, а fetch молча следует ему.
+          // Не вставляем полноценную страницу входа внутрь dialog.
+          if (!response.ok || response.redirected) {
+            throw new Error("widget unavailable");
+          }
           return response.text();
         })
         .then(function (html) {
@@ -80,7 +84,7 @@
         })
         .catch(function (error) {
           if (error && error.name === "AbortError") return;
-          body.innerHTML = '<p class="profile-widget-status">Не удалось открыть событие</p>';
+          body.innerHTML = '<p class="profile-widget-status">Не удалось открыть карточку</p>';
         })
         .finally(function () {
           if (widgetRequest === controller) widgetRequest = null;
@@ -132,7 +136,10 @@
       jsonRequest(button.dataset.add, {
         method: "POST",
         credentials: "same-origin",
-        headers: { "X-Requested-With": "fetch" }
+        headers: {
+          "X-Requested-With": "fetch",
+          "X-CSRF-Token": document.body.dataset.csrf || ""
+        }
       }).then(function () {
         button.textContent = "Добавлено ✓";
         toast("Событие добавлено в твою коллекцию");
@@ -169,10 +176,12 @@
     function shareEvent(button) {
       var url = button.dataset.shareUrl;
       if (!url) return;
-      if (typeof navigator.share === "function") {
+      var mobilePointer = typeof window.matchMedia === "function"
+        && window.matchMedia("(pointer: coarse) and (max-width: 900px)").matches;
+      if (mobilePointer && typeof navigator.share === "function") {
         navigator.share({
           title: button.dataset.shareTitle || "Событие date4you",
-          text: "Посмотри это событие в date4you",
+          text: button.dataset.shareText || "Посмотри это событие в date4you",
           url: url
         }).catch(function (error) {
           if (!error || error.name !== "AbortError") {

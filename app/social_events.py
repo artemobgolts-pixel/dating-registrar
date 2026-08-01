@@ -110,15 +110,16 @@ def cancel_review_prompt(conn: sqlite3.Connection, date_id: int, user_id: int,
 
 def queue_review_prompt(conn: sqlite3.Connection, date_id: int,
                         user_id: int) -> int | None:
-    """Создаёт/переносит prompt для одной отметки, не делая commit."""
+    """Создаёт/переносит prompt для желающего или участника-победителя."""
+    if not _review_entitled(conn, date_id, user_id):
+        cancel_review_prompt(conn, date_id, user_id, "review_not_available")
+        return None
     row = conn.execute(
-        "SELECT d.name, d.share_token FROM date_wants w "
-        "JOIN dates d ON d.id=w.date_id "
-        "WHERE w.user_id=? AND w.date_id=?",
-        (user_id, date_id),
+        "SELECT name, share_token FROM dates WHERE id=?",
+        (date_id,),
     ).fetchone()
     if not row:
-        cancel_review_prompt(conn, date_id, user_id, "want_removed")
+        cancel_review_prompt(conn, date_id, user_id, "event_removed")
         return None
     if conn.execute(
         "SELECT 1 FROM date_reviews WHERE user_id=? AND date_id=?",
@@ -154,10 +155,16 @@ def queue_review_prompt(conn: sqlite3.Connection, date_id: int,
 
 
 def queue_review_prompts_for_date(conn: sqlite3.Connection, date_id: int) -> int:
-    """Пересчитывает один event_key каждого желающего после правки времени."""
+    """Пересчитывает prompt желающих и участников победившего варианта."""
     queued = 0
     for row in conn.execute(
-        "SELECT user_id FROM date_wants WHERE date_id=?", (date_id,)
+        "SELECT user_id FROM date_wants WHERE date_id=? "
+        "UNION "
+        "SELECT b.user_id FROM bookings b JOIN categories c ON c.id=b.category_id "
+        "WHERE b.date_id=? AND b.user_id IS NOT NULL "
+        "AND b.participation_withdrawn_at IS NULL "
+        "AND c.voting_status='resolved' AND c.winner_date_id=b.date_id",
+        (date_id, date_id),
     ).fetchall():
         if queue_review_prompt(conn, date_id, int(row["user_id"])) is not None:
             queued += 1
@@ -179,12 +186,24 @@ def cancel_review_prompts_for_date(conn: sqlite3.Connection, date_id: int,
     return cancelled
 
 
-def review_available(conn: sqlite3.Connection, date_id: int, user_id: int,
-                     *, now: datetime | None = None) -> bool:
-    if not conn.execute(
+def _review_entitled(conn: sqlite3.Connection, date_id: int, user_id: int) -> bool:
+    if conn.execute(
         "SELECT 1 FROM date_wants WHERE user_id=? AND date_id=?",
         (user_id, date_id),
     ).fetchone():
+        return True
+    return conn.execute(
+        "SELECT 1 FROM bookings b JOIN categories c ON c.id=b.category_id "
+        "WHERE b.user_id=? AND b.date_id=? "
+        "AND b.participation_withdrawn_at IS NULL "
+        "AND c.voting_status='resolved' AND c.winner_date_id=b.date_id LIMIT 1",
+        (user_id, date_id),
+    ).fetchone() is not None
+
+
+def review_available(conn: sqlite3.Connection, date_id: int, user_id: int,
+                     *, now: datetime | None = None) -> bool:
+    if not _review_entitled(conn, date_id, user_id):
         return False
     due = review_due(conn, date_id)
     return due is not None and (now or now_naive()) >= due
@@ -194,8 +213,8 @@ def current_want_date_ids(conn: sqlite3.Connection, user_id: int, date_ids,
                           *, now: datetime | None = None) -> set[int]:
     """Пакетно фильтрует планы профиля без N+1 запросов.
 
-    Возвращает только события без уже созданного обзора и до явного дедлайна
-    (либо до окончания отдельного события, у которого категории нет).
+    Возвращает только неархивные события без уже созданного обзора и до явного
+    дедлайна (либо до окончания отдельного события, у которого категории нет).
     Данные событий, дедлайны категорий и существующие обзоры загружаются двумя
     запросами на пачку, а сама временная семантика общая с :func:`review_due`.
     """
@@ -220,7 +239,7 @@ def current_want_date_ids(conn: sqlite3.Connection, user_id: int, date_ids,
         }
         grouped: dict[int, dict] = {}
         for row in conn.execute(
-            f"SELECT d.id, d.starts_at, d.ends_at, "
+            f"SELECT d.id, d.starts_at, d.ends_at, d.archived_at, "
             f"c.voting_deadline FROM dates d "
             f"LEFT JOIN date_categories dc ON dc.date_id=d.id "
             f"LEFT JOIN categories c ON c.id=dc.category_id "
@@ -231,12 +250,14 @@ def current_want_date_ids(conn: sqlite3.Connection, user_id: int, date_ids,
             item = grouped.setdefault(date_id, {
                 "starts_at": row["starts_at"],
                 "ends_at": row["ends_at"],
+                "archived_at": row["archived_at"],
                 "deadlines": [],
             })
             if row["voting_deadline"]:
                 item["deadlines"].append(row["voting_deadline"])
         for date_id, item in grouped.items():
-            if date_id not in wanted or date_id in reviewed:
+            if (date_id not in wanted or date_id in reviewed
+                    or item["archived_at"] is not None):
                 continue
             expires = _want_expires_from_values(
                 item["starts_at"], item["ends_at"], item["deadlines"],
@@ -260,13 +281,15 @@ def want_action_available(conn: sqlite3.Connection, date_id: int, user_id: int,
     ).fetchone():
         return False
     rows = conn.execute(
-        "SELECT d.starts_at, d.ends_at, c.voting_deadline FROM dates d "
+        "SELECT d.starts_at, d.ends_at, d.archived_at, c.voting_deadline FROM dates d "
         "LEFT JOIN date_categories dc ON dc.date_id=d.id "
         "LEFT JOIN categories c ON c.id=dc.category_id "
         "WHERE d.id=?",
         (date_id,),
     ).fetchall()
     if not rows:
+        return False
+    if rows[0]["archived_at"] is not None:
         return False
     expires = _want_expires_from_values(
         rows[0]["starts_at"], rows[0]["ends_at"],

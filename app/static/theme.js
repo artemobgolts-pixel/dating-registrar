@@ -80,6 +80,14 @@
     });
   }
 
+  function updateSkinAssets(skin) {
+    var suffix = skin === "friends" ? "Friends" : "Romantic";
+    document.querySelectorAll("[data-skin-asset]").forEach(function (node) {
+      var href = node.dataset["href" + suffix];
+      if (href) node.setAttribute("href", href);
+    });
+  }
+
   function applyTheme(theme, persist) {
     theme = theme === "dark" ? "dark" : "light";
     root.dataset.theme = theme;
@@ -103,6 +111,7 @@
     }
     updateChrome(root.dataset.theme || "light");
     updateSkinButtons(skin);
+    updateSkinAssets(skin);
     if (changed) {
       document.dispatchEvent(new CustomEvent("d4y:skinchange", {
         detail: { skin: skin }
@@ -131,7 +140,7 @@
       && !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   }
 
-  function animateAppearance(change, source, event) {
+  function animateAppearance(change, source, event, timing) {
     if (!canAnimateAppearance() || transitionBusy) {
       // Состояние важнее анимации: быстрый второй выбор не должен теряться.
       change();
@@ -142,7 +151,14 @@
     var farX = Math.max(point.x, window.innerWidth - point.x);
     var farY = Math.max(point.y, window.innerHeight - point.y);
     var radius = Math.ceil(Math.hypot(farX, farY));
-    var duration = Math.round(Math.max(520, Math.min(760, radius * 0.52)));
+    timing = timing || {};
+    var minDuration = timing.minDuration || 520;
+    var maxDuration = timing.maxDuration || 760;
+    var durationFactor = timing.durationFactor || 0.52;
+    var duration = Math.round(Math.max(
+      minDuration,
+      Math.min(maxDuration, radius * durationFactor)
+    ));
     transitionBusy = true;
     root.classList.add("d4y-theme-transition");
 
@@ -169,7 +185,7 @@
         },
         {
           duration: duration,
-          easing: "cubic-bezier(.22,.72,.24,1)",
+          easing: timing.easing || "cubic-bezier(.22,.72,.24,1)",
           fill: "both",
           pseudoElement: "::view-transition-new(root)"
         }
@@ -203,7 +219,14 @@
     }
     animateAppearance(function () {
       applySkin(skin, persist);
-    }, source, event);
+    }, source, event, {
+      // Оформление меняет всю визуальную систему страницы, поэтому волна
+      // идёт заметно медленнее light/dark и читается от самой кнопки до углов.
+      minDuration: 1050,
+      maxDuration: 1550,
+      durationFactor: 1.04,
+      easing: "cubic-bezier(.18,.62,.2,1)"
+    });
   }
 
   // Выполняется синхронно до CSS.

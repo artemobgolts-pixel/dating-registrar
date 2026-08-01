@@ -16,11 +16,11 @@
   {% if active_skin == 'friends' %}
   <link rel="apple-touch-icon" href="/static/apple-touch-icon-friends.png">
   <link rel="manifest" href="/static/manifest-friends.json">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22><circle cx=%227%22 cy=%227%22 r=%223%22 fill=%22%234f46a5%22/><circle cx=%2217%22 cy=%227%22 r=%223%22 fill=%22%230f8f8a%22/><circle cx=%227%22 cy=%2217%22 r=%223%22 fill=%22%23d39a32%22/><circle cx=%2217%22 cy=%2217%22 r=%223%22 fill=%22%236b68c9%22/></svg>">
+  <link rel="icon" href="{{ asset('logo-standard.png') }}">
   {% else %}
   <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
   <link rel="manifest" href="/static/manifest.json">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>♥</text></svg>">
+  <link rel="icon" href="{{ asset('logo-romantic.png') }}">
   {% endif %}
   <link rel="stylesheet" href="{{ asset('public.css') }}">
   <style>
@@ -43,6 +43,7 @@
 <body data-token="{{ token }}" data-name="{{ guest_name or '' }}"
       data-auth="{{ '1' if me else '' }}" data-action-base="/d/{{ token }}"
       data-withdraw-url="/d/{{ token }}/withdraw"
+      data-csrf="{{ csrf }}"
       data-skin="{{ active_skin }}"
       data-ink-interactive="{{ '1' if me and me['cursor_effects'] else '0' }}">
 
@@ -127,7 +128,7 @@
 
   {% if vote_state and vote_state.status != 'unconfigured' %}
   <section class="vote-summary vote-{{ vote_state.status }}">
-    {% if vote_state.status == 'open' %}<b>Голосование идёт до {{ vote_state.voting_deadline | when }}</b><span>{% if vote_state.choice_mode == 'single' %}Можно выбрать один вариант.{% else %}Можно выбрать несколько вариантов.{% endif %}</span>
+    {% if vote_state.status == 'open' %}<b data-vote-countdown data-deadline="{{ vote_state.voting_deadline }}+03:00">До конца голосования осталось…</b><span>{% if vote_state.choice_mode == 'single' %}Можно выбрать один вариант.{% else %}Можно выбрать несколько вариантов.{% endif %}</span>
     {% elif vote_state.status == 'tie' %}<b>Ничья</b><span>Организатор вручную выбирает победителя среди лидеров.</span>
     {% elif vote_state.status == 'no_winner' %}<b>Никто не выбрал</b><span>Голосование завершено без победителя.</span>
     {% else %}<b>Голосование завершено</b><span>{% if d.is_winner %}{{ 'Это общий выбор участников.' if active_skin == 'friends' else 'Это победившее событие ♥' }}{% else %}Победил другой вариант категории.{% endif %}</span>{% endif %}
@@ -271,6 +272,7 @@
     {% endif %}
     <p>Нравится? Сохрани это событие к себе — потом добавишь в свои категории.</p>
     <form method="post" action="/d/{{ token }}/add">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
       <button type="submit" class="btn book">{{ icon('plus') }} Сохранить к себе</button>
     </form>
     {% else %}
