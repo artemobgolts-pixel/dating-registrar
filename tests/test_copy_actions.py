@@ -300,6 +300,46 @@ class CopyActionTests(unittest.TestCase):
             ).fetchone())
             conn.close()
 
+    def test_feed_share_and_status_tabs_ui_contract(self):
+        with TestClient(main.app, follow_redirects=False) as owner:
+            login(owner, 880301)
+            _, source_date, _ = self._seed_source(880301)
+
+        with TestClient(main.app, follow_redirects=False) as viewer:
+            login(viewer, 880302)
+            feed = viewer.get("/admin/community")
+            self.assertEqual(feed.status_code, 200)
+            self.assertIn("Поделиться", feed.text)
+            self.assertIn('data-community-share', feed.text)
+            self.assertIn('data-share-url="https://copy.test/d/date-880301"', feed.text)
+            self.assertIn('class="cfeed-card-actions"', feed.text)
+
+            widget = viewer.get(f"/admin/community/date/{source_date}")
+            self.assertEqual(widget.status_code, 200)
+            self.assertIn('class="btn ghost cwid-share"', widget.text)
+            self.assertIn('data-community-share', widget.text)
+
+            dates = viewer.get("/admin/dates?view=active")
+            self.assertEqual(dates.status_code, 200)
+            self.assertIn('class="tabs dates-status-tabs"', dates.text)
+            self.assertIn('data-glass-key="dates-status"', dates.text)
+
+        admin_js = (APP / "static/admin.js").read_text(encoding="utf-8")
+        self.assertIn('window.matchMedia("(hover: none) and (pointer: coarse)")', admin_js)
+        self.assertIn('navigator.share({', admin_js)
+        self.assertIn('navigator.clipboard.writeText(url)', admin_js)
+        self.assertIn('Ссылка на событие скопирована', admin_js)
+
+        ui_js = (APP / "static/ui.js").read_text(encoding="utf-8")
+        self.assertIn("container.dataset.glassKey", ui_js)
+
+        css = (APP / "static/admin.css").read_text(encoding="utf-8")
+        self.assertIn(".dates-status-tabs a {", css)
+        self.assertIn("font-size: 15.5px;", css)
+        self.assertIn("background: var(--accent);", css)
+        self.assertIn("@media (prefers-reduced-motion: reduce)", css)
+        self.assertIn("cubic-bezier(.2, .75, .3, 1)", css)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

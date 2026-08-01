@@ -11,7 +11,8 @@
 </div>
 
 <div class="controls">
-  <div class="tabs" data-tour="dates-statuses">
+  <div class="tabs dates-status-tabs" data-tour="dates-statuses"
+       data-glass-key="dates-status">
     <a href="/admin/dates?view=active{{ qs_keep }}" class="{{ 'on' if view == 'active' else '' }}">Активные{% if active_n %} <span class="pill">{{ active_n }}</span>{% endif %}</a>
     <a href="/admin/dates?view=drafts{{ qs_keep }}" class="{{ 'on' if view == 'drafts' else '' }}">Неактивные{% if drafts_n %} <span class="pill">{{ drafts_n }}</span>{% endif %}</a>
     <a href="/admin/dates?view=archived{{ qs_keep }}" class="{{ 'on' if view == 'archived' else '' }}">Архив{% if archived_n %} <span class="pill">{{ archived_n }}</span>{% endif %}</a>

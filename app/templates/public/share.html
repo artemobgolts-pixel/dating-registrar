@@ -37,6 +37,7 @@
     .share-cta .btn { display: inline-flex; align-items: center; justify-content: center; }
     .share-cta form { margin: 0; }
     .share-from { color: var(--muted); font-size: 13.5px; }
+    .share-from a { color: inherit; font-weight: 700; text-underline-offset: 2px; }
   </style>
 </head>
 <body data-token="{{ token }}" data-name="{{ guest_name or '' }}"
@@ -104,7 +105,9 @@
     <h1>{{ d.name }}</h1>
     {% if active_skin == 'friends' %}<div class="hero-mark" aria-hidden="true">{{ icon('gather') }}</div>
     {% else %}<div class="hearts" aria-hidden="true"><span>♥</span><span>♥</span><span>♥</span></div>{% endif %}
-    <p class="share-from">поделился: {{ owner_name }}</p>
+    <p class="share-from">поделился:
+      {% if owner %}<a href="/u/{{ owner['id'] }}?skin={{ active_skin }}">{{ owner_name }}</a>{% else %}{{ owner_name }}{% endif %}
+    </p>
   </header>
 
   {% if bot and (not me or not me['bot_linked']) %}

@@ -1,11 +1,13 @@
 {% extends "admin/base.html" %}
 {% block title %}Профиль{% endblock %}
-{% block head %}<meta name="turbo-cache-control" content="no-cache">{% endblock %}
+{% block head %}
+<meta name="turbo-cache-control" content="no-cache">
+<link rel="stylesheet" href="{{ asset('profile.css') }}" data-turbo-track="reload">
+{% endblock %}
 {% block content %}
 <div class="bar">
   <h1 class="serif" style="margin:0">Мой профиль</h1>
   <div class="actions-cell">
-    <a class="btn ghost" href="/u/{{ user['id'] }}?tab=events">Открыть публичный профиль</a>
     <a class="btn ghost" href="/admin/">← На главную</a>
   </div>
 </div>
@@ -27,12 +29,12 @@
           {% else %}
           <span class="avatar-ph">🙂</span>
           {% endif %}
-          <span class="avatar-cam" aria-hidden="true">📷</span>
+          <span class="avatar-cam" aria-hidden="true">{% with icon='camera' %}{% include "admin/_icon.html" %}{% endwith %}</span>
           <input type="file" name="avatar" id="avatarInput" accept="image/*" hidden>
         </label>
         {% if user['avatar_path'] %}
         <button class="avatar-delete" type="submit" form="delAvatar"
-                aria-label="Удалить фото профиля" title="Удалить фото">×</button>
+                aria-label="Удалить фото профиля" title="Удалить фото"></button>
         {% endif %}
       </div>
     </div>
@@ -61,7 +63,8 @@
     <fieldset class="skin-setting profile-skin-setting" aria-describedby="profileSkinHint">
       <legend>Оформление кабинета</legend>
       <p class="muted skin-setting-hint" id="profileSkinHint">
-        Меняет только твой кабинет. Гости увидят оформление, выбранное отдельно для категории.
+        Меняет твой кабинет. Другой пользователь увидит профиль в своей теме,
+        а при переходе из категории сохранится тема категории.
       </p>
       <div class="skin-pick">
         <label class="skin-option">
@@ -162,25 +165,32 @@
             action="/admin/profile/oauth/{{ p['slug'] }}/unlink"
             data-confirm="Отвязать {{ p['label'] }} от аккаунта?">
         <input type="hidden" name="csrf" value="{{ csrf }}">
-        <button class="social-state" type="submit"
-                aria-label="Отвязать {{ p['label'] }}" title="Отвязать {{ p['label'] }}">×</button>
+        <button class="social-state social-state-remove" type="submit"
+                aria-label="Отвязать {{ p['label'] }}" title="Отвязать {{ p['label'] }}"></button>
       </form>
     </div>
     {% elif p['enabled'] %}
     <a class="social-service" href="/auth/{{ p['slug'] }}?link=1"
        aria-label="Привязать {{ p['label'] }}" title="Привязать {{ p['label'] }}">
       <span class="social-ico" aria-hidden="true">{% include "auth/_oauth_icon.html" with context %}</span>
-      <span class="social-state" aria-hidden="true">+</span>
+      <span class="social-state social-state-add" aria-hidden="true"></span>
     </a>
     {% else %}
     <span class="social-service is-disabled" aria-label="{{ p['label'] }}: скоро"
           title="{{ p['label'] }} пока недоступен">
       <span class="social-ico" aria-hidden="true">{% include "auth/_oauth_icon.html" with context %}</span>
-      <span class="social-state" aria-hidden="true">+</span>
+      <span class="social-state social-state-add" aria-hidden="true"></span>
       <span class="sr-only">{{ p['label'] }}: скоро</span>
     </span>
     {% endif %}
     {% endfor %}
   </div>
 </div>
+
+<div class="profile-public-heading">
+  <h2>Публичная часть профиля</h2>
+  <p>Так твои события, планы и обзоры собраны в профиле.</p>
+</div>
+{% set u = user %}
+{% include "public/_profile_sections.html" %}
 {% endblock %}

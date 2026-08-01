@@ -21,6 +21,7 @@ import logging
 import secrets
 import sqlite3
 import time
+from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -41,6 +42,7 @@ router = APIRouter()
 TTL_SECONDS = 600          # код входа живёт 10 минут
 MINIAPP_AUTH_TTL_SECONDS = 600
 MINIAPP_MAX_INIT_DATA = 8192
+START_LOGO_PATH = Path(__file__).resolve().parent / "static" / "telegram-start-logo.png"
 
 # Username бота для кнопки входа и deep-link. Берём из env (TG_BOT_USERNAME);
 # если там пусто — определяем по токену через getMe при старте (resolve_bot_username),
@@ -688,9 +690,9 @@ async def _welcome_from_bot(conn, person: dict, message: dict, *, write_granted=
             "Типы уведомлений можно выбрать в настройках кабинета.",
         )
     await asyncio.to_thread(
-        notify.send_to,
+        notify.send_to if write_granted else notify.send_photo_to,
         telegram_id,
-        text,
+        *((text,) if write_granted else (START_LOGO_PATH, text)),
         reply_markup=_miniapp_button(),
     )
 

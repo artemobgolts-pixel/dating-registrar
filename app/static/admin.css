@@ -615,7 +615,7 @@ label.chk {
   color: var(--ink);
   font-size: 14px; white-space: nowrap;
   background: transparent;
-  transition: color .25s var(--ease);
+  transition: color .2s ease;
 }
 .tabs a.on { color: #fff; }
 /* ФОЛБЭК активной вкладки: розовая заливка прямо под текстом. Основной вид даёт
@@ -633,11 +633,15 @@ label.chk {
   background: linear-gradient(135deg, var(--rose), var(--rose-2));
   box-shadow: 0 5px 14px rgba(150, 70, 85, .34), inset 0 1px 0 rgba(255, 255, 255, .3);
   transform: translateX(0);
-  transition: transform .42s cubic-bezier(.34, 1.3, .5, 1), width .42s cubic-bezier(.34, 1.3, .5, 1);
+  transition: transform .3s cubic-bezier(.2, .75, .3, 1), width .3s cubic-bezier(.2, .75, .3, 1);
   will-change: transform, width;
   pointer-events: none;
 }
 .tabs.no-anim .tab-ind { transition: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .tabs a, .tabs .tab-ind { transition: none; }
+}
 
 .actions-cell { display: flex; gap: 6px; flex-wrap: wrap; }
 
@@ -896,10 +900,18 @@ a.social-service:hover {
   display: grid; place-items: center;
   border: 2px solid var(--card); border-radius: 50%;
   background: var(--accent); color: #fff;
-  font: 700 17px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   text-decoration: none; cursor: pointer;
   box-shadow: 0 3px 9px rgba(91,54,62,.2);
 }
+.social-state::before,
+.social-state::after {
+  content: ""; position: absolute; left: 50%; top: 50%;
+  width: 10px; height: 2px; border-radius: 999px; background: currentColor;
+  transform: translate(-50%, -50%);
+}
+.social-state-add::after { transform: translate(-50%, -50%) rotate(90deg); }
+.social-state-remove::before { transform: translate(-50%, -50%) rotate(45deg); }
+.social-state-remove::after { transform: translate(-50%, -50%) rotate(-45deg); }
 .social-service > span.social-state { pointer-events: none; }
 .social-service.is-linked .social-state { background: #a44343; }
 .social-service.is-disabled .social-state { background: var(--muted); }
@@ -1017,7 +1029,6 @@ input.flash { background: #f8ecea !important; transition: background .4s; }
 }
 .notif-settings-head::-webkit-details-marker { display: none; }
 .notif-settings-head::marker { content: ""; }
-.notif-settings-head:hover { background: rgba(255,255,255,.25); }
 .notif-settings-head:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .notif-settings-card:not([open]) .notif-settings-hint { display: none; }
 .notif-settings-copy { display: grid; min-width: 0; }
@@ -1060,7 +1071,6 @@ input.flash { background: #f8ecea !important; transition: background .4s; }
   min-height: 76px; margin: 0; cursor: pointer; align-items: center;
   background: rgba(255,255,255,.5); transition: border-color .18s, background .18s;
 }
-.notif-pref.toggle:hover { border-color: color-mix(in srgb, var(--rose) 34%, var(--line)); }
 .notif-pref:last-child:nth-child(odd) { grid-column: 1 / -1; }
 .notif-pref .tcol { min-width: 0; }
 .notif-pref .t { font-weight: 650; }
@@ -1257,6 +1267,29 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   padding: 0 5px; min-width: 16px; height: 16px; line-height: 16px;
   box-sizing: border-box; text-align: center; white-space: nowrap;
   border-radius: 999px; vertical-align: 1px; display: inline-block;
+}
+
+/* Только переключатель статусов событий: внешняя высота капсул остаётся
+   прежней, а подписи и счётчики читаются крупнее. `--accent` меняется вместе
+   с оформлением кабинета, поэтому кружок не остаётся розовым в friends-теме. */
+.dates-status-tabs a {
+  font-size: 15.5px;
+  font-weight: 600;
+  line-height: 21px;
+}
+.dates-status-tabs a .pill {
+  min-width: 18px;
+  height: 18px;
+  line-height: 18px;
+  padding: 0 5px;
+  font-size: 11.5px;
+  background: var(--accent);
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.dates-status-tabs a.on .pill {
+  background: rgba(255, 255, 255, .32);
+  color: #fff;
+  box-shadow: none;
 }
 
 .flash { border-radius: 12px; box-shadow: 0 6px 18px rgba(120, 70, 80, .1); }
@@ -2436,22 +2469,34 @@ html[data-theme="dark"][data-skin="friends"] .share-qr {
 .avatar-pick .avatar-cam {
   position: absolute; right: 2px; bottom: 2px;
   width: 34px; height: 34px; border-radius: 50%;
-  display: grid; place-items: center; font-size: 16px;
+  display: grid; place-items: center;
   background: linear-gradient(135deg, var(--rose), var(--rose-2)); color: #fff;
   border: 2px solid #fff; box-shadow: 0 3px 9px rgba(150, 70, 85, .35);
 }
+.avatar-pick .avatar-cam .admin-icon { width: 18px; height: 18px; display: block; }
 .avatar-pick:hover .avatar-cam { transform: scale(1.06); }
 .avatar-delete {
-  position: absolute; z-index: 3; top: -5px; right: -5px;
-  width: 29px; height: 29px; padding: 0; margin: 0;
-  display: grid; place-items: center;
-  border: 2px solid var(--card); border-radius: 50%;
-  background: #fff; color: #8d3540;
-  font: 700 20px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  cursor: pointer; box-shadow: 0 4px 12px rgba(91,54,62,.2);
-  transition: transform .15s ease, background .15s ease, color .15s ease;
+  position: absolute; z-index: 3; top: 3px; right: 3px;
+  width: 25px; height: 25px; padding: 0; margin: 0;
+  border: 0; border-radius: 0; background: transparent; color: #fff;
+  cursor: pointer; filter: drop-shadow(0 1px 2px rgba(24,18,21,.72));
+  transition: transform .15s ease, color .15s ease;
 }
-.avatar-delete:hover { transform: scale(1.08); background: #a44343; color: #fff; }
+.avatar-delete::before,
+.avatar-delete::after {
+  content: ""; position: absolute; left: 50%; top: 50%;
+  width: 15px; height: 2.5px; border-radius: 999px; background: currentColor;
+}
+.avatar-delete::before { transform: translate(-50%, -50%) rotate(45deg); }
+.avatar-delete::after { transform: translate(-50%, -50%) rotate(-45deg); }
+.avatar-delete:hover { transform: scale(1.12); color: #ffd8df; }
+
+.profile-public-heading {
+  max-width: 940px; margin: 38px 0 0; padding-top: 24px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 75%, transparent);
+}
+.profile-public-heading h2 { margin: 0; color: var(--ink); font: 700 24px/1.25 var(--serif); }
+.profile-public-heading p { margin: 5px 0 0; color: var(--muted); }
 
 /* пол — три кнопки-пилюли (radio) */
 .gender-pick { display: flex; gap: 8px; flex-wrap: nowrap; }
@@ -2699,6 +2744,25 @@ html[data-theme="dark"][data-skin="friends"] .share-qr {
 .cfeed-ava { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; }
 .cfeed-ava-ph { display: grid; place-items: center; background: #f3e6e9; font-size: 15px; }
 .cfeed-owner-name { max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cfeed-card-actions {
+  display: flex; align-items: center; gap: 8px; margin-top: auto;
+  min-width: 0;
+}
+.cfeed-card-actions .cfeed-owner { flex: 1 1 auto; min-width: 0; margin-top: 0; }
+.cfeed-card-actions .cfeed-owner-name { min-width: 0; max-width: none; }
+.cfeed-share {
+  flex: none; appearance: none; cursor: pointer;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: rgba(255, 255, 255, .55); color: var(--accent);
+  padding: 7px 9px; font-family: inherit; font-size: 11.5px;
+  font-weight: 600; line-height: 1.2;
+  transition: background .18s ease, border-color .18s ease, color .18s ease;
+}
+.cfeed-share:hover {
+  background: var(--rose-soft);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
+}
+.cfeed-share:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .cfeed-sentinel { grid-column: 1 / -1; height: 1px; }
 
 /* На телефоне карточка всегда занимает отдельную строку, включая landscape.
@@ -2972,9 +3036,6 @@ html[data-theme="dark"] .cat-cover { background-color: #2d272c; }
 html[data-theme="dark"] .avatar-pick .avatar-img,
 html[data-theme="dark"] .avatar-pick .avatar-ph { border-color: var(--line); }
 html[data-theme="dark"] .avatar-pick .avatar-cam { border-color: #251f24; }
-html[data-theme="dark"] .avatar-delete {
-  border-color: #251f24; background: #382b33; color: #ffaaa8;
-}
 html[data-theme="dark"] tr.drag-row.dragging { background: #3b2931; }
 
 html[data-theme="dark"] .login-card {
@@ -3058,6 +3119,7 @@ html[data-theme="dark"] .tour-pop {
 html[data-theme="dark"] .menu .danger:hover { background: #48292d; }
 html[data-theme="dark"] .community-dlg .dlg-x { background: rgba(48,38,45,.9); }
 html[data-theme="dark"] .cfeed-owner,
+html[data-theme="dark"] .cfeed-share,
 html[data-theme="dark"] .dcard .edit-hint,
 html[data-theme="dark"] .dcard .foot .open-date,
 html[data-theme="dark"] .more,
@@ -3450,7 +3512,6 @@ html[data-theme="dark"][data-skin="friends"] .avatar-pick .avatar-ph {
 }
 html[data-theme="dark"][data-skin="friends"] .avatar-pick .avatar-ph { background: #293145; }
 html[data-theme="dark"][data-skin="friends"] .avatar-pick .avatar-cam { border-color: #1b2130; }
-html[data-theme="dark"][data-skin="friends"] .avatar-delete { border-color: #1b2130; }
 
 html[data-skin="friends"] nav a.on,
 html[data-skin="friends"] .bell.on,

@@ -1,106 +1,36 @@
 <!doctype html>
-<html lang="ru">
+<html lang="ru" data-skin="{{ profile_skin }}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <title>{{ u['display_name'] or 'Профиль' }} · date4you</title>
+{% if profile_skin == 'friends' %}
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22><circle cx=%227%22 cy=%227%22 r=%223%22 fill=%22%234f46a5%22/><circle cx=%2217%22 cy=%227%22 r=%223%22 fill=%22%230f8f8a%22/><circle cx=%227%22 cy=%2217%22 r=%223%22 fill=%22%23d39a32%22/><circle cx=%2217%22 cy=%2217%22 r=%223%22 fill=%22%236b68c9%22/></svg>">
+{% else %}
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>♥</text></svg>">
-<meta name="theme-color" content="#b65f6f">
+{% endif %}
+<meta name="theme-color" content="{{ '#554eae' if profile_skin == 'friends' else '#b65f6f' }}">
 <script src="{{ asset('theme.js') }}"></script>
 <link rel="stylesheet" href="{{ asset('public.css') }}">
+<link rel="stylesheet" href="{{ asset('profile.css') }}">
 <style>
-  .prof { max-width: 460px; margin: 0 auto; padding: 48px 22px 80px; text-align: center; }
-  .prof .back { display: inline-block; margin-bottom: 26px; color: #b65f6f; text-decoration: none; }
+  .prof { position:relative; z-index:1; max-width:460px; margin:0 auto; padding:48px 22px 80px; text-align:center; }
+  .prof .back { display:inline-block; margin-bottom:26px; color:var(--rose); text-decoration:none; }
   .prof .ava { width: 132px; height: 132px; border-radius: 50%; object-fit: cover;
-    border: 3px solid #e7d3d7; margin: 0 auto 18px; display: block; }
+    border: 3px solid var(--line); margin: 0 auto 18px; display: block; }
   .prof .ava-ph { width: 132px; height: 132px; border-radius: 50%; margin: 0 auto 18px;
-    display: grid; place-items: center; background: #f3e6e9; font-size: 56px; }
-  .prof h1 { font-family: 'Cormorant Garamond', Georgia, serif; font-size: 32px;
-    color: #b65f6f; margin: 0 0 6px; }
-  .prof .meta { color: #6b545a; font-size: 15px; line-height: 1.9; }
+    display: grid; place-items: center; background: var(--rose-soft); font-size: 56px; }
+  .prof h1 { font-family:var(--serif); font-size:32px; color:var(--rose); margin:0 0 6px; }
+  .prof .meta { color:var(--muted); font-size:15px; line-height:1.9; }
   .prof .meta .row { display: inline-block; margin: 0 8px; }
   .prof .me-edit { margin-top: 22px; }
-  .pub-dates { max-width: 820px; margin: 34px auto 0; padding: 0 20px 80px; }
-  .pub-dates h2 { font-family: 'Cormorant Garamond', Georgia, serif; font-size: 24px;
-    color: #8f4a58; text-align: center; margin: 0 0 18px; }
-  .pub-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; }
-  .pub-card { display: block; text-decoration: none; color: inherit; border-radius: 16px;
-    overflow: hidden; background: rgba(255,255,255,.7); border: 1px solid #f0e4e1;
-    box-shadow: 0 10px 26px rgba(150,80,95,.1); transition: transform .18s, box-shadow .2s; }
-  .pub-card:hover { transform: translateY(-2px); box-shadow: 0 14px 32px rgba(150,80,95,.16); }
-  .pub-card .ph { height: 120px; background: linear-gradient(135deg,#caa094,#9c6f6a); }
-  .pub-card .ph img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .pub-card .cb { padding: 11px 13px 13px; }
-  .pub-card .t { font-family: 'Cormorant Garamond', Georgia, serif; font-size: 17px;
-    color: #43373a; margin: 0 0 3px; line-height: 1.2; }
-  .pub-card .m { font-size: 12px; color: #9a8a8c; }
-  .pub-empty { color: #9a8a8c; text-align: center; }
-  .pub-pager { display: flex; justify-content: center; align-items: center; gap: 12px;
-    margin: 22px 0 0; }
-  .pub-pager .btn { min-width: 112px; text-align: center; }
-  .pub-page { color: #9a8a8c; font-size: 13px; }
-  .profile-tabs { display:flex; justify-content:center; gap:8px; margin:0 auto 24px;
-    overflow-x:auto; padding:3px; scrollbar-width:none; }
-  .profile-tabs::-webkit-scrollbar { display:none; }
-  .profile-tabs a { flex:0 0 auto; padding:9px 13px; border:1px solid #eadadd;
-    border-radius:999px; color:#765f65; background:rgba(255,255,255,.52);
-    text-decoration:none; font-size:13px; font-weight:650; }
-  .profile-tabs a.on { color:#fff; border-color:#b65f6f; background:#b65f6f;
-    box-shadow:0 6px 16px rgba(150,80,95,.2); }
-  .profile-tabs b { font-size:11px; opacity:.78; }
-  .review-card { position:relative; display:grid; grid-template-columns:132px minmax(0,1fr);
-    overflow:visible; border:1px solid #f0e4e1; border-radius:16px;
-    background:rgba(255,255,255,.72); box-shadow:0 10px 26px rgba(150,80,95,.1); }
-  .review-grid { grid-template-columns:1fr; }
-  .review-card .review-cover { min-height:150px; border-radius:15px 0 0 15px;
-    overflow:hidden; background:linear-gradient(135deg,#caa094,#9c6f6a); }
-  .review-card .review-cover img { width:100%; height:100%; object-fit:cover; display:block; }
-  .review-card-body { min-width:0; padding:16px 48px 16px 17px; text-align:left; }
-  .review-event { color:#43373a; text-decoration:none; font:600 20px/1.2 'Cormorant Garamond',Georgia,serif; }
-  .review-stars { color:#d99f2b; letter-spacing:1px; font-size:18px; }
-  .review-stars .off { color:#ddd0cd; }
-  .review-copy { margin:9px 0 0; color:#5f5054; white-space:pre-wrap; overflow-wrap:anywhere; }
-  .review-copy.empty { color:#a39497; font-style:italic; }
-  .review-hidden { display:inline-block; margin-top:8px; padding:3px 8px; border-radius:999px;
-    color:#7e6870; background:#f1e8ea; font-size:11px; }
-  .review-menu { position:absolute; top:10px; right:10px; z-index:3; }
-  .review-menu summary { width:34px; height:34px; display:grid; place-items:center;
-    border:1px solid #eadadd; border-radius:10px; color:#765f65; background:#fff;
-    cursor:pointer; font-size:20px; line-height:1; list-style:none; }
-  .review-menu summary::-webkit-details-marker { display:none; }
-  .review-menu[open] .review-menu-pop { display:grid; }
-  .review-menu-pop { position:absolute; top:40px; right:0; width:190px; padding:6px;
-    border:1px solid #eadadd; border-radius:12px; background:#fff;
-    box-shadow:0 14px 34px rgba(80,45,55,.18); }
-  .review-menu-pop a,.review-menu-pop button { width:100%; padding:9px 10px; border:0;
-    border-radius:8px; color:#56474b; background:transparent; text-align:left;
-    text-decoration:none; font:inherit; font-size:13px; cursor:pointer; }
-  .review-menu-pop a:hover,.review-menu-pop button:hover { background:#f8eeef; }
-  .review-menu-pop .danger { color:#a44552; }
-  .review-edit { grid-column:1/-1; padding:17px; border-top:1px solid #f0e4e1;
-    background:rgba(255,251,250,.8); border-radius:0 0 16px 16px; }
-  .review-edit h3 { margin:0 0 12px; color:#8f4a58; }
-  .review-edit form { display:grid; gap:12px; }
-  .review-edit textarea { width:100%; min-height:95px; padding:11px 12px; resize:vertical;
-    border:1px solid #e7d7da; border-radius:11px; color:#43373a; background:#fff; font:inherit; }
-  .profile-rating { display:flex; gap:8px; flex-wrap:wrap; border:0; padding:0; margin:0; }
-  .profile-rating legend { width:100%; color:#665459; font-size:13px; font-weight:700; }
-  .profile-rating label { display:inline-flex; align-items:center; gap:3px; cursor:pointer;
-    color:#9b7b22; font-weight:700; }
-  .review-edit-actions { display:flex; gap:8px; flex-wrap:wrap; }
   @media(max-width:520px) {
     .prof { padding-bottom:22px; }
-    .pub-dates { margin-top:18px; padding-inline:14px; }
-    .profile-tabs { justify-content:flex-start; }
-    .pub-grid { grid-template-columns:1fr; }
-    .review-card { grid-template-columns:96px minmax(0,1fr); }
-    .review-card .review-cover { min-height:132px; }
-    .review-card-body { padding-left:13px; }
   }
 </style>
 </head>
-<body data-ink-interactive="{{ '1' if request.state.user and request.state.user['cursor_effects'] else '0' }}">
+<body data-skin="{{ profile_skin }}" data-ink-interactive="{{ '1' if request.state.user and request.state.user['cursor_effects'] else '0' }}">
 <button type="button" class="theme-float" data-theme-toggle aria-label="Включить тёмную тему">
   <span class="theme-moon-icon" data-theme-icon aria-hidden="true"></span>
 </button>
@@ -127,109 +57,6 @@
   {% endif %}
 </main>
 
-<section class="pub-dates">
-  <nav class="profile-tabs" aria-label="Разделы профиля">
-    <a href="?tab=events" class="{{ 'on' if tab == 'events' else '' }}">Публичные события <b>{{ event_total }}</b></a>
-    <a href="?tab=want" class="{{ 'on' if tab == 'want' else '' }}">Хочу сходить <b>{{ want_total }}</b></a>
-    <a href="?tab=reviews" class="{{ 'on' if tab == 'reviews' else '' }}">Обзоры <b>{{ review_total }}</b></a>
-  </nav>
-  <h2>{% if tab == 'want' %}Хочу сходить{% elif tab == 'reviews' %}Обзоры{% else %}Публичные события{% endif %}{% if total %} · {{ total }}{% endif %}</h2>
-
-  {% if tab == 'events' and dates %}
-  <div class="pub-grid">
-    {% for d in dates %}
-    <a class="pub-card" href="/d/{{ d['share_token'] }}">
-      {% if d['images'] %}
-      <div class="ph"><img
-        src="/d/{{ d['share_token'] }}/image/{{ d['images'][0]['filename'] }}?w=480"
-        srcset="/d/{{ d['share_token'] }}/image/{{ d['images'][0]['filename'] }}?w=480 480w,
-                /d/{{ d['share_token'] }}/image/{{ d['images'][0]['filename'] }}?w=960 960w"
-        sizes="(max-width: 520px) calc(100vw - 40px), 340px" alt=""
-        loading="{{ 'eager' if loop.first else 'lazy' }}"
-        fetchpriority="{{ 'high' if loop.first else 'low' }}" decoding="async"
-        {% if d['images'][0]['focus'] %}style="object-position:{{ d['images'][0]['focus'] }}"{% endif %}></div>
-      {% endif %}
-      <div class="cb">
-        <div class="t">{{ d['name'] }}</div>
-        {% set when_str = d['starts_at'] | when(d['ends_at']) %}
-        {% if when_str or d['place'] %}
-        <div class="m">{% if when_str %}🕐 {{ when_str }}{% endif %}{% if when_str and d['place'] %} · {% endif %}{% if d['place'] %}📍 {{ d['place'] | placename }}{% endif %}</div>
-        {% endif %}
-      </div>
-    </a>
-    {% endfor %}
-  </div>
-  {% elif tab == 'want' and want_dates %}
-  <div class="pub-grid">
-    {% for d in want_dates %}
-    <a class="pub-card" href="/d/{{ d['share_token'] }}">
-      {% if d['images'] %}
-      <div class="ph"><img src="/d/{{ d['share_token'] }}/image/{{ d['images'][0]['filename'] }}?w=480"
-        alt="" loading="{{ 'eager' if loop.first else 'lazy' }}" decoding="async"
-        {% if d['images'][0]['focus'] %}style="object-position:{{ d['images'][0]['focus'] }}"{% endif %}></div>
-      {% endif %}
-      <div class="cb">
-        <div class="t">{{ d['name'] }}</div>
-        {% set when_str = d['starts_at'] | when(d['ends_at']) %}
-        {% if when_str or d['place'] %}<div class="m">{% if when_str %}🕐 {{ when_str }}{% endif %}{% if when_str and d['place'] %} · {% endif %}{% if d['place'] %}📍 {{ d['place'] | placename }}{% endif %}</div>{% endif %}
-      </div>
-    </a>
-    {% endfor %}
-  </div>
-  {% elif tab == 'reviews' and reviews %}
-  <div class="pub-grid review-grid">
-    {% for r in reviews %}
-    <article class="review-card" id="review-{{ r['review_id'] }}">
-      <a class="review-cover" href="/d/{{ r['share_token'] }}" aria-label="Открыть «{{ r['name'] }}»">
-        {% if r['images'] %}<img src="/d/{{ r['share_token'] }}/image/{{ r['images'][0]['filename'] }}?w=480" alt="" loading="{{ 'eager' if loop.first else 'lazy' }}" decoding="async"{% if r['images'][0]['focus'] %} style="object-position:{{ r['images'][0]['focus'] }}"{% endif %}>{% endif %}
-      </a>
-      <div class="review-card-body">
-        <a class="review-event" href="/d/{{ r['share_token'] }}">{{ r['name'] }}</a>
-        <div class="review-stars" aria-label="Оценка {{ r['rating'] }} из 5">{% for score in range(1, 6) %}<span class="{{ 'off' if score > r['rating'] else '' }}">★</span>{% endfor %}</div>
-        {% if r['review_text'] %}<p class="review-copy">{{ r['review_text'] }}</p>{% else %}<p class="review-copy empty">Без текста</p>{% endif %}
-        {% if is_me and (not r['review_public'] or not r['date_public'] or r['date_draft']) %}<span class="review-hidden">Скрыт из публичного профиля</span>{% endif %}
-      </div>
-      {% if is_me %}
-      <details class="review-menu">
-        <summary aria-label="Действия с обзором">⋯</summary>
-        <div class="review-menu-pop">
-          <a href="?tab=reviews&page={{ page }}&edit={{ r['review_id'] }}#review-{{ r['review_id'] }}">Изменить</a>
-          {% if r['review_public'] and r['date_public'] and not r['date_draft'] %}
-          <form method="post" action="/u/{{ u['id'] }}/reviews/{{ r['review_id'] }}/hide">
-            <input type="hidden" name="csrf" value="{{ csrf }}">
-            <button type="submit" class="danger">Убрать из профиля</button>
-          </form>
-          {% endif %}
-        </div>
-      </details>
-      {% if edit_review_id == r['review_id'] %}
-      <div class="review-edit">
-        <h3>Изменить обзор</h3>
-        <form method="post" action="/u/{{ u['id'] }}/reviews/{{ r['review_id'] }}/edit">
-          <input type="hidden" name="csrf" value="{{ csrf }}">
-          <fieldset class="profile-rating">
-            <legend>Оценка<sup class="required-mark" aria-hidden="true">*</sup></legend>
-            {% for score in range(1, 6) %}<label><input type="radio" name="rating" value="{{ score }}" {{ 'checked' if r['rating'] == score else '' }} required>{{ score }} ★</label>{% endfor %}
-          </fieldset>
-          <textarea name="text" maxlength="4000" placeholder="Текст необязателен">{{ r['review_text'] or '' }}</textarea>
-          <div class="review-edit-actions"><button type="submit" class="btn">Сохранить и опубликовать</button><a class="btn ghost" href="?tab=reviews#review-{{ r['review_id'] }}">Отмена</a></div>
-        </form>
-      </div>
-      {% endif %}
-      {% endif %}
-    </article>
-    {% endfor %}
-  </div>
-  {% else %}
-  <p class="pub-empty">{% if tab == 'want' %}Пока ничего не отмечено. На странице события нажми «Хочу сходить».{% elif tab == 'reviews' %}Пока нет обзоров.{% else %}Пока нет публичных встреч{% if is_me %} — создай событие и включи «показывать в ленте»{% endif %}.{% endif %}</p>
-  {% endif %}
-  {% if total and pages > 1 %}
-  <nav class="pub-pager" aria-label="Страницы раздела">
-    {% if page > 1 %}<a class="btn ghost" href="?tab={{ tab }}&page={{ page - 1 }}">← Новее</a>{% endif %}
-    <span class="pub-page">{{ page }} / {{ pages }}</span>
-    {% if page < pages %}<a class="btn ghost" href="?tab={{ tab }}&page={{ page + 1 }}">Ещё →</a>{% endif %}
-  </nav>
-  {% endif %}
-</section>
+{% include "public/_profile_sections.html" %}
 </body>
 </html>

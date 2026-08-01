@@ -179,9 +179,9 @@ class TelegramMiniAppTests(unittest.TestCase):
 
     def test_plain_start_registers_only_from_private_chat_and_returns_web_app(self):
         sent = []
-        original = notify.send_to
-        notify.send_to = lambda chat, text, **kwargs: sent.append(
-            (chat, text, kwargs)) or True
+        original = notify.send_photo_to
+        notify.send_photo_to = lambda chat, path, caption, **kwargs: sent.append(
+            (chat, Path(path), caption, kwargs)) or True
         try:
             group = self.client.post(
                 "/tg/webhook",
@@ -203,7 +203,7 @@ class TelegramMiniAppTests(unittest.TestCase):
                 }},
             )
         finally:
-            notify.send_to = original
+            notify.send_photo_to = original
         self.assertEqual(private.status_code, 200)
         conn = db.connect()
         self.assertIsNone(conn.execute(
@@ -214,10 +214,13 @@ class TelegramMiniAppTests(unittest.TestCase):
         ).fetchone()
         conn.close()
         self.assertEqual((row["bot_linked"], row["display_name"]), (1, "Новый"))
-        button = sent[0][2]["reply_markup"]["inline_keyboard"][0][0]
+        self.assertEqual(sent[0][1], auth_routes.START_LOGO_PATH)
+        self.assertTrue(sent[0][1].is_file())
+        self.assertIn("Добро пожаловать", sent[0][2])
+        button = sent[0][3]["reply_markup"]["inline_keyboard"][0][0]
         self.assertEqual(button["style"], "primary")
         self.assertEqual(button["web_app"]["url"], "https://localhost/tg/app")
-        browser = sent[0][2]["reply_markup"]["inline_keyboard"][1][0]
+        browser = sent[0][3]["reply_markup"]["inline_keyboard"][1][0]
         self.assertEqual(browser["text"], "Открыть в браузере")
         self.assertEqual(browser["url"], "https://localhost/")
         self.assertNotIn("web_app", browser)
@@ -385,6 +388,65 @@ class TelegramRichMessageTests(unittest.TestCase):
             self.assertNotIn("style", legacy_button)
         finally:
             notify.httpx.post = original
+
+    def test_start_photo_keeps_buttons_and_falls_back_to_rich_message(self):
+        calls = []
+
+        class Response:
+            def __init__(self, status):
+                self.status_code = status
+                self.text = "response"
+
+        original_post = notify.httpx.post
+        original_send = notify.send_to
+        original_token = notify.TOKEN
+        notify.TOKEN = "123456:miniapp-test-token"
+        markup = auth_routes._miniapp_button()
+        try:
+            def post(url, *, data=None, files=None, timeout=None, **_kwargs):
+                calls.append((url.rsplit("/", 1)[-1], data, files))
+                return Response(200)
+
+            notify.httpx.post = post
+            self.assertTrue(notify.send_photo_to(
+                880021, auth_routes.START_LOGO_PATH, "<b>Добро пожаловать</b>",
+                reply_markup=markup,
+            ))
+            method, data, files = calls[0]
+            self.assertEqual(method, "sendRichMessage")
+            self.assertIn("photo", files)
+            rich = json.loads(data["rich_message"])
+            self.assertIn('src="tg://photo?id=start_logo"', rich["html"])
+            self.assertEqual(
+                rich["media"][0]["media"]["media"], "attach://photo",
+            )
+            keyboard = json.loads(data["reply_markup"])["inline_keyboard"]
+            self.assertEqual(keyboard[0][0]["web_app"]["url"],
+                             "https://localhost/tg/app")
+            self.assertEqual(keyboard[1][0]["text"], "Открыть в браузере")
+            self.assertEqual(keyboard[0][0]["style"], "primary")
+
+            calls.clear()
+            fallbacks = []
+            def failing_post(url, *, data=None, files=None, **_kwargs):
+                calls.append((url.rsplit("/", 1)[-1], data, files))
+                return Response(500)
+            notify.httpx.post = failing_post
+            notify.send_to = lambda chat, text, **kwargs: (
+                fallbacks.append((chat, text, kwargs)) or True
+            )
+            self.assertTrue(notify.send_photo_to(
+                880021, auth_routes.START_LOGO_PATH, "Привет",
+                reply_markup=markup,
+            ))
+            self.assertEqual([call[0] for call in calls],
+                             ["sendRichMessage", "sendPhoto"])
+            self.assertEqual(fallbacks[0][0:2], (880021, "Привет"))
+            self.assertEqual(fallbacks[0][2]["reply_markup"], markup)
+        finally:
+            notify.httpx.post = original_post
+            notify.send_to = original_send
+            notify.TOKEN = original_token
 
 
 if __name__ == "__main__":

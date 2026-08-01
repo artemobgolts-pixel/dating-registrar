@@ -361,6 +361,8 @@ with TestClient(main.app, follow_redirects=False) as c:
     # форма открывается, в шапке — ссылка на профиль
     pf = c.get("/admin/profile")
     assert pf.status_code == 200 and "Мой профиль" in pf.text
+    assert "Открыть публичный профиль" not in pf.text
+    assert all(label in pf.text for label in ("Публичные события", "Хочу сходить", "Обзоры"))
     assert "/admin/profile" in c.get("/admin/categories").text
     # сохранение имени/ДР/пола + аватара одним POST
     r = apost(c, "/admin/profile",
@@ -2622,7 +2624,7 @@ with TestClient(main.app, follow_redirects=False) as cown, \
     btok2 = bc["link_token"]
     page = anon.get(f"/c/{btok2}").text
     # подпись автора кликабельна и ведёт на его публичный профиль (для всех)
-    assert f'/u/{bc["owner_id"]}' in page and "Маргарита" in page
+    assert f'/u/{bc["owner_id"]}?skin=friends' in page and "Маргарита" in page
     # анониму показана кнопка «Войти»; вход — модалкой с возвратом на эту ссылку
     # Адрес возврата теперь передаётся непосредственно Telegram/OAuth-входу;
     # пассивный текст правил не требует checkbox или отдельного consent-route.
@@ -2908,6 +2910,8 @@ with TestClient(main.app, follow_redirects=False) as cnata, \
     gc = _csrf(cgosha)
     shared = cgosha.get(f"/d/{pub['share_token']}").text
     assert "Хочу сходить" in shared
+    assert f'/u/{pub["owner_id"]}?skin=friends' in shared, \
+        "имя владельца share-события ведёт в профиль с темой категории"
     want = cgosha.post(f"/d/{pub['share_token']}/want", data={"csrf": gc})
     assert want.status_code == 303
     gosha_id = db_one("SELECT id FROM users WHERE telegram_id=771002")[0]
@@ -2977,7 +2981,7 @@ with TestClient(main.app, follow_redirects=False) as cnata, \
     # C5: публичный профиль Наты перечисляет её публичные события (без приватных)
     prof = cgosha.get(f"/u/{pub['owner_id']}").text
     assert "Пикник на закате" in prof and "Секретный ужин" not in prof
-    assert "Публичные события" in prof
+    assert "События" in prof and "Публичные события" not in prof
     assert "?w=480 480w" in prof and 'fetchpriority="high"' in prof
 
     # Профиль не тянет бесконечную историю одним HTML: 12 карточек на страницу.

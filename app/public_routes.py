@@ -1148,6 +1148,7 @@ def shared_date(token: str, request: Request, conn=Depends(get_db)):
         "token": token,
         "me": me,
         "guest_name": guest_name,
+        "owner": owner,
         "owner_name": owner_name,
         "is_mine": is_mine,
         "wanted_by_me": wanted_by_me,

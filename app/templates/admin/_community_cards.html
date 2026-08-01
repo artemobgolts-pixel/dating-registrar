@@ -26,19 +26,24 @@
     </div>
     {% endif %}
     {% if d['comment'] %}<p class="cfeed-desc">{{ d['comment'] | rich }}</p>{% endif %}
-    <a class="cfeed-owner" href="/u/{{ d['owner_id'] }}" data-stop
-       aria-label="Профиль: {{ d['owner_display'] }}">
-      {% if d['owner_avatar'] %}
-      <img class="cfeed-ava" src="/u/{{ d['owner_id'] }}/avatar?w=64"
-           srcset="/u/{{ d['owner_id'] }}/avatar?w=64 64w,
-                   /u/{{ d['owner_id'] }}/avatar?w=96 96w,
-                   /u/{{ d['owner_id'] }}/avatar?w=128 128w"
-           sizes="26px" alt="" width="26" height="26" loading="lazy" decoding="async">
-      {% else %}
-      <span class="cfeed-ava cfeed-ava-ph" aria-hidden="true">🙂</span>
-      {% endif %}
-      <span class="cfeed-owner-name">{{ d['owner_display'] }}</span>
-    </a>
+    <div class="cfeed-card-actions">
+      <a class="cfeed-owner" href="/u/{{ d['owner_id'] }}" data-stop
+         aria-label="Профиль: {{ d['owner_display'] }}">
+        {% if d['owner_avatar'] %}
+        <img class="cfeed-ava" src="/u/{{ d['owner_id'] }}/avatar?w=64"
+             srcset="/u/{{ d['owner_id'] }}/avatar?w=64 64w,
+                     /u/{{ d['owner_id'] }}/avatar?w=96 96w,
+                     /u/{{ d['owner_id'] }}/avatar?w=128 128w"
+             sizes="26px" alt="" width="26" height="26" loading="lazy" decoding="async">
+        {% else %}
+        <span class="cfeed-ava cfeed-ava-ph" aria-hidden="true">🙂</span>
+        {% endif %}
+        <span class="cfeed-owner-name">{{ d['owner_display'] }}</span>
+      </a>
+      <button type="button" class="cfeed-share" data-stop data-community-share
+              data-share-url="{{ BASE_URL }}/d/{{ d['share_token'] }}"
+              data-share-title="{{ d['name'] }}">Поделиться</button>
+    </div>
   </div>
 </article>
 {% endfor %}

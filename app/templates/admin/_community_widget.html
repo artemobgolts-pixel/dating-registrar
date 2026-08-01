@@ -61,6 +61,9 @@
       </button>
       <button type="button" class="btn ghost cwid-add" data-add="/d/{{ d['share_token'] }}/add">Добавить себе{% if admin_skin == 'romantic' %} ♥{% endif %}</button>
       {% endif %}
+      <button type="button" class="btn ghost cwid-share" data-community-share
+              data-share-url="{{ BASE_URL }}/d/{{ d['share_token'] }}"
+              data-share-title="{{ d['name'] }}">Поделиться</button>
     </div>
   </div>
 </div>

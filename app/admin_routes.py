@@ -18,7 +18,7 @@ from fastapi import (APIRouter, BackgroundTasks, Depends, File, Form,
                      HTTPException, Request, UploadFile)
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from starlette.background import BackgroundTask
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import appearance
 import backup
@@ -154,10 +154,20 @@ def profile_form(request: Request, conn=Depends(get_db)):
         "SELECT id FROM categories WHERE owner_id=? ORDER BY created_at LIMIT 1",
         (request.state.user["id"],),
     ).fetchone()
+    profile_sections = _profile_sections_context(
+        conn, request.state.user["id"], request.state.user["id"],
+        request.query_params,
+    )
     return templates.TemplateResponse(
         request, "admin/profile.html",
         actx(request, conn, active="profile", oauth_providers=providers,
-             first_category_id=first_category["id"] if first_category else None))
+             first_category_id=first_category["id"] if first_category else None,
+             profile_base_url="/admin/profile", public_events_label="Публичные события",
+             profile_skin_suffix="", profile_embedded=True,
+             profile_return_url=(
+                 f"/admin/profile?tab={profile_sections['tab']}"
+                 f"&page={profile_sections['page']}"
+             ), **profile_sections))
 
 
 @router.post("/profile")
@@ -2118,15 +2128,15 @@ user_router = APIRouter(prefix="/u", dependencies=[Depends(current_user)])
 PUBLIC_PROFILE_PAGE = 12
 
 
-@user_router.get("/{user_id}", response_class=HTMLResponse)
-def public_profile(user_id: int, request: Request, conn=Depends(get_db)):
-    u = conn.execute(
-        "SELECT id, display_name, avatar_path, birth_date, gender, tg_username "
-        "FROM users WHERE id=? AND is_active=1", (user_id,)).fetchone()
-    if not u:
-        raise HTTPException(404, "Профиль не найден")
-    is_me = int(u["id"]) == int(request.state.user["id"])
-    tab = request.query_params.get("tab", "events")
+def _profile_sections_context(conn, user_id: int, viewer_id: int, query_params) -> dict:
+    """Данные трёх социальных вкладок профиля.
+
+    Один загрузчик используется и в настройках собственного профиля, и на
+    гостевой странице ``/u/<id>``. Так вкладки не расходятся по приватности и
+    пагинации, хотя оболочка и подпись первой вкладки у них разные.
+    """
+    is_me = int(user_id) == int(viewer_id)
+    tab = query_params.get("tab", "events")
     if tab not in {"events", "want", "reviews"}:
         tab = "events"
 
@@ -2154,7 +2164,7 @@ def public_profile(user_id: int, request: Request, conn=Depends(get_db)):
              "reviews": review_total}[tab]
     pages = max(1, -(-total // PUBLIC_PROFILE_PAGE))
     try:
-        page = max(1, min(int(request.query_params.get("page", "1")), pages))
+        page = max(1, min(int(query_params.get("page", "1")), pages))
     except ValueError:
         page = 1
     offset = (page - 1) * PUBLIC_PROFILE_PAGE
@@ -2199,18 +2209,46 @@ def public_profile(user_id: int, request: Request, conn=Depends(get_db)):
             reviews.append(item)
     edit_review_id = None
     if is_me and tab == "reviews":
-        raw_edit = request.query_params.get("edit", "")
+        raw_edit = query_params.get("edit", "")
         if raw_edit.isdigit() and any(
                 int(item["review_id"]) == int(raw_edit) for item in reviews):
             edit_review_id = int(raw_edit)
+    return {
+        "dates": dates, "want_dates": want_dates, "reviews": reviews,
+        "total": total, "event_total": event_total, "want_total": want_total,
+        "review_total": review_total, "tab": tab, "page": page,
+        "pages": pages, "is_me": is_me, "edit_review_id": edit_review_id,
+    }
+
+
+@user_router.get("/{user_id}", response_class=HTMLResponse)
+def public_profile(user_id: int, request: Request, conn=Depends(get_db)):
+    u = conn.execute(
+        "SELECT id, display_name, avatar_path, birth_date, gender, tg_username "
+        "FROM users WHERE id=? AND is_active=1", (user_id,)).fetchone()
+    if not u:
+        raise HTTPException(404, "Профиль не найден")
+    sections = _profile_sections_context(
+        conn, user_id, request.state.user["id"], request.query_params,
+    )
+    # В обычном переходе профиль наследует оформление посетителя. Ссылки из
+    # категории передают её skin явно, чтобы контекст категории сохранился.
+    requested_skin = request.query_params.get("skin")
+    profile_skin = appearance.normalize_skin(
+        requested_skin, default=appearance.normalize_skin(request.state.user["admin_skin"]),
+    )
+    skin_suffix = f"&skin={profile_skin}" if requested_skin in appearance.VALID_SKINS else ""
+    profile_base_url = f"/u/{user_id}"
+    profile_return_url = (
+        f"{profile_base_url}?tab={sections['tab']}&page={sections['page']}{skin_suffix}"
+    )
     return templates.TemplateResponse(
         request, "public/profile.html",
-        {"request": request, "u": u, "dates": dates, "want_dates": want_dates,
-         "reviews": reviews, "total": total, "event_total": event_total,
-         "want_total": want_total, "review_total": review_total, "tab": tab,
-         "page": page, "pages": pages, "is_me": is_me,
-         "edit_review_id": edit_review_id,
-         "csrf": request.session.get("csrf", "")})
+        {"request": request, "u": u, "csrf": request.session.get("csrf", ""),
+         "profile_skin": profile_skin, "profile_base_url": profile_base_url,
+         "profile_skin_suffix": skin_suffix, "public_events_label": "События",
+         "profile_embedded": False, "profile_return_url": profile_return_url,
+         **sections})
 
 
 def _owned_profile_review(conn, review_id: int, user_id: int):
@@ -2222,9 +2260,22 @@ def _owned_profile_review(conn, review_id: int, user_id: int):
     ).fetchone()
 
 
+def _safe_profile_return(raw: str, user_id: int) -> str:
+    """Разрешает возврат только в две оболочки текущего профиля."""
+    fallback = f"/u/{user_id}?tab=reviews"
+    if not raw:
+        return fallback
+    parsed = urlsplit(raw)
+    if parsed.scheme or parsed.netloc or parsed.path not in {
+            "/admin/profile", f"/u/{user_id}"}:
+        return fallback
+    return raw
+
+
 @user_router.post("/{user_id}/reviews/{review_id}/edit")
 def public_profile_review_edit(user_id: int, review_id: int, request: Request,
                                rating: int = Form(...), text: str = Form(""),
+                               next: str = Form(""),
                                conn=Depends(get_db)):
     if user_id != int(request.state.user["id"]):
         raise HTTPException(404, "Обзор не найден")
@@ -2244,11 +2295,12 @@ def public_profile_review_edit(user_id: int, review_id: int, request: Request,
         social_events.queue_review_received(conn, review_id)
     conn.commit()
     msg = "Обзор обновлён" if publish else "Обзор обновлён и оставлен скрытым"
-    return redir(f"/u/{user_id}?tab=reviews", msg)
+    return redir(_safe_profile_return(next, user_id), msg)
 
 
 @user_router.post("/{user_id}/reviews/{review_id}/hide")
 def public_profile_review_hide(user_id: int, review_id: int, request: Request,
+                               next: str = Form(""),
                                conn=Depends(get_db)):
     if user_id != int(request.state.user["id"]):
         raise HTTPException(404, "Обзор не найден")
@@ -2261,7 +2313,8 @@ def public_profile_review_hide(user_id: int, review_id: int, request: Request,
     )
     social_events.cancel_review_received(conn, review_id, "review_hidden")
     conn.commit()
-    return redir(f"/u/{user_id}?tab=reviews", "Обзор убран из публичного профиля")
+    return redir(_safe_profile_return(next, user_id),
+                 "Обзор убран из публичного профиля")
 
 
 @user_router.get("/{user_id}/avatar")

@@ -1,0 +1,106 @@
+<section class="pub-dates{{ ' profile-public-owner' if profile_embedded else '' }}">
+  <nav class="profile-tabs" aria-label="Разделы профиля">
+    <a href="{{ profile_base_url }}?tab=events{{ profile_skin_suffix }}" class="{{ 'on' if tab == 'events' else '' }}">{{ public_events_label }} <b>{{ event_total }}</b></a>
+    <a href="{{ profile_base_url }}?tab=want{{ profile_skin_suffix }}" class="{{ 'on' if tab == 'want' else '' }}">Хочу сходить <b>{{ want_total }}</b></a>
+    <a href="{{ profile_base_url }}?tab=reviews{{ profile_skin_suffix }}" class="{{ 'on' if tab == 'reviews' else '' }}">Обзоры <b>{{ review_total }}</b></a>
+  </nav>
+  <h2>{% if tab == 'want' %}Хочу сходить{% elif tab == 'reviews' %}Обзоры{% else %}{{ public_events_label }}{% endif %}{% if total %} · {{ total }}{% endif %}</h2>
+
+  {% if tab == 'events' and dates %}
+  <div class="pub-grid">
+    {% for d in dates %}
+    <a class="pub-card" href="/d/{{ d['share_token'] }}">
+      {% if d['images'] %}
+      <div class="ph"><img
+        src="/d/{{ d['share_token'] }}/image/{{ d['images'][0]['filename'] }}?w=480"
+        srcset="/d/{{ d['share_token'] }}/image/{{ d['images'][0]['filename'] }}?w=480 480w,
+                /d/{{ d['share_token'] }}/image/{{ d['images'][0]['filename'] }}?w=960 960w"
+        sizes="(max-width: 520px) calc(100vw - 40px), 340px" alt=""
+        loading="{{ 'eager' if loop.first else 'lazy' }}"
+        fetchpriority="{{ 'high' if loop.first else 'low' }}" decoding="async"
+        {% if d['images'][0]['focus'] %}style="object-position:{{ d['images'][0]['focus'] }}"{% endif %}></div>
+      {% endif %}
+      <div class="cb">
+        <div class="t">{{ d['name'] }}</div>
+        {% set when_str = d['starts_at'] | when(d['ends_at']) %}
+        {% if when_str or d['place'] %}
+        <div class="m">{% if when_str %}🕐 {{ when_str }}{% endif %}{% if when_str and d['place'] %} · {% endif %}{% if d['place'] %}📍 {{ d['place'] | placename }}{% endif %}</div>
+        {% endif %}
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+  {% elif tab == 'want' and want_dates %}
+  <div class="pub-grid">
+    {% for d in want_dates %}
+    <a class="pub-card" href="/d/{{ d['share_token'] }}">
+      {% if d['images'] %}
+      <div class="ph"><img src="/d/{{ d['share_token'] }}/image/{{ d['images'][0]['filename'] }}?w=480"
+        alt="" loading="{{ 'eager' if loop.first else 'lazy' }}" decoding="async"
+        {% if d['images'][0]['focus'] %}style="object-position:{{ d['images'][0]['focus'] }}"{% endif %}></div>
+      {% endif %}
+      <div class="cb">
+        <div class="t">{{ d['name'] }}</div>
+        {% set when_str = d['starts_at'] | when(d['ends_at']) %}
+        {% if when_str or d['place'] %}<div class="m">{% if when_str %}🕐 {{ when_str }}{% endif %}{% if when_str and d['place'] %} · {% endif %}{% if d['place'] %}📍 {{ d['place'] | placename }}{% endif %}</div>{% endif %}
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+  {% elif tab == 'reviews' and reviews %}
+  <div class="pub-grid review-grid">
+    {% for r in reviews %}
+    <article class="review-card" id="review-{{ r['review_id'] }}">
+      <a class="review-cover" href="/d/{{ r['share_token'] }}" aria-label="Открыть «{{ r['name'] }}»">
+        {% if r['images'] %}<img src="/d/{{ r['share_token'] }}/image/{{ r['images'][0]['filename'] }}?w=480" alt="" loading="{{ 'eager' if loop.first else 'lazy' }}" decoding="async"{% if r['images'][0]['focus'] %} style="object-position:{{ r['images'][0]['focus'] }}"{% endif %}>{% endif %}
+      </a>
+      <div class="review-card-body">
+        <a class="review-event" href="/d/{{ r['share_token'] }}">{{ r['name'] }}</a>
+        <div class="review-stars" aria-label="Оценка {{ r['rating'] }} из 5">{% for score in range(1, 6) %}<span class="{{ 'off' if score > r['rating'] else '' }}">★</span>{% endfor %}</div>
+        {% if r['review_text'] %}<p class="review-copy">{{ r['review_text'] }}</p>{% else %}<p class="review-copy empty">Без текста</p>{% endif %}
+        {% if is_me and (not r['review_public'] or not r['date_public'] or r['date_draft']) %}<span class="review-hidden">Скрыт из публичного профиля</span>{% endif %}
+      </div>
+      {% if is_me %}
+      <details class="review-menu">
+        <summary aria-label="Действия с обзором">⋯</summary>
+        <div class="review-menu-pop">
+          <a href="{{ profile_base_url }}?tab=reviews&page={{ page }}{{ profile_skin_suffix }}&edit={{ r['review_id'] }}#review-{{ r['review_id'] }}">Изменить</a>
+          {% if r['review_public'] and r['date_public'] and not r['date_draft'] %}
+          <form method="post" action="/u/{{ u['id'] }}/reviews/{{ r['review_id'] }}/hide">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <input type="hidden" name="next" value="{{ profile_return_url }}">
+            <button type="submit" class="danger">Убрать из профиля</button>
+          </form>
+          {% endif %}
+        </div>
+      </details>
+      {% if edit_review_id == r['review_id'] %}
+      <div class="review-edit">
+        <h3>Изменить обзор</h3>
+        <form method="post" action="/u/{{ u['id'] }}/reviews/{{ r['review_id'] }}/edit">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <input type="hidden" name="next" value="{{ profile_return_url }}">
+          <fieldset class="profile-rating">
+            <legend>Оценка<sup class="required-mark" aria-hidden="true">*</sup></legend>
+            {% for score in range(1, 6) %}<label><input type="radio" name="rating" value="{{ score }}" {{ 'checked' if r['rating'] == score else '' }} required>{{ score }} ★</label>{% endfor %}
+          </fieldset>
+          <textarea name="text" maxlength="4000" placeholder="Текст необязателен">{{ r['review_text'] or '' }}</textarea>
+          <div class="review-edit-actions"><button type="submit" class="btn">Сохранить и опубликовать</button><a class="btn ghost" href="{{ profile_base_url }}?tab=reviews{{ profile_skin_suffix }}#review-{{ r['review_id'] }}">Отмена</a></div>
+        </form>
+      </div>
+      {% endif %}
+      {% endif %}
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="pub-empty">{% if tab == 'want' %}Пока ничего не отмечено. На странице события нажми «Хочу сходить».{% elif tab == 'reviews' %}Пока нет обзоров.{% else %}Пока нет публичных встреч{% if is_me %} — создай событие и включи «показывать в ленте»{% endif %}.{% endif %}</p>
+  {% endif %}
+  {% if total and pages > 1 %}
+  <nav class="pub-pager" aria-label="Страницы раздела">
+    {% if page > 1 %}<a class="btn ghost" href="{{ profile_base_url }}?tab={{ tab }}&page={{ page - 1 }}{{ profile_skin_suffix }}">← Новее</a>{% endif %}
+    <span class="pub-page">{{ page }} / {{ pages }}</span>
+    {% if page < pages %}<a class="btn ghost" href="{{ profile_base_url }}?tab={{ tab }}&page={{ page + 1 }}{{ profile_skin_suffix }}">Ещё →</a>{% endif %}
+  </nav>
+  {% endif %}
+</section>

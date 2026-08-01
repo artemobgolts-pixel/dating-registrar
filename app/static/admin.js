@@ -750,6 +750,81 @@
     var loading = false, done = false, loadedAny = false;
     var io = null;
 
+    // На телефоне отдаём ссылку системному меню, на компьютере сразу копируем.
+    // Проверяем не только ширину: узкое окно ПК всё равно остаётся ПК, а планшет
+    // с coarse-pointer получает привычный нативный share sheet.
+    function canUseSystemShare() {
+      if (typeof navigator.share !== "function") return false;
+      var coarse = window.matchMedia &&
+        window.matchMedia("(hover: none) and (pointer: coarse)").matches;
+      var compactTouch = navigator.maxTouchPoints > 0 && window.innerWidth <= 900;
+      return Boolean(coarse || compactTouch);
+    }
+
+    function legacyCopy(text) {
+      return new Promise(function (resolve, reject) {
+        var field = document.createElement("textarea");
+        field.value = text;
+        field.setAttribute("readonly", "");
+        field.style.position = "fixed";
+        field.style.opacity = "0";
+        document.body.appendChild(field);
+        field.select();
+        try {
+          if (document.execCommand && document.execCommand("copy")) resolve();
+          else reject(new Error("copy unavailable"));
+        } catch (err) {
+          reject(err);
+        } finally {
+          field.remove();
+        }
+      });
+    }
+
+    function copyShareUrl(url) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        return navigator.clipboard.writeText(url).catch(function () {
+          return legacyCopy(url);
+        });
+      }
+      return legacyCopy(url);
+    }
+
+    function copiedFeedback(button) {
+      var old = button.getAttribute("data-share-label") || button.textContent;
+      button.setAttribute("data-share-label", old);
+      button.textContent = "Ссылка скопирована ✓";
+      clearTimeout(button._shareFeedback);
+      button._shareFeedback = setTimeout(function () {
+        button.textContent = old;
+      }, 1700);
+      toast("Ссылка на событие скопирована");
+    }
+
+    function shareCommunityEvent(button) {
+      var url = button.getAttribute("data-share-url");
+      var title = button.getAttribute("data-share-title") || "Событие date4you";
+      if (!url) return;
+      if (canUseSystemShare()) {
+        navigator.share({
+          title: title,
+          text: "Посмотри это событие в date4you",
+          url: url
+        }).catch(function (err) {
+          // Закрытие системного меню — нормальное действие; при технической
+          // ошибке всё равно сохраняем пользователю ссылку в буфер.
+          if (err && err.name === "AbortError") return;
+          copyShareUrl(url)
+            .then(function () { copiedFeedback(button); })
+            .catch(function () { toast("Не удалось поделиться ссылкой"); });
+        });
+        return;
+      }
+      copyShareUrl(url)
+        .then(function () { copiedFeedback(button); })
+        .catch(function () { toast("Не удалось скопировать ссылку"); });
+    }
+
     function currentCursor() {
       var s = feed.querySelector(".cfeed-sentinel");
       return s ? s.getAttribute("data-next-cursor") : null;
@@ -816,12 +891,20 @@
 
     // клик по карточке ленты → открыть виджет (пилюля владельца — обычная ссылка)
     feed.addEventListener("click", function (e) {
+      var share = e.target.closest("[data-community-share]");
+      if (share) {
+        e.preventDefault();
+        e.stopPropagation();
+        shareCommunityEvent(share);
+        return;
+      }
       if (e.target.closest("[data-stop]")) return;      // клик по профилю владельца
       var card = e.target.closest(".cfeed-card");
       if (card) openWidget(card.getAttribute("data-widget"));
     });
     feed.addEventListener("keydown", function (e) {
       if (e.key !== "Enter" && e.key !== " ") return;
+      if (e.target.closest("[data-stop]")) return;
       var card = e.target.closest(".cfeed-card");
       if (card) { e.preventDefault(); openWidget(card.getAttribute("data-widget")); }
     });
@@ -834,6 +917,12 @@
     // Независимые действия внутри виджета (контент подгружается): отметка
     // «Хочу сходить» хранит связь с оригиналом, «Добавить себе» создаёт копию.
     if (cwidBody) cwidBody.addEventListener("click", function (e) {
+      var share = e.target.closest("[data-community-share]");
+      if (share) {
+        e.preventDefault();
+        shareCommunityEvent(share);
+        return;
+      }
       var want = e.target.closest("[data-want]");
       if (want) {
         want.disabled = true;

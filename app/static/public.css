@@ -791,6 +791,7 @@ span.oauth-ico { display: grid; place-items: center; font-weight: 700; font-size
   animation: beat 2.6s ease-in-out infinite;
 }
 .booked .who { font-size: 13px; color: var(--muted); }
+.booked .who a { color: inherit; font-weight: 700; text-underline-offset: 2px; }
 .card.past .av { filter: grayscale(.5); }
 
 /* --- кнопки ---------------------------------------------------------------*/

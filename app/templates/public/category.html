@@ -106,7 +106,7 @@
     {% endif %}
 
     {% if owner %}
-    <a class="author" href="/u/{{ owner['id'] }}">
+    <a class="author" href="/u/{{ owner['id'] }}?skin={{ active_skin }}">
       {% if owner['avatar_path'] %}
       <img class="author-av" src="/c/{{ token }}/owner-avatar?w=64"
            srcset="/c/{{ token }}/owner-avatar?w=64 64w,
@@ -277,7 +277,7 @@
                    or vote_state.status in ('unconfigured', 'open')) %}
         <div class="booked">
           <span class="avs"><span class="av me">{% if active_skin == 'friends' %}{{ icon('check') }}{% else %}♥{% endif %}</span></span>
-          <span class="who">проведено с {{ owner_name }}</span>
+          <span class="who">проведено с <a href="/u/{{ owner['id'] }}?skin={{ active_skin }}">{{ owner_name }}</a></span>
         </div>
         {% elif d.booked_label and vote_state.status in ('unconfigured', 'open') %}
         <div class="booked">
