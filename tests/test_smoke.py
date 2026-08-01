@@ -2981,7 +2981,7 @@ with TestClient(main.app, follow_redirects=False) as cnata, \
     # C5: публичный профиль Наты перечисляет её публичные события (без приватных)
     prof = cgosha.get(f"/u/{pub['owner_id']}").text
     assert "Пикник на закате" in prof and "Секретный ужин" not in prof
-    assert "События" in prof and "Публичные события" not in prof
+    assert "Коллекция событий" in prof and "Публичные события" not in prof
     assert "?w=480 480w" in prof and 'fetchpriority="high"' in prof
 
     # Профиль не тянет бесконечную историю одним HTML: 12 карточек на страницу.

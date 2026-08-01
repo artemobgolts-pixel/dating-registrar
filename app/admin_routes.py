@@ -2246,7 +2246,8 @@ def public_profile(user_id: int, request: Request, conn=Depends(get_db)):
         request, "public/profile.html",
         {"request": request, "u": u, "csrf": request.session.get("csrf", ""),
          "profile_skin": profile_skin, "profile_base_url": profile_base_url,
-         "profile_skin_suffix": skin_suffix, "public_events_label": "События",
+         "profile_skin_suffix": skin_suffix,
+         "public_events_label": "Коллекция событий",
          "profile_embedded": False, "profile_return_url": profile_return_url,
          **sections})
 

@@ -159,7 +159,7 @@ class PublicProfileTabsTests(unittest.TestCase):
 
             foreign_events = other.get(f"/u/{owner_id}?tab=events").text
             self.assertIn('<html lang="ru" data-skin="romantic">', foreign_events)
-            self.assertIn("События <b>1</b>", foreign_events)
+            self.assertIn("Коллекция событий <b>1</b>", foreign_events)
             self.assertNotIn("Публичные события", foreign_events)
 
             category_context = other.get(
