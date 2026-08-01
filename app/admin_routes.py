@@ -357,7 +357,8 @@ def _qr_svg(data: str, skin: str = "friends") -> str:
 # Лента событий-комьюнити (на главной вместо «Последних действий»)
 # ---------------------------------------------------------------------------
 # Показываем чужие публичные активные события: карточка = фото + название +
-# когда/место/комментарий + пилюля владельца (→ его профиль). Категорию и
+# когда/место/комментарий + действия «Добавить в коллекцию»/«Поделиться».
+# Владелец остаётся виден внутри раскрытого виджета. Категорию и
 # модификатор оплаты НЕ показываем (решение владельца). Бесконечный скролл —
 # keyset-пагинацией по d.id DESC (курсор = id последней карточки).
 
@@ -413,21 +414,34 @@ def community_widget(did: int, request: Request, conn=Depends(get_db)):
         (did,)).fetchone()
     if not r:
         raise HTTPException(404, "Событие не найдено")
+
+    return _event_widget_response(request, conn, r)
+
+
+def _event_widget_response(request: Request, conn, row):
+    """Рисует общий встроенный виджет ленты и профилей."""
+    did = int(row["id"])
     media = public_routes._batch_media(conn, [did])
-    d = public_routes.date_payload_from(r, media)
-    d["owner_display"] = (r["owner_name"] or r["owner_username"]
-                          or f"Человек #{r['owner_id']}")
-    is_mine = int(r["owner_id"]) == int(request.state.user["id"])
+    d = public_routes.date_payload_from(row, media)
+    d["owner_display"] = (row["owner_name"] or row["owner_username"]
+                          or f"Человек #{row['owner_id']}")
+    is_mine = int(row["owner_id"]) == int(request.state.user["id"])
     wanted_by_me = False
+    want_action_available = False
     if not is_mine:
-        wanted_by_me = conn.execute(
+        has_want = conn.execute(
             "SELECT 1 FROM date_wants WHERE user_id=? AND date_id=?",
             (request.state.user["id"], did),
         ).fetchone() is not None
+        want_action_available = social_events.want_action_available(
+            conn, did, int(request.state.user["id"]), now=now_naive(),
+        )
+        wanted_by_me = has_want and want_action_available
     return templates.TemplateResponse(
         request, "admin/_community_widget.html",
         {"request": request, "d": d,
          "is_mine": is_mine, "wanted_by_me": wanted_by_me,
+         "want_action_available": want_action_available,
          "admin_skin": appearance.normalize_skin(request.state.user["admin_skin"])})
 
 
@@ -1278,6 +1292,8 @@ VIEW_WHERE = {
     "archived": "d.archived_at IS NOT NULL",
 }
 FLT_WHERE = {
+    "public": "d.is_public=1",
+    "private": "d.is_public=0",
     "guest": "d.origin='guest'",
     "booked": "EXISTS (SELECT 1 FROM bookings b WHERE b.date_id=d.id)",
     "nodate": "d.starts_at IS NULL AND d.ends_at IS NULL",
@@ -2148,11 +2164,25 @@ def _profile_sections_context(conn, user_id: int, viewer_id: int, query_params) 
         "WHERE owner_id=? AND is_public=1 AND is_draft=0 AND archived_at IS NULL",
         (user_id,)).fetchone()[0]
     want_visibility = "" if is_me else " AND w.is_public=1 AND d.is_public=1 AND d.is_draft=0"
-    want_total = conn.execute(
-        "SELECT COUNT(*) FROM date_wants w JOIN dates d ON d.id=w.date_id "
-        "WHERE w.user_id=?" + want_visibility,
+    # После явного дедлайна план исчезает из профиля; уже опубликованный обзор
+    # остаётся только в Reviews. Строку wants сохраняем как право на сам обзор.
+    all_want_rows = conn.execute(
+        "SELECT d.id, d.owner_id, d.name, d.share_token, d.starts_at, d.ends_at, d.place, "
+        "w.updated_at AS marked_at FROM date_wants w "
+        "JOIN dates d ON d.id=w.date_id "
+        "WHERE w.user_id=?" + want_visibility +
+        " ORDER BY w.updated_at DESC",
         (user_id,),
-    ).fetchone()[0]
+    ).fetchall()
+    want_now = now_naive()
+    current_want_ids = social_events.current_want_date_ids(
+        conn, user_id, (row["id"] for row in all_want_rows), now=want_now,
+    )
+    all_want_rows = [
+        row for row in all_want_rows
+        if int(row["id"]) in current_want_ids
+    ]
+    want_total = len(all_want_rows)
     review_visibility = ("" if is_me else
                          " AND r.is_public=1 AND d.is_public=1 AND d.is_draft=0")
     review_total = conn.execute(
@@ -2173,7 +2203,7 @@ def _profile_sections_context(conn, user_id: int, viewer_id: int, query_params) 
     reviews = []
     if tab == "events":
         date_rows = conn.execute(
-            "SELECT id, name, share_token, starts_at, ends_at, place FROM dates "
+            "SELECT id, owner_id, name, share_token, starts_at, ends_at, place FROM dates "
             "WHERE owner_id=? AND is_public=1 AND is_draft=0 AND archived_at IS NULL "
             "ORDER BY id DESC LIMIT ? OFFSET ?",
             (user_id, PUBLIC_PROFILE_PAGE, offset),
@@ -2181,21 +2211,14 @@ def _profile_sections_context(conn, user_id: int, viewer_id: int, query_params) 
         media = public_routes._batch_media(conn, [r["id"] for r in date_rows])
         dates = [public_routes.date_payload_from(r, media) for r in date_rows]
     elif tab == "want":
-        rows = conn.execute(
-            "SELECT d.id, d.name, d.share_token, d.starts_at, d.ends_at, d.place, "
-            "w.updated_at AS marked_at FROM date_wants w "
-            "JOIN dates d ON d.id=w.date_id "
-            "WHERE w.user_id=?" + want_visibility +
-            " ORDER BY w.updated_at DESC LIMIT ? OFFSET ?",
-            (user_id, PUBLIC_PROFILE_PAGE, offset),
-        ).fetchall()
+        rows = all_want_rows[offset:offset + PUBLIC_PROFILE_PAGE]
         media = public_routes._batch_media(conn, [r["id"] for r in rows])
         want_dates = [public_routes.date_payload_from(r, media) for r in rows]
     else:
         rows = conn.execute(
             "SELECT r.id AS review_id, r.rating, r.text AS review_text, "
             "r.is_public AS review_public, r.updated_at AS review_updated_at, "
-            "d.id, d.name, d.share_token, d.starts_at, d.ends_at, d.place, "
+            "d.id, d.owner_id, d.name, d.share_token, d.starts_at, d.ends_at, d.place, "
             "d.is_public AS date_public, d.is_draft AS date_draft "
             "FROM date_reviews r JOIN dates d ON d.id=r.date_id "
             "WHERE r.user_id=?" + review_visibility +
@@ -2250,6 +2273,57 @@ def public_profile(user_id: int, request: Request, conn=Depends(get_db)):
          "public_events_label": "Коллекция событий",
          "profile_embedded": False, "profile_return_url": profile_return_url,
          **sections})
+
+
+@user_router.get("/{user_id}/date/{did}/widget", response_class=HTMLResponse)
+def public_profile_date_widget(user_id: int, did: int, request: Request,
+                               conn=Depends(get_db)):
+    """Встроенная карточка события, которое действительно видно в профиле.
+
+    Отдельный профильный гейт нужен для обзоров старых/архивных встреч и для
+    личных записей владельца: ослаблять публичный ``/admin/community``-виджет
+    означало бы раскрывать любое событие простым перебором id.
+    """
+    if not conn.execute(
+        "SELECT 1 FROM users WHERE id=? AND is_active=1", (user_id,),
+    ).fetchone():
+        raise HTTPException(404, "Профиль не найден")
+    row = conn.execute(
+        "SELECT d.*, u.display_name AS owner_name, u.tg_username AS owner_username, "
+        "u.avatar_path AS owner_avatar "
+        "FROM dates d JOIN users u ON u.id=d.owner_id WHERE d.id=?",
+        (did,),
+    ).fetchone()
+    if not row:
+        raise HTTPException(404, "Событие не найдено")
+
+    viewer_id = int(request.state.user["id"])
+    is_me = int(user_id) == viewer_id
+    date_public = bool(row["is_public"]) and not bool(row["is_draft"])
+    visible = (
+        int(row["owner_id"]) == int(user_id)
+        and date_public
+        and row["archived_at"] is None
+    )
+
+    want = conn.execute(
+        "SELECT is_public FROM date_wants WHERE user_id=? AND date_id=?",
+        (user_id, did),
+    ).fetchone()
+    if want and social_events.want_is_current(
+            conn, did, user_id, now=now_naive()):
+        visible = visible or is_me or (bool(want["is_public"]) and date_public)
+
+    review = conn.execute(
+        "SELECT is_public FROM date_reviews WHERE user_id=? AND date_id=?",
+        (user_id, did),
+    ).fetchone()
+    if review:
+        visible = visible or is_me or (bool(review["is_public"]) and date_public)
+
+    if not visible:
+        raise HTTPException(404, "Событие не найдено")
+    return _event_widget_response(request, conn, row)
 
 
 def _owned_profile_review(conn, review_id: int, user_id: int):

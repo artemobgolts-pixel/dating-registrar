@@ -837,7 +837,11 @@ window.UI = (() => {
      новой активной — одна управляемая анимация, которую видно целиком. */
   function glassTabs(container) {
     if (!container) return;
-    if (container.dataset.glassReady) return;   // не навешиваем повторно (Turbo)
+    // Флаг держим на самом DOM-объекте: Turbo-кэш клонирует data-атрибуты, но
+    // не JS-свойства. Поэтому восстановленный снимок корректно инициализируется
+    // заново, а повторный turbo:load на том же узле остаётся идемпотентным.
+    if (container._d4yGlassReady) return;
+    container._d4yGlassReady = true;
     container.dataset.glassReady = "1";
     const tabs = [...container.querySelectorAll("a")];
     if (!tabs.length) return;
@@ -847,13 +851,33 @@ window.UI = (() => {
     const key = container.dataset.glassKey ||
       (container.classList.contains("glass-nav") ? "nav" : "tabs");
 
+    // И вкладка, и абсолютный индикатор находятся внутри одного scrollport.
+    // offsetLeft уже задаёт нужную координату в его контенте; вычитание
+    // scrollLeft прокручивало бы индикатор второй раз и уводило его влево.
+    const geom = (el) => ({ w: el.offsetWidth, x: el.offsetLeft });
+    const active = () => container.querySelector("a.on") || tabs[0];
+
     let ind = container.querySelector(".tab-ind");
+    const target = geom(active());
+    const previous = _tabInd[key];
+    const moves = previous && (
+      Math.abs(previous.x - target.x) > 1 || Math.abs(previous.w - target.w) > 1
+    );
+    const start = moves ? previous : target;
     if (!ind) {
       ind = document.createElement("span");
       ind.className = "tab-ind";
-      container.appendChild(ind);
     }
-    const geom = (el) => ({ w: el.offsetWidth, x: el.offsetLeft - container.scrollLeft });
+    // Важно задать геометрию ДО вставки нового индикатора. Иначе браузер
+    // успевал показать один кадр width:0 и отдельную fallback-заливку `.on`,
+    // что особенно заметно на счётчиках Активные/Неактивные/Архив.
+    container.classList.add("no-anim");
+    ind.style.width = start.w + "px";
+    ind.style.transform = "translateX(" + start.x + "px)";
+    if (!ind.isConnected) container.appendChild(ind);
+    void ind.offsetWidth;
+    container.classList.remove("no-anim");
+
     const put = (g, animate) => {
       if (!animate) container.classList.add("no-anim");
       ind.style.width = g.w + "px";
@@ -865,22 +889,10 @@ window.UI = (() => {
       }
       _tabInd[key] = g;
     };
-    const active = () => container.querySelector("a.on") || tabs[0];
-
-    function settle() {
-      const g = geom(active());
-      const prev = _tabInd[key];
-      // знаем прошлую позицию и она отличается → мгновенно ставим индикатор туда,
-      // затем анимируем к новой активной (плавный «перетёк» на видимой странице).
-      if (prev && (Math.abs(prev.x - g.x) > 1 || Math.abs(prev.w - g.w) > 1)) {
-        put(prev, false);
-        requestAnimationFrame(() => put(g, true));
-      } else {
-        put(g, false);            // первый заход/та же позиция — без анимации
-      }
-    }
-    // после кадра — раскладка и шрифты применились (иначе offsetLeft/Width кривые)
-    requestAnimationFrame(settle);
+    // Старт уже зафиксирован синхронно; следующий кадр содержит только одно
+    // цельное движение к новой вкладке, без промежуточной вспышки.
+    if (moves) requestAnimationFrame(() => put(target, true));
+    else _tabInd[key] = target;
 
     // репозиционер для общего resize-слушателя: возвращает false, когда контейнер
     // отсоединён от документа (Turbo подменил <body>) — тогда его выкинут из списка.
@@ -893,6 +905,13 @@ window.UI = (() => {
     };
     repos.alive = function () { return container.isConnected; };
     _tabRepos.push(repos);
+    // Если при первом расчёте webfont ещё догружался, после его готовности тихо
+    // уточняем ширину, чтобы следующий переход начинался из точной позиции.
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(function () {
+        if (container.isConnected) repos();
+      });
+    }
     // На клике индикатор и `.on` намеренно не двигаем: Turbo вот-вот уничтожит
     // этот DOM. Серверная страница-назначение начнёт единственную цельную
     // анимацию из сохранённой позиции, без промежуточной белой вспышки текста.

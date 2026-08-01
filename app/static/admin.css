@@ -19,6 +19,10 @@
 }
 
 * { box-sizing: border-box; }
+/* На сенсорных WebKit-клиентах (включая Telegram WebView) интерактивы не
+   должны мигать системной синей заливкой. Клавиатурный :focus-visible ниже
+   остаётся доступным и по-прежнему рисует явный outline. */
+a, button, summary, label, [role="button"] { -webkit-tap-highlight-color: transparent; }
 /* overflow-x: clip — глобальный предохранитель от горизонтального «шатания» на
    телефоне (декоративные слои, флекс-строки, широкие элементы). clip, а не
    hidden: не создаёт scroll-контейнер, не ломает position:sticky у шапки и
@@ -697,13 +701,14 @@ label.chk {
   text-align: center;
 }
 
-.login-card h1 {
+.login-card .login-mark {
   text-align: center;
   margin: 0 0 6px;
   color: var(--accent);
   font-size: 72px;
   line-height: 1;
 }
+.login-mark-standard { display: none; }
 
 /* название сайта под сердцем — рукописным шрифтом, фирменным градиентом розы */
 .login-brand {
@@ -847,7 +852,11 @@ span.oauth-ico { display: grid; place-items: center; font-weight: 700; font-size
 }
 .social-links {
   display: flex; flex-direction: row; align-items: center; gap: 12px;
-  overflow-x: auto; padding: 3px 3px 6px; scrollbar-width: thin;
+  /* Запас внутри scrollport не даёт ему срезать hover-shadow и вынесенные
+     за карточку +/- badges. Компенсирующие margin оставляют ряд на прежнем
+     месте и не уменьшают доступную ширину горизонтального скролла. */
+  overflow-x: auto; padding: 10px 14px 20px;
+  margin: -7px -11px -14px; scrollbar-width: thin;
 }
 .tour-course-actions {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px;
@@ -2476,9 +2485,9 @@ html[data-theme="dark"][data-skin="friends"] .share-qr {
 .avatar-pick .avatar-cam .admin-icon { width: 18px; height: 18px; display: block; }
 .avatar-pick:hover .avatar-cam { transform: scale(1.06); }
 .avatar-delete {
-  position: absolute; z-index: 3; top: 3px; right: 3px;
+  position: absolute; z-index: 3; top: 3px; right: 6.5px;
   width: 25px; height: 25px; padding: 0; margin: 0;
-  border: 0; border-radius: 0; background: transparent; color: #fff;
+  border: 0; border-radius: 0; background: transparent; color: #dc3545;
   cursor: pointer; filter: drop-shadow(0 1px 2px rgba(24,18,21,.72));
   transition: transform .15s ease, color .15s ease;
 }
@@ -2489,7 +2498,7 @@ html[data-theme="dark"][data-skin="friends"] .share-qr {
 }
 .avatar-delete::before { transform: translate(-50%, -50%) rotate(45deg); }
 .avatar-delete::after { transform: translate(-50%, -50%) rotate(-45deg); }
-.avatar-delete:hover { transform: scale(1.12); color: #ffd8df; }
+.avatar-delete:hover { transform: scale(1.12); color: #b42332; }
 
 .profile-public-heading {
   max-width: 940px; margin: 38px 0 0; padding-top: 24px;
@@ -2745,24 +2754,31 @@ html[data-theme="dark"][data-skin="friends"] .share-qr {
 .cfeed-ava-ph { display: grid; place-items: center; background: #f3e6e9; font-size: 15px; }
 .cfeed-owner-name { max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cfeed-card-actions {
-  display: flex; align-items: center; gap: 8px; margin-top: auto;
+  display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  align-items: center; gap: 8px; margin-top: auto;
   min-width: 0;
 }
-.cfeed-card-actions .cfeed-owner { flex: 1 1 auto; min-width: 0; margin-top: 0; }
-.cfeed-card-actions .cfeed-owner-name { min-width: 0; max-width: none; }
-.cfeed-share {
-  flex: none; appearance: none; cursor: pointer;
+.cfeed-add, .cfeed-share {
+  width: 100%; min-width: 0; appearance: none; cursor: pointer;
   border: 1px solid var(--line); border-radius: 999px;
-  background: rgba(255, 255, 255, .55); color: var(--accent);
-  padding: 7px 9px; font-family: inherit; font-size: 11.5px;
+  padding: 7px 6px; font-family: inherit; font-size: 11px;
   font-weight: 600; line-height: 1.2;
   transition: background .18s ease, border-color .18s ease, color .18s ease;
 }
+.cfeed-add {
+  overflow: hidden; color: #fff; background: var(--accent); border-color: var(--accent);
+  text-overflow: ellipsis; white-space: nowrap;
+}
+.cfeed-add:hover { filter: brightness(1.06); }
+.cfeed-add:disabled { cursor: default; opacity: .68; }
+.cfeed-share { background: rgba(255, 255, 255, .55); color: var(--accent); }
 .cfeed-share:hover {
   background: var(--rose-soft);
   border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
 }
-.cfeed-share:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.cfeed-add:focus-visible, .cfeed-share:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
 .cfeed-sentinel { grid-column: 1 / -1; height: 1px; }
 
 /* На телефоне карточка всегда занимает отдельную строку, включая landscape.
@@ -3215,15 +3231,41 @@ html[data-theme="dark"] .bg-smoke span:nth-child(4) {
   background: radial-gradient(46% 46% at 44% 50%, rgba(130,85,65,.3), transparent 66%);
 }
 
-.login-theme {
+.login-appearance {
   position: fixed; z-index: 20; top: 16px; right: 16px;
+  display: flex; align-items: center; gap: 8px;
+}
+.login-theme {
   display: inline-flex; align-items: center; gap: 7px;
   border: 1px solid var(--line); border-radius: 999px; padding: 9px 13px;
   background: rgba(255,255,255,.58); color: var(--ink); cursor: pointer;
   -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
   box-shadow: var(--shadow-soft);
 }
-html[data-theme="dark"] .login-theme { background: rgba(42,33,40,.78); }
+.login-skin-pick {
+  display: inline-flex; align-items: center; gap: 3px; padding: 3px;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: rgba(255,255,255,.58);
+  -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+  box-shadow: var(--shadow-soft);
+}
+.login-skin-choice {
+  display: grid; place-items: center; width: 36px; height: 36px; padding: 0;
+  border: 0; border-radius: 50%; color: var(--muted); background: transparent;
+  cursor: pointer; transition: color .18s, background .18s, transform .15s, box-shadow .18s;
+}
+.login-skin-choice:hover { color: var(--ink); transform: translateY(-1px); }
+.login-skin-choice .admin-icon { width: 21px; height: 21px; stroke-width: 2; }
+.login-skin-choice[data-skin-set="friends"][aria-pressed="true"] {
+  color: #fff; background: linear-gradient(135deg, #5365bc, #354483);
+  box-shadow: 0 4px 11px rgba(58,70,139,.3);
+}
+.login-skin-choice[data-skin-set="romantic"][aria-pressed="true"] {
+  color: #fff; background: linear-gradient(135deg, #c56f82, #995062);
+  box-shadow: 0 4px 11px rgba(153,80,98,.3);
+}
+html[data-theme="dark"] .login-theme,
+html[data-theme="dark"] .login-skin-pick { background: rgba(42,33,40,.78); }
 @media (max-width: 480px) { .login-theme [data-theme-label] { display: none; } }
 
 @media (max-width: 720px) {
@@ -3455,6 +3497,35 @@ html[data-theme="dark"][data-skin="friends"] body {
     radial-gradient(640px 420px at 102% 28%, rgba(35, 130, 126, .18), transparent 68%),
     radial-gradient(620px 400px at 38% 108%, rgba(154, 109, 41, .12), transparent 68%),
     linear-gradient(180deg, #151923, #191f2c 58%, #171b25);
+}
+html[data-skin="friends"] .login-card {
+  background: linear-gradient(150deg, rgba(255,255,252,.68), rgba(241,247,246,.56));
+  border-color: rgba(255,255,255,.72);
+  box-shadow: 0 18px 48px rgba(53,66,103,.14), inset 0 2px 1px rgba(255,255,255,.86);
+}
+html[data-theme="dark"][data-skin="friends"] .login-card {
+  background: linear-gradient(150deg, rgba(35,42,59,.86), rgba(25,32,45,.78));
+  border-color: rgba(255,255,255,.11);
+  box-shadow: 0 24px 64px rgba(0,0,0,.38), inset 0 1px 0 rgba(255,255,255,.07);
+}
+html[data-skin="friends"] .login-mark-romantic { display: none; }
+html[data-skin="friends"] .login-mark-standard {
+  display: inline-grid; place-items: center; width: 72px; height: 72px;
+  color: var(--rose);
+}
+html[data-skin="friends"] .login-mark-standard .admin-icon {
+  width: 64px; height: 64px; stroke-width: 1.65;
+}
+html[data-skin="friends"] .login-brand,
+html[data-skin="friends"] .login-brand .d4 {
+  background: linear-gradient(120deg, #34417f, #5364bb 56%, #238e89);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: #34417f;
+}
+html[data-theme="dark"][data-skin="friends"] .login-brand,
+html[data-theme="dark"][data-skin="friends"] .login-brand .d4 {
+  background: linear-gradient(120deg, #bdc6ff, #92a0ff 56%, #59c9c1);
+  -webkit-background-clip: text; background-clip: text;
 }
 html[data-skin="friends"] .top {
   background: linear-gradient(180deg, rgba(250,250,247,.78), rgba(246,247,244,.61));
@@ -3766,5 +3837,22 @@ html.tg-miniapp .top {
   }
   html.tg-miniapp .wrap {
     padding-bottom: calc(96px + var(--tg-content-safe-area-inset-bottom, 0px));
+  }
+}
+
+/* Внутренний индикатор живёт в горизонтальном scrollport: большой blur
+   неизбежно обрезался его границами. Компактный glow целиком помещается в
+   штатный 4px gutter трека; внешний объём по-прежнему даёт shadow самого
+   стеклянного трека. На нижней навигации доступен 7px gutter. */
+html[data-skin] .tabs .tab-ind {
+  box-shadow:
+    0 1px 2px color-mix(in srgb, var(--accent) 48%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, .3);
+}
+@media (max-width: 720px) {
+  html[data-skin] .top nav.glass-nav .tab-ind {
+    box-shadow:
+      0 2px 3px color-mix(in srgb, var(--accent) 48%, transparent),
+      inset 0 1px 0 rgba(255, 255, 255, .24);
   }
 }

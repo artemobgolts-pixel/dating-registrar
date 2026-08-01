@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ru">
+<html lang="ru" data-skin="romantic" data-skin-switchable>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -17,13 +17,28 @@
 </head>
 <body data-ink-interactive="{{ '1' if request.state.user and request.state.user['cursor_effects'] else '0' }}">
 {% include "public/_bg.html" %}
-<button type="button" class="login-theme" data-theme-toggle aria-label="Включить тёмную тему">
-  <span class="theme-moon-icon" data-theme-icon aria-hidden="true"></span><span data-theme-label>Тёмная тема</span>
-</button>
+<div class="login-appearance" role="group" aria-label="Настройки оформления">
+  <button type="button" class="login-theme" data-theme-toggle aria-label="Включить тёмную тему">
+    <span class="theme-moon-icon" data-theme-icon aria-hidden="true"></span><span data-theme-label>Тёмная тема</span>
+  </button>
+  <div class="login-skin-pick" role="group" aria-label="Тема оформления">
+    <button type="button" class="login-skin-choice" data-skin-set="friends"
+            aria-label="Стандартная тема" title="Стандартная тема">
+      {% with icon='gather' %}{% include "admin/_icon.html" %}{% endwith %}
+    </button>
+    <button type="button" class="login-skin-choice" data-skin-set="romantic"
+            aria-label="Романтическая тема" title="Романтическая тема">
+      {% with icon='heart' %}{% include "admin/_icon.html" %}{% endwith %}
+    </button>
+  </div>
+</div>
 <div class="login-page">
   <div class="login-center">
   <div class="login-card">
-    <h1>♥</h1>
+    <h1 class="login-mark" aria-hidden="true">
+      <span class="login-mark-romantic">♥</span>
+      <span class="login-mark-standard">{% with icon='gather' %}{% include "admin/_icon.html" %}{% endwith %}</span>
+    </h1>
     <div class="login-brand">date<span class="d4">4</span>you</div>
     <p class="login-lead">Войди, чтобы создавать события и организовывать встречи.</p>
     {% if bot and VPN_URL %}

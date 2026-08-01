@@ -420,7 +420,9 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert "Собираемся вместе" in r.text
     category_editor = c.get(f"/admin/categories/{cid}").text
     assert 'name="category_skin"' in category_editor
-    assert "Дружеский" in category_editor and "Романтический" in category_editor
+    assert "Стандартный" in category_editor and "Романтический" in category_editor
+    assert "Для друзей, семьи и общих планов" not in category_editor
+    assert "Тёплое авторское оформление для двоих" not in category_editor
 
     # Авторский романтический дизайн остаётся доступен и возвращается тем же
     # переключателем; затем продолжаем smoke на новом дружеском оформлении.
@@ -2521,6 +2523,11 @@ with TestClient(main.app, follow_redirects=False) as cl:
     # на странице входа — пассивный текст со ссылками, без обязательного действия
     lp = cl.get("/login").text
     assert "Продолжая вход" in lp and "tg-consent" not in lp
+    assert 'data-skin-switchable' in lp
+    assert 'data-skin-set="friends"' in lp and 'data-skin-set="romantic"' in lp
+    assert "Стандартная тема" in lp and "Романтическая тема" in lp
+    assert "login-mark-standard" in lp and "admin-icon-gather" in lp
+    assert 'transform="translate(1.65 1.8) scale(.85)"' in lp
     assert 'href="/terms"' in lp and 'href="/privacy"' in lp
     # способы входа активны сразу; Telegram — официальный Login Widget,
     # который auth.js подставляет лениво (в dialog — только после открытия).
@@ -2886,7 +2893,9 @@ with TestClient(main.app, follow_redirects=False) as cnata, \
     assert "Пикник на закате" in feed, "публичное чужое событие в ленте"
     assert "Секретный ужин" not in feed, "приватное в ленту не попадает"
     assert "Ната-кат" not in feed, "категория в ленте не показывается"
-    assert f'/u/{pub["owner_id"]}' in feed, "на карточке есть ссылка на профиль владельца"
+    assert "Добавить в коллекцию" in feed, "главное действие карточки копирует событие"
+    assert f'data-add="/d/{pub["share_token"]}/add"' in feed
+    assert 'class="cfeed-owner"' not in feed, "имя владельца заменено действием коллекции"
     assert "?w=480 480w" in feed and 'fetchpriority="low"' in feed
     # автор не видит своё событие в собственной ленте
     assert "Пикник на закате" not in cnata.get("/admin/community").text
@@ -2965,6 +2974,8 @@ with TestClient(main.app, follow_redirects=False) as cnata, \
     )
     own_reviews = cgosha.get(f"/u/{gosha_id}?tab=reviews").text
     assert "Очень тёплая встреча" in own_reviews and "Убрать из профиля" in own_reviews
+    assert "Пикник на закате" not in cgosha.get(f"/u/{gosha_id}?tab=want").text, \
+        "после обзора встреча не дублируется в «Хочу сходить»"
 
     hidden = cgosha.post(
         f"/u/{gosha_id}/reviews/{review['id']}/hide", data={"csrf": gc},
@@ -2998,6 +3009,8 @@ with TestClient(main.app, follow_redirects=False) as cnata, \
     assert prof_first.count('class="pub-card"') == 12
     assert prof_second.count('class="pub-card"') == 1
     assert "1 / 2" in prof_first and "2 / 2" in prof_second
+    assert "Ещё →" not in prof_first and 'aria-label="Следующая страница"' in prof_first
+    assert "#profileCollection" in prof_first, "пагинация возвращает к коллекции"
     q.executemany("DELETE FROM dates WHERE id=?", [(x,) for x in extra_ids])
     q.commit()
     q.close()
@@ -3215,7 +3228,10 @@ with TestClient(main.app, follow_redirects=False) as cui2:
     profile = cui2.get("/admin/profile").text
     assert "theme-pick" not in profile
     assert 'name="admin_skin"' in profile
-    assert "Дружеский" in profile and "Романтический" in profile
+    assert "Стандартный" in profile and "Романтический" in profile
+    assert "Меняет твой кабинет" not in profile
+    assert "Индиго, бирюза и янтарные детали" not in profile
+    assert "Авторская розово-персиковая тема" not in profile
     assert "cursor-effects-toggle" in profile and 'name="cursor_effects"' in profile
     assert "Работает только на компьютере. По умолчанию выключено" not in profile
     assert "<b>Помощь</b>" in profile and "https://t.me/artiwayn" in profile
@@ -3325,6 +3341,10 @@ with TestClient(main.app, follow_redirects=False) as ctour:
     assert "::view-transition-new(root)" in theme_source
     assert "prefers-reduced-motion: reduce" in theme_source
     assert "getBoundingClientRect" in theme_source
+    assert "animateSkin" in theme_source and "animateAppearance" in theme_source
+    assert 'SKIN_COOKIE = "d4y_skin"' in theme_source
+    assert 'root.dataset.theme = theme' in theme_source
+    assert 'root.dataset.skin = skin' in theme_source
     # Отдельных обучений списков больше нет; редактор события содержит только
     # карточку, модификаторы и публикацию.
     assert '"dates-list": [' not in tour_source

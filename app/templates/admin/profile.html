@@ -3,6 +3,7 @@
 {% block head %}
 <meta name="turbo-cache-control" content="no-cache">
 <link rel="stylesheet" href="{{ asset('profile.css') }}" data-turbo-track="reload">
+<script src="{{ asset('profile.js') }}" data-turbo-track="reload" defer></script>
 {% endblock %}
 {% block content %}
 <div class="bar">
@@ -60,12 +61,8 @@
     </div>
 
     {% set profile_skin = user['admin_skin'] or 'friends' %}
-    <fieldset class="skin-setting profile-skin-setting" aria-describedby="profileSkinHint">
+    <fieldset class="skin-setting profile-skin-setting">
       <legend>Оформление кабинета</legend>
-      <p class="muted skin-setting-hint" id="profileSkinHint">
-        Меняет твой кабинет. Другой пользователь увидит профиль в своей теме,
-        а при переходе из категории сохранится тема категории.
-      </p>
       <div class="skin-pick">
         <label class="skin-option">
           <input type="radio" name="admin_skin" value="friends"
@@ -75,8 +72,7 @@
             <span class="skin-option-lines"><i></i><i></i><i></i></span>
           </span>
           <span class="skin-option-copy">
-            <strong>Дружеский</strong>
-            <small>Индиго, бирюза и янтарные детали</small>
+            <strong>Стандартный</strong>
           </span>
           <span class="skin-option-check" aria-hidden="true">{% with icon='check' %}{% include "admin/_icon.html" %}{% endwith %}</span>
         </label>
@@ -89,7 +85,6 @@
           </span>
           <span class="skin-option-copy">
             <strong>Романтический</strong>
-            <small>Авторская розово-персиковая тема</small>
           </span>
           <span class="skin-option-check" aria-hidden="true">{% with icon='check' %}{% include "admin/_icon.html" %}{% endwith %}</span>
         </label>
@@ -188,7 +183,7 @@
 </div>
 
 <div class="profile-public-heading">
-  <h2>Публичная часть профиля</h2>
+  <h2>Коллекция событий</h2>
   <p>Так твои события, планы и обзоры собраны в профиле.</p>
 </div>
 {% set u = user %}

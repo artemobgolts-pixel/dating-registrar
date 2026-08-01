@@ -27,6 +27,8 @@
     </select>
     <select name="f" data-autosubmit>
       <option value="">Все события</option>
+      <option value="public" {{ 'selected' if flt == 'public' }}>Публичные</option>
+      <option value="private" {{ 'selected' if flt == 'private' }}>Непубличные</option>
       <option value="guest" {{ 'selected' if flt == 'guest' }}>Только предложенные</option>
       <option value="booked" {{ 'selected' if flt == 'booked' }}>С голосами</option>
       <option value="nodate" {{ 'selected' if flt == 'nodate' }}>Без даты</option>

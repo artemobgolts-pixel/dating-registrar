@@ -313,6 +313,11 @@ class CopyActionTests(unittest.TestCase):
             self.assertIn('data-community-share', feed.text)
             self.assertIn('data-share-url="https://copy.test/d/date-880301"', feed.text)
             self.assertIn('class="cfeed-card-actions"', feed.text)
+            self.assertIn("Добавить в коллекцию", feed.text)
+            self.assertIn(
+                f'data-add="/d/date-880301/add"', feed.text,
+            )
+            self.assertNotIn('class="cfeed-owner"', feed.text)
 
             widget = viewer.get(f"/admin/community/date/{source_date}")
             self.assertEqual(widget.status_code, 200)
@@ -329,16 +334,100 @@ class CopyActionTests(unittest.TestCase):
         self.assertIn('navigator.share({', admin_js)
         self.assertIn('navigator.clipboard.writeText(url)', admin_js)
         self.assertIn('Ссылка на событие скопирована', admin_js)
+        self.assertIn('[data-community-add]', admin_js)
 
         ui_js = (APP / "static/ui.js").read_text(encoding="utf-8")
         self.assertIn("container.dataset.glassKey", ui_js)
+        self.assertIn("if (container._d4yGlassReady) return", ui_js)
+        self.assertIn("x: el.offsetLeft", ui_js)
+        self.assertNotIn("el.offsetLeft - container.scrollLeft", ui_js)
+        self.assertLess(
+            ui_js.index('ind.style.width = start.w + "px"'),
+            ui_js.index("container.appendChild(ind)"),
+        )
 
         css = (APP / "static/admin.css").read_text(encoding="utf-8")
         self.assertIn(".dates-status-tabs a {", css)
         self.assertIn("font-size: 15.5px;", css)
         self.assertIn("background: var(--accent);", css)
+        self.assertIn(
+            "grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);", css,
+        )
         self.assertIn("@media (prefers-reduced-motion: reduce)", css)
         self.assertIn("cubic-bezier(.2, .75, .3, 1)", css)
+
+    def test_dates_visibility_filter_executes_and_survives_status_navigation(self):
+        with TestClient(main.app, follow_redirects=False) as client:
+            login(client, 880401)
+            conn = db.connect()
+            owner_id = int(conn.execute(
+                "SELECT id FROM users WHERE telegram_id=880401",
+            ).fetchone()[0])
+            conn.executemany(
+                "INSERT INTO dates("
+                "owner_id,name,is_public,is_draft,archived_at,created_at"
+                ") VALUES(?,?,?,?,?,?)",
+                [
+                    (owner_id, "Фильтр: публичное активное", 1, 0, None, NOW),
+                    (owner_id, "Фильтр: непубличное активное", 0, 0, None, NOW),
+                    (owner_id, "Фильтр: публичный черновик", 1, 1, None, NOW),
+                    (owner_id, "Фильтр: непубличный черновик", 0, 1, None, NOW),
+                    (owner_id, "Фильтр: публичный архив", 1, 0, NOW, NOW),
+                    (owner_id, "Фильтр: непубличный архив", 0, 0, NOW, NOW),
+                ],
+            )
+            conn.commit()
+            conn.close()
+
+            public_active = client.get("/admin/dates?view=active&f=public")
+            self.assertEqual(public_active.status_code, 200)
+            self.assertIn("Фильтр: публичное активное", public_active.text)
+            self.assertNotIn("Фильтр: непубличное активное", public_active.text)
+            self.assertNotIn("Фильтр: публичный черновик", public_active.text)
+            self.assertRegex(
+                public_active.text,
+                r'<option value="public"\s+selected>Публичные</option>',
+            )
+            self.assertIn(
+                'href="/admin/dates?view=drafts&amp;f=public"',
+                public_active.text,
+            )
+            self.assertIn(
+                'href="/admin/dates?view=archived&amp;f=public"',
+                public_active.text,
+            )
+            self.assertIn(
+                '<input type="hidden" name="view" value="active">',
+                public_active.text,
+            )
+
+            private_active = client.get("/admin/dates?view=active&f=private")
+            self.assertIn("Фильтр: непубличное активное", private_active.text)
+            self.assertNotIn("Фильтр: публичное активное", private_active.text)
+            self.assertRegex(
+                private_active.text,
+                r'<option value="private"\s+selected>Непубличные</option>',
+            )
+            self.assertIn(
+                'href="/admin/dates?view=drafts&amp;f=private"',
+                private_active.text,
+            )
+
+            public_drafts = client.get("/admin/dates?view=drafts&f=public")
+            self.assertIn("Фильтр: публичный черновик", public_drafts.text)
+            self.assertNotIn("Фильтр: непубличный черновик", public_drafts.text)
+            self.assertIn(
+                'href="/admin/dates?view=active&amp;f=public"',
+                public_drafts.text,
+            )
+
+            private_archive = client.get("/admin/dates?view=archived&f=private")
+            self.assertIn("Фильтр: непубличный архив", private_archive.text)
+            self.assertNotIn("Фильтр: публичный архив", private_archive.text)
+            self.assertIn(
+                'href="/admin/dates?view=active&amp;f=private"',
+                private_archive.text,
+            )
 
 
 if __name__ == "__main__":

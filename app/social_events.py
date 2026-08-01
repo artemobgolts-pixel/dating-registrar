@@ -30,6 +30,44 @@ def _moment(value: str | None) -> datetime | None:
         return None
 
 
+def _review_due_from_values(starts_at: str | None, ends_at: str | None,
+                            created_at: str | None,
+                            deadline_values) -> datetime | None:
+    deadlines = [parsed for parsed in map(_moment, deadline_values) if parsed is not None]
+    latest_deadline = max(deadlines) if deadlines else None
+    event_end = _moment(ends_at)
+    if event_end is None:
+        start = _moment(starts_at)
+        event_end = start + DEFAULT_EVENT_DURATION if start else None
+    if event_end is None:
+        # Категории после v28 всегда имеют дедлайн. Последний fallback нужен
+        # для старой /d-ссылки события вообще без категории: новый пользователь
+        # всё равно не должен навсегда остаться без формы обзора.
+        base = latest_deadline or _moment(created_at)
+        return base + UNDATED_DEADLINE_GRACE if base else None
+    return max(event_end, latest_deadline) if latest_deadline else event_end
+
+
+def _want_expires_from_values(starts_at: str | None, ends_at: str | None,
+                              deadline_values) -> datetime | None:
+    """Явный срок показа плана в «Хочу сходить».
+
+    Если событие участвует в голосовании, пользовательский дедлайн является
+    источником правды: после самого позднего из связанных дедлайнов план больше
+    не показывается, даже когда сама встреча назначена на будущее. Для события
+    без категории используем его окончание (либо старт + обычные три часа), а
+    полностью недатированный план без дедлайна оставляем без автоистечения.
+    """
+    deadlines = [parsed for parsed in map(_moment, deadline_values) if parsed is not None]
+    if deadlines:
+        return max(deadlines)
+    event_end = _moment(ends_at)
+    if event_end is not None:
+        return event_end
+    start = _moment(starts_at)
+    return start + DEFAULT_EVENT_DURATION if start else None
+
+
 def review_due(conn: sqlite3.Connection, date_id: int) -> datetime | None:
     """Момент, после которого уместно спрашивать «Удалось сходить?».
 
@@ -44,29 +82,17 @@ def review_due(conn: sqlite3.Connection, date_id: int) -> datetime | None:
     ).fetchone()
     if not date:
         return None
-    deadlines = [
-        parsed for parsed in (
-            _moment(row["voting_deadline"])
-            for row in conn.execute(
-                "SELECT c.voting_deadline FROM categories c "
-                "JOIN date_categories dc ON dc.category_id=c.id "
-                "WHERE dc.date_id=? AND c.voting_deadline IS NOT NULL",
-                (date_id,),
-            )
-        ) if parsed is not None
+    deadline_values = [
+        row["voting_deadline"] for row in conn.execute(
+            "SELECT c.voting_deadline FROM categories c "
+            "JOIN date_categories dc ON dc.category_id=c.id "
+            "WHERE dc.date_id=? AND c.voting_deadline IS NOT NULL",
+            (date_id,),
+        )
     ]
-    latest_deadline = max(deadlines) if deadlines else None
-    event_end = _moment(date["ends_at"])
-    if event_end is None:
-        start = _moment(date["starts_at"])
-        event_end = start + DEFAULT_EVENT_DURATION if start else None
-    if event_end is None:
-        # Категории после v28 всегда имеют дедлайн. Последний fallback нужен
-        # для старой /d-ссылки события вообще без категории: новый пользователь
-        # всё равно не должен навсегда остаться без формы обзора.
-        base = latest_deadline or _moment(date["created_at"])
-        return base + UNDATED_DEADLINE_GRACE if base else None
-    return max(event_end, latest_deadline) if latest_deadline else event_end
+    return _review_due_from_values(
+        date["starts_at"], date["ends_at"], date["created_at"], deadline_values,
+    )
 
 
 def prompt_key(date_id: int, user_id: int) -> str:
@@ -162,6 +188,105 @@ def review_available(conn: sqlite3.Connection, date_id: int, user_id: int,
         return False
     due = review_due(conn, date_id)
     return due is not None and (now or now_naive()) >= due
+
+
+def current_want_date_ids(conn: sqlite3.Connection, user_id: int, date_ids,
+                          *, now: datetime | None = None) -> set[int]:
+    """Пакетно фильтрует планы профиля без N+1 запросов.
+
+    Возвращает только события без уже созданного обзора и до явного дедлайна
+    (либо до окончания отдельного события, у которого категории нет).
+    Данные событий, дедлайны категорий и существующие обзоры загружаются двумя
+    запросами на пачку, а сама временная семантика общая с :func:`review_due`.
+    """
+    ids = list(dict.fromkeys(int(date_id) for date_id in date_ids))
+    if not ids:
+        return set()
+    current = now or now_naive()
+    visible: set[int] = set()
+    batch_size = 400  # с запасом ниже стандартного SQLite limit переменных
+    for start in range(0, len(ids), batch_size):
+        batch = ids[start:start + batch_size]
+        placeholders = ",".join("?" for _ in batch)
+        want_states = conn.execute(
+            f"SELECT w.date_id, r.id AS review_id FROM date_wants w "
+            f"LEFT JOIN date_reviews r ON r.user_id=w.user_id AND r.date_id=w.date_id "
+            f"WHERE w.user_id=? AND w.date_id IN ({placeholders})",
+            (user_id, *batch),
+        ).fetchall()
+        wanted = {int(row["date_id"]) for row in want_states}
+        reviewed = {
+            int(row["date_id"]) for row in want_states if row["review_id"] is not None
+        }
+        grouped: dict[int, dict] = {}
+        for row in conn.execute(
+            f"SELECT d.id, d.starts_at, d.ends_at, "
+            f"c.voting_deadline FROM dates d "
+            f"LEFT JOIN date_categories dc ON dc.date_id=d.id "
+            f"LEFT JOIN categories c ON c.id=dc.category_id "
+            f"WHERE d.id IN ({placeholders})",
+            tuple(batch),
+        ):
+            date_id = int(row["id"])
+            item = grouped.setdefault(date_id, {
+                "starts_at": row["starts_at"],
+                "ends_at": row["ends_at"],
+                "deadlines": [],
+            })
+            if row["voting_deadline"]:
+                item["deadlines"].append(row["voting_deadline"])
+        for date_id, item in grouped.items():
+            if date_id not in wanted or date_id in reviewed:
+                continue
+            expires = _want_expires_from_values(
+                item["starts_at"], item["ends_at"], item["deadlines"],
+            )
+            if expires is None or current < expires:
+                visible.add(date_id)
+    return visible
+
+
+def want_action_available(conn: sqlite3.Connection, date_id: int, user_id: int,
+                          *, now: datetime | None = None) -> bool:
+    """Можно ли сейчас добавить событие в «Хочу сходить».
+
+    Уже опубликованный обзор и наступивший дедлайн закрывают действие. Строку
+    ``date_wants`` при этом не удаляем физически: она остаётся доказательством
+    права показать форму обзора после самой встречи.
+    """
+    if conn.execute(
+        "SELECT 1 FROM date_reviews WHERE user_id=? AND date_id=?",
+        (user_id, date_id),
+    ).fetchone():
+        return False
+    rows = conn.execute(
+        "SELECT d.starts_at, d.ends_at, c.voting_deadline FROM dates d "
+        "LEFT JOIN date_categories dc ON dc.date_id=d.id "
+        "LEFT JOIN categories c ON c.id=dc.category_id "
+        "WHERE d.id=?",
+        (date_id,),
+    ).fetchall()
+    if not rows:
+        return False
+    expires = _want_expires_from_values(
+        rows[0]["starts_at"], rows[0]["ends_at"],
+        (row["voting_deadline"] for row in rows if row["voting_deadline"]),
+    )
+    return expires is None or (now or now_naive()) < expires
+
+
+def want_is_current(conn: sqlite3.Connection, date_id: int, user_id: int,
+                    *, now: datetime | None = None) -> bool:
+    """Можно ли ещё показывать событие во вкладке «Хочу сходить».
+
+    После явного ``voting_deadline`` план исчезает из профиля; после появления
+    обзора живёт только во вкладке «Обзоры». Сама строка ``date_wants``
+    сохраняется: она подтверждает право оставить обзор по прямой ссылке и не
+    ломает уже поставленный prompt.
+    """
+    return int(date_id) in current_want_date_ids(
+        conn, user_id, [date_id], now=now,
+    )
 
 
 def queue_review_received(conn: sqlite3.Connection, review_id: int) -> int | None:

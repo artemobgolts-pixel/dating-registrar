@@ -83,8 +83,16 @@
   // Оформление кабинета хранится в профиле. Turbo заменяет <body>, но не
   // атрибуты <html>, поэтому на каждом переходе синхронизируем оба узла.
   // В профиле тема применяется сразу, не дожидаясь фонового автосохранения.
-  function applyAdminSkin(skin) {
+  function applyAdminSkin(skin, source, event) {
     if (skin !== "romantic") skin = "friends";
+    if (window.d4yAppearance) {
+      if (source && typeof window.d4yAppearance.animateSkin === "function") {
+        window.d4yAppearance.animateSkin(skin, source, event);
+      } else if (typeof window.d4yAppearance.applySkin === "function") {
+        window.d4yAppearance.applySkin(skin);
+      }
+      return;
+    }
     var changed = document.documentElement.dataset.skin !== skin;
     document.documentElement.dataset.skin = skin;
     document.body.dataset.skin = skin;
@@ -105,7 +113,11 @@
         profileGroup.dataset.skinReady = "1";
         profileGroup.addEventListener("change", function (event) {
           if (event.target.matches('[name="admin_skin"]')) {
-            applyAdminSkin(event.target.value);
+            applyAdminSkin(
+              event.target.value,
+              event.target.closest(".skin-option") || event.target,
+              event
+            );
           }
         });
       }
@@ -668,16 +680,29 @@
       var fd = new FormData(form);
       fd.delete("avatar");
       try {
-        var r = await fetch("/admin/profile", { method: "POST", body: fd, headers: { "X-Requested-With": "fetch" } });
+        var r = await fetch("/admin/profile", {
+          method: "POST", body: fd, keepalive: true,
+          headers: { "X-Requested-With": "fetch" }
+        });
         flash(r.ok ? "Сохранено ✓" : "Не удалось сохранить", r.ok);
       } catch (_) {
         flash("Нет связи — не сохранено", false);
       }
     }
+    function runSave() {
+      var pending = save();
+      // profile.js дождётся именно этого запроса перед переходом в редактор:
+      // иначе быстрый клик после смены skin мог получить старую тему с сервера.
+      window.d4yProfileSave = pending;
+      pending.finally(function () {
+        if (window.d4yProfileSave === pending) window.d4yProfileSave = null;
+      });
+      return pending;
+    }
     function schedule() {
       flash("Изменения сохраняются автоматически");
       clearTimeout(timer);
-      timer = setTimeout(save, 700);
+      timer = setTimeout(runSave, 700);
     }
     form.addEventListener("input", schedule);
     form.addEventListener("change", schedule);
@@ -687,7 +712,7 @@
     form.addEventListener("change", function (event) {
       if (!event.target.matches('[name="admin_skin"]')) return;
       clearTimeout(timer);
-      save();
+      runSave();
     });
     var effectsControl = form.querySelector('[name="cursor_effects"]');
     if (effectsControl) {
@@ -825,6 +850,36 @@
         .catch(function () { toast("Не удалось скопировать ссылку"); });
     }
 
+    function addCommunityEvent(button, closeAfter) {
+      if (!button || button.disabled) return;
+      button.disabled = true;
+      var old = button.textContent;
+      button.textContent = "Добавляю…";
+      fetch(button.getAttribute("data-add"), {
+        method: "POST", credentials: "same-origin",
+        headers: { "X-Requested-With": "fetch" }
+      })
+        .then(function (r) {
+          return r.json().then(function (j) { return { ok: r.ok, j: j }; });
+        })
+        .then(function (res) {
+          if (!res.ok || !res.j || !res.j.ok) {
+            button.disabled = false;
+            button.textContent = old;
+            toast((res.j && res.j.detail) || "Не удалось добавить");
+            return;
+          }
+          button.textContent = "Добавлено ✓";
+          toast("Событие добавлено в твою коллекцию");
+          if (closeAfter) setTimeout(closeWidget, 900);
+        })
+        .catch(function () {
+          button.disabled = false;
+          button.textContent = old;
+          toast("Нет связи");
+        });
+    }
+
     function currentCursor() {
       var s = feed.querySelector(".cfeed-sentinel");
       return s ? s.getAttribute("data-next-cursor") : null;
@@ -889,8 +944,15 @@
       if (cwidBody) cwidBody.innerHTML = "";
     }
 
-    // клик по карточке ленты → открыть виджет (пилюля владельца — обычная ссылка)
+    // Клик по карточке открывает виджет; обе кнопки действий остаются на месте.
     feed.addEventListener("click", function (e) {
+      var add = e.target.closest("[data-community-add]");
+      if (add) {
+        e.preventDefault();
+        e.stopPropagation();
+        addCommunityEvent(add, false);
+        return;
+      }
       var share = e.target.closest("[data-community-share]");
       if (share) {
         e.preventDefault();
@@ -898,7 +960,7 @@
         shareCommunityEvent(share);
         return;
       }
-      if (e.target.closest("[data-stop]")) return;      // клик по профилю владельца
+      if (e.target.closest("[data-stop]")) return;
       var card = e.target.closest(".cfeed-card");
       if (card) openWidget(card.getAttribute("data-widget"));
     });
@@ -959,26 +1021,7 @@
       }
       var btn = e.target.closest("[data-add]");
       if (!btn) return;
-      btn.disabled = true;
-      var old = btn.textContent;
-      btn.textContent = "Добавляю…";
-      fetch(btn.getAttribute("data-add"),
-            { method: "POST", credentials: "same-origin", headers: { "X-Requested-With": "fetch" } })
-        .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
-        .then(function (res) {
-          if (res.ok && res.j && res.j.ok) {
-            var friends = document.documentElement.dataset.skin === "friends";
-            btn.textContent = friends ? "Добавлено ✓" : "Добавлено ♥";
-            toast(friends
-              ? "Событие добавлено в твою коллекцию"
-              : "Событие добавлено в твою коллекцию ♥");
-            setTimeout(closeWidget, 900);
-          } else {
-            btn.disabled = false; btn.textContent = old;
-            toast((res.j && res.j.detail) || "Не удалось добавить");
-          }
-        })
-        .catch(function () { btn.disabled = false; btn.textContent = old; toast("Нет связи"); });
+      addCommunityEvent(btn, true);
     });
 
     // простой тост (на главной нет гостевого toast'а — рисуем свой)

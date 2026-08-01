@@ -8,6 +8,7 @@
   "use strict";
 
   var COOKIE = "d4y_theme";
+  var SKIN_COOKIE = "d4y_skin";
   var MAX_AGE = 60 * 60 * 24 * 365;
   var root = document.documentElement;
   var transitionBusy = false;
@@ -15,6 +16,14 @@
   function savedTheme() {
     var match = document.cookie.match(new RegExp("(?:^|;\\s*)" + COOKIE + "=(light|dark)(?:;|$)"));
     return match ? match[1] : "light";
+  }
+
+  function savedSkin() {
+    var match = document.cookie.match(new RegExp(
+      "(?:^|;\\s*)" + SKIN_COOKIE + "=(friends|romantic)(?:;|$)"
+    ));
+    if (match) return match[1];
+    return root.dataset.skin === "friends" ? "friends" : "romantic";
   }
 
   function updateChrome(theme) {
@@ -63,6 +72,14 @@
     });
   }
 
+  function updateSkinButtons(skin) {
+    document.querySelectorAll("[data-skin-set]").forEach(function (button) {
+      var active = button.getAttribute("data-skin-set") === skin;
+      button.setAttribute("aria-pressed", active ? "true" : "false");
+      button.classList.toggle("on", active);
+    });
+  }
+
   function applyTheme(theme, persist) {
     theme = theme === "dark" ? "dark" : "light";
     root.dataset.theme = theme;
@@ -73,6 +90,24 @@
     updateChrome(theme);
     updateButtons(theme);
     document.dispatchEvent(new CustomEvent("d4y:themechange", { detail: { theme: theme } }));
+  }
+
+  function applySkin(skin, persist) {
+    skin = skin === "romantic" ? "romantic" : "friends";
+    var changed = root.dataset.skin !== skin;
+    root.dataset.skin = skin;
+    if (document.body) document.body.dataset.skin = skin;
+    if (persist) {
+      document.cookie = SKIN_COOKIE + "=" + skin
+        + "; Path=/; Max-Age=" + MAX_AGE + "; SameSite=Lax";
+    }
+    updateChrome(root.dataset.theme || "light");
+    updateSkinButtons(skin);
+    if (changed) {
+      document.dispatchEvent(new CustomEvent("d4y:skinchange", {
+        detail: { skin: skin }
+      }));
+    }
   }
 
   function transitionOrigin(source, event) {
@@ -90,20 +125,16 @@
     };
   }
 
-  function canAnimateTheme() {
+  function canAnimateAppearance() {
     return typeof document.startViewTransition === "function"
       && typeof root.animate === "function"
       && !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   }
 
-  function animateTheme(theme, source, event) {
-    theme = theme === "dark" ? "dark" : "light";
-    if (theme === root.dataset.theme) {
-      applyTheme(theme, true);
-      return;
-    }
-    if (!canAnimateTheme() || transitionBusy) {
-      if (!transitionBusy) applyTheme(theme, true);
+  function animateAppearance(change, source, event) {
+    if (!canAnimateAppearance() || transitionBusy) {
+      // Состояние важнее анимации: быстрый второй выбор не должен теряться.
+      change();
       return;
     }
 
@@ -118,12 +149,12 @@
     var transition;
     try {
       transition = document.startViewTransition(function () {
-        applyTheme(theme, true);
+        change();
       });
     } catch (_) {
       root.classList.remove("d4y-theme-transition");
       transitionBusy = false;
-      applyTheme(theme, true);
+      change();
       return;
     }
 
@@ -153,8 +184,44 @@
     });
   }
 
+  function animateTheme(theme, source, event) {
+    theme = theme === "dark" ? "dark" : "light";
+    if (theme === root.dataset.theme) {
+      applyTheme(theme, true);
+      return;
+    }
+    animateAppearance(function () {
+      applyTheme(theme, true);
+    }, source, event);
+  }
+
+  function animateSkin(skin, source, event, persist) {
+    skin = skin === "romantic" ? "romantic" : "friends";
+    if (skin === root.dataset.skin) {
+      applySkin(skin, persist);
+      return;
+    }
+    animateAppearance(function () {
+      applySkin(skin, persist);
+    }, source, event);
+  }
+
   // Выполняется синхронно до CSS.
+  // Cookie оформления читается только на явно переключаемой странице входа:
+  // кабинет и публичные категории продолжают получать свой skin с сервера.
+  if (root.hasAttribute("data-skin-switchable")) {
+    applySkin(savedSkin(), false);
+  }
   applyTheme(savedTheme(), false);
+
+  // Профиль хранит skin на сервере, но использует тот же движок волны. API не
+  // меняет cookie и не смешивает оформление с light/dark-настройкой браузера.
+  window.d4yAppearance = {
+    applySkin: function (skin) { applySkin(skin, false); },
+    animateSkin: function (skin, source, event) {
+      animateSkin(skin, source, event, false);
+    }
+  };
 
   // Убираем стандартное перекрёстное растворение View Transition: старый
   // снимок остаётся снизу, а новый раскрывается над ним круглой волной.
@@ -169,6 +236,12 @@
   document.head.appendChild(transitionStyle);
 
   document.addEventListener("click", function (event) {
+    var skinChoice = event.target.closest && event.target.closest("[data-skin-set]");
+    if (skinChoice) {
+      event.preventDefault();
+      animateSkin(skinChoice.getAttribute("data-skin-set"), skinChoice, event, true);
+      return;
+    }
     var choice = event.target.closest && event.target.closest("[data-theme-set]");
     if (choice) {
       event.preventDefault();
@@ -185,14 +258,17 @@
     syncSkin();
     updateChrome(root.dataset.theme || "light");
     updateButtons(root.dataset.theme || "light");
+    updateSkinButtons(root.dataset.skin || "romantic");
   });
   document.addEventListener("d4y:skinchange", function () {
     updateChrome(root.dataset.theme || "light");
+    updateSkinButtons(root.dataset.skin || "romantic");
   });
   // Turbo заменяет body, но не перезапускает этот скрипт.
   document.addEventListener("turbo:load", function () {
     syncSkin();
     updateChrome(root.dataset.theme || "light");
     updateButtons(root.dataset.theme || "light");
+    updateSkinButtons(root.dataset.skin || "romantic");
   });
 })();

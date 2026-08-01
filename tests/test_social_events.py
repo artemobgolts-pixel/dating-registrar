@@ -89,6 +89,53 @@ class SocialEventsTests(unittest.TestCase):
             datetime(2030, 1, 6, 12, 30),
         )
 
+    def test_current_wants_use_review_due_and_do_not_duplicate_reviews(self):
+        now = datetime(2030, 1, 3, 12, 0)
+        self._category(1, "2030-01-02T10:00:00")
+        self._category(2, "2029-12-30T10:00:00")
+        self._category(3, "2030-01-02T11:00:00")
+        self._category(4, "2030-01-04T10:00:00")
+        self._date(1, starts="2030-01-04T18:00:00", ends=None)
+        self._date(2, starts="2030-01-01T18:00:00", ends="2030-01-01T20:00:00")
+        self._date(3, starts="2030-01-05T18:00:00", ends=None)
+        self._date(4, starts="2030-01-05T18:00:00", ends=None)
+        self.conn.executemany(
+            "INSERT INTO date_categories(date_id,category_id) VALUES(?,?)",
+            [(1, 1), (2, 2), (3, 3), (4, 4)],
+        )
+        for date_id in (1, 2, 3, 4):
+            self._want(date_id)
+        self.conn.execute(
+            "INSERT INTO date_reviews(user_id,date_id,rating,created_at,updated_at) "
+            "VALUES(2,3,5,?,?)",
+            ("2030-01-03T10:00:00", "2030-01-03T10:00:00"),
+        )
+
+        # Review по-прежнему ждёт саму встречу, но «Хочу сходить» выполняет
+        # буквальный пользовательский контракт и закрывается уже по дедлайну.
+        self.assertGreater(social_events.review_due(self.conn, 1), now)
+        traced = []
+        self.conn.set_trace_callback(traced.append)
+        current_ids = social_events.current_want_date_ids(
+            self.conn, 2, [1, 2, 3, 4], now=now,
+        )
+        self.conn.set_trace_callback(None)
+        self.assertEqual(current_ids, {4})
+        self.assertEqual(
+            sum(statement.lstrip().upper().startswith("SELECT") for statement in traced),
+            2,
+        )
+        self.assertFalse(social_events.want_is_current(self.conn, 1, 2, now=now))
+        self.assertFalse(social_events.want_is_current(self.conn, 2, 2, now=now))
+        self.assertFalse(social_events.want_is_current(self.conn, 3, 2, now=now))
+        self.assertTrue(social_events.want_is_current(self.conn, 4, 2, now=now))
+        self.assertFalse(social_events.want_action_available(
+            self.conn, 1, 2, now=now,
+        ))
+        self.assertTrue(social_events.want_action_available(
+            self.conn, 4, 2, now=now,
+        ))
+
     def test_one_prompt_per_user_and_date_is_rescheduled_and_cancelled_by_review(self):
         self._category(1, "2030-01-02T10:00:00")
         self._date(1, starts="2030-01-03T18:00:00", ends="2030-01-03T20:00:00")

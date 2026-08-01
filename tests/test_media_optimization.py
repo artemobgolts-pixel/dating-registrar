@@ -177,7 +177,6 @@ class FrontendMediaContractTests(unittest.TestCase):
         templates = (
             APP / "templates/public/category.html",
             APP / "templates/public/share.html",
-            APP / "templates/admin/_community_cards.html",
             APP / "templates/admin/_community_widget.html",
         )
         for path in templates:
@@ -185,6 +184,14 @@ class FrontendMediaContractTests(unittest.TestCase):
             self.assertIn("?w=64", text, path.name)
             self.assertIn("?w=96 96w", text, path.name)
             self.assertIn("?w=128 128w", text, path.name)
+
+        # В карточке общей ленты пилюля автора намеренно заменена действием
+        # «Добавить в коллекцию»; аватар остаётся в раскрытом виджете.
+        feed_card = (APP / "templates/admin/_community_cards.html").read_text(
+            encoding="utf-8",
+        )
+        self.assertNotIn("?w=64", feed_card)
+        self.assertIn("Добавить в коллекцию", feed_card)
 
 
 if __name__ == "__main__":

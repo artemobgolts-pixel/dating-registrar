@@ -389,7 +389,7 @@ class TelegramRichMessageTests(unittest.TestCase):
         finally:
             notify.httpx.post = original
 
-    def test_start_photo_keeps_buttons_and_falls_back_to_rich_message(self):
+    def test_start_photo_is_flush_native_media_and_has_legacy_fallback(self):
         calls = []
 
         class Response:
@@ -413,13 +413,10 @@ class TelegramRichMessageTests(unittest.TestCase):
                 reply_markup=markup,
             ))
             method, data, files = calls[0]
-            self.assertEqual(method, "sendRichMessage")
+            self.assertEqual(method, "sendPhoto")
             self.assertIn("photo", files)
-            rich = json.loads(data["rich_message"])
-            self.assertIn('src="tg://photo?id=start_logo"', rich["html"])
-            self.assertEqual(
-                rich["media"][0]["media"]["media"], "attach://photo",
-            )
+            self.assertEqual(data["caption"], "<b>Добро пожаловать</b>")
+            self.assertEqual(data["parse_mode"], "HTML")
             keyboard = json.loads(data["reply_markup"])["inline_keyboard"]
             self.assertEqual(keyboard[0][0]["web_app"]["url"],
                              "https://localhost/tg/app")
@@ -440,7 +437,11 @@ class TelegramRichMessageTests(unittest.TestCase):
                 reply_markup=markup,
             ))
             self.assertEqual([call[0] for call in calls],
-                             ["sendRichMessage", "sendPhoto"])
+                             ["sendPhoto", "sendPhoto"])
+            styled = json.loads(calls[0][1]["reply_markup"])
+            legacy = json.loads(calls[1][1]["reply_markup"])
+            self.assertEqual(styled["inline_keyboard"][0][0]["style"], "primary")
+            self.assertNotIn("style", legacy["inline_keyboard"][0][0])
             self.assertEqual(fallbacks[0][0:2], (880021, "Привет"))
             self.assertEqual(fallbacks[0][2]["reply_markup"], markup)
         finally:

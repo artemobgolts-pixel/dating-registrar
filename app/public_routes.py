@@ -30,7 +30,8 @@ import voting_events
 from config import (AUTHOR_PROJECTS, ABOUT_TEXT, BASE_URL, DOMAIN,
                     MSK, SUPPORT_CONTACT, support_link)
 from helpers import (_parse, clean_text, fmt_gcal, fmt_when, new_link_token,
-                     normalize_period, now_iso, parse_dt_local, parse_links)
+                     normalize_period, now_iso, now_naive, parse_dt_local,
+                     parse_links)
 from notify import esc
 from ratelimit import guest_throttle
 from web import get_db, redir, templates
@@ -1067,11 +1068,13 @@ def shared_date(token: str, request: Request, conn=Depends(get_db)):
     owner = users.get_user(conn, d["owner_id"])
     owner_name = (owner["display_name"] or owner["tg_username"] or "Автор") if owner else "Автор"
     is_mine = bool(me and me["id"] == d["owner_id"])
+    has_want = False
     wanted_by_me = False
+    want_action_available = False
     my_review = None
     can_review = False
     if me and not is_mine:
-        wanted_by_me = conn.execute(
+        has_want = conn.execute(
             "SELECT 1 FROM date_wants WHERE user_id=? AND date_id=?",
             (me["id"], d["id"]),
         ).fetchone() is not None
@@ -1081,6 +1084,12 @@ def shared_date(token: str, request: Request, conn=Depends(get_db)):
             (me["id"], d["id"]),
         ).fetchone()
         can_review = social_events.review_available(conn, d["id"], me["id"])
+        want_action_available = social_events.want_action_available(
+            conn, d["id"], int(me["id"]), now=now_naive(),
+        )
+        # Просроченная отметка больше не показывается как активная, но сама
+        # связь нужна для доступа к форме уже доступного обзора.
+        wanted_by_me = has_want and want_action_available
 
     payload = date_payload(conn, d)
     # Гостю (не автору) показываем полноценную карточку с действиями. Контекст
@@ -1151,7 +1160,9 @@ def shared_date(token: str, request: Request, conn=Depends(get_db)):
         "owner": owner,
         "owner_name": owner_name,
         "is_mine": is_mine,
+        "has_want": has_want,
         "wanted_by_me": wanted_by_me,
+        "want_action_available": want_action_available,
         "my_review": my_review,
         "can_review": can_review,
         "csrf": request.session.get("csrf", ""),
@@ -1196,6 +1207,12 @@ def shared_date_want(token: str, request: Request, conn=Depends(get_db)):
         msg = "Убрано из «Хочу сходить»"
         wanted = False
     else:
+        if not social_events.want_action_available(
+                conn, int(d["id"]), int(user["id"]), now=now_naive()):
+            detail = "Дедлайн события уже прошёл или обзор уже опубликован"
+            if request.headers.get("x-requested-with") == "fetch":
+                raise HTTPException(409, detail)
+            return redir(f"/d/{token}", detail)
         stamp = now_iso()
         conn.execute(
             "INSERT INTO date_wants(user_id, date_id, is_public, created_at, updated_at) "

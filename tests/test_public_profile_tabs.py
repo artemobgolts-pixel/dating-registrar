@@ -92,7 +92,7 @@ class PublicProfileTabsTests(unittest.TestCase):
                 conn, owner_id, "Публичное событие Алины", "alice-public",
                 is_public=1,
             )
-            self._date(
+            own_private = self._date(
                 conn, owner_id, "Личное событие Алины", "alice-private",
                 is_public=0,
             )
@@ -104,6 +104,14 @@ class PublicProfileTabsTests(unittest.TestCase):
                 conn, other_id, "Закрытая прогулка", "walk-private",
                 is_public=0,
             )
+            reviewed_public = self._date(
+                conn, other_id, "Открытый спектакль", "review-public",
+                is_public=1,
+            )
+            reviewed_private = self._date(
+                conn, other_id, "Закрытый спектакль", "review-private",
+                is_public=0,
+            )
             conn.executemany(
                 "INSERT INTO date_wants(user_id,date_id,is_public,created_at,updated_at) "
                 "VALUES(?,?,1,?,?)",
@@ -113,23 +121,42 @@ class PublicProfileTabsTests(unittest.TestCase):
             conn.executemany(
                 "INSERT INTO date_reviews(user_id,date_id,rating,text,is_public,created_at,updated_at) "
                 "VALUES(?,?,5,?,1,?,?)",
-                ((owner_id, wanted_public, "Публичный обзор", STAMP, STAMP),
-                 (owner_id, wanted_private, "Личный обзор", STAMP, STAMP)),
+                ((owner_id, reviewed_public, "Публичный обзор", STAMP, STAMP),
+                 (owner_id, reviewed_private, "Личный обзор", STAMP, STAMP)),
             )
             public_review_id = int(conn.execute(
                 "SELECT id FROM date_reviews WHERE user_id=? AND text=?",
                 (owner_id, "Публичный обзор"),
             ).fetchone()[0])
+            conn.execute(
+                "UPDATE users SET admin_skin='romantic' WHERE id=?", (owner_id,),
+            )
             conn.commit()
             conn.close()
 
             own_events = owner.get("/admin/profile?tab=events").text
             self.assertNotIn("Открыть публичный профиль", own_events)
+            self.assertIn("<h2>Коллекция событий</h2>", own_events)
             for title in ("Публичные события", "Хочу сходить", "Обзоры"):
                 self.assertIn(title, own_events)
             self.assertIn("Публичное событие Алины", own_events)
             self.assertNotIn("Личное событие Алины", own_events)
             self.assertIn(f"Публичные события <b>1</b>", own_events)
+            self.assertIn(f'href="/admin/dates/{own_public}/edit"', own_events)
+            self.assertIn(
+                f'data-profile-editor="/admin/dates/{own_public}/edit"',
+                own_events,
+            )
+            self.assertRegex(own_events, r'<html lang="ru"\s+data-skin="romantic">')
+            self.assertRegex(
+                owner.get(f"/admin/dates/{own_public}/edit").text,
+                r'<html lang="ru"\s+data-skin="romantic">',
+            )
+            self.assertNotIn(
+                f'data-profile-widget="/u/{owner_id}/date/{own_public}/widget"',
+                own_events,
+            )
+            self.assertIn('id="profileEventDlg"', own_events)
 
             own_wants = owner.get("/admin/profile?tab=want").text
             self.assertIn("Открытая прогулка", own_wants)
@@ -161,13 +188,17 @@ class PublicProfileTabsTests(unittest.TestCase):
             self.assertIn('<html lang="ru" data-skin="romantic">', foreign_events)
             self.assertIn("Коллекция событий <b>1</b>", foreign_events)
             self.assertNotIn("Публичные события", foreign_events)
+            self.assertIn(
+                f'data-profile-widget="/u/{owner_id}/date/{own_public}/widget"',
+                foreign_events,
+            )
 
             category_context = other.get(
                 f"/u/{owner_id}?tab=events&skin=friends",
             ).text
             self.assertIn('<html lang="ru" data-skin="friends">', category_context)
             self.assertIn(
-                f'href="/u/{owner_id}?tab=want&amp;skin=friends"',
+                f'href="/u/{owner_id}?tab=want&amp;skin=friends#profileCollection"',
                 category_context,
             )
 
@@ -180,9 +211,81 @@ class PublicProfileTabsTests(unittest.TestCase):
             foreign_reviews = other.get(f"/u/{owner_id}?tab=reviews").text
             self.assertIn("Публичный обзор", foreign_reviews)
             self.assertNotIn("Личный обзор", foreign_reviews)
-            self.assertNotIn("walk-private", foreign_reviews)
+            self.assertNotIn("review-private", foreign_reviews)
             self.assertNotIn('class="review-menu"', foreign_reviews)
             self.assertIn("Обзоры <b>1</b>", foreign_reviews)
+            self.assertRegex(
+                foreign_reviews,
+                r'class="review-card"[^>]+role="link"[^>]+data-profile-editor=',
+            )
+
+            # Виджет разрешает ровно те отношения, которые могут появиться в
+            # профиле; приватную встречу нельзя раскрыть перебором id.
+            self.assertEqual(
+                other.get(f"/u/{owner_id}/date/{own_public}/widget").status_code,
+                200,
+            )
+            self.assertEqual(
+                other.get(f"/u/{owner_id}/date/{own_private}/widget").status_code,
+                404,
+            )
+            self.assertEqual(
+                owner.get(f"/u/{owner_id}/date/{wanted_private}/widget").status_code,
+                200,
+            )
+            self.assertEqual(
+                other.get(f"/u/{owner_id}/date/{wanted_private}/widget").status_code,
+                404,
+            )
+            self.assertEqual(
+                owner.get(f"/u/{owner_id}/date/{reviewed_private}/widget").status_code,
+                200,
+            )
+            reviewed_widget = owner.get(
+                f"/u/{owner_id}/date/{reviewed_public}/widget",
+            )
+            self.assertEqual(reviewed_widget.status_code, 200)
+            self.assertNotIn("cwid-want", reviewed_widget.text)
+            self.assertEqual(
+                other.get(f"/u/{owner_id}/date/{reviewed_private}/widget").status_code,
+                404,
+            )
+
+    def test_profile_pagination_uses_anchored_arrow_controls(self):
+        with TestClient(main.app, follow_redirects=False) as owner, \
+                TestClient(main.app, follow_redirects=False) as viewer:
+            owner_id, _ = login(owner, 991011, "Вера")
+            login(viewer, 991012, "Глеб")
+            conn = db.connect()
+            for index in range(13):
+                self._date(
+                    conn, owner_id, f"Страница {index}", f"paged-{index}",
+                    is_public=1,
+                )
+            conn.commit()
+            conn.close()
+
+            first = viewer.get(f"/u/{owner_id}?tab=events").text
+            second = viewer.get(f"/u/{owner_id}?tab=events&page=2").text
+            self.assertEqual(first.count('class="pub-card"'), 12)
+            self.assertEqual(second.count('class="pub-card"'), 1)
+            self.assertIn(
+                f'href="/u/{owner_id}?tab=events&page=2#profileCollection"',
+                first,
+            )
+            self.assertIn('aria-label="Следующая страница"', first)
+            self.assertIn('aria-label="Предыдущая страница"', second)
+            self.assertNotIn("Ещё →", first)
+            self.assertNotIn("← Новее", second)
+            self.assertIn('src="/static/profile.js?', first)
+            profile_js = (APP / "static/profile.js").read_text(encoding="utf-8")
+            self.assertIn("section._d4yWidgetReady", profile_js)
+            self.assertIn("new AbortController()", profile_js)
+            self.assertIn("widgetRequest === controller", profile_js)
+            self.assertIn("window.d4yProfileSave", profile_js)
+            admin_js = (APP / "static/admin.js").read_text(encoding="utf-8")
+            self.assertIn("keepalive: true", admin_js)
+            self.assertIn("window.d4yProfileSave = pending", admin_js)
 
     def test_profile_icons_and_notification_hover_contract(self):
         profile = (APP / "templates/admin/profile.html").read_text(encoding="utf-8")
@@ -195,6 +298,9 @@ class PublicProfileTabsTests(unittest.TestCase):
         avatar_delete = re.search(r"\.avatar-delete \{([^}]+)\}", css, re.S)
         self.assertIsNotNone(avatar_delete)
         self.assertIn("background: transparent", avatar_delete.group(1))
+        self.assertIn("color: #dc3545", avatar_delete.group(1))
+        self.assertIn("right: 6.5px", avatar_delete.group(1))
+        self.assertIn("top: 3px", avatar_delete.group(1))
         self.assertNotIn("box-shadow", avatar_delete.group(1))
         self.assertIn(".avatar-delete::before", css)
         self.assertIn(".social-state-add::after", css)

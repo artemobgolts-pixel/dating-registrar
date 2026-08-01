@@ -262,56 +262,24 @@ def send_to(chat_id: int | str, text: str, *, reply_markup: dict | None = None) 
 
 def send_photo_to(chat_id: int | str, path, caption: str,
                   *, reply_markup: dict | None = None) -> bool:
-    """Шлёт приветствие с фото как Rich Message Bot API 10.2.
+    """Шлёт приветствие нативным фото-сообщением Telegram.
 
-    Сначала встраиваем загруженный файл в ``InputRichMessage.media`` — так
-    сохраняются и новая карточка, и цветные кнопки. Для старого/self-hosted
-    gateway последовательно оставлены ``sendPhoto`` и обычный rich/text fallback.
+    ``sendPhoto`` ставит медиа вплотную к верхнему краю пузыря, тогда как
+    Rich Message визуально резервирует над первым media-блоком внутренний отступ.
+    Актуальный Bot API принимает styled inline-кнопки и здесь; для старого или
+    self-hosted gateway один раз повторяем запрос без поля ``style``. Если само
+    фото отправить нельзя, остаётся надёжный текстовый fallback.
     """
     if not TOKEN:
         return False
     path = str(path)
     try:
-        rich_message = {
-            "html": (
-                '<img src="tg://photo?id=start_logo"/>'
-                + _as_rich_html(caption)
-            ),
-            "media": [{
-                "id": "start_logo",
-                "media": {"type": "photo", "media": "attach://photo"},
-            }],
-            "skip_entity_detection": True,
-        }
-        rich_data: dict[str, str] = {
-            "chat_id": str(chat_id),
-            "rich_message": json.dumps(
-                rich_message, ensure_ascii=False, separators=(",", ":"),
-            ),
-        }
-        if reply_markup:
-            rich_data["reply_markup"] = json.dumps(
-                reply_markup, ensure_ascii=False, separators=(",", ":"),
-            )
-        with open(path, "rb") as photo:
-            response = httpx.post(
-                f"https://api.telegram.org/bot{TOKEN}/sendRichMessage",
-                data=rich_data,
-                files={"photo": (os.path.basename(path), photo, "image/png")},
-                timeout=30,
-            )
-        if response.status_code < 400:
-            return True
-        log.warning("Telegram rich photo %s, fallback: %s",
-                    response.status_code, response.text[:200])
-
         data: dict[str, str] = {
             "chat_id": str(chat_id), "caption": caption, "parse_mode": "HTML",
         }
-        fallback_markup = _legacy_markup(reply_markup)
-        if fallback_markup:
+        if reply_markup:
             data["reply_markup"] = json.dumps(
-                fallback_markup, ensure_ascii=False, separators=(",", ":"),
+                reply_markup, ensure_ascii=False, separators=(",", ":"),
             )
         with open(path, "rb") as photo:
             response = httpx.post(
@@ -322,7 +290,27 @@ def send_photo_to(chat_id: int | str, path, caption: str,
             )
         if response.status_code < 400:
             return True
-        log.warning("Telegram sendPhoto %s, fallback: %s",
+        log.warning("Telegram styled sendPhoto %s, fallback: %s",
+                    response.status_code, response.text[:200])
+
+        legacy_data: dict[str, str] = {
+            "chat_id": str(chat_id), "caption": caption, "parse_mode": "HTML",
+        }
+        fallback_markup = _legacy_markup(reply_markup)
+        if fallback_markup:
+            legacy_data["reply_markup"] = json.dumps(
+                fallback_markup, ensure_ascii=False, separators=(",", ":"),
+            )
+        with open(path, "rb") as photo:
+            response = httpx.post(
+                f"https://api.telegram.org/bot{TOKEN}/sendPhoto",
+                data=legacy_data,
+                files={"photo": (os.path.basename(path), photo, "image/png")},
+                timeout=30,
+            )
+        if response.status_code < 400:
+            return True
+        log.warning("Telegram legacy sendPhoto %s, text fallback: %s",
                     response.status_code, response.text[:200])
     except Exception as e:
         log.warning("Не удалось отправить изображение в Telegram, fallback: %s", e)

@@ -257,6 +257,7 @@
     <p>Это твоё событие — оно уже в твоей коллекции.</p>
     <a class="btn book" href="/admin/dates">К моим событиям</a>
     {% elif me %}
+    {% if want_action_available %}
     <div class="share-choice-block" id="plans">
       <p>Отметка появится в отдельной вкладке профиля и не создаст копию события.</p>
       <form method="post" action="/d/{{ token }}/want">
@@ -267,6 +268,7 @@
       </form>
     </div>
     <div class="share-choice-sep" aria-hidden="true"></div>
+    {% endif %}
     <p>Нравится? Сохрани это событие к себе — потом добавишь в свои категории.</p>
     <form method="post" action="/d/{{ token }}/add">
       <button type="submit" class="btn book">{{ icon('plus') }} Сохранить к себе</button>
@@ -277,7 +279,7 @@
     {% endif %}
   </div>
 
-  {% if me and not is_mine and wanted_by_me %}
+  {% if me and not is_mine and has_want %}
   <section class="review-cta" id="review" aria-labelledby="review-title">
     {% if can_review %}
     <h2 id="review-title">{{ 'Изменить обзор' if my_review else 'Удалось сходить?' }}</h2>
