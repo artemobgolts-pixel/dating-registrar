@@ -37,6 +37,7 @@ os.environ.update({
 
 import admin_routes  # noqa: E402
 import db  # noqa: E402
+import images  # noqa: E402
 import public_routes  # noqa: E402
 import social_events  # noqa: E402
 import tasks  # noqa: E402
@@ -294,9 +295,9 @@ class BackendV30RegressionTests(unittest.TestCase):
         self.assertEqual(preview.media_type, "image/jpeg")
         self.assertEqual(
             Path(preview.path).resolve(),
-            (APP / "static" / "og-default.jpg").resolve(),
+            (APP / "static" / "og-friends.jpg").resolve(),
         )
-        self.assertEqual(preview.headers["cache-control"], "public, max-age=3600")
+        self.assertEqual(preview.headers["cache-control"], "public, no-cache")
 
         with self.assertRaises(HTTPException) as raised:
             admin_routes.category_default_preview(
@@ -315,6 +316,185 @@ class BackendV30RegressionTests(unittest.TestCase):
             (category_id,),
         ).fetchone()
         self.assertEqual(tuple(row), (0, "custom-preview.webp"))
+
+        generated = APP / "static" / "og-default.jpg"
+        with patch.object(admin_routes.images, "upload_image_exists", return_value=True), \
+                patch.object(admin_routes.images, "build_og_crop", return_value=generated):
+            admin_dynamic = admin_routes.category_og_preview(
+                category_id, owner_request, conn=self.conn,
+            )
+            public_dynamic = public_routes.public_og_image(
+                "fixed-preview", conn=self.conn,
+            )
+        self.assertEqual(
+            admin_dynamic.headers["cache-control"], "private, no-cache",
+        )
+        self.assertEqual(
+            public_dynamic.headers["cache-control"], "public, no-cache",
+        )
+
+        detail_template = (APP / "templates/admin/category_detail.html").read_text(
+            encoding="utf-8",
+        )
+        public_template = (APP / "templates/public/category.html").read_text(
+            encoding="utf-8",
+        )
+        self.assertIn(
+            "{% if cat['use_default_preview'] %}{{ asset('og-friends.jpg' if category_skin == 'friends' else 'og-default.jpg') }}",
+            detail_template,
+        )
+        self.assertIn(
+            "{% if cat['use_default_preview'] %}{{ BASE_URL }}{{ asset('og-friends.jpg' if active_skin == 'friends' else 'og-default.jpg') }}",
+            public_template,
+        )
+        self.assertIn("&amp;v={{ preview_revision }}", public_template)
+
+    def test_category_preview_sources_are_diverse_and_keep_focus(self):
+        category_id = int(self.conn.execute(
+            "INSERT INTO categories(owner_id,name,link_token,created_at) "
+            "VALUES(?,?,?,?)",
+            (self.owner_id, "Разнообразный коллаж", "diverse-preview", STAMP),
+        ).lastrowid)
+        galleries = (
+            (("alpha000.webp", "10% 20%"),
+             ("alpha001.webp", "11% 21%"),
+             ("alpha002.webp", "12% 22%")),
+            (("bravo000.webp", "30% 40%"),
+             ("bravo001.webp", "31% 41%")),
+            (("charlie0.webp", "50% 60%"),
+             ("charlie1.webp", "51% 61%"),
+             ("charlie2.webp", "52% 62%"),
+             ("charlie3.webp", "53% 63%")),
+        )
+        for category_position, gallery in enumerate(galleries):
+            date_id = self._date(self.owner_id, f"Событие {category_position}")
+            self.conn.execute(
+                "INSERT INTO date_categories(date_id,category_id,position) "
+                "VALUES(?,?,?)",
+                (date_id, category_id, category_position),
+            )
+            self.conn.executemany(
+                "INSERT INTO date_images(date_id,filename,focus,position) "
+                "VALUES(?,?,?,?)",
+                (
+                    (date_id, filename, focus, image_position)
+                    for image_position, (filename, focus) in enumerate(gallery)
+                ),
+            )
+        self.conn.commit()
+
+        expected = [
+            galleries[0][0], galleries[1][0], galleries[2][0],
+            galleries[0][1], galleries[1][1], galleries[2][1],
+            galleries[0][2], galleries[2][2],
+        ]
+        self.assertEqual(
+            public_routes.category_og_sources(
+                self.conn, category_id, include_focus=True,
+            ),
+            expected,
+        )
+        self.assertEqual(
+            public_routes.category_og_sources(self.conn, category_id),
+            [filename for filename, _focus in expected],
+        )
+
+    def test_missing_custom_preview_falls_back_to_live_collage(self):
+        category_id = int(self.conn.execute(
+            "INSERT INTO categories(owner_id,name,link_token,link_enabled,og_image,"
+            "created_at) VALUES(?,?,?,?,?,?)",
+            (self.owner_id, "Пропавшее превью", "missing-custom", 1,
+             "missing-custom.webp", STAMP),
+        ).lastrowid)
+        date_id = self._date(self.owner_id, "С фото")
+        self.conn.execute(
+            "INSERT INTO date_categories(date_id,category_id,position) VALUES(?,?,0)",
+            (date_id, category_id),
+        )
+        self.conn.execute(
+            "INSERT INTO date_images(date_id,filename,focus,position) VALUES(?,?,?,0)",
+            (date_id, "live-photo.webp", "15% 65%"),
+        )
+        self.conn.commit()
+        generated = APP / "static" / "og-default.jpg"
+
+        def file_exists(filename):
+            return filename == "live-photo.webp"
+
+        with patch.object(
+                images, "upload_image_exists", side_effect=file_exists), \
+                patch.object(images, "build_og_collage", return_value=generated) as collage, \
+                patch.object(images, "build_og_crop") as crop:
+            admin_preview = admin_routes.category_og_preview(
+                category_id, self._request_for(self.owner_id), conn=self.conn,
+            )
+            public_preview = public_routes.public_og_image(
+                "missing-custom", conn=self.conn,
+            )
+
+        self.assertEqual(admin_preview.media_type, "image/webp")
+        self.assertEqual(public_preview.media_type, "image/webp")
+        self.assertFalse(crop.called)
+        self.assertEqual(collage.call_count, 2)
+        for call in collage.call_args_list:
+            self.assertEqual(call.args[0], [("live-photo.webp", "15% 65%")])
+
+    def test_auto_preview_revision_follows_category_lifecycle(self):
+        category_id = int(self.conn.execute(
+            "INSERT INTO categories(owner_id,name,category_skin,link_token,"
+            "link_enabled,created_at) VALUES(?,?,?,?,1,?)",
+            (self.owner_id, "Живое превью", "friends", "live-preview", STAMP),
+        ).lastrowid)
+        first = self._date(self.owner_id, "Первое")
+        second = self._date(self.owner_id, "Второе")
+        self.conn.execute(
+            "INSERT INTO date_categories(date_id,category_id,position) VALUES(?,?,0)",
+            (first, category_id),
+        )
+        self.conn.execute(
+            "INSERT INTO date_images(date_id,filename,position) VALUES(?,?,0)",
+            (first, "firstimage.webp"),
+        )
+        self.conn.commit()
+
+        sources = public_routes.category_og_sources(self.conn, category_id)
+        self.assertEqual(sources, ["firstimage.webp"])
+        first_revision = images.og_preview_revision(sources, "friends")
+
+        self.conn.execute(
+            "INSERT INTO date_categories(date_id,category_id,position) VALUES(?,?,1)",
+            (second, category_id),
+        )
+        self.conn.execute(
+            "INSERT INTO date_images(date_id,filename,position) VALUES(?,?,0)",
+            (second, "secondimage.webp"),
+        )
+        self.conn.commit()
+        added_sources = public_routes.category_og_sources(self.conn, category_id)
+        added_revision = images.og_preview_revision(added_sources, "friends")
+        self.assertEqual(added_sources, ["firstimage.webp", "secondimage.webp"])
+        self.assertNotEqual(first_revision, added_revision)
+
+        self.conn.execute(
+            "UPDATE date_categories SET position=2-position WHERE category_id=?",
+            (category_id,),
+        )
+        self.conn.commit()
+        reordered_sources = public_routes.category_og_sources(self.conn, category_id)
+        self.assertEqual(reordered_sources, ["secondimage.webp", "firstimage.webp"])
+        self.assertNotEqual(
+            added_revision,
+            images.og_preview_revision(reordered_sources, "friends"),
+        )
+
+        self.conn.execute("UPDATE dates SET archived_at=? WHERE id=?", (STAMP, second))
+        self.conn.commit()
+        removed_sources = public_routes.category_og_sources(self.conn, category_id)
+        self.assertEqual(removed_sources, ["firstimage.webp"])
+        self.assertEqual(
+            first_revision,
+            images.og_preview_revision(removed_sources, "friends"),
+        )
 
 
 if __name__ == "__main__":

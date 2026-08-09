@@ -45,6 +45,9 @@ class ShadowSafeScrollRowTests(unittest.TestCase):
     def test_internal_tab_glows_fit_their_scrollport_gutters(self):
         css = (STATIC / "admin.css").read_text(encoding="utf-8")
         tabs = rule(css, "html[data-skin] .tabs .tab-ind", last=True)
+        status_tabs = rule(
+            css, "html[data-skin] .dates-status-tabs .tab-ind", last=True
+        )
         mobile_nav = rule(
             css, "html[data-skin] .top nav.glass-nav .tab-ind", last=True
         )
@@ -53,6 +56,7 @@ class ShadowSafeScrollRowTests(unittest.TestCase):
         self.assertIn("0 2px 3px", mobile_nav)
         self.assertIn("color-mix(in srgb, var(--accent)", tabs)
         self.assertIn("color-mix(in srgb, var(--accent)", mobile_nav)
+        self.assertIn("0 5px 14px", status_tabs)
 
 
 if __name__ == "__main__":

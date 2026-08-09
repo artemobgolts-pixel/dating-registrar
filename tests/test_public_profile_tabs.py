@@ -215,6 +215,8 @@ class PublicProfileTabsTests(unittest.TestCase):
             self.assertIn('class="profile-rating-stars"', review_widget.text)
             self.assertIn('class="profile-review-actions', review_widget.text)
             self.assertIn(">Поделиться</button>", review_widget.text)
+            self.assertNotIn('class="review-stars"', review_widget.text)
+            self.assertNotIn('class="profile-review-copy', review_widget.text)
             self.assertIn(
                 f"https://profile-tabs.test/d/review-public/review/{public_review_id}",
                 review_widget.text,
@@ -234,8 +236,32 @@ class PublicProfileTabsTests(unittest.TestCase):
             self.assertEqual(shared_review.status_code, 200)
             self.assertEqual(anonymous_widget.status_code, 303)
             self.assertEqual(anonymous_widget.headers["location"], "/login")
-            self.assertIn("Публичный обзор", shared_review.text)
+            self.assertIn("Публичный обзор", shared_review.text)  # текст самого отзыва
+            self.assertNotIn(
+                '<span class="review-share-eyebrow">Публичный обзор</span>',
+                shared_review.text,
+            )
+            self.assertIn('<span class="review-share-eyebrow">Обзор</span>', shared_review.text)
             self.assertNotIn("Сохранить обзор", shared_review.text)
+            self.assertIn('class="review-stars"', shared_review.text)
+            self.assertIn('class="profile-review-copy"', shared_review.text)
+            self.assertIn('data-community-share', shared_review.text)
+            self.assertIn(
+                f'data-share-url="https://profile-tabs.test/d/review-public/review/{public_review_id}"',
+                shared_review.text,
+            )
+            self.assertIn('<html lang="ru" data-skin="friends">', shared_review.text)
+            self.assertIn("Понравился обзор?", shared_review.text)
+            self.assertIn("Добавить событие в коллекцию", shared_review.text)
+            self.assertNotIn("Войти и добавить", shared_review.text)
+            self.assertNotIn("← К событию", shared_review.text)
+            signed_shared_review = other.get(
+                f"/d/review-public/review/{public_review_id}",
+            )
+            self.assertIn(
+                '<html lang="ru" data-skin="friends">',
+                signed_shared_review.text,
+            )
             reported = other.post(
                 "/d/review-public/report",
                 data={"csrf": other_csrf, "target_type": "date",
@@ -296,6 +322,14 @@ class PublicProfileTabsTests(unittest.TestCase):
             conn.execute("UPDATE users SET admin_skin='romantic' WHERE id=?", (other_id,))
             conn.commit()
             conn.close()
+
+            romantic_shared_review = other.get(
+                f"/d/review-public/review/{public_review_id}",
+            )
+            self.assertIn(
+                '<html lang="ru" data-skin="romantic">',
+                romantic_shared_review.text,
+            )
 
             foreign_events = other.get(f"/u/{owner_id}?tab=events").text
             self.assertIn('<html lang="ru" data-skin="romantic">', foreign_events)

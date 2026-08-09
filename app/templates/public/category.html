@@ -9,17 +9,17 @@
   <title>{{ cat.name }}</title>
   <meta property="og:title" content="{{ cat['og_title'] or ('Собираемся вместе' if active_skin == 'friends' else 'Тебя ждёт сюрприз ♥') }}">
   <meta property="og:description" content="{{ cat['og_desc'] or ('Открой и выбери удобный вариант' if active_skin == 'friends' else 'Открой — внутри кое-что приятное') }}">
-  <meta property="og:image" content="{% if og_available %}{{ BASE_URL }}/c/{{ token }}/og-image?skin={{ active_skin }}{% else %}{{ BASE_URL }}{{ asset('og-default.jpg') }}{% endif %}">
+  <meta property="og:image" content="{% if cat['use_default_preview'] %}{{ BASE_URL }}{{ asset('og-friends.jpg' if active_skin == 'friends' else 'og-default.jpg') }}{% elif og_available %}{{ BASE_URL }}/c/{{ token }}/og-image?skin={{ active_skin }}&amp;v={{ preview_revision }}{% else %}{{ BASE_URL }}{{ asset('og-friends.jpg' if active_skin == 'friends' else 'og-default.jpg') }}{% endif %}">
   <meta property="og:type" content="website">
   <meta name="theme-color" content="{{ '#554eae' if active_skin == 'friends' else '#b65f6f' }}">
   <script src="{{ asset('theme.js') }}"></script>
   {% if active_skin == 'friends' %}
-  <link rel="apple-touch-icon" href="/static/apple-touch-icon-friends.png">
-  <link rel="manifest" href="/static/manifest-friends.json">
+  <link rel="apple-touch-icon" href="{{ asset('apple-touch-icon-friends.png') }}">
+  <link rel="manifest" href="{{ asset('manifest-friends.json') }}">
   <link rel="icon" href="{{ asset('favicon-standard.png') }}">
   {% else %}
-  <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
-  <link rel="manifest" href="/static/manifest.json">
+  <link rel="apple-touch-icon" href="{{ asset('apple-touch-icon.png') }}">
+  <link rel="manifest" href="{{ asset('manifest.json') }}">
   <link rel="icon" href="{{ asset('favicon-romantic.png') }}">
   {% endif %}
   <link rel="stylesheet" href="{{ asset('public.css') }}">
@@ -147,7 +147,10 @@
   {% if vote_state.status != 'unconfigured' %}
   <section class="vote-summary vote-{{ vote_state.status }}">
     {% if vote_state.status == 'open' %}
-      <b role="timer" data-vote-countdown data-deadline="{{ vote_state.voting_deadline }}+03:00">До конца голосования осталось…</b>
+      <div class="vote-countdown" role="timer">
+        <span class="vote-countdown-label" data-countdown-label>До конца голосования</span>
+        <b data-vote-countdown data-deadline="{{ vote_state.voting_deadline }}+03:00">считаем…</b>
+      </div>
     {% elif vote_state.status == 'tie' %}
       <b>Голосование завершено — ничья</b>
       <span>Организатор вручную выберет один из вариантов-лидеров. Голоса уже зафиксированы.</span>
@@ -190,7 +193,7 @@
         {% for v in d.videos %}
         <video data-src="/c/{{ token }}/video/{{ v['filename'] }}" controls playsinline
                preload="none"
-               poster="{% if d.images %}/c/{{ token }}/image/{{ d.images[0]['filename'] }}?w=960{% else %}{{ asset('date-default.jpg') }}{% endif %}"></video>
+               poster="{% if d.images %}/c/{{ token }}/image/{{ d.images[0]['filename'] }}?w=960{% else %}{{ asset('date-default-friends.jpg' if active_skin == 'friends' else 'date-default.jpg') }}{% endif %}"></video>
         {% endfor %}
       </div>
     </div>
@@ -382,8 +385,8 @@
   </footer>
 </div>
 
-{% if vote_state.status in ('unconfigured', 'open') %}<button class="fab" id="fabPropose" aria-label="Создать своё событие">
-  <span class="fab-label">Создать своё событие</span>
+{% if vote_state.status in ('unconfigured', 'open') %}<button class="fab" id="fabPropose" aria-label="Предложить своё событие">
+  <span class="fab-label">Предложить своё событие</span>
 </button>{% endif %}
 
 <!-- Вход прямо со страницы подборки (модалка с Telegram Login Widget) -->
@@ -479,7 +482,7 @@
 <dialog id="propDlg" class="date-widget-dialog">
   <div class="date-widget-head">
     <div>
-      <h3 class="dlg-head" id="propHead">Создать своё событие</h3>
+      <h3 class="dlg-head" id="propHead">Предложить своё событие</h3>
       <p class="dlg-sub">Кликай по карточке и меняй её прямо здесь{% if active_skin == 'romantic' %}&nbsp;♥{% endif %}</p>
     </div>
     <button type="button" class="date-widget-x" id="propCancel" aria-label="Закрыть">✕</button>
@@ -501,7 +504,7 @@
             <span class="ed-gallery-pay pay" id="propPayPhoto" hidden></span>
             <div class="ed-slides" id="propSlides"></div>
             <div class="ed-empty" id="propEmpty">
-              <img class="ed-empty-logo" src="/static/date-default.jpg" alt="" draggable="false">
+              <img class="ed-empty-logo" src="{{ asset('date-default-friends.jpg' if active_skin == 'friends' else 'date-default.jpg') }}" alt="" draggable="false">
               <div class="ed-empty-inner">
                 <button type="button" class="btn small" id="propAddMedia">Добавить фото или видео</button>
               </div>
@@ -513,7 +516,7 @@
 
           <div class="body">
             <h3 class="ttl">
-              <span class="required-title"><span class="ed-field" id="propEdTitle" data-ph="Название события"></span><sup class="required-mark" aria-hidden="true">*</sup></span>
+              <span class="required-title"><span class="ed-field" id="propEdTitle" data-ph="Название события" aria-required="true"></span><sup class="required-mark" aria-hidden="true">*</sup></span>
               <span class="pay" id="propPayPill" hidden></span>
             </h3>
             <div class="pmeta">
@@ -594,7 +597,7 @@
     <div class="upbar" id="propBar" hidden><i></i></div>
     <div class="savebar date-widget-actions">
       <button type="button" class="btn ghost" id="propCancelBottom">Отмена</button>
-      <button type="submit" class="btn book" id="propSubmit">Создать своё событие</button>
+      <button type="submit" class="btn book" id="propSubmit">Предложить своё событие</button>
     </div>
   </form>
 </dialog>

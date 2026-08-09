@@ -28,15 +28,16 @@
       {% else %}
       <div class="share-cat">{{ share['name'] }}</div>
       {% endif %}
-      {% if share['voting_status'] == 'open' and share['voting_deadline'] %}
-      <div class="dashboard-vote-countdown">
-        <b role="timer" data-vote-countdown data-countdown-scale="fixed"
-           data-deadline="{{ share['voting_deadline'] }}+03:00">До конца голосования осталось…</b>
-      </div>
-      {% endif %}
       {% set share_friends = share['category_skin'] == 'friends' %}
-      <div class="og-preview" aria-label="так ссылка выглядит при отправке">
-        <img class="og-img" src="{% if share_has_og %}/admin/categories/{{ share['id'] }}/og-preview?skin={{ share['category_skin'] }}{% else %}{{ asset('og-default.jpg') }}{% endif %}" alt="">
+      <div class="og-preview dashboard-og-preview" aria-label="так ссылка выглядит при отправке">
+        <img class="og-img" src="{% if share['use_default_preview'] %}{{ asset('og-friends.jpg' if share['category_skin'] == 'friends' else 'og-default.jpg') }}{% elif share_has_og %}/admin/categories/{{ share['id'] }}/og-preview?skin={{ share['category_skin'] }}&amp;v={{ share_preview_revision }}{% else %}{{ asset('og-friends.jpg' if share['category_skin'] == 'friends' else 'og-default.jpg') }}{% endif %}" alt="">
+        {% if share['voting_status'] == 'open' and share['voting_deadline'] %}
+        <div class="dashboard-vote-countdown" role="timer">
+          <span data-countdown-label>До конца</span>
+          <b data-vote-countdown data-countdown-scale="fixed"
+             data-deadline="{{ share['voting_deadline'] }}+03:00">считаем…</b>
+        </div>
+        {% endif %}
         <div class="og-text">
           <div class="og-title">{{ share['og_title'] or ('Собираемся вместе' if share_friends else 'Тебя ждёт сюрприз ♥') }}</div>
           <div class="og-desc">{{ share['og_desc'] or ('Открой и выбери удобный вариант' if share_friends else 'Открой — внутри кое-что приятное') }}</div>
@@ -77,8 +78,7 @@
 
 <div class="card cfeed-card-wrap">
   <div class="cfeed-intro" data-tour="dashboard-feed">
-    <b>Встречи сообщества</b>
-    <p class="muted" style="margin:6px 0 14px;font-size:13.5px">Публичные события других людей — листай и добавляй понравившиеся себе в коллекцию.</p>
+    <b>Лента событий</b>
   </div>
   <div class="cfeed" id="communityFeed" data-feed-url="/admin/community"></div>
   <p class="muted cfeed-empty" id="cfeedEmpty" hidden style="text-align:center;padding:20px 0">Пока пусто — как появятся публичные события, они возникнут здесь 🌙</p>
@@ -89,5 +89,23 @@
 <dialog id="communityDlg" class="community-dlg">
   <button type="button" class="dlg-x" id="cwidClose" aria-label="Закрыть">✕</button>
   <div id="cwidBody"></div>
+</dialog>
+
+<!-- Жалоба на событие из ленты -->
+<dialog id="communityReportDlg" class="community-dlg community-report-dlg"
+        aria-labelledby="communityReportTitle">
+  <h2 class="dlg-head" id="communityReportTitle">Пожаловаться на «<span id="communityReportName"></span>»</h2>
+  <p class="dlg-sub">Сообщи, если контент нарушает правила — модератор проверит.</p>
+  <form id="communityReportForm" method="post">
+    <input type="hidden" name="target_type" value="date">
+    <input type="hidden" name="target_id" id="communityReportTargetId">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <textarea name="reason" id="communityReportReason" maxlength="1000"
+              placeholder="Что не так? (необязательно)"></textarea>
+    <div class="community-report-actions">
+      <button type="button" class="btn ghost" id="communityReportCancel">Отмена</button>
+      <button type="submit" class="btn primary">Отправить жалобу</button>
+    </div>
+  </form>
 </dialog>
 {% endblock %}

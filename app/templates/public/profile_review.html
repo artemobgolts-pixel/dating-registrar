@@ -11,7 +11,7 @@
   {% if review['images'] %}
   <meta property="og:image" content="{{ BASE_URL }}/d/{{ review['share_token'] }}/image/{{ review['images'][0]['filename'] }}">
   {% else %}
-  <meta property="og:image" content="{{ BASE_URL }}{{ asset('og-default.jpg') }}">
+  <meta property="og:image" content="{{ BASE_URL }}{{ asset('og-friends.jpg' if category_skin == 'friends' else 'og-default.jpg') }}">
   {% endif %}
   <meta property="og:type" content="article">
   <link rel="icon" href="{{ asset('favicon-standard.png' if category_skin == 'friends' else 'favicon-romantic.png') }}">
@@ -24,43 +24,10 @@
       data-token="{{ token }}"
       data-auth="{{ '1' if me else '' }}"
       data-csrf="{{ csrf }}"
-      data-skin="{{ category_skin }}">
+      data-skin="{{ category_skin }}"
+      data-ink-interactive="{{ '1' if me and me['cursor_effects'] else '0' }}">
 
-{% if category_skin == 'friends' %}
-<div class="bg-gather" aria-hidden="true">
-  <span class="orbit o1"></span><span class="orbit o2"></span>
-  <span class="dot d1"></span><span class="dot d2"></span><span class="dot d3"></span>
-  <span class="spark s1">✦</span><span class="spark s2">✦</span>
-</div>
-{% else %}
-<div class="bg-hearts" aria-hidden="true">
-  <span>♥</span><span>♡</span><span>♥</span><span>♡</span><span>♥</span><span>♡</span><span>♥</span>
-</div>
-{% endif %}
-<div class="bg-smoke" aria-hidden="true">
-  <svg class="turb" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice">
-    <defs>
-      <radialGradient id="smokeFade" cx="50%" cy="42%" r="62%">
-        <stop offset="0%" stop-color="#b65f6f" stop-opacity="0.55"/>
-        <stop offset="55%" stop-color="#cf7d92" stop-opacity="0.32"/>
-        <stop offset="100%" stop-color="#cf7d92" stop-opacity="0"/>
-      </radialGradient>
-      <filter id="smokeWisp" x="-30%" y="-30%" width="160%" height="160%">
-        <feTurbulence type="fractalNoise" baseFrequency="0.006 0.011" numOctaves="4"
-                      seed="11" stitchTiles="stitch" result="noise"/>
-        <feDisplacementMap in="SourceGraphic" in2="noise" scale="230"
-                           xChannelSelector="R" yChannelSelector="G"/>
-        <feGaussianBlur stdDeviation="7"/>
-      </filter>
-    </defs>
-    <g filter="url(#smokeWisp)">
-      <ellipse class="plume p1" cx="30%" cy="28%" rx="24%" ry="40%" fill="url(#smokeFade)"/>
-      <ellipse class="plume p2" cx="72%" cy="40%" rx="22%" ry="42%" fill="url(#smokeFade)"/>
-      <ellipse class="plume p3" cx="48%" cy="68%" rx="28%" ry="44%" fill="url(#smokeFade)"/>
-    </g>
-  </svg>
-  <span></span><span></span><span></span>
-</div>
+{% include "public/_bg.html" %}
 
 <div class="corner-actions">
   <button type="button" class="promo-btn theme-toggle icon-only" data-theme-toggle
@@ -74,19 +41,16 @@
 
 <div class="wrap review-share-wrap">
   <header class="hero review-share-hero">
-    <span class="review-share-eyebrow">Публичный обзор</span>
+    <span class="review-share-eyebrow">Обзор</span>
     <h1>{{ review['name'] }}</h1>
     {% if category_skin == 'friends' %}
     <div class="hero-mark" aria-hidden="true">{{ icon('gather') }}</div>
     {% else %}
     <div class="hearts" aria-hidden="true"><span>♥</span><span>♥</span><span>♥</span></div>
     {% endif %}
-    <p class="review-share-lead">{{ reviewer_display }} делится впечатлениями после встречи.</p>
   </header>
 
   <main class="profile-review-page">
-    <a class="profile-review-back" href="/d/{{ review['share_token'] }}">← К событию</a>
-
     <div class="review-share-card-shell{{ ' has-cover' if review['images'] else '' }}">
       {% include "public/_profile_review_widget.html" %}
       {% if not me or me['id'] != event_owner_id %}
@@ -102,16 +66,15 @@
       <p>Это обзор твоего события — исходная карточка доступна в кабинете.</p>
       <a class="btn ghost" href="/admin/dates">Открыть мои события</a>
       {% elif me %}
-      <h2 id="review-add-title">Хочешь сохранить идею?</h2>
-      <p>Добавь событие в свою коллекцию, чтобы вернуться к нему позже или включить в категорию.</p>
+      <h2 id="review-add-title">Понравился обзор?</h2>
       <form method="post" action="/d/{{ token }}/add">
         <input type="hidden" name="csrf" value="{{ csrf }}">
         <button type="submit" class="btn book">{{ icon('plus') }} Добавить событие в коллекцию</button>
       </form>
       {% else %}
-      <h2 id="review-add-title">Хочешь сохранить идею?</h2>
+      <h2 id="review-add-title">Понравился обзор?</h2>
       <p>Войди, чтобы добавить событие в свою коллекцию.</p>
-      <button type="button" class="btn book" data-login-open>Войти и добавить</button>
+      <button type="button" class="btn book" data-login-open>{{ icon('plus') }} Добавить событие в коллекцию</button>
       {% endif %}
     </section>
   </main>
@@ -172,6 +135,7 @@
 
 {% if not me %}<script nonce="{{ csp_nonce }}" src="{{ asset('auth.js') }}"></script>{% endif %}
 <script src="{{ asset('confirm.js') }}" defer></script>
+<script src="{{ asset('ink.js') }}" defer></script>
 <script src="{{ asset('public_review.js') }}" defer></script>
 </body>
 </html>

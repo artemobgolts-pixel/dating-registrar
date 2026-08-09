@@ -14,11 +14,21 @@ class PublicReviewPageUiTests(unittest.TestCase):
         page = source("templates/public/profile_review.html")
 
         self.assertIn('{% include "public/_profile_review_widget.html" %}', page)
+        self.assertIn('{% include "public/_bg.html" %}', page)
         self.assertIn('class="review-share-page"', page)
-        self.assertIn('class="bg-gather"', page)
-        self.assertIn('class="bg-hearts"', page)
+        self.assertNotIn('class="bg-gather"', page)
+        self.assertNotIn('class="bg-hearts"', page)
         self.assertIn('class="corner-actions"', page)
         self.assertIn('class="hero review-share-hero"', page)
+        self.assertIn('<span class="review-share-eyebrow">Обзор</span>', page)
+        self.assertNotIn("Публичный обзор", page)
+        self.assertNotIn("делится впечатлениями после встречи", page)
+        self.assertNotIn("Хочешь сохранить идею?", page)
+        self.assertIn("Понравился обзор?", page)
+        self.assertNotIn("Добавь событие в свою коллекцию, чтобы", page)
+        self.assertNotIn("Войти и добавить", page)
+        self.assertNotIn("profile-review-back", page)
+        self.assertNotIn("← К событию", page)
         self.assertIn('class="report-link review-share-report"', page)
         self.assertIn('data-report-open', page)
         self.assertIn('id="reportDlg"', page)
@@ -29,6 +39,8 @@ class PublicReviewPageUiTests(unittest.TestCase):
         self.assertIn('<footer>', page)
         self.assertIn("{{ asset('confirm.js') }}", page)
         self.assertIn("{{ asset('public_review.js') }}", page)
+        self.assertIn("{{ asset('ink.js') }}", page)
+        self.assertIn("data-ink-interactive=", page)
         self.assertLess(page.index("{{ asset('confirm.js') }}"),
                         page.index("{{ asset('public_review.js') }}"))
         self.assertNotIn("{{ asset('guest.js') }}", page)
@@ -44,7 +56,17 @@ class PublicReviewPageUiTests(unittest.TestCase):
         self.assertIn("favicon-romantic.png", page)
         self.assertIn("{{ asset('theme.js') }}", page)
 
-    def test_dedicated_script_handles_login_report_csrf_and_toast(self):
+    def test_css_fallback_matches_the_dashboard_background(self):
+        css = (APP / "static/public.css").read_text(encoding="utf-8")
+
+        self.assertIn(".review-share-page .bg-smoke .turb {", css)
+        self.assertIn("opacity: .5; mix-blend-mode: multiply; animation: none", css)
+        self.assertIn(".review-share-page .bg-smoke span { filter: blur(80px); }", css)
+        self.assertIn("width: 80vw; height: 80vw; left: -16vw; top: -18vh", css)
+        self.assertIn("rgba(76,97,184,.34)", css)
+        self.assertIn("rgba(70,84,159,.4)", css)
+
+    def test_dedicated_script_handles_login_report_csrf_and_button_feedback(self):
         script = source("static/public_review.js")
         css = source("static/public.css")
 
@@ -58,11 +80,17 @@ class PublicReviewPageUiTests(unittest.TestCase):
         self.assertIn('window.matchMedia("(pointer: coarse) and (max-width: 900px)")', script)
         self.assertIn('navigator.share({', script)
         self.assertIn('navigator.clipboard.writeText(text)', script)
-        self.assertIn('toast("Ссылка скопирована")', script)
+        self.assertIn('function copiedFeedback(button)', script)
+        self.assertIn('button.textContent = "Ссылка скопирована ✓"', script)
+        self.assertIn('button.textContent = original', script)
+        self.assertNotIn('toast("Ссылка скопирована")', script)
         self.assertIn('.review-share-page .profile-review-page .profile-review-widget', css)
         self.assertIn('.review-share-card-shell.has-cover .review-share-report', css)
-        self.assertIn('html[data-skin="friends"] .review-share-page', css)
-        self.assertIn('html[data-theme="dark"] .review-share-page', css)
+        self.assertIn('html[data-skin="friends"] body.review-share-page', css)
+        self.assertIn('html[data-theme="dark"] body.review-share-page', css)
+        self.assertIn('html[data-theme="dark"][data-skin="friends"] body.review-share-page', css)
+        self.assertIn('body.review-share-page::before', css)
+        self.assertIn('body.review-share-page::after { content: none; display: none; }', css)
 
 
 if __name__ == "__main__":

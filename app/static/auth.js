@@ -126,6 +126,7 @@
       if (errBox) { errBox.textContent = msg; errBox.hidden = false; }
       btn.disabled = false;
       btn.textContent = label;
+      delete btn.dataset.tgDirect;
     }
 
     function poll(code) {
@@ -141,10 +142,26 @@
         .catch(function () { /* временная сетевая ошибка — продолжаем поллинг */ });
     }
 
-    btn.addEventListener("click", function () {
+    btn.addEventListener("click", function (event) {
+      event.preventDefault();
+      event.stopPropagation();
+      // Если браузер заблокировал первое окно, повторный клик уже открывает
+      // готовый deep-link синхронно из пользовательского жеста. В крайнем
+      // случае уходим в Telegram в этой же вкладке — действие не теряется.
+      if (btn.dataset.tgDirect) {
+        var directWindow = window.open(btn.dataset.tgDirect, "_blank", "noopener");
+        if (!directWindow) window.location.assign(btn.dataset.tgDirect);
+        return;
+      }
       if (errBox) errBox.hidden = true;
       btn.disabled = true;
       btn.textContent = "Открываю Telegram…";
+      // Popup создаём до async fetch: Safari и строгие блокировщики считают
+      // window.open после Promise уже не связанным с исходным click.
+      var telegramWindow = window.open("about:blank", "_blank");
+      if (telegramWindow) {
+        try { telegramWindow.opener = null; } catch (_) {}
+      }
       var startUrl = "/auth/start" + (returnTo
         ? "?return_to=" + encodeURIComponent(returnTo) : "");
       fetch(startUrl, { method: "POST", credentials: "same-origin" })
@@ -153,13 +170,30 @@
           return r.json();
         })
         .then(function (d) {
-          window.open(d.url, "_blank", "noopener");
-          if (link) { link.href = d.url; link.hidden = false; }
+          if (telegramWindow && !telegramWindow.closed) {
+            try {
+              telegramWindow.location.replace(d.url);
+            } catch (_) {}
+          }
+          // Оставляем прямой повторный вход даже после успешного открытия:
+          // notification CTA не имеет отдельной fallback-ссылки, а пользователь
+          // мог случайно закрыть Telegram до нажатия Start/Подтвердить.
+          btn.dataset.tgDirect = d.url;
+          btn.disabled = false;
+          btn.textContent = "Открыть Telegram";
+          if (link) {
+            link.href = d.url;
+            link.textContent = "Открыть Telegram";
+            link.hidden = false;
+          }
           if (hint) hint.hidden = false;
           clearInterval(timer);
           timer = setInterval(function () { poll(d.code); }, 2000);
         })
-        .catch(function () { showError("Не получилось начать. Попробуй ещё раз."); });
+        .catch(function () {
+          if (telegramWindow && !telegramWindow.closed) telegramWindow.close();
+          showError("Не получилось начать. Попробуй ещё раз.");
+        });
     });
   }
 

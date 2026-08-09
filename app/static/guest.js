@@ -337,6 +337,7 @@
   let editId = null, removed = new Set(), savedPhotos = [];
   let curVid = null, removedVid = false;
   let propSlide = 0, propObjectUrls = [];
+  let propSession = 0;
   const MAX_PHOTOS = 5;
   const photoPreview = document.createElement("div");
   const videoPreview = document.createElement("div");
@@ -364,13 +365,13 @@
     noZoneBind: true,                 // дроп-зону держит общий mediaUploader
   });
   // общий блок «Медиа»: одна зона принимает и фото, и видео
-  if (UI.mediaUploader) UI.mediaUploader({
+  const propMediaManager = UI.mediaUploader ? UI.mediaUploader({
     zone: $("#propZone"),
     input: $("#propMedia"),
     photo: up,
     video: upv,
     onError: toast,
-  });
+  }) : null;
   if (UI.numberSteppers) UI.numberSteppers(propForm);
   $("#propAddMedia").addEventListener("click", (e) => {
     e.stopPropagation();
@@ -436,10 +437,7 @@
   }
 
   function removeNew(upload, idx) {
-    const files = upload.files();
-    files.splice(idx, 1);
-    upload.clear();
-    if (files.length) upload.addFiles(files);
+    if (upload.removeAt) upload.removeAt(idx);
   }
 
   function renderPropGallery() {
@@ -496,8 +494,12 @@
     function setEdge(button, canNavigate, direction) {
       const canAdd = savedPhotos.filter((p) => !removed.has(p.id)).length +
         up.files().length < MAX_PHOTOS || (!curVid || removedVid) && upv.files().length < 1;
-      button.hidden = !canNavigate && !canAdd;
-      button.classList.toggle("as-add", !canNavigate && canAdd);
+      // Добавление показываем только справа после последнего слайда. На пустом
+      // превью достаточно центральной кнопки; две боковые «+» выглядели как
+      // сломанная навигация и открывали один и тот же picker трижды.
+      const asAdd = direction === "next" && items.length > 0 && !canNavigate && canAdd;
+      button.hidden = !canNavigate && !asAdd;
+      button.classList.toggle("as-add", asAdd);
       button.textContent = canNavigate ? (direction === "prev" ? "‹" : "›") : "+";
     }
     setEdge($("#propPrev"), propSlide > 0, "prev");
@@ -519,6 +521,13 @@
     propSlide = (propSlide + delta + count) % count;
     renderPropGallery();
   }
+
+  function resetPropProgress() {
+    const bar = $("#propBar");
+    const fill = bar && bar.querySelector("i");
+    if (fill) fill.style.width = "0%";
+    if (bar) bar.hidden = true;
+  }
   $("#propPrev").addEventListener("click", (e) => {
     e.stopPropagation();
     if (e.currentTarget.classList.contains("as-add")) $("#propMedia").click();
@@ -531,6 +540,8 @@
   });
 
   function openPropose(meta) {
+    propSession += 1;
+    resetPropProgress();
     propForm.reset();
     up.clear();
     removed = new Set();
@@ -545,8 +556,9 @@
     });
     $("#propCapacity").value = (meta && meta.capacity) || 1;
     editId = meta ? meta.id : null;
-    $("#propHead").textContent = meta ? "Изменить своё событие" : "Создать своё событие";
-    $("#propSubmit").textContent = meta ? "Сохранить изменения" : "Создать своё событие";
+    $("#propHead").textContent = meta ? "Изменить своё событие" : "Предложить своё событие";
+    $("#propSubmit").textContent = meta ? "Сохранить изменения" : "Предложить своё событие";
+    $("#propSubmit").disabled = false;
     propTitleEdit.set(meta ? meta.name : "");
     propPlaceEdit.set(meta ? meta.place : "");
     propLinksEdit.set(meta ? meta.links : "");
@@ -567,9 +579,48 @@
   });
   $("#propCancel").onclick = () => propDlg.close();
   $("#propCancelBottom").onclick = () => propDlg.close();
+  propDlg.addEventListener("close", () => {
+    // Escape, крестик и «Отмена» одинаково отменяют ещё и фоновую подготовку
+    // выбранных файлов. Иначе закончившееся позже сжатие могло попасть в форму
+    // при следующем открытии редактора.
+    if (propMediaManager && propMediaManager.cancelPending) {
+      propMediaManager.cancelPending();
+    }
+    propSession += 1;
+    $("#propSubmit").disabled = false;
+    resetPropProgress();
+    up.clear();
+    upv.clear();
+  });
 
   propForm.addEventListener("submit", async (e) => {
     e.preventDefault();
+    // Название редактируется в contenteditable, поэтому нативная проверка
+    // hidden input его не подсветит. Возвращаем пользователя прямо к полю.
+    propTitleEdit.toField();
+    const titleView = $("#propEdTitle");
+    const titleField = propForm.querySelector('[name="name"]');
+    if (!titleField.value.trim()) {
+      toast("Укажи название события");
+      titleView.scrollIntoView({ block: "center", behavior: "smooth" });
+      titleView.focus();
+      return;
+    }
+    const sub = $("#propSubmit");
+    const submitSession = propSession;
+    sub.disabled = true;
+    // Большие фото сжимаются асинхронно. Дожидаемся их подготовки до сборки
+    // FormData, иначе быстрый submit отправлял событие без только что выбранных
+    // фото (особенно заметно на телефоне).
+    if (propMediaManager && propMediaManager.whenReady) {
+      await propMediaManager.whenReady();
+    }
+    // За время подготовки большого фото пользователь мог закрыть диалог или
+    // открыть его заново. Закрытая/уже другая форма не должна отправляться.
+    if (submitSession !== propSession || !propDlg.open) {
+      if (!propDlg.open) sub.disabled = false;
+      return;
+    }
     const fd = new FormData(propForm);
     let url = `/c/${TOKEN}/propose`;
     if (editId) {
@@ -582,14 +633,19 @@
       if (removedVid && curVid) fd.append("remove_video", curVid.id);
     }
     const bar = $("#propBar"), fill = bar.querySelector("i");
-    const sub = $("#propSubmit");
-    sub.disabled = true;
-    if (up.files().length) { fill.style.width = "0%"; bar.hidden = false; }
+    if (up.files().length || upv.files().length) {
+      fill.style.width = "0%";
+      bar.hidden = false;
+    }
     const raw = await UI.postWithProgress(url, fd, (p) => {
-      fill.style.width = Math.round(p * 100) + "%";
+      if (submitSession === propSession && propDlg.open) {
+        fill.style.width = Math.round(p * 100) + "%";
+      }
     });
+    // Ответ старого запроса не должен закрыть повторно открытый редактор.
+    if (submitSession !== propSession || !propDlg.open) return;
     sub.disabled = false;
-    bar.hidden = true;
+    resetPropProgress();
     if (raw.status === 401 && raw.j.detail && raw.j.detail.need_login) {
       goLogin();
       return;

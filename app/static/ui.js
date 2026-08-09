@@ -200,6 +200,7 @@ window.UI = (() => {
     let files = [];
     let urls = [];
     let focuses = [];                                 // зона кадра на каждое фото («X% Y%»)
+    let generation = 0;                               // отмена незавершённого сжатия после reset
     kind = kind || "image";                           // "image" | "video"
     const isVideo = kind === "video";
     const noun = isVideo ? "видео" : "фото";
@@ -281,7 +282,9 @@ window.UI = (() => {
     }
 
     async function add(list) {
+      const ownGeneration = generation;
       for (const f of [...list]) {
+        if (ownGeneration !== generation) return;
         if (!f) continue;
         const okType = isVideo
           ? (!f.type || f.type.startsWith("video/"))
@@ -295,6 +298,9 @@ window.UI = (() => {
           break;
         }
         const g = await shrink(f);
+        // Диалог могли закрыть и открыть заново, пока createImageBitmap/canvas
+        // готовили большое фото. Не переносим файл из старой формы в новую.
+        if (ownGeneration !== generation) return;
         if (g.size > maxBytes) {
           onError(`«${f.name}» больше ${Math.round(maxBytes / 1048576)} МБ — не добавил`);
           continue;
@@ -367,7 +373,13 @@ window.UI = (() => {
         if (onFocus) onFocus(idx, focus, files);
       },
       hasFiles: () => files.length > 0,
-      clear() { files = []; focuses = []; sync(); },
+      removeAt(idx) {
+        if (idx < 0 || idx >= files.length) return;
+        files.splice(idx, 1);
+        focuses.splice(idx, 1);
+        sync();
+      },
+      clear() { generation += 1; files = []; focuses = []; sync(); },
     };
   }
 
@@ -378,7 +390,9 @@ window.UI = (() => {
      идут в одной зоне (плитки добавляются в общий контейнер). */
   function mediaUploader({ zone, input, photo, video, onError }) {
     onError = onError || ((m) => alert(m));
-    function route(list) {
+    let pending = Promise.resolve();
+    let generation = 0;
+    async function route(list) {
       const imgs = [], vids = [];
       [...list].forEach((f) => {
         if (!f) return;
@@ -386,8 +400,24 @@ window.UI = (() => {
         if (t.startsWith("video/")) vids.push(f);
         else imgs.push(f);                 // пустой type (HEIC) считаем фото
       });
-      if (imgs.length) photo.addFiles(imgs);
-      if (vids.length) video.addFiles(vids);
+      await Promise.all([
+        imgs.length ? photo.addFiles(imgs) : null,
+        vids.length ? video.addFiles(vids) : null,
+      ]);
+    }
+    function enqueue(list) {
+      // FileList живёт у input и обнулится сразу после change — делаем снимок.
+      const snapshot = [...list];
+      const ownGeneration = generation;
+      pending = pending.then(() => {
+        if (ownGeneration !== generation) return;
+        return route(snapshot);
+      }).catch(() => {
+        if (ownGeneration === generation) {
+          onError("Не удалось подготовить медиа — попробуй другой файл");
+        }
+      });
+      return pending;
     }
     zone.addEventListener("click", (e) => {
       // В карточном редакторе большой `.ed-slide` сам обрабатывает drag точки
@@ -401,16 +431,44 @@ window.UI = (() => {
     zone.addEventListener("drop", (e) => {
       e.preventDefault();
       zone.classList.remove("over");
-      if (e.dataTransfer && e.dataTransfer.files) route(e.dataTransfer.files);
+      if (e.dataTransfer && e.dataTransfer.files) enqueue(e.dataTransfer.files);
     });
-    input.addEventListener("change", () => { route(input.files); input.value = ""; });
-    return { photo, video };
+    input.addEventListener("change", () => {
+      enqueue(input.files);
+      input.value = "";
+    });
+    return {
+      photo,
+      video,
+      whenReady: () => pending,
+      // Новая сессия формы не должна ждать тяжёлое сжатие, отменённое при
+      // закрытии предыдущей. Старый Promise спокойно завершится в фоне, а
+      // generation внутри обоих uploader-ов не даст ему вернуть старые файлы.
+      cancelPending: () => {
+        generation += 1;
+        pending = Promise.resolve();
+      },
+    };
   }
 
   /* --- Чипы быстрого выбора даты и времени ------------------------------ */
   function dateChips(root, startInput, endInput) {
     const pad = (n) => String(n).padStart(2, "0");
     const dstr = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    const localValue = (d) => `${dstr(d)}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    // Не полагаемся на Date.parse("YYYY-MM-DDTHH:mm"): старые WebView и
+    // некоторые версии Safari разбирают значение datetime-local по-разному.
+    // Явная сборка заодно позволяет отличить неполное значение от настоящей
+    // даты до того, как начнём прибавлять длительность.
+    const localDate = (value) => {
+      const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value || "");
+      if (!m) return null;
+      const d = new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], 0, 0);
+      if (d.getFullYear() !== +m[1] || d.getMonth() !== +m[2] - 1 ||
+          d.getDate() !== +m[3] || d.getHours() !== +m[4] ||
+          d.getMinutes() !== +m[5]) return null;
+      return d;
+    };
     const flash = (el) => { el.classList.add("flash"); setTimeout(() => el.classList.remove("flash"), 450); };
     const touch = (el) => { flash(el); el.dispatchEvent(new Event("input", { bubbles: true })); };
 
@@ -436,16 +494,26 @@ window.UI = (() => {
     root.querySelectorAll("[data-dur]").forEach((ch) => {
       ch.addEventListener("click", () => {
         if (!endInput) return;
-        if (!startInput.value) { flash(startInput); return; }
+        const hours = Number(ch.dataset.dur);
+        if (!Number.isFinite(hours) || hours <= 0) return;
+        let start = localDate(startInput.value);
+        // Первый клик по «+N часов» тоже должен быть полезным: если начало ещё
+        // не выбрано, подставляем сегодняшнюю дату и текущее локальное время.
+        // Дальше дата окончания всегда считается именно от этого начала.
+        if (!start) {
+          start = new Date();
+          start.setSeconds(0, 0);
+          startInput.value = localValue(start);
+          touch(startInput);
+        }
         // накопительно: прибавляем к уже выбранному концу, иначе — к началу.
         // конец не может быть раньше начала.
-        const base = (endInput.value && endInput.value > startInput.value)
-          ? endInput.value : startInput.value;
-        const d = new Date(base);
-        d.setMinutes(d.getMinutes() + Number(ch.dataset.dur) * 60);
-        endInput.value = `${dstr(d)}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-        flash(endInput);
-        endInput.dispatchEvent(new Event("input", { bubbles: true }));  // обновить предпросмотр
+        const selectedEnd = localDate(endInput.value);
+        const base = selectedEnd && selectedEnd.getTime() >= start.getTime()
+          ? selectedEnd : start;
+        base.setMinutes(base.getMinutes() + hours * 60);
+        endInput.value = localValue(base);
+        touch(endInput);  // обновить предпросмотр
       });
     });
   }
@@ -1177,13 +1245,17 @@ window.UI = (() => {
         }
         var seconds = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
         var hue = hueFor(seconds);
+        var wrapper = el.closest('[role="timer"]');
+        var label = wrapper && wrapper.querySelector("[data-countdown-label]");
         el.style.setProperty("--countdown-hue", hue.toFixed(2));
         if (el.dataset.countdownScale !== "fixed") {
           var urgency = 1 - Math.min(seconds, day * 2) / (day * 2);
           el.style.setProperty("--countdown-font-size", (18 + urgency * 8).toFixed(2) + "px");
         }
         if (seconds <= 0) {
-          el.textContent = "Голосование завершается…";
+          if (label) label.textContent = "Голосование";
+          el.textContent = "завершается…";
+          if (wrapper) wrapper.setAttribute("aria-label", "Голосование завершается");
           stop();
           return false;
         }
@@ -1196,7 +1268,11 @@ window.UI = (() => {
         if (days || hours) parts.push(hours + " ч.");
         parts.push(minutes + " мин.");
         parts.push(secs + " сек.");
-        el.textContent = "До конца голосования осталось: " + parts.join(" ");
+        var value = parts.join(" ");
+        el.textContent = value;
+        if (wrapper) {
+          wrapper.setAttribute("aria-label", "До конца голосования осталось: " + value);
+        }
         return true;
       }
       if (render()) timer = setInterval(render, 1000);

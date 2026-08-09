@@ -36,6 +36,7 @@ class ReviewCollectionUiTests(unittest.TestCase):
         self.assertIn('class="profile-review-actions', widget)
         self.assertIn(">Сохранить обзор</button>", widget)
         self.assertIn(">Поделиться</button>", widget)
+        self.assertIn("{% if not is_me %}", widget)
         self.assertNotIn("{{ score }} ★", widget)
         self.assertIn(
             "{{ 'checked' if my_review and my_review['rating'] == score else '' }}",
@@ -54,6 +55,8 @@ class ReviewCollectionUiTests(unittest.TestCase):
         self.assertIn('event.target.closest(".profile-review-editor")', profile_js)
         self.assertIn("event.preventDefault();\n      saveReview(form);", profile_js)
         self.assertIn('document.getElementById("review-" + form.dataset.reviewId)', profile_js)
+        self.assertIn('button.classList.contains("profile-review-share")', profile_js)
+        self.assertIn('button.textContent = "Ссылка скопирована ✓"', profile_js)
 
     def test_profile_counts_avatar_and_editor_back_are_aligned(self):
         profile_css = source("static/profile.css")
@@ -73,10 +76,14 @@ class ReviewCollectionUiTests(unittest.TestCase):
         self.assertIn("top: 2px", avatar)
         self.assertIn("right: 2px", avatar)
         self.assertIn('class="btn ghost editor-back date-editor-back"', date_form)
-        self.assertIn(".editor-back.date-editor-back { top: 112px; }", admin_css)
+        self.assertRegex(
+            admin_css,
+            r"\.editor-back\.date-editor-back,\s*"
+            r"\.editor-back\.category-new-back \{ top: 112px; \}",
+        )
         self.assertNotIn("Так твои события, планы и обзоры собраны в профиле.", profile)
 
-    def test_mobile_cards_and_desktop_bulk_list_are_separate(self):
+    def test_event_cards_use_desktop_grid_and_full_width_mobile_cards(self):
         dates = source("templates/admin/dates.html")
         profile_sections = source("templates/public/_profile_sections.html")
         admin_css = source("static/admin.css")
@@ -95,24 +102,85 @@ class ReviewCollectionUiTests(unittest.TestCase):
             dates,
         )
 
-        self.assertIn("repeat(2, minmax(0, 1fr))", admin_css)
+        self.assertIn(
+            "grid-template-columns: repeat(auto-fill, minmax(240px, 1fr))",
+            rule(admin_css, ".grid"),
+        )
+        self.assertIn(
+            ".grid { grid-template-columns: minmax(0, 1fr); gap: 14px; }",
+            admin_css,
+        )
+        self.assertNotIn(
+            ".grid { grid-template-columns: repeat(2, minmax(0, 1fr))",
+            admin_css,
+        )
+        self.assertIn(
+            ".grid .dcard .ph { height: auto; aspect-ratio: 16 / 9; }",
+            admin_css,
+        )
         self.assertIn(".cfeed { grid-template-columns: minmax(0, 1fr); }", admin_css)
-        self.assertNotIn(".grid, .cfeed { grid-template-columns: minmax(0, 1fr); }", admin_css)
         self.assertIn(".dates-bulk-form, .drow-select { display: none; }", admin_css)
         self.assertIn("profile-tab-{{ tab }}", profile_sections)
         self.assertIn(
-            "sizes=\"(max-width: 520px) calc((100vw - 42px) / 2), 340px\"",
+            "sizes=\"(max-width: 520px) calc(100vw - 28px), 480px\"",
             profile_sections,
         )
-        self.assertIn(".pub-dates.profile-tab-events .pub-grid", profile_css)
+        self.assertIn(".pub-grid { grid-template-columns: 1fr; }", profile_css)
         self.assertIn(
-            "grid-template-columns: repeat(2, minmax(0, 1fr))",
-            rule(profile_css, ".pub-dates.profile-tab-events .pub-grid"),
+            ".profile-public-page .pub-grid:not(.review-grid) {\n"
+            "  grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px;",
+            profile_css,
+        )
+        self.assertIn(
+            ".profile-public-page .pub-dates.profile-tab-events .pub-grid {\n"
+            "    grid-template-columns: minmax(0, 1fr); gap: 14px;",
+            profile_css,
         )
         self.assertNotIn(".pub-dates.profile-tab-want .pub-grid", profile_css)
         self.assertIn('document.getElementById("datesBulkForm")', admin_js)
         self.assertIn("bulkAll.indeterminate", admin_js)
         self.assertIn('row.classList.toggle("is-selected", item.checked)', admin_js)
+
+        bulk_form = dates.split('<form class="dates-bulk-form"', 1)[1].split(
+            "</form>", 1,
+        )[0]
+        self.assertNotIn('class="btn small', bulk_form)
+        self.assertGreaterEqual(bulk_form.count("bulk-action"), 4)
+        self.assertGreaterEqual(bulk_form.count(" disabled"), 4)
+        self.assertIn("bulk-danger", bulk_form)
+
+        checkbox = rule(admin_css, ".dates-bulk-all input, .drow-check")
+        self.assertIn("appearance: none", checkbox)
+        self.assertIn("width: 26px", checkbox)
+        self.assertIn("height: 26px", checkbox)
+        self.assertIn("var(--accent)", checkbox)
+        self.assertIn(".dates-bulk-all input:checked, .drow-check:checked", admin_css)
+        self.assertIn(".dates-bulk-all input:indeterminate", admin_css)
+        bulk_buttons = rule(admin_css, ".dates-bulk-actions .btn")
+        self.assertIn("min-height: 42px", bulk_buttons)
+        self.assertIn("border-radius: 12px", bulk_buttons)
+
+    def test_public_profile_uses_full_application_visual_shell(self):
+        template = source("templates/public/profile.html")
+        profile_css = source("static/profile.css")
+
+        self.assertIn('class="profile-public-page"', template)
+        self.assertIn('{% include "public/_bg.html" %}', template)
+        self.assertIn("asset('ink.js')", template)
+        self.assertIn('class="bg-gather"', template)
+        self.assertIn('class="bg-hearts"', template)
+        self.assertIn('class="profile-public-actions"', template)
+        self.assertIn('class="profile-public-shell"', template)
+        self.assertNotIn("<style>", template)
+        self.assertIn("body.profile-public-page", profile_css)
+        self.assertIn(
+            'html[data-skin="friends"] body.profile-public-page', profile_css,
+        )
+        self.assertIn(
+            'html[data-theme="dark"][data-skin="friends"] body.profile-public-page',
+            profile_css,
+        )
+        self.assertIn("-webkit-backdrop-filter: blur(18px)", profile_css)
 
 
 if __name__ == "__main__":

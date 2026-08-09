@@ -96,7 +96,7 @@
           <div class="ed-slide" data-kind="video" data-vid="{{ v['id'] }}">
             <video data-src="/admin/uploads/{{ v['filename'] }}" controls preload="none"
                    playsinline
-                   poster="{% if photos %}/admin/uploads/{{ photos[0]['filename'] }}?w=960{% else %}{{ asset('date-default.jpg') }}{% endif %}"></video>
+                   poster="{% if photos %}/admin/uploads/{{ photos[0]['filename'] }}?w=960{% else %}{{ asset('date-default-friends.jpg' if user['admin_skin'] == 'friends' else 'date-default.jpg') }}{% endif %}"></video>
             <button type="button" class="ed-slide-rm" data-rm-video="{{ v['id'] }}" aria-label="Удалить видео">✕</button>
           </div>
           {% endfor %}
@@ -104,7 +104,7 @@
         </div>
         <div class="ed-empty" id="edEmpty" {% if (date and (photos or videos)) %}hidden{% endif %}>
           {# D5: по умолчанию — наше лого фоном (пока своё фото не добавлено) #}
-          <img class="ed-empty-logo" src="/static/date-default.jpg" alt="" draggable="false">
+          <img class="ed-empty-logo" src="{{ asset('date-default-friends.jpg' if user['admin_skin'] == 'friends' else 'date-default.jpg') }}" alt="" draggable="false">
           <div class="ed-empty-inner">
             <button type="button" class="btn small" id="edAddFirst">Добавить фото или видео</button>
           </div>

@@ -20,6 +20,7 @@ __pycache__/
 .venv/
 venv/
 .pytest_cache/
+tmp/
 
 # редакторы и ОС
 .idea/

@@ -1,0 +1,338 @@
+#!/usr/bin/env python3
+"""Регрессии гостевого виджета предложения события."""
+
+from __future__ import annotations
+
+import unittest
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+APP = ROOT / "app"
+
+
+class GuestProposalWidgetContractTests(unittest.TestCase):
+    def test_guest_copy_and_accessibility_are_consistent(self):
+        template = (APP / "templates/public/category.html").read_text("utf-8")
+        guest_js = (APP / "static/guest.js").read_text("utf-8")
+
+        self.assertGreaterEqual(template.count("Предложить своё событие"), 3)
+        self.assertNotIn("Создать своё событие", template)
+        self.assertIn('id="propEdTitle"', template)
+        self.assertIn('aria-required="true"', template)
+        self.assertIn('asset(\'date-default-friends.jpg\' if active_skin == \'friends\'', template)
+        self.assertIn('toast("Укажи название события")', guest_js)
+        self.assertIn("await propMediaManager.whenReady()", guest_js)
+        self.assertIn("up.files().length || upv.files().length", guest_js)
+        self.assertIn("submitSession !== propSession || !propDlg.open", guest_js)
+        self.assertIn("function resetPropProgress()", guest_js)
+
+    def test_empty_gallery_has_only_the_central_add_action(self):
+        guest_js = (APP / "static/guest.js").read_text("utf-8")
+
+        self.assertIn('direction === "next" && items.length > 0', guest_js)
+        self.assertIn('button.classList.toggle("as-add", asAdd)', guest_js)
+
+
+class GuestProposalMediaBrowserTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        try:
+            from playwright.sync_api import sync_playwright
+        except Exception as exc:  # pragma: no cover - зависит от dev-окружения
+            raise unittest.SkipTest(f"playwright недоступен: {exc!r}") from exc
+        try:
+            cls.playwright = sync_playwright().start()
+            cls.browser = cls.playwright.chromium.launch(headless=True)
+        except Exception as exc:  # pragma: no cover - браузер может быть не установлен
+            if getattr(cls, "playwright", None):
+                cls.playwright.stop()
+            raise unittest.SkipTest(f"playwright chromium недоступен: {exc!r}") from exc
+
+    @classmethod
+    def tearDownClass(cls):
+        if getattr(cls, "browser", None):
+            cls.browser.close()
+        if getattr(cls, "playwright", None):
+            cls.playwright.stop()
+
+    def make_page(self):
+        page = self.browser.new_page()
+        self.addCleanup(page.close)
+        page.set_content("""
+          <form id="form">
+            <div id="zone"></div>
+            <input id="media" type="file" multiple>
+            <input id="photos" name="images" type="file" multiple>
+            <input id="video" name="video" type="file">
+          </form>
+          <div id="photoPreview"></div>
+          <div id="videoPreview"></div>
+        """)
+        page.add_script_tag(content=(APP / "static/ui.js").read_text("utf-8"))
+        page.evaluate("""() => {
+          window.photoUpload = UI.uploader({
+            zone: document.querySelector('#zone'),
+            input: document.querySelector('#photos'),
+            preview: document.querySelector('#photoPreview'),
+            max: 5,
+            noZoneBind: true,
+          });
+          window.videoUpload = UI.uploader({
+            zone: document.querySelector('#zone'),
+            input: document.querySelector('#video'),
+            preview: document.querySelector('#videoPreview'),
+            max: 1,
+            kind: 'video',
+            noZoneBind: true,
+          });
+          window.mediaManager = UI.mediaUploader({
+            zone: document.querySelector('#zone'),
+            input: document.querySelector('#media'),
+            photo: window.photoUpload,
+            video: window.videoUpload,
+          });
+        }""")
+        return page
+
+    def test_mixed_picker_finishes_before_form_data_is_built(self):
+        page = self.make_page()
+        page.locator("#media").set_input_files([
+            {"name": "idea.png", "mimeType": "image/png", "buffer": b"small-image"},
+            {"name": "idea.mp4", "mimeType": "video/mp4", "buffer": b"small-video"},
+        ])
+        page.evaluate("mediaManager.whenReady()")
+
+        result = page.evaluate("""() => ({
+          photos: photoUpload.files().map(file => file.name),
+          videos: videoUpload.files().map(file => file.name),
+          formFiles: [...new FormData(document.querySelector('#form')).entries()]
+            .filter(([, value]) => value instanceof File && value.name)
+            .map(([name, value]) => [name, value.name]),
+        })""")
+        self.assertEqual(result["photos"], ["idea.png"])
+        self.assertEqual(result["videos"], ["idea.mp4"])
+        self.assertEqual(result["formFiles"], [
+            ["images", "idea.png"], ["video", "idea.mp4"],
+        ])
+
+    def test_reset_cancels_a_photo_still_being_prepared(self):
+        page = self.make_page()
+        count = page.evaluate("""async () => {
+          window.createImageBitmap = () => new Promise(resolve => {
+            setTimeout(() => resolve({ width: 20, height: 20 }), 40);
+          });
+          const file = new File(
+            [new Uint8Array(1300 * 1024)], 'large.png', { type: 'image/png' }
+          );
+          const adding = photoUpload.addFiles([file]);
+          setTimeout(() => photoUpload.clear(), 5);
+          await adding;
+          return photoUpload.files().length;
+        }""")
+        self.assertEqual(count, 0)
+
+    def test_cancel_pending_drops_a_queued_picker_change(self):
+        page = self.make_page()
+        count = page.evaluate("""async () => {
+          const transfer = new DataTransfer();
+          transfer.items.add(new File(['x'], 'stale.png', { type: 'image/png' }));
+          const input = document.querySelector('#media');
+          input.files = transfer.files;
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+          mediaManager.cancelPending();
+          await mediaManager.whenReady();
+          return photoUpload.files().length;
+        }""")
+        self.assertEqual(count, 0)
+
+    def test_cancelled_shrink_does_not_block_a_new_form_session(self):
+        page = self.make_page()
+        result = page.evaluate("""async () => {
+          window.createImageBitmap = () => new Promise(resolve => {
+            setTimeout(() => resolve({ width: 20, height: 20 }), 240);
+          });
+          const transfer = new DataTransfer();
+          transfer.items.add(new File(
+            [new Uint8Array(1300 * 1024)], 'stale-large.png',
+            { type: 'image/png' }
+          ));
+          const input = document.querySelector('#media');
+          input.files = transfer.files;
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+          // Даём route() войти в асинхронный shrink, затем имитируем закрытие
+          // диалога: отделяем очередь новой сессии и очищаем оба uploader-а.
+          await new Promise(resolve => setTimeout(resolve, 10));
+          mediaManager.cancelPending();
+          photoUpload.clear();
+          videoUpload.clear();
+          const started = performance.now();
+          await mediaManager.whenReady();
+          const waitMs = performance.now() - started;
+          await new Promise(resolve => setTimeout(resolve, 280));
+          return { waitMs, photos: photoUpload.files().length };
+        }""")
+        self.assertLess(result["waitMs"], 80, result)
+        self.assertEqual(result["photos"], 0)
+
+    def test_closing_dialog_during_photo_shrink_does_not_post(self):
+        page = self.browser.new_page()
+        self.addCleanup(page.close)
+        page_errors = []
+        page.on("pageerror", lambda error: page_errors.append(str(error)))
+        page.set_content("""
+          <body data-token="test" data-auth="1" data-csrf="csrf" data-skin="friends">
+            <div id="toast"></div>
+
+            <dialog id="askDlg"><form id="askForm"></form></dialog>
+            <button id="askCancel" type="button"></button>
+            <dialog id="reportDlg"><form id="reportForm"></form></dialog>
+            <button id="reportCancel" type="button"></button>
+            <dialog id="timeDlg">
+              <form id="timeForm">
+                <input id="timeStart" type="datetime-local">
+                <input id="timeEnd" type="datetime-local">
+              </form>
+            </dialog>
+            <button id="timeCancel" type="button"></button>
+
+            <button id="fabPropose" type="button">Предложить</button>
+            <dialog id="propDlg">
+              <button id="propCancel" type="button">Закрыть</button>
+              <h3 id="propHead"></h3>
+              <form id="propForm">
+                <input name="name" type="hidden">
+                <input name="place" type="hidden">
+                <textarea name="comment" id="propComment" hidden></textarea>
+                <textarea name="links" id="propLinks" hidden></textarea>
+                <input name="images" id="propFiles" type="file" multiple hidden>
+                <input name="video" id="propVideo" type="file" hidden>
+                <input id="propMedia" type="file" multiple hidden>
+
+                <div id="propZone">
+                  <button id="propAddMedia" type="button">Медиа</button>
+                  <div id="propSlides"></div>
+                  <div id="propEmpty"></div>
+                  <button id="propPrev" type="button"></button>
+                  <button id="propNext" type="button"></button>
+                  <div id="propDots"></div>
+                  <span id="propPayPhoto"></span>
+                </div>
+                <span id="propEdTitle"></span>
+                <span id="propEdPlace"></span>
+                <span id="propEdLinks"></span>
+                <span id="propPayPill"></span>
+                <div id="propDescEditable" contenteditable="true"></div>
+                <div id="propDescToolbar"></div>
+                <div id="propEdWhen">
+                  <input data-tr-day type="hidden">
+                  <input name="starts_at" data-tr-start type="hidden">
+                  <input name="ends_at" data-tr-end type="hidden">
+                  <span data-tr-dd></span><span data-tr-mo></span><span data-tr-yy></span>
+                  <span data-tr-hh></span><span data-tr-mm></span>
+                  <span data-tr-ehh></span><span data-tr-emm></span>
+                </div>
+                <label><input name="pay" value="0" type="radio" checked></label>
+                <span data-number-stepper>
+                  <button data-step="-1" type="button"></button>
+                  <input id="propCapacity" name="capacity" type="number"
+                         min="1" max="100" value="1">
+                  <button data-step="1" type="button"></button>
+                </span>
+                <div id="propBar" hidden><i></i></div>
+                <button id="propCancelBottom" type="button">Отмена</button>
+                <button id="propSubmit" type="submit">Предложить</button>
+              </form>
+            </dialog>
+
+            <dialog id="calDlg"></dialog>
+            <button id="calCancel" type="button"></button>
+            <a id="calGoogle"></a><a id="calIcs"></a>
+            <div id="lightbox"><img><button id="lbX"></button></div>
+            <button id="lbPrev"></button><button id="lbNext"></button>
+            <div id="lbCount"></div>
+          </body>
+        """)
+        page.add_script_tag(content=(APP / "static/ui.js").read_text("utf-8"))
+        page.evaluate("""() => {
+          window.__proposalPosts = [];
+          window.__xhrDelay = 0;
+          window.XMLHttpRequest = class {
+            constructor() {
+              this.upload = { addEventListener: (name, callback) => {
+                if (name === 'progress') this.onprogress = callback;
+              }};
+            }
+            open(method, url) { this.method = method; this.url = url; }
+            setRequestHeader() {}
+            send() {
+              window.__proposalPosts.push([this.method, this.url]);
+              if (this.onprogress) {
+                this.onprogress({ lengthComputable: true, loaded: 1, total: 2 });
+              }
+              this.status = 200;
+              this.responseText = '{"ok":true,"moderated":false}';
+              setTimeout(() => { if (this.onload) this.onload(); }, window.__xhrDelay);
+            }
+          };
+          window.createImageBitmap = () => new Promise(resolve => {
+            setTimeout(() => resolve({ width: 20, height: 20 }), 120);
+          });
+        }""")
+        page.add_script_tag(content=(APP / "static/guest.js").read_text("utf-8"))
+
+        page.locator("#fabPropose").click()
+        page.locator("#propEdTitle").evaluate("""element => {
+          element.textContent = 'Большое фото';
+          element.dispatchEvent(new Event('input', { bubbles: true }));
+        }""")
+        page.locator("#propMedia").set_input_files({
+            "name": "large.png",
+            "mimeType": "image/png",
+            "buffer": b"x" * (1300 * 1024),
+        })
+        page.locator("#propSubmit").click()
+        self.assertTrue(page.locator("#propSubmit").is_disabled())
+        page.locator("#propCancel").click()
+        page.wait_for_timeout(180)
+
+        self.assertFalse(page.locator("#propDlg").evaluate("dialog => dialog.open"))
+        self.assertFalse(page.locator("#propSubmit").is_disabled())
+        self.assertEqual(page.evaluate("window.__proposalPosts"), [])
+
+        # Теперь пропускаем подготовку и закрываем уже после старта XHR. Его
+        # progress/onload не должны протечь в заново открытый экземпляр формы.
+        page.locator("#fabPropose").click()
+        page.locator("#propEdTitle").evaluate("""element => {
+          element.textContent = 'Быстрое фото';
+          element.dispatchEvent(new Event('input', { bubbles: true }));
+        }""")
+        page.locator("#propMedia").set_input_files({
+            "name": "small.png", "mimeType": "image/png", "buffer": b"small",
+        })
+        page.evaluate("window.__xhrDelay = 260")
+        page.locator("#propSubmit").click()
+        page.wait_for_function("window.__proposalPosts.length === 1")
+        self.assertFalse(page.locator("#propBar").evaluate("bar => bar.hidden"))
+        self.assertEqual(
+            page.locator("#propBar i").evaluate("fill => fill.style.width"), "50%"
+        )
+
+        page.locator("#propCancel").click()
+        page.wait_for_function("document.querySelector('#propBar').hidden")
+        self.assertTrue(page.locator("#propBar").evaluate("bar => bar.hidden"))
+        self.assertEqual(
+            page.locator("#propBar i").evaluate("fill => fill.style.width"), "0%"
+        )
+        page.locator("#fabPropose").click()
+        page.wait_for_timeout(300)
+        self.assertTrue(page.locator("#propDlg").evaluate("dialog => dialog.open"))
+        self.assertTrue(page.locator("#propBar").evaluate("bar => bar.hidden"))
+        self.assertEqual(
+            page.locator("#propBar i").evaluate("fill => fill.style.width"), "0%"
+        )
+        self.assertEqual(page_errors, [])
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

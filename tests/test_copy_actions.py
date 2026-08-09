@@ -275,9 +275,11 @@ class CopyActionTests(unittest.TestCase):
             ".cfeed {\n  display: grid;\n  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));",
             css,
         )
-        self.assertIn(".grid { grid-template-columns: repeat(2, minmax(0, 1fr));", css)
+        self.assertIn(".grid { grid-template-columns: minmax(0, 1fr); gap: 14px; }", css)
         self.assertIn(".cfeed { grid-template-columns: minmax(0, 1fr); }", css)
-        self.assertNotIn(".grid, .cfeed { grid-template-columns: minmax(0, 1fr); }", css)
+        self.assertNotIn(
+            ".grid { grid-template-columns: repeat(2, minmax(0, 1fr))", css,
+        )
         self.assertIn(
             "(max-width: 950px) and (max-height: 600px) and (pointer: coarse)", css,
         )
@@ -369,7 +371,8 @@ class CopyActionTests(unittest.TestCase):
             self.assertIn(
                 f'data-add="/d/date-880301/add"', feed.text,
             )
-            self.assertNotIn('class="cfeed-owner"', feed.text)
+            self.assertIn('class="cfeed-owner"', feed.text)
+            self.assertIn("Автор: ", feed.text)
 
             widget = viewer.get(f"/admin/community/date/{source_date}")
             self.assertEqual(widget.status_code, 200)

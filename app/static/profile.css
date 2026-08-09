@@ -290,15 +290,6 @@
   .pub-dates.profile-public-owner { padding-inline: 0; }
   .profile-tabs { justify-content: flex-start; }
   .pub-grid { grid-template-columns: 1fr; }
-  .pub-dates.profile-tab-events .pub-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px;
-  }
-  .profile-tab-events .pub-card .ph { height: clamp(92px, 29vw, 126px); }
-  .profile-tab-events .pub-card .cb { padding: 9px 9px 11px; }
-  .profile-tab-events .pub-card .t { font-size: 15px; overflow-wrap: anywhere; }
-  .profile-tab-events .pub-card .m {
-    font-size: 11px; line-height: 1.35; overflow-wrap: anywhere;
-  }
   .review-card { grid-template-columns: 96px minmax(0, 1fr); }
   .review-card .review-cover { min-height: 132px; }
   .review-card-body { padding-left: 13px; }
@@ -306,4 +297,166 @@
 
 @media (prefers-reduced-motion: reduce) {
   .pub-card, .pub-page-arrow, .profile-toast { transition: none; }
+}
+
+/* Публичный профиль использует ту же визуальную систему, что кабинет:
+   живой фон, матовое стекло и полноценную компоновку вместо отдельной
+   упрощённой «визитки». Все правила scoped, чтобы встроенный профиль в
+   /admin/profile сохранил свою геометрию. */
+body.profile-public-page {
+  background:
+    radial-gradient(700px 360px at 90% -120px, rgba(214, 150, 150, .12), transparent 65%),
+    linear-gradient(180deg, #fdf6f4, #f9eef0 55%, #f6edf2);
+  background-attachment: fixed;
+}
+body.profile-public-page::before,
+body.profile-public-page::after { content: none; display: none; }
+html[data-skin="friends"] body.profile-public-page {
+  background:
+    radial-gradient(760px 420px at 4% -8%, rgba(84, 105, 188, .17), transparent 66%),
+    radial-gradient(640px 420px at 102% 28%, rgba(55, 166, 157, .13), transparent 68%),
+    radial-gradient(620px 400px at 38% 108%, rgba(223, 166, 66, .11), transparent 68%),
+    linear-gradient(180deg, #f8f7f2, #f2f3ef 58%, #f4f1e9);
+}
+html[data-theme="dark"] body.profile-public-page {
+  background:
+    radial-gradient(700px 360px at 90% -120px, rgba(117, 65, 80, .24), transparent 65%),
+    linear-gradient(180deg, #171418, #21181e 55%, #19161d);
+}
+html[data-theme="dark"][data-skin="friends"] body.profile-public-page {
+  background:
+    radial-gradient(760px 420px at 4% -8%, rgba(78, 94, 171, .26), transparent 66%),
+    radial-gradient(640px 420px at 102% 28%, rgba(35, 130, 126, .18), transparent 68%),
+    radial-gradient(620px 400px at 38% 108%, rgba(154, 109, 41, .12), transparent 68%),
+    linear-gradient(180deg, #151923, #191f2c 58%, #171b25);
+}
+.profile-public-actions {
+  position: relative; z-index: 31;
+  width: min(100%, 1020px); margin: 0 auto; padding: 18px 22px 0;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+}
+.profile-public-back {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: 42px; padding: 8px 15px;
+  border: 1px solid rgba(255,255,255,.68); border-radius: 999px;
+  color: var(--rose-2); background: color-mix(in srgb, var(--card) 64%, transparent);
+  -webkit-backdrop-filter: blur(10px) saturate(1.35);
+  backdrop-filter: blur(10px) saturate(1.35);
+  box-shadow: var(--shadow-soft); text-decoration: none; font-size: 13.5px; font-weight: 650;
+  transition: transform .18s ease, background .18s ease, box-shadow .18s ease;
+}
+.profile-public-back:hover {
+  transform: translateY(-1px); background: color-mix(in srgb, var(--card) 84%, transparent);
+  box-shadow: var(--shadow);
+}
+.profile-public-actions .theme-float {
+  position: static; inset: auto; flex: none;
+}
+.profile-public-shell {
+  position: relative; z-index: 1;
+  width: min(100%, 1020px); margin: 0 auto; padding: 18px 22px 80px;
+}
+.profile-public-page .prof {
+  position: relative; overflow: hidden;
+  width: min(100%, 760px); margin: 0 auto; padding: 27px 30px;
+  display: flex; align-items: center; justify-content: center; gap: 26px;
+  border: 1px solid rgba(255,255,255,.72); border-radius: 26px;
+  background: linear-gradient(145deg,
+    color-mix(in srgb, var(--card) 75%, transparent),
+    color-mix(in srgb, var(--card) 54%, transparent));
+  -webkit-backdrop-filter: blur(18px) saturate(1.45);
+  backdrop-filter: blur(18px) saturate(1.45);
+  box-shadow: 0 22px 58px color-mix(in srgb, var(--rose) 16%, transparent),
+              inset 0 1px 0 rgba(255,255,255,.84);
+  text-align: left;
+}
+.profile-public-page .prof::after {
+  content: ""; position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  background: linear-gradient(125deg,
+    color-mix(in srgb, var(--rose) 8%, transparent), transparent 50%,
+    color-mix(in srgb, var(--peach) 8%, transparent));
+}
+.profile-public-page .prof > * { position: relative; z-index: 1; }
+.profile-public-page .prof .ava,
+.profile-public-page .prof .ava-ph {
+  width: 132px; height: 132px; flex: none; margin: 0;
+  border: 3px solid color-mix(in srgb, var(--line) 70%, rgba(255,255,255,.75));
+  border-radius: 50%; box-shadow: 0 12px 30px color-mix(in srgb, var(--ink) 15%, transparent);
+}
+.profile-public-page .prof .ava { display: block; object-fit: cover; }
+.profile-public-page .prof .ava-ph {
+  display: grid; place-items: center; background: var(--rose-soft); font-size: 56px;
+}
+.profile-public-page .prof-copy { min-width: 0; }
+.profile-public-page .prof-kicker {
+  display: block; margin-bottom: 3px; color: var(--rose-2);
+  font-size: 11px; font-weight: 750; letter-spacing: .09em; text-transform: uppercase;
+}
+.profile-public-page .prof h1 {
+  margin: 0 0 7px; color: var(--rose-2); font: 700 clamp(31px, 5vw, 42px)/1.08 var(--serif);
+  overflow-wrap: anywhere;
+}
+.profile-public-page .prof .meta {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 7px;
+  color: var(--muted); font-size: 14px;
+}
+.profile-public-page .prof .meta .row {
+  display: inline-flex; align-items: center; min-height: 30px; margin: 0; padding: 4px 10px;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: color-mix(in srgb, var(--card) 58%, transparent);
+}
+.profile-public-page .prof .me-edit { margin-top: 14px; }
+.profile-public-page .prof .me-edit .btn { margin: 0; }
+.profile-public-page .pub-dates {
+  max-width: 980px; margin-top: 38px; padding: 0 0 16px;
+}
+.profile-public-page .pub-grid:not(.review-grid) {
+  grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px;
+}
+.profile-public-page .pub-card {
+  border-color: rgba(255,255,255,.70); border-radius: 20px;
+  background: linear-gradient(145deg,
+    color-mix(in srgb, var(--card) 76%, transparent),
+    color-mix(in srgb, var(--card) 57%, transparent));
+  -webkit-backdrop-filter: blur(14px) saturate(1.35);
+  backdrop-filter: blur(14px) saturate(1.35);
+  box-shadow: 0 16px 38px color-mix(in srgb, var(--rose) 14%, transparent),
+              inset 0 1px 0 rgba(255,255,255,.78);
+}
+.profile-public-page .pub-card .ph {
+  height: auto; aspect-ratio: 16 / 9; border-radius: 19px 19px 7px 7px;
+}
+.profile-public-page .pub-card .cb { padding: 15px 17px 17px; }
+.profile-public-page .pub-card .t { font-size: 20px; }
+.profile-public-page .pub-card .m { margin-top: 5px; font-size: 13px; line-height: 1.45; }
+html[data-theme="dark"] .profile-public-page .prof,
+html[data-theme="dark"] .profile-public-page .pub-card,
+html[data-theme="dark"] .profile-public-page .review-card {
+  border-color: var(--line); background: color-mix(in srgb, var(--card) 82%, transparent);
+  box-shadow: 0 20px 52px rgba(0,0,0,.30), inset 0 1px 0 rgba(255,255,255,.06);
+}
+
+@media (max-width: 640px) {
+  .profile-public-actions { padding: 12px 14px 0; }
+  .profile-public-shell { padding: 14px 14px 68px; }
+  .profile-public-page .prof {
+    padding: 24px 18px; flex-direction: column; gap: 16px;
+    border-radius: 22px; text-align: center;
+  }
+  .profile-public-page .prof .meta { justify-content: center; }
+  .profile-public-page .prof .ava,
+  .profile-public-page .prof .ava-ph { width: 116px; height: 116px; }
+  .profile-public-page .prof .ava-ph { font-size: 49px; }
+  .profile-public-page .prof h1 { font-size: clamp(30px, 10vw, 38px); }
+  .profile-public-page .pub-dates { margin-top: 26px; padding-inline: 0; }
+  .profile-public-page .pub-grid:not(.review-grid),
+  .profile-public-page .pub-dates.profile-tab-events .pub-grid {
+    grid-template-columns: minmax(0, 1fr); gap: 14px;
+  }
+  .profile-public-page .profile-tab-events .pub-card .ph {
+    height: auto; aspect-ratio: 16 / 10;
+  }
+  .profile-public-page .profile-tab-events .pub-card .cb { padding: 13px 14px 15px; }
+  .profile-public-page .profile-tab-events .pub-card .t { font-size: 18px; }
+  .profile-public-page .profile-tab-events .pub-card .m { font-size: 12px; }
 }

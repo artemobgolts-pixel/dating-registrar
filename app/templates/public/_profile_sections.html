@@ -19,7 +19,7 @@
         src="/d/{{ d['share_token'] }}/image/{{ d['images'][0]['filename'] }}?w=480"
         srcset="/d/{{ d['share_token'] }}/image/{{ d['images'][0]['filename'] }}?w=480 480w,
                 /d/{{ d['share_token'] }}/image/{{ d['images'][0]['filename'] }}?w=960 960w"
-        sizes="(max-width: 520px) calc((100vw - 42px) / 2), 340px" alt=""
+        sizes="(max-width: 520px) calc(100vw - 28px), 480px" alt=""
         loading="{{ 'eager' if loop.first else 'lazy' }}"
         fetchpriority="{{ 'high' if loop.first else 'low' }}" decoding="async"
         {% if d['images'][0]['focus'] %}style="object-position:{{ d['images'][0]['focus'] }}"{% endif %}></div>

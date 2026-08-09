@@ -16,50 +16,57 @@
 <link rel="stylesheet" href="{{ asset('profile.css') }}">
 <script src="{{ asset('confirm.js') }}" defer></script>
 <script src="{{ asset('profile.js') }}" defer></script>
-<style>
-  .prof { position:relative; z-index:1; max-width:460px; margin:0 auto; padding:48px 22px 80px; text-align:center; }
-  .prof .back { display:inline-block; margin-bottom:26px; color:var(--rose); text-decoration:none; }
-  .prof .ava { width: 132px; height: 132px; border-radius: 50%; object-fit: cover;
-    border: 3px solid var(--line); margin: 0 auto 18px; display: block; }
-  .prof .ava-ph { width: 132px; height: 132px; border-radius: 50%; margin: 0 auto 18px;
-    display: grid; place-items: center; background: var(--rose-soft); font-size: 56px; }
-  .prof h1 { font-family:var(--serif); font-size:32px; color:var(--rose); margin:0 0 6px; }
-  .prof .meta { color:var(--muted); font-size:15px; line-height:1.9; }
-  .prof .meta .row { display: inline-block; margin: 0 8px; }
-  .prof .me-edit { margin-top: 22px; }
-  @media(max-width:520px) {
-    .prof { padding-bottom:22px; }
-  }
-</style>
+<script src="{{ asset('ink.js') }}" defer></script>
 </head>
-<body data-skin="{{ profile_skin }}" data-csrf="{{ csrf }}"
+<body class="profile-public-page" data-skin="{{ profile_skin }}" data-csrf="{{ csrf }}"
       data-ink-interactive="{{ '1' if request.state.user and request.state.user['cursor_effects'] else '0' }}">
-<button type="button" class="theme-float" data-theme-toggle aria-label="Включить тёмную тему">
-  <span class="theme-moon-icon" data-theme-icon aria-hidden="true"></span>
-</button>
-<main class="prof">
-  <a class="back" href="/admin/">← в кабинет</a>
-  {% if u['avatar_path'] %}
-    <img class="ava" src="/u/{{ u['id'] }}/avatar?w=256"
-         srcset="/u/{{ u['id'] }}/avatar?w=128 128w,
-                 /u/{{ u['id'] }}/avatar?w=256 256w,
-                 /u/{{ u['id'] }}/avatar?w=480 480w"
-         sizes="132px" alt="Фото профиля" width="132" height="132"
-         decoding="async">
-  {% else %}
-    <div class="ava-ph" aria-hidden="true">🙂</div>
-  {% endif %}
-  <h1>{{ u['display_name'] or 'Без имени' }}</h1>
-  <div class="meta">
-    {% if u['gender'] == 'm' %}<span class="row">Мужской</span>
-    {% elif u['gender'] == 'f' %}<span class="row">Женский</span>{% endif %}
-    {% if u['birth_date'] %}<span class="row">🎂 {{ u['birth_date'] }}</span>{% endif %}
-  </div>
-  {% if is_me %}
-    <div class="me-edit"><a class="btn ghost" href="/admin/profile">Редактировать профиль</a></div>
-  {% endif %}
-</main>
+{% if profile_skin == 'friends' %}
+<div class="bg-gather" aria-hidden="true">
+  <span class="orbit o1"></span><span class="orbit o2"></span>
+  <span class="dot d1"></span><span class="dot d2"></span><span class="dot d3"></span>
+  <span class="spark s1">✦</span><span class="spark s2">✦</span>
+</div>
+{% else %}
+<div class="bg-hearts" aria-hidden="true">
+  <span>♥</span><span>♡</span><span>♥</span><span>♡</span><span>♥</span><span>♡</span><span>♥</span>
+</div>
+{% endif %}
+{% include "public/_bg.html" %}
 
-{% include "public/_profile_sections.html" %}
+<div class="profile-public-actions">
+  <a class="profile-public-back" href="/admin/">← В кабинет</a>
+  <button type="button" class="theme-float" data-theme-toggle aria-label="Включить тёмную тему">
+    <span class="theme-moon-icon" data-theme-icon aria-hidden="true"></span>
+  </button>
+</div>
+
+<main class="profile-public-shell">
+  <section class="prof" aria-labelledby="profileTitle">
+    {% if u['avatar_path'] %}
+      <img class="ava" src="/u/{{ u['id'] }}/avatar?w=256"
+           srcset="/u/{{ u['id'] }}/avatar?w=128 128w,
+                   /u/{{ u['id'] }}/avatar?w=256 256w,
+                   /u/{{ u['id'] }}/avatar?w=480 480w"
+           sizes="132px" alt="Фото профиля" width="132" height="132"
+           decoding="async">
+    {% else %}
+      <div class="ava-ph" aria-hidden="true">🙂</div>
+    {% endif %}
+    <div class="prof-copy">
+      <span class="prof-kicker">Профиль</span>
+      <h1 id="profileTitle">{{ u['display_name'] or 'Без имени' }}</h1>
+      <div class="meta">
+        {% if u['gender'] == 'm' %}<span class="row">Мужской</span>
+        {% elif u['gender'] == 'f' %}<span class="row">Женский</span>{% endif %}
+        {% if u['birth_date'] %}<span class="row">🎂 {{ u['birth_date'] }}</span>{% endif %}
+      </div>
+      {% if is_me %}
+        <div class="me-edit"><a class="btn ghost" href="/admin/profile">Редактировать профиль</a></div>
+      {% endif %}
+    </div>
+  </section>
+
+  {% include "public/_profile_sections.html" %}
+</main>
 </body>
 </html>

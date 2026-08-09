@@ -1,6 +1,6 @@
 {# Фон «растекающиеся чернила» — общий для гостевой, входа, /about и юр-страниц.
    Видимый слой — WebGL-шейдер (/static/ink.js); CSS-дым ниже — фолбэк без WebGL2.
-   Операторская админка намеренно его НЕ подключает (простой функциональный UI). #}
+   В кабинете тот же фон встроен в admin/base.html как Turbo-permanent узел. #}
 <div class="bg-smoke" aria-hidden="true">
   <svg class="turb" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice">
     <defs>

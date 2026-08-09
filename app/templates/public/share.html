@@ -9,17 +9,17 @@
   <title>{{ d.name }} · date4you</title>
   <meta property="og:title" content="Событие: {{ d.name }}">
   <meta property="og:description" content="{{ 'Открой и выбери удобный вариант' if active_skin == 'friends' else 'Тебе предлагают событие — открой ♥' }}">
-  <meta property="og:image" content="{{ BASE_URL }}{{ asset('og-default.jpg') }}">
+  <meta property="og:image" content="{{ BASE_URL }}{{ asset('og-friends.jpg' if active_skin == 'friends' else 'og-default.jpg') }}">
   <meta property="og:type" content="website">
   <meta name="theme-color" content="{{ '#554eae' if active_skin == 'friends' else '#b65f6f' }}">
   <script src="{{ asset('theme.js') }}"></script>
   {% if active_skin == 'friends' %}
-  <link rel="apple-touch-icon" href="/static/apple-touch-icon-friends.png">
-  <link rel="manifest" href="/static/manifest-friends.json">
+  <link rel="apple-touch-icon" href="{{ asset('apple-touch-icon-friends.png') }}">
+  <link rel="manifest" href="{{ asset('manifest-friends.json') }}">
   <link rel="icon" href="{{ asset('favicon-standard.png') }}">
   {% else %}
-  <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
-  <link rel="manifest" href="/static/manifest.json">
+  <link rel="apple-touch-icon" href="{{ asset('apple-touch-icon.png') }}">
+  <link rel="manifest" href="{{ asset('manifest.json') }}">
   <link rel="icon" href="{{ asset('favicon-romantic.png') }}">
   {% endif %}
   <link rel="stylesheet" href="{{ asset('public.css') }}">
@@ -128,7 +128,7 @@
 
   {% if vote_state and vote_state.status != 'unconfigured' %}
   <section class="vote-summary vote-{{ vote_state.status }}">
-    {% if vote_state.status == 'open' %}<b role="timer" data-vote-countdown data-deadline="{{ vote_state.voting_deadline }}+03:00">До конца голосования осталось…</b>
+    {% if vote_state.status == 'open' %}<div class="vote-countdown" role="timer"><span class="vote-countdown-label" data-countdown-label>До конца голосования</span><b data-vote-countdown data-deadline="{{ vote_state.voting_deadline }}+03:00">считаем…</b></div>
     {% elif vote_state.status == 'tie' %}<b>Ничья</b><span>Организатор вручную выбирает победителя среди лидеров.</span>
     {% elif vote_state.status == 'no_winner' %}<b>Никто не выбрал</b><span>Голосование завершено без победителя.</span>
     {% else %}<b>Голосование завершено</b><span>{% if d.is_winner %}{{ 'Это общий выбор участников.' if active_skin == 'friends' else 'Это победившее событие ♥' }}{% else %}Победил другой вариант категории.{% endif %}</span>{% endif %}
@@ -158,7 +158,7 @@
           {% for v in d.videos %}
           <video data-src="/d/{{ token }}/video/{{ v['filename'] }}" controls playsinline
                  preload="none"
-                 poster="{% if d.images %}/d/{{ token }}/image/{{ d.images[0]['filename'] }}?w=960{% else %}{{ asset('date-default.jpg') }}{% endif %}"></video>
+                 poster="{% if d.images %}/d/{{ token }}/image/{{ d.images[0]['filename'] }}?w=960{% else %}{{ asset('date-default-friends.jpg' if active_skin == 'friends' else 'date-default.jpg') }}{% endif %}"></video>
           {% endfor %}
         </div>
       </div>

@@ -18,7 +18,7 @@
     {% for v in d['videos'] %}
     <video data-src="/d/{{ d['share_token'] }}/video/{{ v['filename'] }}" controls
            playsinline preload="none"
-           poster="{% if d['images'] %}/d/{{ d['share_token'] }}/image/{{ d['images'][0]['filename'] }}?w=960{% else %}{{ asset('date-default.jpg') }}{% endif %}"></video>
+           poster="{% if d['images'] %}/d/{{ d['share_token'] }}/image/{{ d['images'][0]['filename'] }}?w=960{% else %}{{ asset('date-default-friends.jpg' if user['admin_skin'] == 'friends' else 'date-default.jpg') }}{% endif %}"></video>
     {% endfor %}
   </div>
   {% endif %}

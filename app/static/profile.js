@@ -235,6 +235,21 @@
       });
     }
 
+    function copiedFeedback(button) {
+      var original = button.dataset.shareLabel || button.textContent.trim();
+      button.dataset.shareLabel = original;
+      button.textContent = "Ссылка скопирована ✓";
+      clearTimeout(button._shareFeedbackTimer);
+      button._shareFeedbackTimer = setTimeout(function () {
+        if (button.isConnected) button.textContent = original;
+      }, 1700);
+    }
+
+    function copiedSuccess(button) {
+      if (button.classList.contains("profile-review-share")) copiedFeedback(button);
+      else toast("Ссылка скопирована");
+    }
+
     function shareEvent(button) {
       var url = button.dataset.shareUrl;
       if (!url) return;
@@ -247,12 +262,14 @@
           url: url
         }).catch(function (error) {
           if (!error || error.name !== "AbortError") {
-            copyText(url).then(function () { toast("Ссылка скопирована"); });
+            copyText(url)
+              .then(function () { copiedSuccess(button); })
+              .catch(function () { toast("Не удалось скопировать ссылку"); });
           }
         });
       } else {
         copyText(url)
-          .then(function () { toast("Ссылка скопирована"); })
+          .then(function () { copiedSuccess(button); })
           .catch(function () { toast("Не удалось скопировать ссылку"); });
       }
     }

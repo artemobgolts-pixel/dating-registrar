@@ -67,6 +67,16 @@
     });
   }
 
+  function copiedFeedback(button) {
+    var original = button.dataset.shareLabel || button.textContent.trim();
+    button.dataset.shareLabel = original;
+    button.textContent = "Ссылка скопирована ✓";
+    window.clearTimeout(button._shareFeedbackTimer);
+    button._shareFeedbackTimer = window.setTimeout(function () {
+      if (button.isConnected) button.textContent = original;
+    }, 1700);
+  }
+
   function shareReview(button) {
     var url = button.dataset.shareUrl;
     if (!url) return;
@@ -80,13 +90,13 @@
       }).catch(function (error) {
         if (!error || error.name === "AbortError") return;
         copyText(url)
-          .then(function () { toast("Ссылка скопирована"); })
+          .then(function () { copiedFeedback(button); })
           .catch(function () { toast("Не удалось скопировать ссылку"); });
       });
       return;
     }
     copyText(url)
-      .then(function () { toast("Ссылка скопирована"); })
+      .then(function () { copiedFeedback(button); })
       .catch(function () { toast("Не удалось скопировать ссылку"); });
   }
 

@@ -1,7 +1,7 @@
 {% extends "admin/base.html" %}
 {% block title %}Новая категория{% endblock %}
 {% block content %}
-<a class="btn editor-back" href="/admin/categories">← Назад</a>
+<a class="btn editor-back category-new-back" href="/admin/categories">← Назад</a>
 <div class="bar">
   <h1 class="serif" style="margin:0">Новая категория</h1>
 </div>
@@ -21,12 +21,20 @@
         <option value="multiple">Несколько вариантов</option>
       </select>
     </label>
-    <label class="field">
-      <span class="field-label">Дедлайн голосования<sup class="required-mark" aria-hidden="true">*</sup></span>
-      <input type="datetime-local" name="voting_deadline" min="{{ deadline_min }}"
-             value="{{ default_deadline }}" required data-picker-only>
+    <div class="field deadline-picker" data-deadline-picker>
+      <label class="field-label" for="newVotingDeadline">Дедлайн голосования<sup class="required-mark" aria-hidden="true">*</sup></label>
+      <input type="datetime-local" name="voting_deadline" id="newVotingDeadline"
+             min="{{ deadline_min }}" value="{{ default_deadline }}" required data-picker-only>
+      <div class="deadline-presets" aria-label="Быстрый выбор дедлайна">
+        <span>Быстро:</span>
+        <button type="button" class="deadline-preset" data-deadline-hours="3" aria-pressed="false">+3 часа</button>
+        <button type="button" class="deadline-preset" data-deadline-hours="24" aria-pressed="false">Завтра</button>
+        <button type="button" class="deadline-preset" data-deadline-hours="72" aria-pressed="false">Через 3 дня</button>
+        <button type="button" class="deadline-preset" data-deadline-hours="168" aria-pressed="false">Через неделю</button>
+      </div>
+      <small class="deadline-readable" data-deadline-readable aria-live="polite"></small>
       <small class="muted">Его всегда можно изменить в редакторе категории.</small>
-    </label>
+    </div>
     <div class="category-new-actions">
       <button class="btn primary" type="submit">Создать категорию</button>
       <a class="btn ghost" href="/admin/categories">Отмена</a>

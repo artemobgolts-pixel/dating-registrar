@@ -10,11 +10,11 @@
 
 <div data-tour="categories-collection">
 {% for c in cats %}
-<div class="card cat-card{% if c['has_og'] %} has-thumb{% endif %}">
+<div class="card cat-card has-thumb">
   <a class="cat-link" href="/admin/categories/{{ c['id'] }}" data-tour-category-link aria-label="Открыть «{{ c['name'] }}»"></a>
-  {% if c['has_og'] %}
-  <img class="cat-thumb" src="/admin/categories/{{ c['id'] }}/og-preview" alt="" loading="lazy" decoding="async">
-  {% endif %}
+  <img class="cat-thumb"
+       src="{% if c['use_default_preview'] or not c['has_og'] %}{{ asset('og-friends.jpg' if c['category_skin'] == 'friends' else 'og-default.jpg') }}{% else %}/admin/categories/{{ c['id'] }}/og-preview?skin={{ c['category_skin'] }}&amp;v={{ c['preview_revision'] }}{% endif %}"
+       alt="" loading="lazy" decoding="async">
   <div class="cat-body">
     <div class="bar" style="margin-bottom:0">
       <div>

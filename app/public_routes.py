@@ -263,6 +263,55 @@ def cat_by_token(conn, token: str):
     return conn.execute("SELECT * FROM categories WHERE link_token=?", (token,)).fetchone()
 
 
+def category_og_sources(
+        conn, category_id: int, *, include_focus: bool = False,
+        existing_only: bool = False,
+) -> list[str] | list[tuple[str, str | None]]:
+    """До восьми фото для авто-превью, разнообразно по событиям.
+
+    Сначала берём обложку каждого события в порядке категории, затем второе
+    фото каждого события и так далее. Благодаря round-robin одно событие с
+    большой галереей не вытесняет остальные. По умолчанию сохраняем прежний
+    удобный ``list[str]`` API; генераторы запрашивают пары с точкой фокуса.
+    """
+    rows = conn.execute(
+        "SELECT d.id AS date_id, di.filename, di.focus FROM date_categories dc "
+        "JOIN dates d ON d.id=dc.date_id "
+        "JOIN date_images di ON di.date_id=d.id "
+        "WHERE dc.category_id=? AND d.archived_at IS NULL AND d.is_draft=0 "
+        "ORDER BY dc.position ASC, d.id ASC, di.position ASC, di.id ASC",
+        (category_id,),
+    ).fetchall()
+    galleries: list[list[tuple[str, str | None]]] = []
+    by_date: dict[int, list[tuple[str, str | None]]] = {}
+    for row in rows:
+        filename = str(row["filename"] or "")
+        if existing_only and not images.upload_image_exists(filename):
+            continue
+        date_id = int(row["date_id"])
+        if date_id not in by_date:
+            by_date[date_id] = []
+            galleries.append(by_date[date_id])
+        by_date[date_id].append((filename, row["focus"]))
+
+    selected: list[tuple[str, str | None]] = []
+    level = 0
+    while len(selected) < 8:
+        added = False
+        for gallery in galleries:
+            if level < len(gallery):
+                selected.append(gallery[level])
+                added = True
+                if len(selected) == 8:
+                    break
+        if not added:
+            break
+        level += 1
+    if include_focus:
+        return selected
+    return [filename for filename, _focus in selected]
+
+
 def active_cat_or_410(conn, token: str):
     cat = cat_by_token(conn, token)
     if not cat or not cat["link_enabled"]:
@@ -829,10 +878,23 @@ def public_category(token: str, request: Request, conn=Depends(get_db)):
     # остаётся обычным участником.
     owner_name = (owner["display_name"] or owner["tg_username"] or "") if owner else ""
     viewer_is_owner = bool(me and owner and me["id"] == owner["id"])
+    category_skin = appearance.normalize_skin(cat["category_skin"])
+    og_files = category_og_sources(
+        conn, int(cat["id"]), include_focus=True, existing_only=True,
+    )
+    custom_og_image = cat["og_image"] \
+        if images.upload_image_exists(cat["og_image"]) else None
+    preview_revision = images.og_preview_revision(
+        og_files,
+        category_skin,
+        custom_image=custom_og_image,
+        custom_focus=cat["og_focus"],
+        use_default=bool(cat["use_default_preview"]),
+    )
 
     resp = templates.TemplateResponse(request, "public/category.html", {
         "cat": cat,
-        "category_skin": appearance.normalize_skin(cat["category_skin"]),
+        "category_skin": category_skin,
         "regular": dates,
         "past": past,
         "guest": guest, "guest_name": guest_name,
@@ -840,11 +902,10 @@ def public_category(token: str, request: Request, conn=Depends(get_db)):
         "owner_name": owner_name,
         "viewer_is_owner": viewer_is_owner,
         "vote_state": vote_state,
-        # есть ли картинка для og:image — своя или авто (первое фото события).
-        # Если да, мета-тег ведёт на /c/<токен>/og-image, иначе на skin-fallback.
-        "og_available": bool(cat["use_default_preview"] or cat["og_image"]) or (
-            not cat["use_default_preview"] and any(d.get("images") for d in dates)
-        ),
+        # Есть ли динамическая картинка для og:image — своя или авто-коллаж.
+        # Фиксированный фирменный вариант шаблон адресует напрямую как static,
+        # поэтому переключение режима сразу меняет URL и не держит старый кэш.
+        "og_available": bool(custom_og_image) or bool(og_files),
         # бот для вход-модалки (Telegram Login Widget). Анониму — кнопка «Войти»
         # открывает окно с этим виджетом прямо на гостевой.
         "bot": auth_routes.BOT_USERNAME,
@@ -852,6 +913,9 @@ def public_category(token: str, request: Request, conn=Depends(get_db)):
         "widget_state": (auth_routes.issue_widget_state(request)
                          if auth_routes.BOT_USERNAME and not me else None),
         "token": token,
+        # URL-ревизия нужна отдельно от дискового cache key:
+        # Telegram и другие краулеры запоминают сам адрес og:image.
+        "preview_revision": preview_revision,
         "csrf": request.session.get("csrf", ""),
     })
     resp.headers["X-Robots-Tag"] = "noindex"
@@ -909,7 +973,8 @@ def public_participant_avatar(token: str, user_id: int, w: int | None = None,
 
 
 @router.get("/c/{token}/og-image")
-def public_og_image(token: str, conn=Depends(get_db)):
+def public_og_image(token: str, skin: str | None = None,
+                    v: str | None = None, conn=Depends(get_db)):
     """Картинка превью ссылки (og:image) — её запрашивают краулеры мессенджеров
     (Telegram, WhatsApp) без cookie, поэтому отдаём публично по активной ссылке.
     Своя og_image категории в приоритете; иначе — коллаж из фото её событий
@@ -918,12 +983,15 @@ def public_og_image(token: str, conn=Depends(get_db)):
     if not cat or not cat["link_enabled"]:
         raise HTTPException(404)
     if cat["use_default_preview"]:
+        default_skin = appearance.normalize_skin(skin, default=cat["category_skin"])
         return FileResponse(
-            Path(__file__).with_name("static") / "og-default.jpg",
+            Path(__file__).with_name("static") /
+            ("og-friends.jpg" if default_skin == appearance.FRIENDS
+             else "og-default.jpg"),
             media_type="image/jpeg",
-            headers={"Cache-Control": "public, max-age=3600"},
+            headers={"Cache-Control": "public, no-cache"},
         )
-    fn = cat["og_image"]
+    fn = cat["og_image"] if images.upload_image_exists(cat["og_image"]) else None
     if fn:
         if not images.SAFE_FILENAME.match(fn):
             raise HTTPException(404)
@@ -931,22 +999,18 @@ def public_og_image(token: str, conn=Depends(get_db)):
         if not cropped:
             raise HTTPException(404)
         return FileResponse(cropped, media_type="image/webp",
-                            headers={"Cache-Control": "public, max-age=3600"})
+                            headers={"Cache-Control": "public, no-cache"})
     # своей картинки нет — собираем коллаж из фото активных событий категории
-    rows = conn.execute(
-        "SELECT di.filename FROM date_categories dc "
-        "JOIN dates d ON d.id=dc.date_id "
-        "JOIN date_images di ON di.date_id=d.id "
-        "WHERE dc.category_id=? AND d.archived_at IS NULL AND d.is_draft=0 "
-        "ORDER BY dc.position ASC, di.position ASC, di.id ASC LIMIT 8",
-        (cat["id"],)).fetchall()
+    files = category_og_sources(
+        conn, int(cat["id"]), include_focus=True, existing_only=True,
+    )
     collage = images.build_og_collage(
-        [r["filename"] for r in rows],
+        files,
         appearance.normalize_skin(cat["category_skin"]))
     if not collage:
         raise HTTPException(404)
     return FileResponse(collage, media_type="image/webp",
-                        headers={"Cache-Control": "public, max-age=3600"})
+                        headers={"Cache-Control": "public, no-cache"})
 
 
 @router.get("/c/{token}/image/{filename}")
@@ -1203,7 +1267,7 @@ def shared_profile_review(token: str, review_id: int, request: Request,
         "r.is_public AS review_public, d.id AS date_id, d.name, d.share_token, "
         "d.owner_id AS event_owner_id, "
         "d.is_public AS date_public, d.is_draft AS date_draft, "
-        "u.display_name, u.tg_username, u.admin_skin "
+        "u.display_name, u.tg_username "
         "FROM date_reviews r JOIN dates d ON d.id=r.date_id "
         "JOIN users u ON u.id=r.user_id AND u.is_active=1 "
         "WHERE r.id=? AND d.share_token=? AND r.is_public=1 "
@@ -1216,14 +1280,20 @@ def shared_profile_review(token: str, review_id: int, request: Request,
     media = _batch_media(conn, [int(row["date_id"])])
     review["images"] = media["images"].get(int(row["date_id"]), [])
     me = viewer(request, conn)
+    # Как и обычный публичный профиль, обзор наследует оформление посетителя,
+    # а не автора публикации. Для анонима стартовое оформление — стандартное.
+    viewer_skin = appearance.normalize_skin(
+        me["admin_skin"] if me else appearance.FRIENDS,
+    )
+    review_url = f"{BASE_URL}/d/{token}/review/{review_id}"
     response = templates.TemplateResponse(
         request, "public/profile_review.html",
         {"request": request, "review": review, "is_me": False,
-         "shareable": False,
+         "shareable": True,
          "reviewer_display": row["display_name"] or row["tg_username"]
          or f"Человек #{row['user_id']}",
-         "category_skin": appearance.normalize_skin(row["admin_skin"]),
-         "profile_return_url": "", "review_share_url": "",
+         "category_skin": viewer_skin,
+         "profile_return_url": "", "review_share_url": review_url,
          "token": token, "me": me,
          "event_owner_id": int(row["event_owner_id"]),
          "csrf": request.session.get("csrf", ""),

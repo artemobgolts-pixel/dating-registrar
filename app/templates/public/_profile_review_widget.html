@@ -13,13 +13,17 @@
     <span class="profile-review-kicker">Обзор события</span>
     <h3 class="profile-review-title serif">{{ review['name'] }}</h3>
     <p class="profile-review-author">{{ reviewer_display }}</p>
-    <div class="review-stars" aria-label="Оценка {{ review['rating'] }} из 5">
-      {% for score in range(1, 6) %}<span class="{{ 'off' if score > review['rating'] else '' }}">★</span>{% endfor %}
-    </div>
-    {% if review['review_text'] %}
-    <p class="profile-review-copy">{{ review['review_text'] }}</p>
-    {% else %}
-    <p class="profile-review-copy empty">Без текста</p>
+    {# В редакторе те же данные уже показаны интерактивными звёздами и textarea.
+       Сохранённый preview нужен только читателю публичного обзора. #}
+    {% if not is_me %}
+      <div class="review-stars" aria-label="Оценка {{ review['rating'] }} из 5">
+        {% for score in range(1, 6) %}<span class="{{ 'off' if score > review['rating'] else '' }}">★</span>{% endfor %}
+      </div>
+      {% if review['review_text'] %}
+      <p class="profile-review-copy">{{ review['review_text'] }}</p>
+      {% else %}
+      <p class="profile-review-copy empty">Без текста</p>
+      {% endif %}
     {% endif %}
 
     {% if is_me %}

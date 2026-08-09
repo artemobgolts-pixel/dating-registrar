@@ -58,6 +58,16 @@ Image.MAX_IMAGE_PIXELS = MAX_DIM * MAX_DIM
 
 SAFE_FILENAME = re.compile(r"^[A-Za-z0-9_-]{8,64}\.(webp|mp4|webm)$")
 
+
+def upload_image_exists(filename: str | None) -> bool:
+    """Проверяет, что ссылка БД ведёт на реально доступный WebP-оригинал."""
+    return bool(
+        filename
+        and SAFE_FILENAME.fullmatch(filename)
+        and filename.lower().endswith(".webp")
+        and (UPLOAD_DIR / Path(filename).name).is_file()
+    )
+
 MAX_VIDEO_BYTES = 60 * 1024 * 1024   # 60 МБ на видео
 MAX_VIDEOS = 2                       # до 2 видео на событие
 # MP4 faststart — безопасный opt-in: ffmpeg не становится обязательной
@@ -419,8 +429,67 @@ def save_videos_batch(uploads) -> list[str]:
 # ---------------------------------------------------------------------------
 
 OG_W, OG_H = 1200, 630
-OG_BRAND_OVERLAY = Path(__file__).parent / "static" / "og-collage-overlay.png"
-OG_BRAND_VERSION = "brand-v7:preview-overlay"
+OG_BRAND_OVERLAYS = {
+    appearance.FRIENDS: (
+        Path(__file__).parent / "static" / "og-collage-overlay-friends.png"
+    ),
+    appearance.ROMANTIC: (
+        Path(__file__).parent / "static" / "og-collage-overlay.png"
+    ),
+}
+OG_BRAND_VERSION = "brand-v10:skin-logo-focus-diverse-atomic"
+OG_BRAND_REVISION = "10"
+OG_BRAND_MAX_SIZE = (590, 465)
+OG_BRAND_OPACITY = 0.52
+
+# Публичный API коллажа исторически принимал ``list[str]``. Для WYSIWYG-кропа
+# теперь дополнительно разрешаем пары ``(filename, focus)``; старые вызовы со
+# строками остаются эквивалентны центру ``50% 50%``.
+OgSource = str | tuple[str, str | None]
+
+
+def _og_source_items(sources: list[OgSource]) -> list[tuple[str, float, float]]:
+    items: list[tuple[str, float, float]] = []
+    for source in sources:
+        if isinstance(source, str):
+            filename, focus = source, None
+        elif isinstance(source, (tuple, list)) and source:
+            filename = str(source[0] or "")
+            focus = str(source[1]) if len(source) > 1 and source[1] else None
+        else:
+            continue
+        if not filename:
+            continue
+        fx, fy = _parse_focus(focus)
+        items.append((Path(filename).name, fx, fy))
+        if len(items) == 8:
+            break
+    return items
+
+
+def _og_source_key(items: list[tuple[str, float, float]]) -> str:
+    return "\n".join(
+        f"{filename}|{fx:.4f},{fy:.4f}" for filename, fx, fy in items
+    )
+
+
+def _og_temp_path(out: Path) -> Path:
+    """Уникальный соседний temp для безопасной конкурентной генерации."""
+    return out.with_name(
+        f".{out.name}.{os.getpid()}.{secrets.token_urlsafe(6)}.tmp",
+    )
+
+
+def _publish_og_temp(tmp: Path, out: Path) -> None:
+    """Атомарно публикует готовый кэш; параллельный победитель допустим."""
+    try:
+        os.replace(tmp, out)
+    except OSError:
+        # На Windows открытый другим запросом target иногда нельзя заменить.
+        # Если конкурент уже опубликовал полноценный файл, он эквивалентен:
+        # имя target является content key.
+        if not out.is_file() or out.stat().st_size <= 0:
+            raise
 
 
 def _grid_for(n: int) -> tuple[int, int]:
@@ -435,11 +504,11 @@ def _grid_for(n: int) -> tuple[int, int]:
 
 
 def og_collage_name(
-        filenames: list[str], skin: str = appearance.ROMANTIC) -> str | None:
+        filenames: list[OgSource], skin: str = appearance.ROMANTIC) -> str | None:
     """Имя кэш-файла коллажа для набора фото (хэш отсортированного набора,
     но порядок учитываем — он влияет на раскладку). None, если фото нет."""
-    files = [f for f in filenames if f][:8]
-    if not files:
+    items = _og_source_items(filenames)
+    if not items:
         return None
     skin = appearance.normalize_skin(skin, default=appearance.ROMANTIC)
     # Версия входит в ключ: при изменении фирменного оверлея старый кэш
@@ -447,31 +516,65 @@ def og_collage_name(
     # пользователь может переключать оформление прямо в редакторе превью.
     brand_key = f"{OG_BRAND_VERSION}:{skin}\n"
     h = hashlib.sha256(
-        (brand_key + "\n".join(files)).encode()).hexdigest()[:24]
+        (brand_key + _og_source_key(items)).encode()).hexdigest()[:24]
     return f"og_{h}.webp"
 
 
-def _draw_og_brand_overlay(canvas: Image.Image) -> Image.Image:
-    """Накладывает единый полупрозрачный знак ``превью.png`` на OG-коллаж.
+def og_preview_revision(
+        filenames: list[OgSource], skin: str = appearance.ROMANTIC, *,
+        custom_image: str | None = None, custom_focus: str | None = None,
+        use_default: bool = False) -> str:
+    """Короткая версия содержимого превью для URL.
 
-    У исходника большие декоративные поля. Центральный кроп сохраняет знак и
-    подпись date4you, но не закрывает пользовательские фотографии всей картинкой.
-    Если ассет повреждён, коллаж всё равно отдаётся без оверлея.
+    Сам коллаж уже кэшируется по именам и порядку фотографий, но браузеры и
+    мессенджеры видят стабильный endpoint ``/og-image`` и могут не запросить
+    его повторно. Версия меняется при добавлении, удалении и перестановке
+    событий/фото, смене оформления, своей картинки или точки фокуса.
     """
+    skin = appearance.normalize_skin(skin, default=appearance.ROMANTIC)
+    if use_default:
+        payload = f"{OG_BRAND_VERSION}\n{skin}\ndefault"
+    elif custom_image:
+        payload = (
+            f"{OG_BRAND_VERSION}\n{skin}\ncustom\n"
+            f"{Path(custom_image).name}\n{custom_focus or '50% 50%'}"
+        )
+    else:
+        items = _og_source_items(filenames)
+        payload = f"{OG_BRAND_VERSION}\n{skin}\nauto\n" + _og_source_key(items)
+    return hashlib.sha256(payload.encode()).hexdigest()[:12]
+
+
+def _draw_og_brand_overlay(
+        canvas: Image.Image, skin: str = appearance.ROMANTIC) -> Image.Image:
+    """Накладывает полупрозрачный знак выбранного оформления на OG-коллаж.
+
+    В friends-теме используется новое приложенное пользователем лого без
+    подложки; романтическая тема сохраняет свой прежний знак date4you. Если
+    ассет повреждён, коллаж всё равно отдаётся без оверлея.
+    """
+    skin = appearance.normalize_skin(skin, default=appearance.ROMANTIC)
     try:
-        with Image.open(OG_BRAND_OVERLAY) as source:
+        with Image.open(OG_BRAND_OVERLAYS[skin]) as source:
             source.load()
             mark = source.convert("RGBA")
     except (OSError, ValueError):
         return canvas
 
-    width, height = mark.size
-    mark = mark.crop((
-        round(width * 0.22), round(height * 0.12),
-        round(width * 0.78), round(height * 0.88),
-    ))
-    mark.thumbnail((460, 360), Image.LANCZOS)
-    alpha = mark.getchannel("A").point(lambda value: round(value * 0.72))
+    if skin == appearance.FRIENDS:
+        alpha_box = mark.getchannel("A").getbbox()
+        if not alpha_box:
+            return canvas
+        mark = mark.crop(alpha_box)
+    else:
+        width, height = mark.size
+        mark = mark.crop((
+            round(width * 0.22), round(height * 0.12),
+            round(width * 0.78), round(height * 0.88),
+        ))
+    mark.thumbnail(OG_BRAND_MAX_SIZE, Image.LANCZOS)
+    alpha = mark.getchannel("A").point(
+        lambda value: round(value * OG_BRAND_OPACITY))
     mark.putalpha(alpha)
 
     overlay = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
@@ -483,31 +586,31 @@ def _draw_og_brand_overlay(canvas: Image.Image) -> Image.Image:
 
 
 def build_og_collage(
-        filenames: list[str], skin: str = appearance.ROMANTIC) -> str | None:
+        filenames: list[OgSource], skin: str = appearance.ROMANTIC) -> str | None:
     """Собирает коллаж из фото событий и кэширует на диск. Возвращает путь к
     готовому файлу (внутри OG_CACHE_DIR) или None, если собрать не из чего.
 
     Битые/пропавшие исходники пропускаем; сетку берём по факту собранных фото.
     Кэш переиспользуем, если файл уже есть (имя завязано на набор исходников)."""
-    files = [f for f in filenames if f][:8]
-    if not files:
+    items = _og_source_items(filenames)
+    if not items:
         return None
     skin = appearance.normalize_skin(skin, default=appearance.ROMANTIC)
-    name = og_collage_name(files, skin)
+    name = og_collage_name(filenames, skin)
     out = OG_CACHE_DIR / name
     if out.exists():
         return str(out)
 
     # открываем то, что реально лежит на диске
     imgs = []
-    for fn in files:
+    for fn, fx, fy in items:
         p = UPLOAD_DIR / Path(fn).name
         if not p.exists():
             continue
         try:
             im = Image.open(p)
             im.load()
-            imgs.append(im.convert("RGB"))
+            imgs.append((im.convert("RGB"), fx, fy))
         except Exception:
             continue
     if not imgs:
@@ -520,17 +623,24 @@ def build_og_collage(
     cell_w = OG_W // cols
     cell_h = OG_H // rows
     for idx in range(cols * rows):
-        src = imgs[idx % len(imgs)]        # если фото меньше клеток — повторяем
-        tile = ImageOps.fit(src, (cell_w, cell_h), Image.LANCZOS, centering=(0.5, 0.5))
+        src, fx, fy = imgs[idx % len(imgs)]  # если фото меньше клеток — повторяем
+        tile = ImageOps.fit(src, (cell_w, cell_h), Image.LANCZOS,
+                            centering=(fx, fy))
         x = (idx % cols) * cell_w
         y = (idx // cols) * cell_h
         canvas.paste(tile, (x, y))
 
-    canvas = _draw_og_brand_overlay(canvas)
+    canvas = _draw_og_brand_overlay(canvas, skin)
 
-    tmp = out.with_suffix(".tmp.webp")
-    canvas.save(tmp, "WEBP", quality=82, method=4)
-    tmp.replace(out)
+    tmp = _og_temp_path(out)
+    try:
+        canvas.save(tmp, "WEBP", quality=82, method=4)
+        _publish_og_temp(tmp, out)
+    finally:
+        try:
+            tmp.unlink()
+        except FileNotFoundError:
+            pass
     return str(out)
 
 
@@ -568,7 +678,13 @@ def build_og_crop(filename: str, focus: str | None) -> str | None:
         return None
     # ImageOps.fit кропает под 1200×630, centering = точка фокуса
     tile = ImageOps.fit(im, (OG_W, OG_H), Image.LANCZOS, centering=(fx, fy))
-    tmp = out.with_suffix(".tmp.webp")
-    tile.save(tmp, "WEBP", quality=85, method=4)
-    tmp.replace(out)
+    tmp = _og_temp_path(out)
+    try:
+        tile.save(tmp, "WEBP", quality=85, method=4)
+        _publish_og_temp(tmp, out)
+    finally:
+        try:
+            tmp.unlink()
+        except FileNotFoundError:
+            pass
     return str(out)

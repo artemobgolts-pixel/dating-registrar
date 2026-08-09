@@ -1,4 +1,4 @@
-{# Карточки ленты комьюнити (фрагмент для бесконечного скролла). Категорию и
+{# Карточки ленты событий (фрагмент для бесконечного скролла). Категорию и
    модификатор оплаты НЕ показываем. Клик по карточке открывает мини-виджет,
    а основное действие сразу добавляет отдельную копию в коллекцию. #}
 {% for d in cards %}
@@ -26,6 +26,24 @@
     </div>
     {% endif %}
     {% if d['comment'] %}<p class="cfeed-desc">{{ d['comment'] | rich }}</p>{% endif %}
+    <div class="cfeed-card-byline">
+      <a class="cfeed-owner" href="/u/{{ d['owner_id'] }}" data-stop
+         aria-label="Профиль автора: {{ d['owner_display'] }}">
+        {% if d['owner_avatar'] %}
+        <img class="cfeed-ava" src="/u/{{ d['owner_id'] }}/avatar?w=64"
+             srcset="/u/{{ d['owner_id'] }}/avatar?w=64 64w,
+                     /u/{{ d['owner_id'] }}/avatar?w=96 96w,
+                     /u/{{ d['owner_id'] }}/avatar?w=128 128w"
+             sizes="26px" alt="" width="26" height="26" loading="lazy" decoding="async">
+        {% else %}
+        <span class="cfeed-ava cfeed-ava-ph" aria-hidden="true">🙂</span>
+        {% endif %}
+        <span class="cfeed-owner-name">Автор: {{ d['owner_display'] }}</span>
+      </a>
+      <button type="button" class="report-link cfeed-report" data-stop data-community-report
+              data-report-url="/d/{{ d['share_token'] }}/report"
+              data-report-id="{{ d['id'] }}" data-report-name="{{ d['name'] }}">пожаловаться</button>
+    </div>
     <div class="cfeed-card-actions">
       <button type="button" class="cfeed-add" data-stop data-community-add
               data-add="/d/{{ d['share_token'] }}/add">Добавить в коллекцию</button>

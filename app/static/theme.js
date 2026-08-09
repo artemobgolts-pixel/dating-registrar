@@ -12,11 +12,21 @@
   var MAX_AGE = 60 * 60 * 24 * 365;
   var root = document.documentElement;
   var transitionBusy = false;
-  // View Transition держит снимок страницы до конца волны. Менять DOM второй
-  // раз посреди этой волны нельзя: снимок и фактическая тема расходятся. Быстрые
-  // клики поэтому схлопываем до последнего намерения и выполняем его после
-  // текущего перехода, не меняя длительность самой анимации.
+  // View Transition держит снимок страницы до конца волны. Пока
+  // снимок жив, DOM больше не меняем: запоминаем желаемые theme и skin
+  // отдельно, а после волны одним переходом доводим оба состояния до
+  // последнего намерения. Это сохраняет чётность быстрых toggle-кликов и
+  // не даёт переключателям light/dark и friends/romantic перезаписать друг друга.
   var queuedAppearance = null;
+  var desiredTheme = null;
+  var desiredSkin = null;
+  var desiredSkinPersist = false;
+  var SKIN_TIMING = {
+    minDuration: 1050,
+    maxDuration: 1550,
+    durationFactor: 1.04,
+    easing: "cubic-bezier(.18,.62,.2,1)"
+  };
 
   function savedTheme() {
     var match = document.cookie.match(new RegExp("(?:^|;\\s*)" + COOKIE + "=(light|dark)(?:;|$)"));
@@ -145,15 +155,45 @@
       && !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   }
 
+  function queueAppearance(kind, source, event) {
+    if (!queuedAppearance) {
+      queuedAppearance = {
+        theme: false,
+        skin: false,
+        source: source,
+        event: event
+      };
+    }
+    queuedAppearance[kind] = true;
+    // Вторую волну раскрываем из последней нажатой кнопки.
+    queuedAppearance.source = source;
+    queuedAppearance.event = event;
+  }
+
+  function flushQueuedAppearance(pending) {
+    var theme = desiredTheme || root.dataset.theme || "light";
+    var skin = desiredSkin || root.dataset.skin || "friends";
+    var themeChanged = pending.theme && theme !== root.dataset.theme;
+    var skinChanged = pending.skin && skin !== root.dataset.skin;
+    var persistSkin = desiredSkinPersist;
+
+    // Нажатие на уже активный вариант всё равно должно записать cookie,
+    // но пустую View Transition для этого не запускаем.
+    if (!themeChanged && !skinChanged) {
+      if (pending.theme) applyTheme(theme, true);
+      if (pending.skin) applySkin(skin, persistSkin);
+      return;
+    }
+
+    animateAppearance(function () {
+      if (pending.theme) applyTheme(theme, true);
+      if (pending.skin) applySkin(skin, persistSkin);
+    }, pending.source, pending.event, skinChanged ? SKIN_TIMING : null);
+  }
+
   function animateAppearance(change, source, event, timing) {
     if (!canAnimateAppearance()) {
       change();
-      return;
-    }
-    if (transitionBusy) {
-      queuedAppearance = function () {
-        animateAppearance(change, source, event, timing);
-      };
       return;
     }
 
@@ -209,16 +249,15 @@
       transitionBusy = false;
       var next = queuedAppearance;
       queuedAppearance = null;
-      if (next) next();
+      if (next) flushQueuedAppearance(next);
     });
   }
 
   function animateTheme(theme, source, event) {
     theme = theme === "dark" ? "dark" : "light";
+    desiredTheme = theme;
     if (transitionBusy) {
-      queuedAppearance = function () {
-        animateTheme(theme, source, event);
-      };
+      queueAppearance("theme", source, event);
       return;
     }
     if (theme === root.dataset.theme) {
@@ -232,10 +271,10 @@
 
   function animateSkin(skin, source, event, persist) {
     skin = skin === "romantic" ? "romantic" : "friends";
+    desiredSkin = skin;
+    desiredSkinPersist = Boolean(persist);
     if (transitionBusy) {
-      queuedAppearance = function () {
-        animateSkin(skin, source, event, persist);
-      };
+      queueAppearance("skin", source, event);
       return;
     }
     if (skin === root.dataset.skin) {
@@ -244,14 +283,7 @@
     }
     animateAppearance(function () {
       applySkin(skin, persist);
-    }, source, event, {
-      // Оформление меняет всю визуальную систему страницы, поэтому волна
-      // идёт заметно медленнее light/dark и читается от самой кнопки до углов.
-      minDuration: 1050,
-      maxDuration: 1550,
-      durationFactor: 1.04,
-      easing: "cubic-bezier(.18,.62,.2,1)"
-    });
+    }, source, event, SKIN_TIMING);
   }
 
   // Выполняется синхронно до CSS.
@@ -261,11 +293,18 @@
     applySkin(savedSkin(), false);
   }
   applyTheme(savedTheme(), false);
+  desiredTheme = root.dataset.theme || "light";
+  desiredSkin = root.dataset.skin || "friends";
 
   // Профиль хранит skin на сервере, но использует тот же движок волны. API не
   // меняет cookie и не смешивает оформление с light/dark-настройкой браузера.
   window.d4yAppearance = {
-    applySkin: function (skin) { applySkin(skin, false); },
+    applySkin: function (skin) {
+      skin = skin === "romantic" ? "romantic" : "friends";
+      desiredSkin = skin;
+      desiredSkinPersist = false;
+      applySkin(skin, false);
+    },
     animateSkin: function (skin, source, event) {
       animateSkin(skin, source, event, false);
     }
@@ -276,30 +315,56 @@
   var transitionStyle = document.createElement("style");
   transitionStyle.id = "d4y-theme-transition-style";
   transitionStyle.textContent =
+    // Снимки View Transition лежат над DOM и без pointer-events:none
+    // перехватывают второй click быстрого dblclick как click по <html>.
+    ":root.d4y-theme-transition::view-transition{pointer-events:none;}" +
     ":root.d4y-theme-transition::view-transition-old(root)," +
     ":root.d4y-theme-transition::view-transition-new(root){" +
-      "animation:none;mix-blend-mode:normal;}" +
+      "animation:none;mix-blend-mode:normal;pointer-events:none;}" +
     ":root.d4y-theme-transition::view-transition-old(root){z-index:1;}" +
     ":root.d4y-theme-transition::view-transition-new(root){z-index:2;}";
   document.head.appendChild(transitionStyle);
 
+  function appearanceControlFromEvent(event) {
+    var selector = "[data-skin-set],[data-theme-set],[data-theme-toggle]";
+    var direct = event.target.closest && event.target.closest(selector);
+    if (direct || !transitionBusy
+        || !Number.isFinite(event.clientX) || !Number.isFinite(event.clientY)) {
+      return direct;
+    }
+
+    // Chromium во время активной View Transition может отдать второй
+    // click быстрого dblclick корневому <html>, хотя координаты всё ещё
+    // лежат внутри кнопки. elementFromPoint в этот момент тоже возвращает
+    // только <html>, поэтому восстанавливаем видимую цель по её DOM-геометрии.
+    var controls = document.querySelectorAll(selector);
+    for (var i = controls.length - 1; i >= 0; i -= 1) {
+      var control = controls[i];
+      var rect = control.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0
+          && event.clientX >= rect.left && event.clientX <= rect.right
+          && event.clientY >= rect.top && event.clientY <= rect.bottom) {
+        return control;
+      }
+    }
+    return null;
+  }
+
   document.addEventListener("click", function (event) {
-    var skinChoice = event.target.closest && event.target.closest("[data-skin-set]");
-    if (skinChoice) {
+    var control = appearanceControlFromEvent(event);
+    if (!control) return;
+    if (control.hasAttribute("data-skin-set")) {
       event.preventDefault();
-      animateSkin(skinChoice.getAttribute("data-skin-set"), skinChoice, event, true);
+      animateSkin(control.getAttribute("data-skin-set"), control, event, true);
       return;
     }
-    var choice = event.target.closest && event.target.closest("[data-theme-set]");
-    if (choice) {
+    if (control.hasAttribute("data-theme-set")) {
       event.preventDefault();
-      animateTheme(choice.getAttribute("data-theme-set"), choice, event);
+      animateTheme(control.getAttribute("data-theme-set"), control, event);
       return;
     }
-    var button = event.target.closest && event.target.closest("[data-theme-toggle]");
-    if (!button) return;
     event.preventDefault();
-    animateTheme(root.dataset.theme === "dark" ? "light" : "dark", button, event);
+    animateTheme(desiredTheme === "dark" ? "light" : "dark", control, event);
   });
 
   document.addEventListener("DOMContentLoaded", function () {
@@ -315,6 +380,10 @@
   // Turbo заменяет body, но не перезапускает этот скрипт.
   document.addEventListener("turbo:load", function () {
     syncSkin();
+    if (!transitionBusy && !queuedAppearance) {
+      desiredTheme = root.dataset.theme || "light";
+      desiredSkin = root.dataset.skin || "friends";
+    }
     updateChrome(root.dataset.theme || "light");
     updateButtons(root.dataset.theme || "light");
     updateSkinButtons(root.dataset.skin || "friends");

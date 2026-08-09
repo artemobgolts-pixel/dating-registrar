@@ -299,7 +299,7 @@ def dashboard(request: Request, conn=Depends(get_db)):
     # Для выбранной (или первой) рисуем QR прямо на сервере — инлайновый SVG,
     # под CSP не нужен ни внешний скрипт, ни data:-картинка.
     share_cats = conn.execute(
-        "SELECT id, name, category_skin, link_token, og_title, og_desc, og_image, "
+        "SELECT id, name, category_skin, link_token, og_title, og_desc, og_image, og_focus, "
         "use_default_preview, choice_mode, voting_deadline, voting_status "
         "FROM categories "
         "WHERE owner_id=? AND link_enabled=1 AND link_token IS NOT NULL "
@@ -309,21 +309,30 @@ def dashboard(request: Request, conn=Depends(get_db)):
         or (share_cats[0] if share_cats else None)
     share_url = qr_svg = None
     share_has_og = False
+    share_preview_revision = ""
     if share:
         share_url = f"{BASE_URL}/c/{share['link_token']}"
         qr_svg = _qr_svg(share_url, request.state.user["admin_skin"])
-        # превью ссылки: своя картинка ИЛИ коллаж из фото активных событий
-        share_has_og = bool(share["use_default_preview"] or share["og_image"]) or conn.execute(
-            "SELECT 1 FROM date_categories dc JOIN dates d ON d.id=dc.date_id "
-            "JOIN date_images di ON di.date_id=d.id "
-            "WHERE dc.category_id=? AND d.archived_at IS NULL AND d.is_draft=0 LIMIT 1",
-            (share["id"],)).fetchone() is not None
+        share_sources = _category_collage_sources(conn, int(share["id"]))
+        share_custom = share["og_image"] \
+            if images.upload_image_exists(share["og_image"]) else None
+        share_has_og = bool(
+            share["use_default_preview"] or share_custom or share_sources
+        )
+        share_preview_revision = images.og_preview_revision(
+            share_sources,
+            appearance.normalize_skin(share["category_skin"]),
+            custom_image=share_custom,
+            custom_focus=share["og_focus"],
+            use_default=bool(share["use_default_preview"]),
+        )
 
     return templates.TemplateResponse(
         request, "admin/dashboard.html",
         actx(request, conn, active="dash", stats=stats,
              share_cats=share_cats, share=share, share_url=share_url, qr_svg=qr_svg,
-             share_has_og=share_has_og))
+             share_has_og=share_has_og,
+             share_preview_revision=share_preview_revision))
 
 
 def _qr_svg(data: str, skin: str = "friends") -> str:
@@ -363,8 +372,8 @@ def _qr_svg(data: str, skin: str = "friends") -> str:
 # Лента событий-комьюнити (на главной вместо «Последних действий»)
 # ---------------------------------------------------------------------------
 # Показываем чужие публичные активные события: карточка = фото + название +
-# когда/место/комментарий + действия «Добавить в коллекцию»/«Поделиться».
-# Владелец остаётся виден внутри раскрытого виджета. Категорию и
+# когда/место/комментарий + автор + действия добавления, жалобы и шаринга.
+# Категорию и
 # модификатор оплаты НЕ показываем (решение владельца). Бесконечный скролл —
 # keyset-пагинацией по d.id DESC (курсор = id последней карточки).
 
@@ -719,7 +728,7 @@ async def import_json(request: Request, file: UploadFile = File(...),
 
 @router.get("/categories", response_class=HTMLResponse)
 def categories_list(request: Request, conn=Depends(get_db)):
-    cats = conn.execute(
+    rows = conn.execute(
         "SELECT c.*, "
         "(SELECT COUNT(*) FROM date_categories dc WHERE dc.category_id=c.id) AS dcount, "
         # есть ли превью ссылки: своя картинка ИЛИ хотя бы одно фото активного
@@ -731,6 +740,25 @@ def categories_list(request: Request, conn=Depends(get_db)):
         "FROM categories c WHERE c.owner_id=? ORDER BY c.created_at DESC",
         (request.state.user["id"],)
     ).fetchall()
+    cats = []
+    for row in rows:
+        category = dict(row)
+        sources = _category_collage_sources(conn, int(row["id"]))
+        custom_image = row["og_image"] \
+            if images.upload_image_exists(row["og_image"]) else None
+        # SQL-флаг выше дешёвый, но только общий helper знает фактический набор
+        # (round-robin и отсутствие файла на диске).
+        category["has_og"] = bool(
+            row["use_default_preview"] or custom_image or sources
+        )
+        category["preview_revision"] = images.og_preview_revision(
+            sources,
+            appearance.normalize_skin(row["category_skin"]),
+            custom_image=custom_image,
+            custom_focus=row["og_focus"],
+            use_default=bool(row["use_default_preview"]),
+        )
+        cats.append(category)
     return templates.TemplateResponse(
         request, "admin/categories.html",
         actx(request, conn, active="cats", cats=cats))
@@ -739,13 +767,18 @@ def categories_list(request: Request, conn=Depends(get_db)):
 @router.get("/categories/new", response_class=HTMLResponse)
 def category_new(request: Request, conn=Depends(get_db)):
     """Отдельный спокойный экран вместо перегруженной быстрой формы списка."""
-    now = now_naive().replace(second=0, microsecond=0)
+    now = now_naive()
+    # datetime-local не хранит секунды, а backend требует строго будущий срок.
+    # Следующая минута исключает ложный доступный min, который уже прошёл.
+    deadline_min = (now + timedelta(minutes=1)).replace(second=0, microsecond=0)
     return templates.TemplateResponse(
         request, "admin/category_new.html",
         actx(
             request, conn, active="cats",
-            deadline_min=now.strftime("%Y-%m-%dT%H:%M"),
-            default_deadline=(now + timedelta(days=7)).strftime("%Y-%m-%dT%H:%M"),
+            deadline_min=deadline_min.strftime("%Y-%m-%dT%H:%M"),
+            default_deadline=(now + timedelta(days=7)).replace(
+                second=0, microsecond=0,
+            ).strftime("%Y-%m-%dT%H:%M"),
         ),
     )
 
@@ -899,22 +932,32 @@ def category_detail(cid: int, request: Request, conn=Depends(get_db)):
     # авто-превью ссылки: если своей картинки нет, показываем коллаж из фото
     # событий этой категории (тот же, что уйдёт в og:image). Здесь — только
     # флаг наличия; саму картинку отдаёт /admin/categories/{cid}/og-preview.
-    auto_og = False
-    if not cat["use_default_preview"] and not cat["og_image"]:
-        auto_og = conn.execute(
-            "SELECT 1 FROM date_categories dc "
-            "JOIN dates d ON d.id=dc.date_id "
-            "JOIN date_images di ON di.date_id=d.id "
-            "WHERE dc.category_id=? AND d.archived_at IS NULL AND d.is_draft=0 LIMIT 1",
-            (cid,)).fetchone() is not None
+    custom_og_available = images.upload_image_exists(cat["og_image"])
+    auto_files: list[images.OgSource] = []
+    if not cat["use_default_preview"] and not custom_og_available:
+        auto_files = _category_collage_sources(conn, cid)
+    auto_og = bool(auto_files)
+    preview_revision = images.og_preview_revision(
+        auto_files,
+        appearance.normalize_skin(cat["category_skin"]),
+        custom_image=cat["og_image"] if custom_og_available else None,
+        custom_focus=cat["og_focus"],
+        use_default=bool(cat["use_default_preview"]),
+    )
     state = voting.get_category_state(conn, cid)
     leader_ids = set(state.leader_date_ids)
     can_change_composition = not _category_voting_is_closed(cat)
+    deadline_min = (now_naive() + timedelta(minutes=1)).replace(
+        second=0, microsecond=0,
+    ).strftime("%Y-%m-%dT%H:%M")
     return templates.TemplateResponse(
         request, "admin/category_detail.html",
         actx(request, conn, active="cats", cat=cat, dates=dates, attachable=attachable,
-             auto_og=auto_og, voting_state=state, leader_ids=leader_ids,
-             can_change_composition=can_change_composition))
+             auto_og=auto_og, custom_og_available=custom_og_available,
+             voting_state=state, leader_ids=leader_ids,
+             can_change_composition=can_change_composition,
+             deadline_min=deadline_min,
+             preview_revision=preview_revision))
 
 
 @router.post("/categories/{cid}/voting")
@@ -960,14 +1003,11 @@ def category_voting_resolve_tie(cid: int, request: Request,
     return redir(f"/admin/categories/{cid}", "Победитель выбран")
 
 
-def _category_collage_sources(conn, cid: int) -> list[str]:
-    """Имена фото для коллажа-превью категории (активные, не-черновики), до 8."""
-    return [r["filename"] for r in conn.execute(
-        "SELECT di.filename FROM date_categories dc "
-        "JOIN dates d ON d.id=dc.date_id "
-        "JOIN date_images di ON di.date_id=d.id "
-        "WHERE dc.category_id=? AND d.archived_at IS NULL AND d.is_draft=0 "
-        "ORDER BY dc.position ASC, di.position ASC, di.id ASC LIMIT 8", (cid,))]
+def _category_collage_sources(conn, cid: int) -> list[images.OgSource]:
+    """Общий с публичной страницей round-robin набор фото и точек фокуса."""
+    return public_routes.category_og_sources(
+        conn, cid, include_focus=True, existing_only=True,
+    )
 
 
 def prewarm_date_collages(did: int) -> None:
@@ -978,11 +1018,13 @@ def prewarm_date_collages(did: int) -> None:
     conn = db.connect()
     try:
         categories = conn.execute(
-            "SELECT c.id, c.category_skin FROM categories c "
+            "SELECT c.id, c.category_skin, c.og_image FROM categories c "
             "JOIN date_categories dc ON dc.category_id=c.id WHERE dc.date_id=? "
-            "AND c.use_default_preview=0 AND c.og_image IS NULL",
+            "AND c.use_default_preview=0",
             (did,)).fetchall()
         for category in categories:
+            if images.upload_image_exists(category["og_image"]):
+                continue
             cid = category["id"]
             files = _category_collage_sources(conn, cid)
             if files:
@@ -996,39 +1038,34 @@ def prewarm_date_collages(did: int) -> None:
 
 @router.get("/categories/{cid}/og-preview")
 def category_og_preview(cid: int, request: Request, skin: str | None = None,
+                        v: str | None = None,
                         conn=Depends(get_db)):
     """Коллаж-превью ссылки для редактора категории (когда своей картинки нет).
     Та же сборка, что и публичный og:image, но за owner-гейтом."""
     cat = _cat_or_404(conn, cid, request.state.user)
     if cat["use_default_preview"]:
+        default_skin = appearance.normalize_skin(skin, default=cat["category_skin"])
         return FileResponse(
-            Path(__file__).with_name("static") / "og-default.jpg",
+            Path(__file__).with_name("static") /
+            ("og-friends.jpg" if default_skin == appearance.FRIENDS
+             else "og-default.jpg"),
             media_type="image/jpeg",
-            headers={"Cache-Control": "private, max-age=300"},
+            headers={"Cache-Control": "private, no-cache"},
         )
-    if cat["og_image"]:
+    if images.upload_image_exists(cat["og_image"]):
         # своя картинка — кропаем в 1200×630 по точке фокуса (как уйдёт в og:image)
-        if not images.SAFE_FILENAME.match(cat["og_image"]):
-            raise HTTPException(404)
         cropped = images.build_og_crop(cat["og_image"], cat["og_focus"])
         if not cropped:
             raise HTTPException(404)
         return FileResponse(cropped, media_type="image/webp",
-                            headers={"Cache-Control": "private, max-age=300"})
-    rows = conn.execute(
-        "SELECT di.filename FROM date_categories dc "
-        "JOIN dates d ON d.id=dc.date_id "
-        "JOIN date_images di ON di.date_id=d.id "
-        "WHERE dc.category_id=? AND d.archived_at IS NULL AND d.is_draft=0 "
-        "ORDER BY dc.position ASC, di.position ASC, di.id ASC LIMIT 8",
-        (cid,)).fetchall()
+                            headers={"Cache-Control": "private, no-cache"})
     preview_skin = appearance.normalize_skin(skin, default=cat["category_skin"])
     collage = images.build_og_collage(
-        [r["filename"] for r in rows], preview_skin)
+        _category_collage_sources(conn, cid), preview_skin)
     if not collage:
         raise HTTPException(404)
     return FileResponse(collage, media_type="image/webp",
-                        headers={"Cache-Control": "private, max-age=300"})
+                        headers={"Cache-Control": "private, no-cache"})
 
 
 @router.post("/categories/{cid}/rename")
@@ -1131,12 +1168,18 @@ def category_og_focus(cid: int, request: Request, focus: str = Form(...),
     m = _re.fullmatch(r"\s*(\d{1,3})%\s+(\d{1,3})%\s*", focus or "")
     if not m or int(m.group(1)) > 100 or int(m.group(2)) > 100:
         raise HTTPException(400, "Некорректная точка фокуса")
-    if not cat["og_image"]:
+    if not images.upload_image_exists(cat["og_image"]):
         raise HTTPException(400, "У превью нет своей картинки")
     value = f"{int(m.group(1))}% {int(m.group(2))}%"
     conn.execute("UPDATE categories SET og_focus=? WHERE id=?", (value, cid))
     conn.commit()
-    return JSONResponse({"ok": True, "focus": value})
+    preview_revision = images.og_preview_revision(
+        [], appearance.normalize_skin(cat["category_skin"]),
+        custom_image=cat["og_image"], custom_focus=value,
+    )
+    return JSONResponse({
+        "ok": True, "focus": value, "preview_revision": preview_revision,
+    })
 
 
 @router.post("/categories/{cid}/toggle")
@@ -1284,7 +1327,15 @@ def category_dates_reorder(cid: int, request: Request, order: str = Form(...),
             "UPDATE date_categories SET position=? WHERE category_id=? AND date_id=?",
             (pos, cid, did))
     conn.commit()
-    return JSONResponse({"ok": True})
+    custom_image = cat["og_image"] \
+        if images.upload_image_exists(cat["og_image"]) else None
+    preview_revision = images.og_preview_revision(
+        _category_collage_sources(conn, cid),
+        appearance.normalize_skin(cat["category_skin"]),
+        custom_image=custom_image, custom_focus=cat["og_focus"],
+        use_default=bool(cat["use_default_preview"]),
+    )
+    return JSONResponse({"ok": True, "preview_revision": preview_revision})
 
 
 @router.post("/categories/{cid}/detach")

@@ -283,6 +283,26 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert not db_one("SELECT 1 FROM users WHERE telegram_id=0")
     step("вход через Telegram: webhook без секрета → 403, поллинг логинит оператора")
 
+    # На странице уведомлений состояние канала не дублируется текстом. Если бот
+    # ещё не связан, единственный CTA стоит справа от заголовка; общий баннер на
+    # этой странице скрыт. После подключения CTA исчезает целиком.
+    _bot = dbm.connect()
+    _bot.execute("UPDATE users SET bot_linked=0 WHERE id=?", (me["id"],))
+    _bot.commit(); _bot.close()
+    q_unlinked = c.get("/admin/questions").text
+    assert "Уведомления в Telegram" in q_unlinked
+    assert q_unlinked.count("Подключить уведомления") == 1
+    assert "Бот подключён" not in q_unlinked and "Бот не подключён" not in q_unlinked
+    assert '<div class="flash tg-connect">' not in q_unlinked
+    _bot = dbm.connect()
+    _bot.execute("UPDATE users SET bot_linked=1 WHERE id=?", (me["id"],))
+    _bot.commit(); _bot.close()
+    q_linked = c.get("/admin/questions").text
+    assert "Уведомления в Telegram" in q_linked
+    assert "Подключить уведомления" not in q_linked
+    assert "Бот подключён" not in q_linked and "Бот не подключён" not in q_linked
+    step("Telegram-настройки: без статусной подписи, CTA только для неподключённого бота")
+
     # анти-спам /auth/start: 10 кодов на IP за окно, 11-й → 429
     sc = TestClient(main.app, follow_redirects=False)
     for _ in range(10):
@@ -424,7 +444,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     r = c.get(f"/c/{tok}")
     assert r.status_code == 200 and "пусто" in r.text
     assert 'data-skin="friends"' in r.text
-    assert "bg-gather" in r.text and "og-default.jpg" in r.text
+    assert "bg-gather" in r.text and "og-friends.jpg" in r.text
     assert "Собираемся вместе" in r.text
     category_editor = c.get(f"/admin/categories/{cid}").text
     assert 'name="category_skin"' in category_editor
@@ -2895,10 +2915,13 @@ with TestClient(main.app, follow_redirects=False) as cnata, \
     priv = db_one("SELECT id, is_public FROM dates WHERE name='Секретный ужин'")
     assert priv["is_public"] == 0, "без чекбокса событие приватное"
 
-    # C3: у Гоши на главной — лента комьюнити вместо «Последних действий»
+    # C3: у Гоши на главной — лента событий вместо «Последних действий»
     dash = cgosha.get("/admin/").text
-    assert "Встречи сообщества" in dash and "Последние действия" not in dash
+    assert "Лента событий" in dash and "Последние действия" not in dash
+    assert "Встречи сообщества" not in dash
+    assert "Публичные события других людей" not in dash
     assert 'id="communityFeed"' in dash
+    assert 'id="communityReportDlg"' in dash and 'id="communityReportForm"' in dash
 
     # фрагмент ленты: видно чужое публичное, НЕ видно приватное и своё
     feed = cgosha.get("/admin/community").text
@@ -2907,7 +2930,10 @@ with TestClient(main.app, follow_redirects=False) as cnata, \
     assert "Ната-кат" not in feed, "категория в ленте не показывается"
     assert "Добавить в коллекцию" in feed, "главное действие карточки копирует событие"
     assert f'data-add="/d/{pub["share_token"]}/add"' in feed
-    assert 'class="cfeed-owner"' not in feed, "имя владельца заменено действием коллекции"
+    assert 'class="cfeed-owner"' in feed and "Автор:" in feed
+    assert f'href="/u/{pub["owner_id"]}"' in feed
+    assert "data-community-report" in feed and "пожаловаться" in feed
+    assert f'data-report-url="/d/{pub["share_token"]}/report"' in feed
     assert "?w=480 480w" in feed and 'fetchpriority="low"' in feed
     # автор не видит своё событие в собственной ленте
     assert "Пикник на закате" not in cnata.get("/admin/community").text
@@ -2919,6 +2945,24 @@ with TestClient(main.app, follow_redirects=False) as cnata, \
     assert "?w=1600 1600w" in wid and "data-full=" in wid
     # приватное чужое событие виджетом не открыть
     assert cgosha.get(f"/admin/community/date/{priv['id']}").status_code == 404
+
+    # Жалоба из карточки уходит в существующий публичный endpoint с CSRF
+    # авторизованной сессии и попадает в операторскую очередь.
+    main._rates.clear()
+    report = cgosha.post(
+        f"/d/{pub['share_token']}/report",
+        data={"target_type": "date", "target_id": pub["id"], "reason": "Проверить"},
+        headers={"X-Requested-With": "fetch"},
+    )
+    assert report.status_code == 200 and report.json()["ok"] is True
+    gosha_reporter = "u" + str(db_one(
+        "SELECT id FROM users WHERE telegram_id=771002",
+    )[0])
+    assert db_one(
+        "SELECT reason FROM reports WHERE target_type='date' AND target_id=? "
+        "AND reporter=?",
+        (pub["id"], gosha_reporter),
+    )["reason"] == "Проверить"
 
     # C4: «Добавить себе» через fetch → JSON, копия появляется у Гоши
     add = cgosha.post(f"/d/{pub['share_token']}/add", headers={"X-Requested-With": "fetch"})
@@ -3311,12 +3355,15 @@ with TestClient(main.app, follow_redirects=False) as cui2:
     cat_token = db_one("SELECT link_token FROM categories WHERE id=?", (cc["id"],))["link_token"]
     public_page = cui2.get(f"/c/{cat_token}").text
     assert "date-widget-dialog" in public_page and 'class="pcard editable"' in public_page
-    assert "Создать своё событие" in public_page
+    assert public_page.count("Предложить своё событие") >= 3
+    assert "Создать своё событие" not in public_page
+    assert 'id="propEdTitle"' in public_page and 'aria-required="true"' in public_page
     assert '<span class="plus"' not in public_page
     assert "Создатель не считается" not in public_page
     assert 'class="capacity-stepper"' in public_page
     assert "Голосование пока не открыто" not in public_page
-    assert "До конца голосования осталось" in public_page
+    assert 'data-countdown-label>До конца голосования</span>' in public_page
+    assert "data-vote-countdown" in public_page
     assert "Голосование идёт до" not in public_page
     assert all(f'name="pay" value="{v}"' in public_page for v in range(4))
     proposed = cui2.post(
@@ -3340,9 +3387,12 @@ with TestClient(main.app, follow_redirects=False) as cui2:
     assert ">Создать категорию</a>" in cats
     assert "Название новой категории" not in cats
     assert "настрой голосование" not in cats.lower()
+    assert 'class="card cat-card has-thumb"' in cats
+    assert 'class="cat-thumb"' in cats and "og-friends.jpg" in cats
     category_new = cui2.get("/admin/categories/new").text
     assert 'action="/admin/categories/create"' in category_new
     assert "Новая категория" in category_new and "Например, Летние планы" in category_new
+    assert 'class="btn editor-back category-new-back"' in category_new
     # #10: ⋯-меню идёт ПЕРЕД стрелкой (menu-wrap раньше cat-arrow)
     assert cats.index("menu-wrap") < cats.index("cat-arrow")
 

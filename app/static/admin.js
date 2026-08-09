@@ -586,7 +586,8 @@
         if (ogImg) {
           if (ogPreview.dataset.autoImage === "1") {
             ogImg.src = "/admin/categories/" + cid + "/og-preview?skin=" +
-              encodeURIComponent(skin);
+              encodeURIComponent(skin) + "&v=" +
+              encodeURIComponent((ogPreview.dataset.previewRevision || "") + "-" + skin);
           } else if (ogPreview.dataset.defaultImage === "1") {
             ogImg.src = skin === "friends"
               ? ogPreview.dataset.friendsSrc
@@ -617,6 +618,12 @@
             ogImg.src = URL.createObjectURL(ogInput.files[0]);
             ogImg.style.objectPosition = "50% 50%";
             ogChanged.img = true;
+            // После выбора файла это уже не авто-/фирменная картинка. Иначе
+            // смена темы или reorder могли поверх локального preview подставить
+            // старый URL до нажатия «Сохранить».
+            ogPreview.dataset.autoImage = "0";
+            ogPreview.dataset.defaultImage = "0";
+            ogPreview.dataset.hasImage = "0";
             // новая картинка ещё не на сервере — двигать кадр можно после сохранения
             hasSavedImage = false;
             ogPreview.classList.remove("has-image");
@@ -631,33 +638,65 @@
       // пересобирается по ней. Для только что выбранной (несохранённой) — сперва
       // «Сохранить», у формы нет поля фокуса до записи файла.
       if (ogImg && hasSavedImage && cid) {
-        var dragging = false, curFocus = ogImg.style.objectPosition || "50% 50%";
+        var dragging = false, dragStartX = 0, dragStartY = 0;
+        var curFocus = ogImg.style.objectPosition || "50% 50%";
+        var DRAG_THRESHOLD = 6;
+        function pointerPoint(e) {
+          return {
+            x: e.touches ? e.touches[0].clientX : e.clientX,
+            y: e.touches ? e.touches[0].clientY : e.clientY
+          };
+        }
         function applyFocus(e) {
           var rect = ogImg.getBoundingClientRect();
           if (!rect.width || !rect.height) return;
-          var px = (e.touches ? e.touches[0].clientX : e.clientX);
-          var py = (e.touches ? e.touches[0].clientY : e.clientY);
-          var x = Math.round(Math.min(1, Math.max(0, (px - rect.left) / rect.width)) * 100);
-          var y = Math.round(Math.min(1, Math.max(0, (py - rect.top) / rect.height)) * 100);
+          var point = pointerPoint(e);
+          var x = Math.round(Math.min(1, Math.max(0, (point.x - rect.left) / rect.width)) * 100);
+          var y = Math.round(Math.min(1, Math.max(0, (point.y - rect.top) / rect.height)) * 100);
           curFocus = x + "% " + y + "%";
           ogImg.style.objectPosition = curFocus;
         }
         ogImg.addEventListener("pointerdown", function (e) {
-          dragging = true; dragMoved = false;
+          var point = pointerPoint(e);
+          dragging = true;
+          dragMoved = false;
+          dragStartX = point.x;
+          dragStartY = point.y;
           ogImg.setPointerCapture && ogImg.setPointerCapture(e.pointerId);
-          ogPreview.classList.add("dragging"); applyFocus(e); e.preventDefault();
+          e.preventDefault();
         });
         ogImg.addEventListener("pointermove", function (e) {
-          if (dragging) { dragMoved = true; applyFocus(e); }
+          if (!dragging) return;
+          var point = pointerPoint(e);
+          if (!dragMoved && Math.hypot(
+                point.x - dragStartX, point.y - dragStartY
+              ) < DRAG_THRESHOLD) return;
+          if (!dragMoved) {
+            dragMoved = true;
+            ogPreview.classList.add("dragging");
+          }
+          applyFocus(e);
         });
         function endDrag() {
           if (!dragging) return;
           dragging = false; ogPreview.classList.remove("dragging");
+          // Короткий click предназначен для выбора новой картинки. Не меняем
+          // точку фокуса и не отправляем POST, пока кадр действительно не
+          // сдвинут дальше небольшого порога движения.
+          if (!dragMoved) return;
           var fd = new FormData();
           fd.append("csrf", document.body.dataset.csrf);
           fd.append("focus", curFocus);
           fetch("/admin/categories/" + cid + "/og_focus", { method: "POST", body: fd })
-            .then(function (r) { if (!r.ok) throw 0; })
+            .then(function (r) {
+              if (!r.ok) throw 0;
+              return r.json();
+            })
+            .then(function (payload) {
+              if (payload && payload.preview_revision) {
+                ogPreview.dataset.previewRevision = payload.preview_revision;
+              }
+            })
             .catch(function () { /* не сохранилось — тихо, кадр вернётся при перезагрузке */ });
         }
         ogImg.addEventListener("pointerup", endDrag);
@@ -675,7 +714,26 @@
         fd.append("csrf", document.body.dataset.csrf);
         fd.append("order", order);
         fetch("/admin/categories/" + tb.dataset.cid + "/dates_reorder", { method: "POST", body: fd })
-          .then(function (r) { if (!r.ok) alert("Не удалось сохранить порядок"); })
+          .then(function (r) {
+            if (!r.ok) throw 0;
+            return r.json();
+          })
+          .then(function (payload) {
+            var preview = document.getElementById("ogPreview");
+            var image = document.getElementById("ogPreviewImg");
+            // Перестановка влияет только на авто-коллаж. Свою картинку и
+            // принудительное стандартное превью никогда не перезаписываем.
+            if (!preview || !image || preview.dataset.autoImage !== "1") return;
+            var revision = payload && payload.preview_revision
+              ? payload.preview_revision
+              : (preview.dataset.previewRevision || "");
+            var skin = preview.dataset.previewSkin === "romantic"
+              ? "romantic" : "friends";
+            preview.dataset.previewRevision = revision;
+            image.src = "/admin/categories/" + tb.dataset.cid +
+              "/og-preview?skin=" + encodeURIComponent(skin) + "&v=" +
+              encodeURIComponent(revision + "-" + Date.now().toString(36));
+          })
           .catch(function () { alert("Нет связи — порядок не сохранён"); });
       }});
     }
@@ -807,6 +865,12 @@
     var dlg = document.getElementById("communityDlg");
     var cwidBody = document.getElementById("cwidBody");
     var cwidClose = document.getElementById("cwidClose");
+    var reportDlg = document.getElementById("communityReportDlg");
+    var reportForm = document.getElementById("communityReportForm");
+    var reportName = document.getElementById("communityReportName");
+    var reportTarget = document.getElementById("communityReportTargetId");
+    var reportReason = document.getElementById("communityReportReason");
+    var reportCancel = document.getElementById("communityReportCancel");
 
     var loading = false, done = false, loadedAny = false;
     var io = null;
@@ -983,6 +1047,23 @@
       if (cwidBody) cwidBody.innerHTML = "";
     }
 
+    function openReport(button) {
+      if (!reportDlg || !reportForm || !button) return;
+      reportForm.setAttribute("action", button.getAttribute("data-report-url") || "");
+      if (reportTarget) reportTarget.value = button.getAttribute("data-report-id") || "";
+      if (reportName) reportName.textContent = button.getAttribute("data-report-name") || "событие";
+      if (reportReason) reportReason.value = "";
+      if (typeof reportDlg.showModal === "function") reportDlg.showModal();
+      else reportDlg.setAttribute("open", "");
+      if (reportReason) reportReason.focus();
+    }
+
+    function closeReport() {
+      if (!reportDlg) return;
+      if (typeof reportDlg.close === "function" && reportDlg.open) reportDlg.close();
+      else reportDlg.removeAttribute("open");
+    }
+
     // Клик по карточке открывает виджет; обе кнопки действий остаются на месте.
     feed.addEventListener("click", function (e) {
       var add = e.target.closest("[data-community-add]");
@@ -999,6 +1080,13 @@
         shareCommunityEvent(share);
         return;
       }
+      var report = e.target.closest("[data-community-report]");
+      if (report) {
+        e.preventDefault();
+        e.stopPropagation();
+        openReport(report);
+        return;
+      }
       if (e.target.closest("[data-stop]")) return;
       var card = e.target.closest(".cfeed-card");
       if (card) openWidget(card.getAttribute("data-widget"));
@@ -1013,6 +1101,52 @@
     if (cwidClose) cwidClose.addEventListener("click", closeWidget);
     if (dlg) dlg.addEventListener("click", function (e) {
       if (e.target === dlg) closeWidget();               // клик по подложке
+    });
+    if (reportCancel) reportCancel.addEventListener("click", closeReport);
+    if (reportDlg) reportDlg.addEventListener("click", function (e) {
+      if (e.target === reportDlg) closeReport();
+    });
+    if (reportForm) reportForm.addEventListener("submit", function (e) {
+      e.preventDefault();
+      var submit = reportForm.querySelector('[type="submit"]');
+      if (!reportForm.getAttribute("action") || (submit && submit.disabled)) return;
+      var old = submit ? submit.textContent : "";
+      if (submit) {
+        submit.disabled = true;
+        submit.textContent = "Отправляю…";
+      }
+      fetch(reportForm.getAttribute("action"), {
+        method: "POST",
+        credentials: "same-origin",
+        body: new FormData(reportForm),
+        headers: {
+          "Accept": "application/json",
+          "X-Requested-With": "fetch",
+          "X-CSRF-Token": document.body.dataset.csrf || ""
+        }
+      })
+        .then(function (r) {
+          return r.json().catch(function () { return {}; })
+            .then(function (j) { return { ok: r.ok, j: j }; });
+        })
+        .then(function (res) {
+          if (!res.ok || !res.j || !res.j.ok) {
+            var detail = res.j && res.j.detail;
+            if (detail && typeof detail === "object") detail = detail.msg;
+            toast(detail || "Не удалось отправить жалобу");
+            return;
+          }
+          closeReport();
+          reportForm.reset();
+          toast("Спасибо, жалоба отправлена. Модератор проверит");
+        })
+        .catch(function () { toast("Нет связи"); })
+        .finally(function () {
+          if (submit) {
+            submit.disabled = false;
+            submit.textContent = old;
+          }
+        });
     });
 
     // Независимые действия внутри виджета (контент подгружается): отметка
@@ -1078,10 +1212,116 @@
     }
 
     document.addEventListener("keydown", function (e) {
-      if (e.key === "Escape") closeWidget();
+      if (e.key === "Escape") {
+        closeWidget();
+        closeReport();
+      }
     });
 
     load();     // первая страница
+  }
+
+  // --- удобный выбор дедлайна голосования ---------------------------------
+  function initDeadlinePickers() {
+    var MOSCOW_TIME_ZONE = "Europe/Moscow";
+    var pad = function (value) { return String(value).padStart(2, "0"); };
+    var moscowParts = new Intl.DateTimeFormat("en-GB-u-hc-h23", {
+      timeZone: MOSCOW_TIME_ZONE,
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit",
+      hourCycle: "h23"
+    });
+    var readableMoscow = new Intl.DateTimeFormat("ru-RU", {
+      timeZone: "UTC", weekday: "short", day: "numeric", month: "long",
+      hour: "2-digit", minute: "2-digit", hourCycle: "h23"
+    });
+    var toMoscowWallDate = function (instant) {
+      var values = {};
+      moscowParts.formatToParts(instant).forEach(function (part) {
+        if (part.type !== "literal") values[part.type] = Number(part.value);
+      });
+      // UTC используется только как нейтральный контейнер календарных полей.
+      // Само значение datetime-local остаётся московским wall-clock без offset.
+      return new Date(Date.UTC(
+        values.year, values.month - 1, values.day,
+        values.hour, values.minute, values.second
+      ));
+    };
+    var toValue = function (wallDate) {
+      return wallDate.getUTCFullYear() + "-" + pad(wallDate.getUTCMonth() + 1) + "-" +
+        pad(wallDate.getUTCDate()) + "T" + pad(wallDate.getUTCHours()) + ":" +
+        pad(wallDate.getUTCMinutes());
+    };
+    var parseValue = function (value) {
+      var match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value || "");
+      if (!match) return null;
+      var date = new Date(Date.UTC(
+        +match[1], +match[2] - 1, +match[3], +match[4], +match[5]
+      ));
+      if (!Number.isFinite(date.getTime()) ||
+          date.getUTCFullYear() !== +match[1] ||
+          date.getUTCMonth() !== +match[2] - 1 ||
+          date.getUTCDate() !== +match[3] ||
+          date.getUTCHours() !== +match[4] ||
+          date.getUTCMinutes() !== +match[5]) return null;
+      return date;
+    };
+
+    document.querySelectorAll("[data-deadline-picker]").forEach(function (picker) {
+      if (picker.dataset.deadlineReady) return;
+      picker.dataset.deadlineReady = "1";
+      var input = picker.querySelector('input[name="voting_deadline"]');
+      var readable = picker.querySelector("[data-deadline-readable]");
+      var presets = Array.from(picker.querySelectorAll("[data-deadline-hours]"));
+      if (!input) return;
+
+      // Оба экрана получают актуальную нижнюю границу даже после возврата из
+      // Turbo-кэша. Сервер всё равно остаётся окончательным валидатором.
+      var now = toMoscowWallDate(new Date());
+      // datetime-local не передаёт секунды, а сервер требует строго будущее
+      // значение. Следующая минута не оставляет формально доступный, но уже
+      // прошедший вариант и учитывает задержку до submit.
+      now.setUTCMinutes(now.getUTCMinutes() + 1, 0, 0);
+      if (!input.min || input.min < toValue(now)) input.min = toValue(now);
+
+      function renderReadable() {
+        var selected = parseValue(input.value);
+        if (!readable) return;
+        if (!selected) {
+          readable.textContent = "Выбери дату и время по Москве";
+          return;
+        }
+        readable.textContent = "Выбрано: " + readableMoscow.format(selected) + " МСК";
+      }
+
+      presets.forEach(function (button) {
+        button.addEventListener("click", function () {
+          var hours = Number(button.dataset.deadlineHours);
+          if (!Number.isFinite(hours) || hours <= 0) return;
+          var selected = toMoscowWallDate(new Date());
+          // Сначала округляем московское wall-clock время вверх до четверти
+          // часа, затем прибавляем выбранный интервал.
+          var quarterHour = 15 * 60 * 1000;
+          selected = new Date(Math.ceil(selected.getTime() / quarterHour) * quarterHour);
+          selected.setUTCHours(selected.getUTCHours() + hours);
+          input.value = toValue(selected);
+          presets.forEach(function (item) {
+            item.setAttribute("aria-pressed", item === button ? "true" : "false");
+          });
+          input.classList.add("flash");
+          setTimeout(function () { input.classList.remove("flash"); }, 450);
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+          input.dispatchEvent(new Event("change", { bubbles: true }));
+        });
+      });
+      input.addEventListener("input", function (event) {
+        if (event.isTrusted) {
+          presets.forEach(function (item) { item.setAttribute("aria-pressed", "false"); });
+        }
+        renderReadable();
+      });
+      renderReadable();
+    });
   }
 
   // Запускаем инициализаторы на каждой загрузке (в т.ч. после Turbo-перехода).
@@ -1109,9 +1349,9 @@
           }
           return;
         }
-        event.preventDefault();
       });
     });
+    initDeadlinePickers();
     initDates();
     initDateForm();
     initCategory();

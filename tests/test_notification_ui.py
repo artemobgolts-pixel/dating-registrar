@@ -59,15 +59,28 @@ class NotificationUiTests(unittest.TestCase):
         template = (APP / "templates/admin/questions.html").read_text(
             encoding="utf-8",
         )
+        base = (APP / "templates/admin/base.html").read_text(encoding="utf-8")
         css = (APP / "static/admin.css").read_text(encoding="utf-8")
+        auth = (APP / "static/auth.js").read_text(encoding="utf-8")
 
-        title_row = template.split('<span class="notif-settings-title-row">', 1)[1]
-        title_row = title_row.split("</span>", 3)[0:3]
-        self.assertIn("Уведомления в Telegram", "</span>".join(title_row))
-        self.assertIn("Бот подключён", "</span>".join(title_row))
+        self.assertIn("Уведомления в Telegram", template)
+        self.assertNotIn("Бот подключён", template)
+        self.assertNotIn("Бот не подключён", template)
+        self.assertIn("{% if not user['bot_linked'] %}", template)
+        self.assertIn('data-tg-connect class="btn primary notif-settings-connect"', template)
+        self.assertIn("Подключить уведомления", template)
+        self.assertIn('data-return-to="/admin/questions"', template)
+        self.assertIn("active != 'q'", base)
         self.assertIn(".notif-settings-title-row {", css)
         self.assertIn("gap: 6px 10px", css)
+        self.assertIn(".notif-settings-connect {", css)
         self.assertIn("margin: 0 3px 4px auto", css)
+        self.assertIn("event.preventDefault();", auth)
+        self.assertIn("event.stopPropagation();", auth)
+        self.assertIn('window.open("about:blank", "_blank")', auth)
+        self.assertIn('btn.dataset.tgDirect = d.url', auth)
+        self.assertIn('btn.textContent = "Открыть Telegram"', auth)
+        self.assertIn('window.location.assign(btn.dataset.tgDirect)', auth)
 
         self.assertIn("Ждут отзыва", template)
         self.assertIn("{{ question_unread }}", template)
@@ -82,6 +95,55 @@ class NotificationUiTests(unittest.TestCase):
         self.assertIn("review_deleted", template)
         self.assertIn("declined", template)
 
+    def test_event_feed_shows_author_and_submits_reports_with_csrf(self):
+        dashboard = (APP / "templates/admin/dashboard.html").read_text(
+            encoding="utf-8",
+        )
+        cards = (APP / "templates/admin/_community_cards.html").read_text(
+            encoding="utf-8",
+        )
+        admin = (APP / "static/admin.js").read_text(encoding="utf-8")
+        css = (APP / "static/admin.css").read_text(encoding="utf-8")
+
+        self.assertIn("Лента событий", dashboard)
+        self.assertNotIn("Встречи сообщества", dashboard)
+        self.assertNotIn("Публичные события других людей", dashboard)
+        self.assertIn('id="communityReportDlg"', dashboard)
+        self.assertIn("Автор: {{ d['owner_display'] }}", cards)
+        self.assertIn("data-community-report", cards)
+        self.assertIn('data-report-url="/d/{{ d[\'share_token\'] }}/report"', cards)
+        self.assertIn('"X-CSRF-Token": document.body.dataset.csrf || ""', admin)
+        self.assertIn("new FormData(reportForm)", admin)
+        self.assertIn(".report-link {", css)
+        self.assertIn("text-decoration: underline dotted", css)
+
+    def test_categories_have_spacing_and_a_default_thumbnail(self):
+        categories = (APP / "templates/admin/categories.html").read_text(
+            encoding="utf-8",
+        )
+        detail = (APP / "templates/admin/category_detail.html").read_text(
+            encoding="utf-8",
+        )
+        public = (APP / "templates/public/category.html").read_text(
+            encoding="utf-8",
+        )
+        css = (APP / "static/admin.css").read_text(encoding="utf-8")
+
+        self.assertIn('class="card cat-card has-thumb"', categories)
+        self.assertIn("c['use_default_preview'] or not c['has_og']", categories)
+        self.assertIn("og-friends.jpg", categories)
+        self.assertIn("c['preview_revision']", categories)
+        self.assertIn(".category-create-only { margin-bottom: 16px; }", css)
+        self.assertIn(
+            "{% if cat['use_default_preview'] %}{{ asset('og-friends.jpg' if category_skin == 'friends' else 'og-default.jpg') }}",
+            detail,
+        )
+        self.assertIn(
+            "{% if cat['use_default_preview'] %}{{ BASE_URL }}{{ asset('og-friends.jpg' if active_skin == 'friends' else 'og-default.jpg') }}",
+            public,
+        )
+        self.assertIn("&amp;v={{ preview_revision }}", public)
+
     def test_countdown_is_continuous_turbo_safe_and_reused_on_dashboard(self):
         category = (APP / "templates/public/category.html").read_text(encoding="utf-8")
         share = (APP / "templates/public/share.html").read_text(encoding="utf-8")
@@ -94,8 +156,10 @@ class NotificationUiTests(unittest.TestCase):
             "Можно выбрать один вариант — новый выбор заменит предыдущий.", category,
         )
         self.assertNotIn("Участники и прогресс видны всем.", category)
-        self.assertIn('role="timer" data-vote-countdown', category)
-        self.assertIn('role="timer" data-vote-countdown', share)
+        self.assertIn('class="vote-countdown" role="timer"', category)
+        self.assertIn('class="vote-countdown" role="timer"', share)
+        self.assertIn('class="vote-countdown-label" data-countdown-label', category)
+        self.assertIn('class="vote-countdown-label" data-countdown-label', share)
 
         self.assertIn('parts.push(secs + " сек.")', ui)
         self.assertNotIn('if (!days) parts.push(secs + " сек.")', ui)
@@ -105,32 +169,50 @@ class NotificationUiTests(unittest.TestCase):
         self.assertIn('el.style.setProperty("--countdown-hue"', ui)
         self.assertIn('el.dataset.countdownScale !== "fixed"', ui)
         self.assertIn("if (!el.isConnected)", ui)
+        self.assertIn('var label = wrapper && wrapper.querySelector("[data-countdown-label]")', ui)
+        self.assertIn('el.textContent = value', ui)
+        self.assertIn('"До конца голосования осталось: " + value', ui)
 
         self.assertIn('data-countdown-scale="fixed"', dashboard)
         self.assertIn("share['voting_status'] == 'open'", dashboard)
+        og_preview = dashboard.split('class="og-preview dashboard-og-preview"', 1)[1]
+        self.assertLess(og_preview.index('class="dashboard-vote-countdown"'),
+                        og_preview.index('class="og-text"'))
         self.assertIn("UI.voteCountdowns(document)", admin)
         self.assertIn(".vote-summary.vote-open [data-vote-countdown]", public_css)
+        self.assertIn(".vote-countdown-label", public_css)
+        self.assertIn('.vote-summary:not(.vote-open)', public_css)
         self.assertIn("font-variant-numeric: tabular-nums", public_css)
 
     def test_font_ready_keeps_glass_animation_and_category_form_is_responsive(self):
         ui = (APP / "static/ui.js").read_text(encoding="utf-8")
         css = (APP / "static/admin.css").read_text(encoding="utf-8")
+        category_new = (APP / "templates/admin/category_new.html").read_text(
+            encoding="utf-8",
+        )
 
         font_ready = ui.split("if (document.fonts && document.fonts.ready)", 1)[1]
         font_ready = font_ready.split("// На клике индикатор", 1)[0]
         self.assertIn("put(geom(active()), true)", font_ready)
         self.assertNotIn("repos();", font_ready)
-        self.assertIn("transition: transform .3s", css)
         self.assertIn(".dates-status-tabs a {", css)
         self.assertIn("display: inline-flex", css)
         self.assertIn("align-items: center", css)
         self.assertIn(".dates-status-tabs a .pill {", css)
         self.assertIn("place-items: center", css)
+        status_indicator = css.split(".dates-status-tabs .tab-ind {", 1)[1].split("}", 1)[0]
+        self.assertIn("transform .42s cubic-bezier(.34, 1.3, .5, 1)", status_indicator)
+        self.assertIn("width .42s cubic-bezier(.34, 1.3, .5, 1)", status_indicator)
+        self.assertIn(".dates-status-tabs { overflow: visible; }", css)
+        self.assertIn("html[data-skin] .tabs .tab-ind", css)
+        self.assertIn("html[data-skin] .dates-status-tabs .tab-ind", css)
 
         self.assertIn(".category-new-card {", css)
         self.assertIn(".category-new-form {", css)
         self.assertIn(".category-new-actions {", css)
         self.assertIn("grid-template-columns: repeat(2, minmax(0, 1fr))", css)
+        self.assertIn('class="btn editor-back category-new-back"', category_new)
+        self.assertIn(".editor-back.category-new-back { top: 112px; }", css)
 
 
 if __name__ == "__main__":
