@@ -1414,8 +1414,11 @@
           presets.forEach(function (item) {
             item.setAttribute("aria-pressed", item === button ? "true" : "false");
           });
-          input.classList.add("flash");
-          setTimeout(function () { input.classList.remove("flash"); }, 450);
+          clearTimeout(input._deadlineHighlightTimer);
+          input.classList.add("deadline-value-updated");
+          input._deadlineHighlightTimer = setTimeout(function () {
+            input.classList.remove("deadline-value-updated");
+          }, 450);
           input.dispatchEvent(new Event("input", { bubbles: true }));
           input.dispatchEvent(new Event("change", { bubbles: true }));
         });

@@ -265,6 +265,29 @@ def queue_review_prompts_for_date(conn: sqlite3.Connection, date_id: int) -> int
     return queued
 
 
+def reconcile_review_prompts_for_date(conn: sqlite3.Connection, date_id: int) -> int:
+    """Пересчитывает prompts и для пользователей, потерявших право на обзор.
+
+    Обычный fan-out идёт только по текущим получателям. При повторном открытии
+    голосования бывший победитель перестаёт давать право на обзор, поэтому его
+    участники уже не попадают в :func:`review_user_ids` и старый отложенный
+    prompt иначе остаётся активным. Берём объединение всех отметок «Хочу» и
+    всех бюллетеней события: ``queue_review_prompt`` либо перенесёт актуальную
+    запись, либо отменит её, если других оснований для обзора больше нет.
+    """
+    user_ids = [int(row["user_id"]) for row in conn.execute(
+        "SELECT user_id FROM date_wants WHERE date_id=? "
+        "UNION "
+        "SELECT user_id FROM bookings WHERE date_id=? AND user_id IS NOT NULL",
+        (date_id, date_id),
+    ).fetchall()]
+    queued = 0
+    for user_id in user_ids:
+        if queue_review_prompt(conn, date_id, user_id) is not None:
+            queued += 1
+    return queued
+
+
 def cancel_review_prompts_for_date(conn: sqlite3.Connection, date_id: int,
                                    reason: str = "event_removed") -> int:
     cancelled = notification_outbox.cancel(

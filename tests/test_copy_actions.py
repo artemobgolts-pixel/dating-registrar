@@ -408,7 +408,12 @@ class CopyActionTests(unittest.TestCase):
         self.assertIn("min-height: 44px", feed_buttons)
         self.assertIn("font-size: 13px", feed_buttons)
         self.assertIn("#communityDlg:has(.cwid.has-media)", css)
-        self.assertIn("grid-template-columns: minmax(330px, .95fr) minmax(0, 1.05fr)", css)
+        self.assertIn("max-width: 680px; max-height: min(88vh, 820px); overflow: auto;", css)
+        self.assertIn("display: flex; flex-direction: column; min-height: 0;", css)
+        self.assertNotIn(
+            "grid-template-columns: minmax(330px, .95fr) minmax(0, 1.05fr)",
+            css,
+        )
         self.assertIn(".dates-status-tabs a {", css)
         self.assertIn("font-size: 15.5px;", css)
         self.assertIn("background: var(--accent);", css)

@@ -989,12 +989,23 @@ def category_voting_configure(cid: int, request: Request,
                               conn=Depends(get_db)):
     """Явная настройка режима и ручного дедлайна голосования (время МСК)."""
     cat = _cat_or_404(conn, cid, request.state.user)
+    # Снимок прошлого раунда и его сброс должны видеть одно состояние. Иначе
+    # фоновое close_due могло закрыть категорию между SELECT и configure: новый
+    # срок сохранялся бы, а только что созданные итоги оставались активными.
+    conn.execute("UPDATE categories SET id=id WHERE id=?", (cid,))
+    previous_state = voting.get_category_state(conn, cid)
+    reopened = (
+        previous_state.closed_at is not None
+        or previous_state.status in voting.CLOSED_STATUSES
+    )
     try:
         state = voting.configure_category(
             conn, cid, cat["owner_id"], choice_mode, voting_deadline,
         )
     except voting.VotingError as exc:
         _raise_voting_http(exc)
+    if reopened:
+        voting_events.cancel_pending_round_notifications(conn, cid)
     for row in conn.execute(
         "SELECT DISTINCT user_id FROM bookings WHERE category_id=? AND user_id IS NOT NULL",
         (cid,),
@@ -1003,9 +1014,13 @@ def category_voting_configure(cid: int, request: Request,
     for row in conn.execute(
         "SELECT date_id FROM date_categories WHERE category_id=?", (cid,),
     ).fetchall():
-        social_events.queue_review_prompts_for_date(conn, int(row["date_id"]))
+        social_events.reconcile_review_prompts_for_date(conn, int(row["date_id"]))
     conn.commit()
-    return redir(f"/admin/categories/{cid}", "Настройки голосования сохранены")
+    message = (
+        "Голосование возобновлено, новый дедлайн сохранён"
+        if reopened else "Настройки голосования сохранены"
+    )
+    return redir(f"/admin/categories/{cid}", message)
 
 
 @router.post("/categories/{cid}/voting/resolve")

@@ -107,6 +107,27 @@ class ReviewCollectionUiTests(unittest.TestCase):
             rule(admin_css, ".grid"),
         )
         self.assertIn(
+            ".dlist {\n"
+            "    display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));",
+            admin_css,
+        )
+        self.assertIn(
+            ".drow {\n"
+            "    display: flex; flex-direction: column; align-items: stretch; gap: 0;",
+            admin_css,
+        )
+        self.assertIn(
+            ".drow-cover {\n"
+            "    width: 100%; height: auto; aspect-ratio: 16 / 9;",
+            admin_css,
+        )
+        self.assertIn(
+            ".drow:not(:has(.drow-cover)) .drow-main {\n"
+            "    min-height: 62px; padding-left: 68px;",
+            admin_css,
+        )
+        self.assertIn(".drow:has(.menu.open)", admin_css)
+        self.assertIn(
             ".grid { grid-template-columns: minmax(0, 1fr); gap: 14px; }",
             admin_css,
         )
@@ -145,7 +166,15 @@ class ReviewCollectionUiTests(unittest.TestCase):
             ".profile-public-page .profile-event-dlg:has(.cwid.has-media)",
             profile_css,
         )
-        self.assertIn("width: min(1120px, calc(100vw - 56px))", profile_css)
+        self.assertIn("width: min(680px, calc(100vw - 56px))", profile_css)
+        self.assertIn(
+            "display: flex; flex-direction: column; min-height: 0;",
+            profile_css,
+        )
+        self.assertNotIn(
+            "grid-template-columns: minmax(0, 1.45fr) minmax(360px, .85fr)",
+            profile_css,
+        )
         self.assertIn(
             ".profile-public-page .pub-dates.profile-tab-events .pub-grid {\n"
             "    grid-template-columns: minmax(0, 1fr); gap: 14px;",

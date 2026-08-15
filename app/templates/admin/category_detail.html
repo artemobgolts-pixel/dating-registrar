@@ -195,7 +195,7 @@
   </div>
   {% endif %}
 
-  {% if voting_state.status in ('unconfigured', 'open') and can_change_composition %}
+  {% if voting_state.status in ('unconfigured', 'open', 'tie', 'resolved', 'no_winner') %}
   <form class="voting-form" method="post" action="/admin/categories/{{ cat['id'] }}/voting">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <div class="field" style="margin:0">
@@ -228,10 +228,18 @@
       </div>
       <small class="deadline-readable" data-deadline-readable aria-live="polite"></small>
       <small class="muted">Вручную можно поставить любой будущий срок по Москве. Быстрые кнопки прибавляют время к выбранному дедлайну; новый срок должен быть раньше начала всех событий.</small>
+      {% if voting_state.status in ('tie', 'resolved', 'no_winner') %}
+      <small class="muted">Новый будущий дедлайн снова откроет голосование: отданные голоса сохранятся, а прежний итог будет сброшен.</small>
+      {% endif %}
     </div>
-    <button class="btn primary" type="submit">{{ 'Запустить голосование' if voting_state.status == 'unconfigured' else 'Изменить дедлайн и настройки' }}</button>
+    <button class="btn primary" type="submit">
+      {% if voting_state.status == 'unconfigured' %}Запустить голосование
+      {% elif voting_state.status in ('tie', 'resolved', 'no_winner') %}Возобновить голосование
+      {% else %}Изменить дедлайн и настройки{% endif %}
+    </button>
   </form>
-  {% elif voting_state.status == 'tie' %}
+  {% endif %}
+  {% if voting_state.status == 'tie' %}
   <div class="voting-tie-note">
     У лидеров одинаковое число голосов. Выбери победителя кнопкой в таблице ниже — доступны только лидеры.
   </div>

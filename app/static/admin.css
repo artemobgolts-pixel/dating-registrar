@@ -969,7 +969,10 @@ a.social-service:hover {
 }
 .chip:hover { transform: translateY(-1px); box-shadow: 0 3px 10px rgba(120, 70, 80, .12); }
 .chip:active { transform: scale(.95); }
-input.flash { background: #f8ecea !important; transition: background .4s; }
+.deadline-picker input.deadline-value-updated {
+  background: #f8ecea !important;
+  transition: background .4s;
+}
 
 /* дроп-зона загрузки */
 .dropzone {
@@ -1945,6 +1948,7 @@ html.ink-static .bg-smoke span {
    считается ВНУТРИ карточки и следующая карточка перекрывала его. Поднимаем всю
    карточку, у которой открыто меню, над соседями (баг #6). */
 .dcard:has(.menu.open),
+.drow:has(.menu.open),
 .cat-card:has(.menu.open) { z-index: 30; position: relative; }
 .menu-wrap { position: relative; flex: none; }
 .more {
@@ -2643,6 +2647,44 @@ html[data-theme="dark"][data-skin="friends"] .share-qr {
   display: grid; place-items: center;
 }
 .drow-act .more:hover { background: var(--rose-soft); }
+@media (min-width: 721px) {
+  /* Даже сохранённый режим «Список» на ПК показывает события карточками:
+     обложка сверху, затем метаданные и действия. Так список не возвращает
+     прежние растянутые горизонтальные event-card строки. */
+  .dlist {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 16px;
+  }
+  .drow {
+    display: flex; flex-direction: column; align-items: stretch; gap: 0;
+    padding: 0; min-width: 0;
+  }
+  .drow-select {
+    position: absolute; top: 10px; left: 10px; z-index: 5;
+    width: 42px; min-height: 42px;
+    border-radius: 12px; background: rgba(255, 255, 255, .76);
+    -webkit-backdrop-filter: blur(5px); backdrop-filter: blur(5px);
+  }
+  .drow-cover {
+    width: 100%; height: auto; aspect-ratio: 16 / 9;
+    border-radius: 14px 14px 0 0;
+  }
+  .drow-main {
+    width: 100%; flex: 1; padding: 15px 16px 8px;
+  }
+  .drow:not(:has(.drow-cover)) .drow-main {
+    min-height: 62px; padding-left: 68px;
+  }
+  .drow-act {
+    width: 100%; padding: 8px 16px 16px; align-items: stretch;
+    flex-wrap: wrap;
+  }
+  .drow-act .btn {
+    flex: 1 1 120px; display: inline-flex; align-items: center;
+    justify-content: center; text-align: center;
+  }
+  .drow-act .menu-wrap { align-self: center; }
+}
 @media (max-width: 600px) {
   .drow { flex-wrap: wrap; }
   .drow-act { width: 100%; }
@@ -3084,17 +3126,19 @@ html[data-theme="dark"][data-skin="friends"] .share-qr {
 .cwid-actions { display: grid; gap: 8px; margin-top: 16px; }
 .cwid-actions .btn { width: 100%; text-align: center; padding: 12px; font-size: 15px; font-weight: 600; }
 @media (min-width: 760px) {
-  #communityDlg:has(.cwid.has-media) { max-width: 900px; }
+  #communityDlg:has(.cwid.has-media) {
+    max-width: 680px; max-height: min(88vh, 820px); overflow: auto;
+  }
   #communityDlg .cwid.has-media {
-    display: grid; grid-template-columns: minmax(330px, .95fr) minmax(0, 1.05fr);
-    min-height: 430px;
+    display: flex; flex-direction: column; min-height: 0;
   }
   #communityDlg .cwid.has-media .cwid-gallery {
-    height: 100%; min-width: 0; border-radius: 20px 0 0 20px;
+    width: 100%; height: auto; min-width: 0; flex: none;
+    border-radius: 20px 20px 0 0;
   }
   #communityDlg .cwid.has-media .cwid-gallery img,
   #communityDlg .cwid.has-media .cwid-gallery video {
-    height: 100%; min-height: 430px; max-height: none;
+    height: auto; min-height: 0; max-height: none; aspect-ratio: 16 / 9;
   }
   #communityDlg .cwid-body {
     min-width: 0; padding: 28px 30px 30px;
@@ -3510,22 +3554,21 @@ html[data-theme="dark"] .capacity-step:disabled { background: rgba(16,13,16,.32)
   background: color-mix(in srgb, var(--card) 82%, var(--accent) 5%);
   color: var(--rose-2); font: inherit; font-size: 12px; font-weight: 650;
   line-height: 1.15; cursor: pointer;
-  transition: transform .14s ease, border-color .18s ease,
-    background .18s ease, box-shadow .18s ease;
+  transition: border-color .18s ease, background .18s ease, box-shadow .18s ease;
 }
 .deadline-preset:hover {
-  transform: translateY(-1px); border-color: var(--accent);
+  border-color: var(--accent);
   background: color-mix(in srgb, var(--card) 68%, var(--accent) 12%);
   box-shadow: 0 4px 11px color-mix(in srgb, var(--accent) 14%, transparent);
 }
-.deadline-preset:active { transform: scale(.96); }
+.deadline-preset:active { box-shadow: 0 2px 6px color-mix(in srgb, var(--accent) 18%, transparent); }
 .deadline-preset[aria-pressed="true"] {
   border-color: var(--accent); color: #fff;
   background: linear-gradient(135deg, var(--accent), var(--rose-2));
   box-shadow: 0 4px 11px color-mix(in srgb, var(--accent) 22%, transparent);
 }
 .deadline-readable {
-  display: block; min-height: 17px; margin-top: 6px;
+  display: block; height: 33px; margin-top: 6px; overflow: hidden;
   color: var(--rose-2); font-size: 12px; font-weight: 600; line-height: 1.35;
 }
 .chip-cat.locked { opacity: .66; cursor: not-allowed; }

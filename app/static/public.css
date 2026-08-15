@@ -2438,17 +2438,6 @@ html[data-skin="friends"] .confetti-gather {
   font-weight: 800; line-height: 1;
 }
 
-@media (min-width: 620px) {
-  html[data-skin="friends"] .card:not(.nophoto) {
-    display: grid; grid-template-columns: minmax(220px, 42%) minmax(0, 1fr);
-  }
-  html[data-skin="friends"] .card:not(.nophoto) .gal-wrap { min-width: 0; }
-  html[data-skin="friends"] .card:not(.nophoto) .gallery img,
-  html[data-skin="friends"] .card:not(.nophoto) .gallery video {
-    min-height: 310px;
-  }
-}
-
 html[data-skin="friends"][data-theme="dark"] {
   --bg: #121523;
   --card: rgba(29, 33, 51, .94);
@@ -2797,45 +2786,38 @@ html[data-theme="dark"][data-skin="friends"] body.review-share-page {
   .review-share-page footer { margin-top: 40px; }
 }
 
-/* Публичные карточки событий: на ПК используем ширину экрана и настоящую
-   двухколоночную композицию для обеих тем. На планшетах friends сохраняет
-   прежний компактный split-view от 620 px, а до 900 px romantic и мобильные
-   экраны остаются вертикальными. Одинаковые page-классы используются на
-   категории /c/... и на одиночном событии /d/..., поэтому эти поверхности не
-   расходятся при следующих изменениях карточки. */
+/* Публичные карточки событий остаются вертикальными и на ПК: медиа занимает
+   всю ширину карточки сверху, контент и действия идут строго следом. Категория
+   использует экран двумя самостоятельными карточками, а одиночная /d/ не
+   растягивается на всю desktop-ширину. До 900 px базовая мобильная геометрия
+   остаётся без изменений. */
 @media (min-width: 900px) {
   .public-event-page .wrap {
     max-width: 1080px;
     padding: 36px 24px 120px;
   }
-  .public-event-page .cards { gap: 26px; }
-  .public-event-page .card:not(.nophoto) {
-    display: grid;
-    grid-template-columns: minmax(340px, 42%) minmax(0, 1fr);
-    align-items: stretch;
+  .public-category-page .cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: stretch; gap: 26px;
+  }
+  .public-share-page .cards {
+    width: min(100%, 680px); margin-inline: auto;
+  }
+  .public-event-page .card {
+    display: flex; flex-direction: column; min-width: 0;
   }
   .public-event-page .card:not(.nophoto) .gal-wrap {
-    min-width: 0;
-    height: 100%;
+    width: 100%; min-width: 0; height: auto; flex: none;
   }
   .public-event-page .card:not(.nophoto) .gallery {
-    height: 100%;
-    min-height: 360px;
+    width: 100%; height: auto; min-height: 0; aspect-ratio: 16 / 9;
   }
   .public-event-page .card:not(.nophoto) .gallery img,
   .public-event-page .card:not(.nophoto) .gallery video {
-    height: 100%;
-    min-height: 360px;
+    height: 100%; min-height: 0;
   }
-  .public-event-page .card:not(.nophoto) .body {
-    min-width: 0;
-    padding: 27px 30px 30px;
+  .public-event-page .card .body {
+    min-width: 0; flex: 1;
+    padding: 22px 24px 24px;
   }
-  .public-event-page .card:not(.nophoto) .title { font-size: 30px; }
-  .public-event-page .card.nophoto {
-    width: min(100%, 820px);
-    margin-inline: auto;
-  }
-  .public-event-page .card.nophoto .body { padding: 25px 28px 28px; }
-  .public-event-page .card.nophoto .title { font-size: 28px; }
 }

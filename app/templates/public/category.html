@@ -178,7 +178,7 @@
              srcset="/c/{{ token }}/image/{{ im['filename'] }}?w=480 480w,
                      /c/{{ token }}/image/{{ im['filename'] }}?w=960 960w,
                      /c/{{ token }}/image/{{ im['filename'] }}?w=1600 1600w"
-             sizes="{% if active_skin == 'friends' %}(max-width: 619px) calc(100vw - 32px), (max-width: 899px) 286px, 430px{% else %}(max-width: 899px) calc(100vw - 32px), 430px{% endif %}"
+             sizes="(max-width: 899px) calc(100vw - 32px), 520px"
              data-full="/c/{{ token }}/image/{{ im['filename'] }}" alt=""
              loading="{{ 'eager' if priority and loop.first else 'lazy' }}"
              fetchpriority="{{ 'high' if priority and loop.first else 'low' }}"

@@ -17,6 +17,12 @@ from helpers import fmt_when, now_naive
 
 log = logging.getLogger("voting_events")
 RESULT_TTL = timedelta(days=30)
+ROUND_NOTIFICATION_KINDS = (
+    "voting_tie",
+    "voting_resolved",
+    "voting_no_winner",
+    "winner_reminder",
+)
 
 
 def _as_dt(value: str | None) -> datetime | None:
@@ -126,6 +132,38 @@ def cancel_category_notifications(conn: sqlite3.Connection, category_id: int,
     return total + max(cur.rowcount, 0)
 
 
+def cancel_pending_round_notifications(conn: sqlite3.Connection,
+                                       category_id: int) -> int:
+    """Отменяет неотправленные итоги и напоминания прошлого раунда.
+
+    Уже доставленные сообщения остаются историей. Новый итог получает другой
+    round-key, поэтому после повторного закрытия он будет доставлен независимо
+    от того, успел ли Telegram отправить результат предыдущего раунда.
+    """
+    total = sum(
+        outbox.cancel(
+            conn,
+            event_prefix=f"category:{int(category_id)}:",
+            kind=kind,
+            reason="voting_reopened",
+        )
+        for kind in ROUND_NOTIFICATION_KINDS
+    )
+    # Уведомление об отказе адресовано владельцу и исторически имеет booking:-
+    # ключ. После повторного открытия фраза «итог не изменился» уже неверна.
+    for row in conn.execute(
+        "SELECT id FROM bookings WHERE category_id=?",
+        (int(category_id),),
+    ).fetchall():
+        total += outbox.cancel(
+            conn,
+            event_key=f"booking:{int(row['id'])}:participant_withdrawal",
+            kind="participant_withdrawal",
+            reason="voting_reopened",
+        )
+    return total
+
+
 def queue_category_outcome(conn: sqlite3.Connection, state: voting.CategoryState,
                            *, now: datetime | None = None) -> None:
     """Дедуплицированно ставит владельцу и всем голосовавшим текущий итог."""
@@ -138,6 +176,10 @@ def queue_category_outcome(conn: sqlite3.Connection, state: voting.CategoryState
     owner_id = int(cat["owner_id"])
     admin_url = f"{BASE_URL}/admin/categories/{state.category_id}"
     public_url = f"{BASE_URL}/c/{cat['link_token']}"
+    # closed_at — стабильный идентификатор конкретного завершённого раунда.
+    # Без него повторный такой же исход после продления дедуплицировался бы уже
+    # отправленной строкой предыдущего раунда.
+    round_key = state.closed_at or "legacy"
 
     winner = _date(conn, state.winner_date_id)
     if state.status == voting.STATUS_NO_WINNER:
@@ -162,7 +204,8 @@ def queue_category_outcome(conn: sqlite3.Connection, state: voting.CategoryState
 
     outbox.enqueue(
         conn, user_id=owner_id, kind=f"voting_{state.status}",
-        event_key=f"category:{state.category_id}:status:{state.status}:owner:{owner_id}",
+        event_key=(f"category:{state.category_id}:status:{state.status}:"
+                   f"round:{round_key}:owner:{owner_id}"),
         text=owner_text, expires_at=expiry, action_url=admin_url,
         action_label=("Выбрать победителя" if state.status == voting.STATUS_TIE
                       else "Открыть категорию"),
@@ -175,12 +218,20 @@ def queue_category_outcome(conn: sqlite3.Connection, state: voting.CategoryState
 
     for user_id, choices in by_user.items():
         chose_winner = any(r["date_id"] == state.winner_date_id for r in choices)
+        active_winner = any(
+            r["date_id"] == state.winner_date_id
+            and not r["participation_withdrawn_at"]
+            for r in choices
+        )
         if state.status == voting.STATUS_TIE:
             title = "⚖️ Голосование завершилось ничьёй"
             detail = "Организатор выбирает победителя среди лидеров. Мы пришлём итог."
-        elif state.status == voting.STATUS_RESOLVED and chose_winner:
+        elif state.status == voting.STATUS_RESOLVED and active_winner:
             title = "💝 Ваш вариант победил"
             detail = "Вы участвуете в победившем событии."
+        elif state.status == voting.STATUS_RESOLVED and chose_winner:
+            title = "Ваш вариант победил"
+            detail = "Вы ранее отказались от участия в этом событии."
         elif state.status == voting.STATUS_RESOLVED:
             title = "Голосование завершено"
             detail = f"Победил вариант «{notify.esc(winner['name'] if winner else 'Событие')}»."
@@ -191,7 +242,8 @@ def queue_category_outcome(conn: sqlite3.Connection, state: voting.CategoryState
         outbox.enqueue(
             conn, user_id=user_id, kind=f"voting_{state.status}",
             event_key=(f"category:{state.category_id}:status:{state.status}:"
-                       f"user:{user_id}"), text=text, expires_at=expiry,
+                       f"round:{round_key}:user:{user_id}"),
+            text=text, expires_at=expiry,
             action_url=public_url, action_label="Посмотреть результат",
         )
 
@@ -222,7 +274,8 @@ def queue_category_outcome(conn: sqlite3.Connection, state: voting.CategoryState
                     outbox.enqueue(
                         conn, user_id=user_id, kind="winner_reminder",
                         event_key=(f"category:{state.category_id}:date:{winner['id']}:"
-                                   f"reminder:{hours}h:at:{starts.isoformat()}:user:{user_id}"),
+                                   f"reminder:{hours}h:at:{starts.isoformat()}:"
+                                   f"round:{round_key}:user:{user_id}"),
                         text=text, send_at=send_at, expires_at=expires_at,
                         action_url=public_url, action_label="Открыть событие",
                     )

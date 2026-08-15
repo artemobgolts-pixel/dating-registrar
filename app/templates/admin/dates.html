@@ -170,7 +170,7 @@
       <img src="/admin/uploads/{{ r['cover'] }}?w=480"
         srcset="/admin/uploads/{{ r['cover'] }}?w=480 480w,
                 /admin/uploads/{{ r['cover'] }}?w=960 960w"
-        sizes="112px" alt="" loading="lazy" fetchpriority="low" decoding="async"
+        sizes="(max-width: 720px) 64px, 380px" alt="" loading="lazy" fetchpriority="low" decoding="async"
         {% if r['cover_focus'] %}style="object-position:{{ r['cover_focus'] }}"{% endif %}>
     </a>
     {% endif %}

@@ -136,34 +136,42 @@ class FrontendMediaContractTests(unittest.TestCase):
             css = (APP / f"static/{filename}").read_text(encoding="utf-8")
             self.assertIn("html.ink-static .bg-smoke", css, filename)
 
-    def test_public_cards_advertise_tablet_and_desktop_media_widths(self):
-        for filename in ("category.html", "share.html"):
-            template = (
-                APP / f"templates/public/{filename}"
-            ).read_text(encoding="utf-8")
-            self.assertIn(
-                "(max-width: 619px) calc(100vw - 32px), "
-                "(max-width: 899px) 286px, 430px",
-                template,
-                filename,
-            )
-            self.assertIn(
-                "(max-width: 899px) calc(100vw - 32px), 430px",
-                template,
-                filename,
-            )
-
+    def test_public_cards_advertise_vertical_desktop_media_widths(self):
         category = (APP / "templates/public/category.html").read_text("utf-8")
         share = (APP / "templates/public/share.html").read_text("utf-8")
+        dates = (APP / "templates/admin/dates.html").read_text("utf-8")
         css = (APP / "static/public.css").read_text("utf-8")
+        self.assertIn(
+            'sizes="(max-width: 899px) calc(100vw - 32px), 520px"',
+            category,
+        )
+        self.assertIn(
+            'sizes="(max-width: 899px) calc(100vw - 32px), 680px"',
+            share,
+        )
+        self.assertIn(
+            'sizes="(max-width: 720px) 64px, 380px"',
+            dates,
+        )
         self.assertIn('class="public-event-page public-category-page"', category)
         self.assertIn('class="public-event-page public-share-page"', share)
         self.assertIn("@media (min-width: 900px)", css)
         self.assertIn(".public-event-page .wrap", css)
         self.assertIn("max-width: 1080px", css)
-        self.assertIn(".public-event-page .card:not(.nophoto)", css)
         self.assertIn(
+            "grid-template-columns: repeat(2, minmax(0, 1fr))",
+            css,
+        )
+        self.assertIn(".public-share-page .cards", css)
+        self.assertIn("width: min(100%, 680px)", css)
+        self.assertIn("display: flex; flex-direction: column", css)
+        self.assertNotIn(
             "grid-template-columns: minmax(340px, 42%) minmax(0, 1fr)",
+            css,
+        )
+        self.assertNotIn(
+            'html[data-skin="friends"] .card:not(.nophoto) {\n'
+            "    display: grid",
             css,
         )
 

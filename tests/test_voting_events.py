@@ -10,6 +10,7 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 
 APP = Path(__file__).resolve().parents[1] / "app"
@@ -19,7 +20,9 @@ os.environ["DATA_DIR"] = _DATA.name
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-voting-events")
 
 import db  # noqa: E402
+import admin_routes  # noqa: E402
 import notification_outbox as outbox  # noqa: E402
+import social_events  # noqa: E402
 import voting  # noqa: E402
 import voting_events  # noqa: E402
 
@@ -56,6 +59,10 @@ class VotingEventTests(unittest.TestCase):
             "INSERT INTO dates(owner_id,name,starts_at,capacity,created_at) "
             "VALUES(1,?,?,5,?)", (name, START, NOW.isoformat()),
         ).lastrowid)
+        self.conn.execute(
+            "UPDATE dates SET share_token=?,is_public=1 WHERE id=?",
+            (f"date-{date_id}", date_id),
+        )
         for category_id in category_ids:
             self.conn.execute(
                 "INSERT INTO date_categories(date_id,category_id) VALUES(?,?)",
@@ -154,6 +161,186 @@ class VotingEventTests(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertIn("reminder:2h", rows[0]["event_key"])
         self.assertEqual(datetime.fromisoformat(rows[0]["send_at"]), boundary)
+
+    def test_close_due_uses_the_new_deadline_after_an_expired_open_extension(self):
+        category_id = self.category("Продлённая")
+        self.date([category_id], "Встреча")
+        voting.configure_category(
+            self.conn, category_id, 1, voting.CHOICE_SINGLE, DEADLINE, now=NOW,
+        )
+        voting.configure_category(
+            self.conn, category_id, 1, voting.CHOICE_SINGLE,
+            "2030-01-03T10:00:00", now=AFTER,
+        )
+
+        self.assertEqual(
+            voting_events.close_due_once(
+                self.conn, category_id=category_id, now=AFTER,
+            ),
+            0,
+        )
+        self.assertEqual(
+            voting.get_category_state(self.conn, category_id).status,
+            voting.STATUS_OPEN,
+        )
+        new_after = datetime.fromisoformat("2030-01-03T10:00:01")
+        self.assertEqual(
+            voting_events.close_due_once(
+                self.conn, category_id=category_id, now=new_after,
+            ),
+            1,
+        )
+        self.assertEqual(
+            voting.get_category_state(self.conn, category_id).status,
+            voting.STATUS_NO_WINNER,
+        )
+
+    def test_reopen_route_reconciles_old_round_and_delivers_same_result_again(self):
+        category_id = self.category("Повтор")
+        date_id = self.date([category_id], "Встреча")
+        voting.configure_category(
+            self.conn, category_id, 1, voting.CHOICE_SINGLE, DEADLINE, now=NOW,
+        )
+        first_vote = voting.cast_vote(self.conn, category_id, date_id, 2, now=NOW)
+        voting.cast_vote(self.conn, category_id, date_id, 3, now=NOW)
+        first = voting.close_category(self.conn, category_id, now=AFTER)
+        voting_events.queue_category_outcome(self.conn, first, now=AFTER)
+        social_events.queue_review_prompts_for_date(self.conn, date_id)
+        voting.withdraw_participation(self.conn, category_id, 2, now=AFTER)
+        voting_events.cancel_user_winner_reminders(self.conn, category_id, 2)
+        voting_events.queue_participant_withdrawal(
+            self.conn, booking_id=first_vote.booking_id, owner_id=1,
+            participant_name="Аня", category_name="Повтор",
+            date_name="Встреча", category_id=category_id,
+        )
+
+        # Один итог уже доставлен, остальные сообщения первого раунда всё ещё
+        # ожидают отправки. Доставленное остаётся историей и не отменяется.
+        self.conn.execute(
+            "UPDATE notification_outbox SET sent_at=? "
+            "WHERE kind='voting_resolved' AND user_id=3",
+            (AFTER.isoformat(),),
+        )
+        owner = self.conn.execute("SELECT * FROM users WHERE id=1").fetchone()
+        response = admin_routes.category_voting_configure(
+            category_id,
+            SimpleNamespace(state=SimpleNamespace(user=owner)),
+            voting.CHOICE_SINGLE,
+            "2030-01-03T10:00:00",
+            self.conn,
+        )
+
+        self.assertEqual(response.status_code, 303)
+        reopened = voting.get_category_state(self.conn, category_id)
+        self.assertEqual(reopened.status, voting.STATUS_OPEN)
+        self.assertEqual(reopened.vote_counts, {date_id: 2})
+        self.assertIsNone(reopened.closed_at)
+        self.assertIsNone(reopened.resolved_at)
+        self.assertIsNone(reopened.winner_date_id)
+
+        old_owner_result = self.conn.execute(
+            "SELECT cancelled_at,last_error FROM notification_outbox "
+            "WHERE kind='voting_resolved' AND user_id=1",
+        ).fetchone()
+        self.assertIsNotNone(old_owner_result["cancelled_at"])
+        self.assertEqual(old_owner_result["last_error"], "voting_reopened")
+        delivered_result = self.conn.execute(
+            "SELECT sent_at,cancelled_at FROM notification_outbox "
+            "WHERE kind='voting_resolved' AND user_id=3",
+        ).fetchone()
+        self.assertIsNotNone(delivered_result["sent_at"])
+        self.assertIsNone(delivered_result["cancelled_at"])
+        old_reminders = self.conn.execute(
+            "SELECT cancelled_at,last_error FROM notification_outbox "
+            "WHERE kind='winner_reminder'",
+        ).fetchall()
+        self.assertEqual(len(old_reminders), 4)
+        self.assertTrue(all(row["cancelled_at"] for row in old_reminders))
+        self.assertEqual(
+            sorted(row["last_error"] for row in old_reminders),
+            ["participant_withdrew", "participant_withdrew",
+             "voting_reopened", "voting_reopened"],
+        )
+        review_prompts = self.conn.execute(
+            "SELECT user_id,cancelled_at,last_error FROM notification_outbox "
+            "WHERE kind='review_prompt' ORDER BY user_id",
+        ).fetchall()
+        self.assertEqual(len(review_prompts), 2)
+        self.assertTrue(all(row["cancelled_at"] for row in review_prompts))
+        self.assertTrue(all(
+            row["last_error"] == "review_not_available" for row in review_prompts
+        ))
+        withdrawal_notice = self.conn.execute(
+            "SELECT cancelled_at,last_error FROM notification_outbox "
+            "WHERE kind='participant_withdrawal'",
+        ).fetchone()
+        self.assertIsNotNone(withdrawal_notice["cancelled_at"])
+        self.assertEqual(withdrawal_notice["last_error"], "voting_reopened")
+        deadline_reminders = self.conn.execute(
+            "SELECT event_key,cancelled_at FROM notification_outbox "
+            "WHERE kind='voting_deadline'",
+        ).fetchall()
+        self.assertEqual(len(deadline_reminders), 2)
+        self.assertTrue(all(
+            "deadline:2030-01-03T10:00:00" in row["event_key"]
+            for row in deadline_reminders
+        ))
+        self.assertTrue(all(
+            row["cancelled_at"] is None for row in deadline_reminders
+        ))
+        preserved_withdrawal = self.conn.execute(
+            "SELECT participation_withdrawn_at FROM bookings WHERE id=?",
+            (first_vote.booking_id,),
+        ).fetchone()
+        self.assertIsNotNone(preserved_withdrawal["participation_withdrawn_at"])
+
+        second_close = datetime.fromisoformat("2030-01-03T10:00:01")
+        second = voting.close_category(
+            self.conn, category_id, now=second_close,
+        )
+        voting_events.queue_category_outcome(
+            self.conn, second, now=second_close,
+        )
+        social_events.queue_review_prompts_for_date(self.conn, date_id)
+
+        voter_results = self.conn.execute(
+            "SELECT event_key,sent_at,cancelled_at FROM notification_outbox "
+            "WHERE kind='voting_resolved' AND user_id=3 ORDER BY id",
+        ).fetchall()
+        self.assertEqual(len(voter_results), 2)
+        self.assertNotEqual(voter_results[0]["event_key"], voter_results[1]["event_key"])
+        self.assertIn(f"round:{first.closed_at}", voter_results[0]["event_key"])
+        self.assertIn(f"round:{second.closed_at}", voter_results[1]["event_key"])
+        self.assertIsNone(voter_results[1]["sent_at"])
+        self.assertIsNone(voter_results[1]["cancelled_at"])
+        active_winner_reminders = self.conn.execute(
+            "SELECT event_key FROM notification_outbox "
+            "WHERE kind='winner_reminder' AND cancelled_at IS NULL",
+        ).fetchall()
+        self.assertEqual(len(active_winner_reminders), 2)
+        self.assertTrue(all(
+            f"round:{second.closed_at}" in row["event_key"]
+            for row in active_winner_reminders
+        ))
+        self.assertTrue(all(
+            ":user:3" in row["event_key"] for row in active_winner_reminders
+        ))
+        review_after_second_round = {
+            int(row["user_id"]): row["cancelled_at"]
+            for row in self.conn.execute(
+                "SELECT user_id,cancelled_at FROM notification_outbox "
+                "WHERE kind='review_prompt'",
+            )
+        }
+        self.assertIsNotNone(review_after_second_round[2])
+        self.assertIsNone(review_after_second_round[3])
+        withdrawn_result = self.conn.execute(
+            "SELECT text FROM notification_outbox "
+            "WHERE kind='voting_resolved' AND user_id=2 "
+            "AND event_key LIKE ?",
+            (f"%round:{second.closed_at}:user:2",),
+        ).fetchone()
+        self.assertIn("ранее отказались", withdrawn_result["text"])
 
     def test_participant_withdrawal_notice_is_deduplicated_by_booking(self):
         category_id = self.category("Поход")

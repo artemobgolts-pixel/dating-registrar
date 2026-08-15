@@ -148,6 +148,106 @@ class VotingDomainTests(unittest.TestCase):
             booking_ids,
         )
 
+    def test_expired_open_deadline_can_be_moved_to_a_future_moment(self):
+        category_id = self.category()
+        date_id = self.date(category_id)
+        self.configure(category_id, voting.CHOICE_SINGLE)
+        voting.cast_vote(self.conn, category_id, date_id, 2, now=NOW)
+
+        reopened = voting.configure_category(
+            self.conn, category_id, self.owner_id, voting.CHOICE_SINGLE,
+            "2030-01-03T10:00:00", now=AFTER_DEADLINE,
+        )
+
+        self.assertEqual(reopened.status, voting.STATUS_OPEN)
+        self.assertEqual(reopened.voting_deadline, "2030-01-03T10:00:00")
+        self.assertEqual(reopened.vote_counts, {date_id: 1})
+        self.assertIsNone(reopened.closed_at)
+        self.assert_error(
+            "deadline_not_reached", voting.close_category,
+            self.conn, category_id, now=AFTER_DEADLINE,
+        )
+
+    def test_each_closed_outcome_can_start_a_new_round_without_losing_ballots(self):
+        scenarios = (
+            ("no_winner", voting.STATUS_NO_WINNER),
+            ("resolved", voting.STATUS_RESOLVED),
+            ("tie", voting.STATUS_TIE),
+        )
+        for label, expected_status in scenarios:
+            with self.subTest(outcome=label):
+                category_id = self.category(f"Повтор: {label}")
+                first = self.date(category_id, name=f"{label}: первый")
+                second = self.date(category_id, name=f"{label}: второй")
+                self.configure(category_id, voting.CHOICE_MULTIPLE)
+                if label == "resolved":
+                    voting.cast_vote(self.conn, category_id, first, 2, now=NOW)
+                    voting.cast_vote(self.conn, category_id, first, 3, now=NOW)
+                elif label == "tie":
+                    voting.cast_vote(self.conn, category_id, first, 2, now=NOW)
+                    voting.cast_vote(self.conn, category_id, second, 3, now=NOW)
+                closed = voting.close_category(
+                    self.conn, category_id, now=AFTER_DEADLINE,
+                )
+                self.assertEqual(closed.status, expected_status)
+                if label == "resolved":
+                    voting.withdraw_participation(
+                        self.conn, category_id, 2, now=AFTER_DEADLINE,
+                    )
+                ballots_before = [tuple(row) for row in self.conn.execute(
+                    "SELECT id,date_id,user_id,participation_withdrawn_at "
+                    "FROM bookings WHERE category_id=? ORDER BY id",
+                    (category_id,),
+                )]
+
+                reopened = voting.configure_category(
+                    self.conn, category_id, self.owner_id,
+                    voting.CHOICE_MULTIPLE, "2030-01-03T10:00:00",
+                    now=AFTER_DEADLINE,
+                )
+
+                self.assertEqual(reopened.status, voting.STATUS_OPEN)
+                self.assertIsNone(reopened.closed_at)
+                self.assertIsNone(reopened.resolved_at)
+                self.assertIsNone(reopened.winner_date_id)
+                self.assertEqual(reopened.total_votes, closed.total_votes)
+                self.assertEqual(
+                    [tuple(row) for row in self.conn.execute(
+                        "SELECT id,date_id,user_id,participation_withdrawn_at "
+                        "FROM bookings WHERE category_id=? ORDER BY id",
+                        (category_id,),
+                    )],
+                    ballots_before,
+                )
+
+    def test_closed_round_with_a_ballot_for_archived_event_cannot_reopen(self):
+        category_id = self.category("Уже завершившаяся встреча")
+        date_id = self.date(category_id, starts_at=None)
+        self.configure(category_id, voting.CHOICE_SINGLE)
+        voting.cast_vote(self.conn, category_id, date_id, 2, now=NOW)
+        closed = voting.close_category(
+            self.conn, category_id, now=AFTER_DEADLINE,
+        )
+        self.assertEqual(closed.status, voting.STATUS_RESOLVED)
+        # Так выглядит недатированный победитель после обзора и autoarchive:
+        # бюллетень остаётся, но само событие уже не показывается в опросе.
+        self.conn.execute(
+            "UPDATE dates SET archived_at=? WHERE id=?",
+            (AFTER_DEADLINE, date_id),
+        )
+
+        error = self.assert_error(
+            "unavailable_ballots_prevent_reopen", voting.configure_category,
+            self.conn, category_id, self.owner_id, voting.CHOICE_SINGLE,
+            "2030-01-03T10:00:00", now=AFTER_DEADLINE,
+        )
+
+        self.assertEqual(error.details["date_id"], date_id)
+        unchanged = voting.get_category_state(self.conn, category_id)
+        self.assertEqual(unchanged.status, voting.STATUS_RESOLVED)
+        self.assertEqual(unchanged.winner_date_id, date_id)
+        self.assertEqual(unchanged.vote_counts, {date_id: 1})
+
     def test_capacity_is_counted_independently_per_category(self):
         first = self.category("Первая")
         second = self.category("Вторая")

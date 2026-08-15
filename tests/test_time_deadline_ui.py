@@ -33,6 +33,17 @@ class TimeAndDeadlineContractTests(unittest.TestCase):
         self.assertIn('data-deadline-mode="extend"', detail_source)
         self.assertIn("Продлить:", detail_source)
         self.assertIn("Изменить дедлайн и настройки", detail_source)
+        self.assertIn("Возобновить голосование", detail_source)
+        self.assertIn("'tie', 'resolved', 'no_winner'", detail_source)
+
+        admin_js = (APP / "static/admin.js").read_text("utf-8")
+        admin_css = (APP / "static/admin.css").read_text("utf-8")
+        self.assertIn('input.classList.add("deadline-value-updated")', admin_js)
+        self.assertNotIn('input.classList.add("flash")', admin_js)
+        self.assertIn(
+            ".deadline-picker input.deadline-value-updated",
+            admin_css,
+        )
 
     def test_public_time_forms_keep_duration_actions(self):
         for relative in (
@@ -220,7 +231,102 @@ class TimeAndDeadlineBrowserTests(unittest.TestCase):
             page.locator("[data-deadline-readable]").inner_text(),
         )
 
-    def test_public_event_card_is_horizontal_on_desktop_and_vertical_on_mobile(self):
+    def test_deadline_preset_and_highlight_do_not_change_form_geometry(self):
+        context = self.browser.new_context(
+            timezone_id="UTC", viewport={"width": 820, "height": 700},
+        )
+        self.addCleanup(context.close)
+        page = context.new_page()
+        page.set_content("""
+          <body>
+            <main class="wrap">
+              <section class="card" style="width:300px">
+                <div class="field deadline-picker" data-deadline-picker
+                     data-deadline-mode="extend">
+                  <label class="field-label" for="deadline">Дедлайн</label>
+                  <input id="deadline" name="voting_deadline"
+                         type="datetime-local">
+                  <div class="deadline-presets">
+                    <button type="button" class="deadline-preset"
+                            data-deadline-hours="24"
+                            aria-pressed="false">+1 день</button>
+                  </div>
+                  <small data-deadline-readable></small>
+                  <div id="afterDeadline">Следующее поле</div>
+                </div>
+              </section>
+            </main>
+          </body>
+        """)
+        page.add_style_tag(content=(APP / "static/admin.css").read_text("utf-8"))
+        page.evaluate("""() => {
+          const NativeDate = Date;
+          const fixedNow = '2030-05-07T21:07:30.000Z';
+          window.Date = class extends NativeDate {
+            constructor(...args) {
+              super(...(args.length ? args : [fixedNow]));
+            }
+            static now() { return new NativeDate(fixedNow).getTime(); }
+          };
+        }""")
+        page.add_script_tag(content=(APP / "static/admin.js").read_text("utf-8"))
+        page.wait_for_function(
+            "document.querySelector('[data-deadline-picker]').dataset.deadlineReady === '1'"
+        )
+
+        def geometry():
+            return page.evaluate("""() => {
+              const input = document.querySelector('#deadline').getBoundingClientRect();
+              const after = document.querySelector('#afterDeadline').getBoundingClientRect();
+              const picker = document.querySelector('[data-deadline-picker]')
+                .getBoundingClientRect();
+              const button = document.querySelector('[data-deadline-hours]')
+                .getBoundingClientRect();
+              const card = document.querySelector('.card').getBoundingClientRect();
+              const readable = document.querySelector('[data-deadline-readable]')
+                .getBoundingClientRect();
+              return {
+                inputX: input.x, inputY: input.y,
+                inputWidth: input.width, inputHeight: input.height,
+                buttonX: button.x, buttonY: button.y,
+                buttonWidth: button.width, buttonHeight: button.height,
+                readableHeight: readable.height,
+                afterY: after.y, pickerHeight: picker.height,
+                cardHeight: card.height
+              };
+            }""")
+
+        before = geometry()
+        button = page.locator("[data-deadline-hours]")
+        button.hover()
+        hovered = geometry()
+        for key, expected in before.items():
+            self.assertAlmostEqual(hovered[key], expected, delta=0.1, msg=f"hover:{key}")
+
+        box = button.bounding_box()
+        page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+        page.mouse.down()
+        pressed = geometry()
+        for key, expected in before.items():
+            self.assertAlmostEqual(pressed[key], expected, delta=0.1, msg=f"active:{key}")
+        page.mouse.up()
+
+        self.assertTrue(page.locator("#deadline").evaluate(
+            "node => node.classList.contains('deadline-value-updated')"
+        ))
+        during = geometry()
+        for key, expected in before.items():
+            self.assertAlmostEqual(during[key], expected, delta=0.1, msg=f"click:{key}")
+
+        page.wait_for_timeout(500)
+        self.assertFalse(page.locator("#deadline").evaluate(
+            "node => node.classList.contains('deadline-value-updated')"
+        ))
+        after = geometry()
+        for key, expected in before.items():
+            self.assertAlmostEqual(after[key], expected, delta=0.1, msg=f"after:{key}")
+
+    def test_public_event_card_is_vertical_on_every_surface_and_viewport(self):
         page = self.browser.new_page(viewport={"width": 1280, "height": 900})
         self.addCleanup(page.close)
         page.set_content("""
@@ -255,6 +361,8 @@ class TimeAndDeadlineBrowserTests(unittest.TestCase):
               return {
                 wrapWidth: wrap.width,
                 display: getComputedStyle(card).display,
+                direction: getComputedStyle(card).flexDirection,
+                cardWidth: card.getBoundingClientRect().width,
                 mediaX: media.x,
                 mediaY: media.y,
                 mediaWidth: media.width,
@@ -265,30 +373,63 @@ class TimeAndDeadlineBrowserTests(unittest.TestCase):
               };
             }""")
 
-        for skin in ("romantic", "friends"):
-            page.locator("html").evaluate(
-                "(node, value) => node.dataset.skin = value", skin,
+        for surface in ("public-category-page", "public-share-page"):
+            page.locator("body").evaluate(
+                "(node, value) => node.className = 'public-event-page ' + value",
+                surface,
             )
-            desktop = geometry()
-            self.assertEqual(desktop["display"], "grid", skin)
-            self.assertAlmostEqual(desktop["wrapWidth"], 1080, delta=1)
-            self.assertGreaterEqual(desktop["mediaWidth"], 340)
-            self.assertGreater(desktop["bodyX"], desktop["mediaX"])
-            self.assertAlmostEqual(desktop["bodyY"], desktop["mediaY"], delta=2)
-            self.assertGreater(desktop["bodyWidth"], desktop["mediaWidth"])
+            for skin in ("romantic", "friends"):
+                page.locator("html").evaluate(
+                    "(node, value) => node.dataset.skin = value", skin,
+                )
+                desktop = geometry()
+                self.assertEqual(desktop["display"], "flex", (surface, skin))
+                self.assertEqual(desktop["direction"], "column", (surface, skin))
+                self.assertAlmostEqual(desktop["wrapWidth"], 1080, delta=1)
+                self.assertAlmostEqual(
+                    desktop["bodyX"], desktop["mediaX"], delta=2,
+                    msg=(surface, skin),
+                )
+                self.assertAlmostEqual(
+                    desktop["bodyWidth"], desktop["mediaWidth"], delta=2,
+                    msg=(surface, skin),
+                )
+                self.assertGreaterEqual(
+                    desktop["bodyY"],
+                    desktop["mediaY"] + desktop["mediaHeight"] - 2,
+                    (surface, skin),
+                )
+                if surface == "public-category-page":
+                    self.assertLess(desktop["cardWidth"], 540, skin)
+                else:
+                    self.assertLessEqual(desktop["cardWidth"], 682, skin)
 
-        page.set_viewport_size({"width": 390, "height": 844})
-        for skin in ("romantic", "friends"):
-            page.locator("html").evaluate(
-                "(node, value) => node.dataset.skin = value", skin,
-            )
-            mobile = geometry()
-            self.assertEqual(mobile["display"], "block", skin)
-            self.assertLessEqual(mobile["wrapWidth"], 390)
-            self.assertAlmostEqual(mobile["bodyX"], mobile["mediaX"], delta=2)
-            self.assertGreaterEqual(
-                mobile["bodyY"], mobile["mediaY"] + mobile["mediaHeight"] - 2,
-            )
+            # Промежуточная ширина ловит прежний friends split-view от 620 px.
+            page.set_viewport_size({"width": 760, "height": 900})
+            for skin in ("romantic", "friends"):
+                page.locator("html").evaluate(
+                    "(node, value) => node.dataset.skin = value", skin,
+                )
+                tablet = geometry()
+                self.assertAlmostEqual(tablet["bodyX"], tablet["mediaX"], delta=2)
+                self.assertGreaterEqual(
+                    tablet["bodyY"], tablet["mediaY"] + tablet["mediaHeight"] - 2,
+                    (surface, skin),
+                )
+
+            page.set_viewport_size({"width": 390, "height": 844})
+            for skin in ("romantic", "friends"):
+                page.locator("html").evaluate(
+                    "(node, value) => node.dataset.skin = value", skin,
+                )
+                mobile = geometry()
+                self.assertLessEqual(mobile["wrapWidth"], 390)
+                self.assertAlmostEqual(mobile["bodyX"], mobile["mediaX"], delta=2)
+                self.assertGreaterEqual(
+                    mobile["bodyY"], mobile["mediaY"] + mobile["mediaHeight"] - 2,
+                    (surface, skin),
+                )
+            page.set_viewport_size({"width": 1280, "height": 900})
 
 
 if __name__ == "__main__":

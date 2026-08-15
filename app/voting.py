@@ -270,10 +270,14 @@ def get_category_state(conn: sqlite3.Connection, category_id: int) -> CategorySt
 def configure_category(conn: sqlite3.Connection, category_id: int, owner_id: int,
                        choice_mode: str, voting_deadline: str | datetime, *,
                        now: str | datetime | None = None) -> CategoryState:
-    """Явно включает голосование; дедлайн по умолчанию не подставляется.
+    """Явно включает или заново открывает голосование.
 
-    Повторная настройка открытой категории допустима до старого дедлайна. Смена
-    multiple → single запрещена, если у кого-то уже больше одного голоса.
+    Новый будущий дедлайн начинает новый раунд даже после истечения предыдущего:
+    бюллетени сохраняются, а прежний результат сбрасывается. Отказ участника от
+    уже объявленного победителя тоже сохраняется как явно выраженное намерение;
+    снять и заново поставить такой голос пользователь сможет в открытом раунде.
+    Смена multiple → single запрещена, если у кого-то уже больше одного
+    голоса.
     """
     cat = _lock_category(conn, category_id, owner_id)
     mode = (choice_mode or "").strip().lower()
@@ -288,15 +292,27 @@ def configure_category(conn: sqlite3.Connection, category_id: int, owner_id: int
               status_code=400, voting_deadline=_iso(deadline))
 
     status = cat["voting_status"]
-    if cat["closed_at"] is not None or status in CLOSED_STATUSES:
-        _fail("voting_already_closed", "Завершённое голосование нельзя перенастроить")
-    if status == STATUS_OPEN and cat["voting_deadline"]:
-        old_deadline = _parse_moment(cat["voting_deadline"], "deadline")
-        if old_deadline <= current:
-            _fail("voting_deadline_passed", "Дедлайн уже наступил")
-    if status not in {STATUS_UNCONFIGURED, STATUS_OPEN}:
+    if status not in {STATUS_UNCONFIGURED, STATUS_OPEN, *CLOSED_STATUSES}:
         _fail("invalid_voting_state", "Некорректное состояние голосования",
               status_code=500, voting_status=status)
+    reopening = cat["closed_at"] is not None or status in CLOSED_STATUSES
+    if reopening:
+        unavailable_ballot = conn.execute(
+            "SELECT d.id, d.name FROM bookings b "
+            "JOIN dates d ON d.id=b.date_id "
+            "WHERE b.category_id=? "
+            "AND (d.archived_at IS NOT NULL OR d.is_draft=1) "
+            "ORDER BY d.id LIMIT 1",
+            (category_id,),
+        ).fetchone()
+        if unavailable_ballot:
+            _fail(
+                "unavailable_ballots_prevent_reopen",
+                "Нельзя возобновить голосование: событие с сохранёнными "
+                "голосами уже недоступно",
+                date_id=int(unavailable_ballot["id"]),
+                date_name=unavailable_ballot["name"],
+            )
 
     # Дедлайн обязан быть строго раньше начала каждого активного датированного
     # кандидата. События без starts_at ограничение не создают.

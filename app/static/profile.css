@@ -450,24 +450,23 @@ html[data-theme="dark"] .profile-public-page .review-card {
   .profile-public-page .review-card .review-cover { min-height: 180px; }
 
   .profile-public-page .profile-event-dlg {
-    width: min(700px, calc(100vw - 56px)); max-height: min(86vh, 820px);
+    width: min(680px, calc(100vw - 56px)); max-height: min(88vh, 820px);
   }
   .profile-public-page .profile-event-dlg:has(.cwid.has-media) {
-    width: min(1120px, calc(100vw - 56px)); overflow: hidden;
+    width: min(680px, calc(100vw - 56px)); overflow: auto;
   }
   .profile-public-page .profile-event-dlg .cwid.has-media {
-    display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(360px, .85fr);
-    min-height: min(680px, 82vh);
+    display: flex; flex-direction: column; min-height: 0;
   }
   .profile-public-page .profile-event-dlg .cwid.has-media .cwid-gallery {
-    height: min(680px, 82vh); border-radius: 20px 0 0 20px;
+    width: 100%; height: auto; flex: none; border-radius: 20px 20px 0 0;
   }
   .profile-public-page .profile-event-dlg .cwid.has-media .cwid-gallery img,
   .profile-public-page .profile-event-dlg .cwid.has-media .cwid-gallery video {
-    height: 100%; max-height: none;
+    height: auto; min-height: 0; max-height: none; aspect-ratio: 16 / 9;
   }
   .profile-public-page .profile-event-dlg .cwid.has-media .cwid-body {
-    align-self: stretch; overflow: auto; padding: 28px 26px;
+    width: 100%; overflow: visible; padding: 28px 26px;
   }
   .profile-public-page .profile-event-dlg .cwid-actions {
     grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
