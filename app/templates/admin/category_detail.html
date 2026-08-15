@@ -70,22 +70,24 @@
        Отдельных полей больше нет (#12). #}
     <input type="hidden" name="og_title" id="ogTitleField" value="{{ cat['og_title'] or '' }}">
     <input type="hidden" name="og_desc" id="ogDescField" value="{{ cat['og_desc'] or '' }}">
+    <input type="hidden" name="og_focus" id="ogFocusField" value="{{ cat['og_focus'] or '50% 50%' }}">
     <input type="file" name="og_image" id="ogInput" accept="image/*" hidden>
 
     <div class="og-preview editable{% if custom_og_available and not cat['use_default_preview'] %} has-image{% endif %}"
          id="ogPreview" data-tour="category-preview"
          data-cid="{{ cat['id'] }}"
          data-has-image="{{ '1' if custom_og_available and not cat['use_default_preview'] else '0' }}"
+         data-image-name="{{ cat['og_image'] or '' }}"
          data-preview-skin="{{ category_skin }}"
          data-default-image="{{ '1' if cat['use_default_preview'] or (not custom_og_available and not auto_og) else '0' }}"
          data-auto-image="{{ '1' if auto_og and not custom_og_available and not cat['use_default_preview'] else '0' }}"
          data-preview-revision="{{ preview_revision }}"
-         data-friends-src="{{ asset('og-friends.jpg') }}"
-         data-romantic-src="{{ asset('og-default.jpg') }}"
+         data-friends-src="/admin/categories/{{ cat['id'] }}/og-preview?skin=friends&amp;v={{ preview_revision }}-friends"
+         data-romantic-src="/admin/categories/{{ cat['id'] }}/og-preview?skin=romantic&amp;v={{ preview_revision }}-romantic"
          aria-label="так ссылка выглядит при отправке">
       <div class="og-img-wrap" id="ogImgPick" title="Нажми, чтобы выбрать свою картинку">
         <img class="og-img" id="ogPreviewImg" draggable="false"
-             src="{% if cat['use_default_preview'] %}{{ asset('og-friends.jpg' if category_skin == 'friends' else 'og-default.jpg') }}{% elif custom_og_available %}/admin/uploads/{{ cat['og_image'] }}?w=960{% elif auto_og %}/admin/categories/{{ cat['id'] }}/og-preview?skin={{ category_skin }}&amp;v={{ preview_revision }}{% else %}{{ asset('og-friends.jpg' if category_skin == 'friends' else 'og-default.jpg') }}{% endif %}"
+             src="{% if custom_og_available and not cat['use_default_preview'] %}/admin/uploads/{{ cat['og_image'] }}?w=960{% else %}/admin/categories/{{ cat['id'] }}/og-preview?skin={{ category_skin }}&amp;v={{ preview_revision }}{% endif %}"
              alt="" style="object-position:{{ cat['og_focus'] or '50% 50%' }}">
         {# постоянная подсказка «сменить картинку» — видна всегда, ярче при наведении #}
         <span class="og-img-badge" aria-hidden="true">🖼 Сменить</span>
@@ -101,6 +103,7 @@
         <div class="og-host">date4you.online</div>
       </div>
     </div>
+    <p class="og-focus-status" id="ogFocusStatus" role="status" aria-live="polite"></p>
     <p class="muted" style="font-size:12px;margin:2px 0 0">Кликай по тексту и картинке — правь прямо здесь. Пусто — покажем стандартный текст{% if cat['use_default_preview'] %} и зафиксированную фирменную фотографию{% elif auto_og %} и коллаж из фото событий{% endif %}.</p>
 
     <div class="og-warn" id="ogWarn" role="alert" hidden>

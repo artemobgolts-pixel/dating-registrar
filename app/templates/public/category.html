@@ -9,22 +9,16 @@
   <title>{{ cat.name }}</title>
   <meta property="og:title" content="{{ cat['og_title'] or ('Собираемся вместе' if active_skin == 'friends' else 'Тебя ждёт сюрприз ♥') }}">
   <meta property="og:description" content="{{ cat['og_desc'] or ('Открой и выбери удобный вариант' if active_skin == 'friends' else 'Открой — внутри кое-что приятное') }}">
-  <meta property="og:image" content="{% if cat['use_default_preview'] %}{{ BASE_URL }}{{ asset('og-friends.jpg' if active_skin == 'friends' else 'og-default.jpg') }}{% elif og_available %}{{ BASE_URL }}/c/{{ token }}/og-image?skin={{ active_skin }}&amp;v={{ preview_revision }}{% else %}{{ BASE_URL }}{{ asset('og-friends.jpg' if active_skin == 'friends' else 'og-default.jpg') }}{% endif %}">
+  <meta property="og:image" content="{{ BASE_URL }}/c/{{ token }}/og-image?skin={{ active_skin }}&amp;v={{ preview_revision }}">
   <meta property="og:type" content="website">
   <meta name="theme-color" content="{{ '#554eae' if active_skin == 'friends' else '#b65f6f' }}">
   <script src="{{ asset('theme.js') }}"></script>
-  {% if active_skin == 'friends' %}
-  <link rel="apple-touch-icon" href="{{ asset('apple-touch-icon-friends.png') }}">
-  <link rel="manifest" href="{{ asset('manifest-friends.json') }}">
-  <link rel="icon" href="{{ asset('favicon-standard.png') }}">
-  {% else %}
-  <link rel="apple-touch-icon" href="{{ asset('apple-touch-icon.png') }}">
-  <link rel="manifest" href="{{ asset('manifest.json') }}">
-  <link rel="icon" href="{{ asset('favicon-romantic.png') }}">
-  {% endif %}
+  {% from "_appearance_assets.html" import appearance_assets %}
+  {{ appearance_assets(active_skin) }}
   <link rel="stylesheet" href="{{ asset('public.css') }}">
 </head>
 <body data-token="{{ token }}" data-name="{{ guest_name or '' }}" data-auth="{{ '1' if me else '' }}"
+      data-max-photos="{{ max_photos }}" data-max-videos="{{ max_videos }}"
       data-csrf="{{ csrf }}"
       data-skin="{{ active_skin }}"
       data-ink-interactive="{{ '1' if me and me['cursor_effects'] else '0' }}">
@@ -367,7 +361,7 @@
   {% else %}
   <div class="empty">
     <div class="big">{% if active_skin == 'friends' %}{{ icon('gather') }}{% else %}{{ icon('heart') }}{% endif %}</div>
-    Здесь пока пусто.{% if vote_state.status in ('unconfigured', 'open') %}<br>Предложи первое событие{% if active_skin == 'romantic' %} — кнопка внизу ♥{% else %} — кнопка внизу.{% endif %}{% endif %}
+    Здесь пока пусто.{% if proposals_editable %}<span data-proposal-empty-cta><br>Предложи первое событие{% if active_skin == 'romantic' %} — кнопка внизу ♥{% else %} — кнопка внизу.{% endif %}</span>{% endif %}
   </div>
   {% endif %}
 
@@ -385,7 +379,7 @@
   </footer>
 </div>
 
-{% if vote_state.status in ('unconfigured', 'open') %}<button class="fab" id="fabPropose" aria-label="Предложить своё событие">
+{% if proposals_editable %}<button class="fab" id="fabPropose" aria-label="Предложить своё событие">
   <span class="fab-label">Предложить своё событие</span>
 </button>{% endif %}
 
@@ -493,7 +487,7 @@
     <textarea name="comment" id="propComment" maxlength="2000" hidden></textarea>
     <textarea name="links" id="propLinks" hidden></textarea>
     <input type="file" name="images" id="propFiles" accept="image/*" multiple hidden>
-    <input type="file" name="video" id="propVideo" accept="video/mp4,video/webm" hidden>
+    <input type="file" name="videos" id="propVideo" accept="video/mp4,video/webm" multiple hidden>
     <input type="file" id="propMedia" accept="image/*,video/mp4,video/webm" multiple hidden>
 
     <div class="ed-cols">
@@ -558,6 +552,11 @@
               <button type="button" class="ak">{{ icon('message') }} Спросить</button>
             </div>
           </div>
+        </div>
+        <div class="proposal-media-order-wrap" id="propMediaOrderWrap" hidden>
+          <span class="proposal-media-order-hint">Фото и видео сохраняются отдельными группами — перетаскивай внутри каждой</span>
+          <div class="ptiles proposal-media-order" id="propMediaOrder"
+               aria-label="Порядок фото и видео"></div>
         </div>
       </div>
 

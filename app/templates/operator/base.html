@@ -6,15 +6,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <title>{% block title %}Админ{% endblock %} · date4you</title>
-{% if user and user['admin_skin'] == 'romantic' %}
-<link rel="icon" href="{{ asset('favicon-romantic.png') }}">
-<link rel="apple-touch-icon" href="{{ asset('apple-touch-icon.png') }}">
-<link rel="manifest" href="{{ asset('manifest.json') }}">
-{% else %}
-<link rel="icon" href="{{ asset('favicon-standard.png') }}">
-<link rel="apple-touch-icon" href="{{ asset('apple-touch-icon-friends.png') }}">
-<link rel="manifest" href="{{ asset('manifest-friends.json') }}">
-{% endif %}
+{% from "_appearance_assets.html" import appearance_assets %}
+{{ appearance_assets(user['admin_skin'] if user else 'friends') }}
 <meta name="theme-color" content="{{ '#b65f6f' if user and user['admin_skin'] == 'romantic' else '#554eae' }}">
 <script src="{{ asset('theme.js') }}"></script>
 <link rel="stylesheet" href="{{ asset('operator.css') }}">

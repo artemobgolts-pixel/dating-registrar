@@ -273,9 +273,10 @@ class BackendV30RegressionTests(unittest.TestCase):
     def test_default_preview_toggle_is_owned_and_public_route_is_fixed(self):
         category_id = int(self.conn.execute(
             "INSERT INTO categories(owner_id,name,link_token,link_enabled,og_image,"
-            "choice_mode,voting_deadline,created_at) VALUES(?,?,?,?,?,?,?,?)",
+            "og_focus,choice_mode,voting_deadline,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
             (self.owner_id, "С фиксированным превью", "fixed-preview", 1,
-             "custom-preview.webp", "multiple", "2099-01-01T00:00:00", STAMP),
+             "custom-preview.webp", "24% 76%", "multiple",
+             "2099-01-01T00:00:00", STAMP),
         ).lastrowid)
         self.conn.commit()
 
@@ -285,17 +286,18 @@ class BackendV30RegressionTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 303)
         row = self.conn.execute(
-            "SELECT use_default_preview,og_image FROM categories WHERE id=?",
+            "SELECT use_default_preview,og_image,og_focus FROM categories WHERE id=?",
             (category_id,),
         ).fetchone()
         self.assertEqual(row["use_default_preview"], 1)
         self.assertEqual(row["og_image"], "custom-preview.webp")
+        self.assertEqual(row["og_focus"], "24% 76%")
 
         preview = public_routes.public_og_image("fixed-preview", conn=self.conn)
         self.assertEqual(preview.media_type, "image/jpeg")
         self.assertEqual(
             Path(preview.path).resolve(),
-            (APP / "static" / "og-friends.jpg").resolve(),
+            images.og_default_path("friends").resolve(),
         )
         self.assertEqual(preview.headers["cache-control"], "public, no-cache")
 
@@ -312,12 +314,12 @@ class BackendV30RegressionTests(unittest.TestCase):
             category_id, owner_request, conn=self.conn,
         )
         row = self.conn.execute(
-            "SELECT use_default_preview,og_image FROM categories WHERE id=?",
+            "SELECT use_default_preview,og_image,og_focus FROM categories WHERE id=?",
             (category_id,),
         ).fetchone()
-        self.assertEqual(tuple(row), (0, "custom-preview.webp"))
+        self.assertEqual(tuple(row), (0, "custom-preview.webp", "24% 76%"))
 
-        generated = APP / "static" / "og-default.jpg"
+        generated = images.OG_CACHE_DIR / "generated-custom-preview.webp"
         with patch.object(admin_routes.images, "upload_image_exists", return_value=True), \
                 patch.object(admin_routes.images, "build_og_crop", return_value=generated):
             admin_dynamic = admin_routes.category_og_preview(
@@ -340,14 +342,143 @@ class BackendV30RegressionTests(unittest.TestCase):
             encoding="utf-8",
         )
         self.assertIn(
-            "{% if cat['use_default_preview'] %}{{ asset('og-friends.jpg' if category_skin == 'friends' else 'og-default.jpg') }}",
+            "data-friends-src=\"/admin/categories/{{ cat['id'] }}/og-preview?skin=friends",
             detail_template,
         )
         self.assertIn(
-            "{% if cat['use_default_preview'] %}{{ BASE_URL }}{{ asset('og-friends.jpg' if active_skin == 'friends' else 'og-default.jpg') }}",
+            "data-romantic-src=\"/admin/categories/{{ cat['id'] }}/og-preview?skin=romantic",
+            detail_template,
+        )
+        self.assertNotIn("og-friends.jpg", detail_template)
+        self.assertNotIn("og-default.jpg", detail_template)
+        self.assertIn(
+            "{{ BASE_URL }}/c/{{ token }}/og-image?skin={{ active_skin }}",
             public_template,
         )
         self.assertIn("&amp;v={{ preview_revision }}", public_template)
+
+    def test_category_rename_saves_new_preview_and_focus_together(self):
+        category_id = int(self.conn.execute(
+            "INSERT INTO categories(owner_id,name,link_token,link_enabled,"
+            "use_default_preview,choice_mode,voting_deadline,created_at) "
+            "VALUES(?,?,?,?,?,?,?,?)",
+            (self.owner_id, "До кропа", "crop-preview", 1, 1, "multiple",
+             "2099-01-01T00:00:00", STAMP),
+        ).lastrowid)
+        self.conn.commit()
+        request = self._request_for(self.owner_id)
+        upload = SimpleNamespace(filename="preview.png")
+
+        with patch.object(admin_routes.images, "save_upload",
+                          return_value="saved-preview.webp") as save_upload:
+            response = admin_routes.category_rename(
+                category_id, request,
+                name="После кропа", description="Описание",
+                og_title="Заголовок", og_desc="Подпись",
+                category_skin="friends", og_image=upload,
+                og_focus="23% 77%", conn=self.conn,
+            )
+        self.assertEqual(response.status_code, 303)
+        save_upload.assert_called_once_with(upload)
+        row = self.conn.execute(
+            "SELECT og_image,og_focus,use_default_preview FROM categories WHERE id=?",
+            (category_id,),
+        ).fetchone()
+        self.assertEqual(tuple(row), ("saved-preview.webp", "23% 77%", 0))
+
+        # Валидация идёт до записи файла: ошибочный crop не оставляет orphan.
+        with patch.object(admin_routes.images, "save_upload") as invalid_save:
+            with self.assertRaises(HTTPException) as raised:
+                admin_routes.category_rename(
+                    category_id, request,
+                    name="После кропа", description="Описание",
+                    og_title="Заголовок", og_desc="Подпись",
+                    category_skin="friends", og_image=upload,
+                    og_focus="101% 50%", conn=self.conn,
+                )
+        self.assertEqual(raised.exception.status_code, 400)
+        invalid_save.assert_not_called()
+
+    def test_category_focus_compare_and_set_rejects_stale_requests(self):
+        category_id = int(self.conn.execute(
+            "INSERT INTO categories(owner_id,name,link_token,link_enabled,og_image,"
+            "og_focus,use_default_preview,created_at) VALUES(?,?,?,?,?,?,?,?)",
+            (self.owner_id, "CAS-превью", "cas-preview", 1,
+             "saved-preview.webp", None, 0, STAMP),
+        ).lastrowid)
+        self.conn.commit()
+        request = self._request_for(self.owner_id)
+
+        with patch.object(admin_routes.images, "upload_image_exists", return_value=True):
+            response = admin_routes.category_og_focus(
+                category_id, request,
+                focus="20% 80%",
+                expected_image="saved-preview.webp",
+                # NULL в БД является центром для compare-and-set.
+                expected_focus="50% 50%",
+                conn=self.conn,
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.conn.execute(
+            "SELECT og_focus FROM categories WHERE id=?", (category_id,),
+        ).fetchone()[0], "20% 80%")
+
+        # Более старый drag всё ещё ожидает исходный центр. Он не должен
+        # перезаписать уже подтверждённый focus того же файла.
+        with patch.object(admin_routes.images, "upload_image_exists", return_value=True):
+            with self.assertRaises(HTTPException) as stale_focus:
+                admin_routes.category_og_focus(
+                    category_id, request,
+                    focus="90% 10%",
+                    expected_image="saved-preview.webp",
+                    expected_focus="50% 50%",
+                    conn=self.conn,
+                )
+        self.assertEqual(stale_focus.exception.status_code, 409)
+        self.assertEqual(tuple(self.conn.execute(
+            "SELECT og_image,og_focus FROM categories WHERE id=?", (category_id,),
+        ).fetchone()), ("saved-preview.webp", "20% 80%"))
+
+        # Обычный submit успел заменить файл и его crop. Запоздалый POST от
+        # предыдущей картинки не имеет права менять focus новой.
+        self.conn.execute(
+            "UPDATE categories SET og_image=?,og_focus=? WHERE id=?",
+            ("replacement-preview.webp", "65% 35%", category_id),
+        )
+        self.conn.commit()
+        with patch.object(admin_routes.images, "upload_image_exists", return_value=True):
+            with self.assertRaises(HTTPException) as stale_image:
+                admin_routes.category_og_focus(
+                    category_id, request,
+                    focus="5% 95%",
+                    expected_image="saved-preview.webp",
+                    expected_focus="20% 80%",
+                    conn=self.conn,
+                )
+        self.assertEqual(stale_image.exception.status_code, 409)
+        self.assertEqual(tuple(self.conn.execute(
+            "SELECT og_image,og_focus FROM categories WHERE id=?", (category_id,),
+        ).fetchone()), ("replacement-preview.webp", "65% 35%"))
+
+        # То же CAS-условие защищает скрытую custom-картинку, пока включено
+        # фиксированное стандартное превью.
+        self.conn.execute(
+            "UPDATE categories SET use_default_preview=1 WHERE id=?", (category_id,),
+        )
+        self.conn.commit()
+        with patch.object(admin_routes.images, "upload_image_exists", return_value=True):
+            with self.assertRaises(HTTPException) as default_mode:
+                admin_routes.category_og_focus(
+                    category_id, request,
+                    focus="30% 70%",
+                    expected_image="replacement-preview.webp",
+                    expected_focus="65% 35%",
+                    conn=self.conn,
+                )
+        self.assertEqual(default_mode.exception.status_code, 409)
+        self.assertEqual(self.conn.execute(
+            "SELECT og_focus FROM categories WHERE id=?", (category_id,),
+        ).fetchone()[0], "65% 35%")
 
     def test_category_preview_sources_are_diverse_and_keep_focus(self):
         category_id = int(self.conn.execute(
@@ -416,7 +547,7 @@ class BackendV30RegressionTests(unittest.TestCase):
             (date_id, "live-photo.webp", "15% 65%"),
         )
         self.conn.commit()
-        generated = APP / "static" / "og-default.jpg"
+        generated = images.OG_CACHE_DIR / "generated-live-collage.webp"
 
         def file_exists(filename):
             return filename == "live-photo.webp"

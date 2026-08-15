@@ -286,9 +286,11 @@ window.UI = (() => {
       for (const f of [...list]) {
         if (ownGeneration !== generation) return;
         if (!f) continue;
+        const fileType = String(f.type || "").toLowerCase();
+        const genericType = !fileType || fileType === "application/octet-stream";
         const okType = isVideo
-          ? (!f.type || f.type.startsWith("video/"))
-          : (!f.type || f.type.startsWith("image/"));  // пустой type у HEIC — пропускаем
+          ? (genericType || fileType.startsWith("video/"))
+          : (genericType || fileType.startsWith("image/"));  // пустой type у HEIC — пропускаем
         if (!okType) {
           onError(`«${f.name}» — не ${isVideo ? "видео" : "изображение"}`);
           continue;
@@ -379,6 +381,20 @@ window.UI = (() => {
         focuses.splice(idx, 1);
         sync();
       },
+      // Переставляет уже подготовленные File без повторного сжатия. Нужен
+      // объединённому proposal-превью: там в одной видимой ленте смешаны
+      // сохранённые и новые фото/видео, а реальные file-input должны повторить
+      // выбранный пользователем порядок перед созданием FormData.
+      reorderFiles(ordered) {
+        const next = [...ordered];
+        if (next.length !== files.length || new Set(next).size !== files.length ||
+            next.some((file) => !files.includes(file))) return false;
+        const focusByFile = new Map(files.map((file, idx) => [file, focuses[idx]]));
+        files = next;
+        focuses = files.map((file) => focusByFile.get(file) || "50% 50%");
+        sync();
+        return true;
+      },
       clear() { generation += 1; files = []; focuses = []; sync(); },
     };
   }
@@ -392,13 +408,24 @@ window.UI = (() => {
     onError = onError || ((m) => alert(m));
     let pending = Promise.resolve();
     let generation = 0;
+    function kindOf(file) {
+      const type = String(file.type || "").toLowerCase();
+      if (type.startsWith("video/")) return "video";
+      if (type.startsWith("image/")) return "image";
+      // iOS/Android и drag-and-drop иногда отдают пустой MIME или generic
+      // octet-stream. Для поддерживаемых контейнеров надёжнее расширение;
+      // остальные неизвестные файлы оставляем image-uploader-у для прежней
+      // HEIC-совместимости и окончательной серверной проверки содержимого.
+      if ((!type || type === "application/octet-stream") &&
+          /\.(?:mp4|webm)$/i.test(String(file.name || ""))) return "video";
+      return "image";
+    }
     async function route(list) {
       const imgs = [], vids = [];
       [...list].forEach((f) => {
         if (!f) return;
-        const t = f.type || "";
-        if (t.startsWith("video/")) vids.push(f);
-        else imgs.push(f);                 // пустой type (HEIC) считаем фото
+        if (kindOf(f) === "video") vids.push(f);
+        else imgs.push(f);
       });
       await Promise.all([
         imgs.length ? photo.addFiles(imgs) : null,
@@ -879,8 +906,8 @@ window.UI = (() => {
 
   /* --- POST с прогрессом загрузки (fetch не умеет upload-progress) ------- */
   function postWithProgress(url, formData, onProgress) {
-    return new Promise((resolve) => {
-      const xhr = new XMLHttpRequest();
+    const xhr = new XMLHttpRequest();
+    const request = new Promise((resolve) => {
       xhr.open("POST", url);
       const csrf = document.body && document.body.dataset.csrf;
       if (csrf) xhr.setRequestHeader("X-CSRF-Token", csrf);
@@ -895,8 +922,15 @@ window.UI = (() => {
         resolve({ status: xhr.status, j });
       };
       xhr.onerror = () => resolve({ status: 0, j: {} });
+      xhr.onabort = () => resolve({ status: 0, j: {}, aborted: true });
       xhr.send(formData);
     });
+    // Promise остаётся await-совместимым, но владелец переиспользуемого dialog
+    // может действительно оборвать старую загрузку до открытия новой сессии.
+    request.abort = () => {
+      if (typeof xhr.abort === "function" && xhr.readyState !== 4) xhr.abort();
+    };
+    return request;
   }
 
   /* --- «жидкое стекло» для вкладок: скользящий индикатор активной вкладки ----
@@ -1256,6 +1290,10 @@ window.UI = (() => {
           if (label) label.textContent = "Голосование";
           el.textContent = "завершается…";
           if (wrapper) wrapper.setAttribute("aria-label", "Голосование завершается");
+          if (!el.dataset.countdownEnded) {
+            el.dataset.countdownEnded = "1";
+            el.dispatchEvent(new CustomEvent("d4y:voting-ended", { bubbles: true }));
+          }
           stop();
           return false;
         }

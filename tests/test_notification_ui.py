@@ -2,6 +2,7 @@
 
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 from jinja2 import Environment, FileSystemLoader
 
@@ -60,27 +61,51 @@ class NotificationUiTests(unittest.TestCase):
             encoding="utf-8",
         )
         base = (APP / "templates/admin/base.html").read_text(encoding="utf-8")
+        profile = (APP / "templates/admin/profile.html").read_text(encoding="utf-8")
+        connect = (APP / "templates/admin/_telegram_connect.html").read_text(
+            encoding="utf-8",
+        )
         css = (APP / "static/admin.css").read_text(encoding="utf-8")
         auth = (APP / "static/auth.js").read_text(encoding="utf-8")
 
-        self.assertIn("Уведомления в Telegram", template)
-        self.assertNotIn("Бот подключён", template)
-        self.assertNotIn("Бот не подключён", template)
-        self.assertIn("{% if not user['bot_linked'] %}", template)
-        self.assertIn('data-tg-connect class="btn primary notif-settings-connect"', template)
-        self.assertIn("Подключить уведомления", template)
-        self.assertIn('data-return-to="/admin/questions"', template)
-        self.assertIn("active != 'q'", base)
-        self.assertIn(".notif-settings-title-row {", css)
-        self.assertIn("gap: 6px 10px", css)
+        for surface in (template, base, profile):
+            self.assertIn('{% include "admin/_telegram_connect.html" %}', surface)
+        combined = template + base + profile + connect
+        self.assertNotIn("Бот подключён", combined)
+        self.assertNotIn("Бот не подключён", combined)
+        self.assertNotIn("Подключить бота", combined)
+        self.assertIn("Уведомления в Telegram", connect)
+        self.assertIn("{% if not user['bot_linked'] %}", connect)
+        self.assertIn('data-tg-connect class="btn primary telegram-connect-button notif-settings-connect"', connect)
+        self.assertIn("Подключить уведомления", connect)
+        # Кнопка определена ровно в одном partial, а глобальный баннер не
+        # дублирует специализированные блоки профиля и уведомлений.
+        self.assertEqual(combined.count("data-tg-connect"), 1)
+        self.assertIn("active not in ('q', 'profile')", base)
+        self.assertIn("telegram_connect_return_to='/admin/questions'", template)
+        self.assertIn(".telegram-connect-main {", css)
+        self.assertIn(".telegram-connect-button { flex: none; margin-left: auto; }", css)
         self.assertIn(".notif-settings-connect {", css)
-        self.assertIn("margin: 0 3px 4px auto", css)
         self.assertIn("event.preventDefault();", auth)
         self.assertIn("event.stopPropagation();", auth)
         self.assertIn('window.open("about:blank", "_blank")', auth)
         self.assertIn('btn.dataset.tgDirect = d.url', auth)
         self.assertIn('btn.textContent = "Открыть Telegram"', auth)
         self.assertIn('window.location.assign(btn.dataset.tgDirect)', auth)
+
+        env = Environment(loader=FileSystemLoader(APP / "templates"))
+        partial = env.get_template("admin/_telegram_connect.html")
+        request = SimpleNamespace(url=SimpleNamespace(path="/admin/profile"))
+        unlinked = partial.render(
+            user={"bot_linked": 0}, request=request,
+            telegram_connect_return_to="/admin/profile",
+        )
+        self.assertEqual(unlinked.count("data-tg-connect"), 1)
+        self.assertIn('data-return-to="/admin/profile"', unlinked)
+        self.assertIn("Подключить уведомления", unlinked)
+        linked = partial.render(user={"bot_linked": 1}, request=request)
+        self.assertNotIn("data-tg-connect", linked)
+        self.assertNotIn("Бот подключён", linked)
 
         self.assertIn("Ждут отзыва", template)
         self.assertIn("{{ question_unread }}", template)
@@ -127,22 +152,35 @@ class NotificationUiTests(unittest.TestCase):
         public = (APP / "templates/public/category.html").read_text(
             encoding="utf-8",
         )
+        public_routes = (APP / "public_routes.py").read_text(encoding="utf-8")
         css = (APP / "static/admin.css").read_text(encoding="utf-8")
 
         self.assertIn('class="card cat-card has-thumb"', categories)
-        self.assertIn("c['use_default_preview'] or not c['has_og']", categories)
-        self.assertIn("og-friends.jpg", categories)
+        self.assertIn(
+            "src=\"/admin/categories/{{ c['id'] }}/og-preview?skin={{ c['category_skin'] }}",
+            categories,
+        )
         self.assertIn("c['preview_revision']", categories)
+        self.assertNotIn("og-friends.jpg", categories)
+        self.assertNotIn("og-default.jpg", categories)
         self.assertIn(".category-create-only { margin-bottom: 16px; }", css)
         self.assertIn(
-            "{% if cat['use_default_preview'] %}{{ asset('og-friends.jpg' if category_skin == 'friends' else 'og-default.jpg') }}",
+            "data-friends-src=\"/admin/categories/{{ cat['id'] }}/og-preview?skin=friends",
             detail,
         )
         self.assertIn(
-            "{% if cat['use_default_preview'] %}{{ BASE_URL }}{{ asset('og-friends.jpg' if active_skin == 'friends' else 'og-default.jpg') }}",
+            "data-romantic-src=\"/admin/categories/{{ cat['id'] }}/og-preview?skin=romantic",
+            detail,
+        )
+        self.assertNotIn("og-friends.jpg", detail)
+        self.assertNotIn("og-default.jpg", detail)
+        self.assertIn(
+            "{{ BASE_URL }}/c/{{ token }}/og-image?skin={{ active_skin }}",
             public,
         )
         self.assertIn("&amp;v={{ preview_revision }}", public)
+        self.assertIn("images.og_default_path(preview_skin)", public_routes)
+        self.assertIn('media_type="image/jpeg"', public_routes)
 
     def test_countdown_is_continuous_turbo_safe_and_reused_on_dashboard(self):
         category = (APP / "templates/public/category.html").read_text(encoding="utf-8")

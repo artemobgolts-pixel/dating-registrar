@@ -6,7 +6,8 @@
 <meta name="robots" content="noindex, nofollow">
 <meta name="theme-color" content="#554eae">
 <title>date4you · Telegram</title>
-<link rel="icon" href="{{ asset('favicon-standard.png') }}">
+{% from "_appearance_assets.html" import appearance_assets %}
+{{ appearance_assets('friends', false) }}
 <link rel="stylesheet" href="{{ asset('miniapp.css') }}">
 <script src="https://telegram.org/js/telegram-web-app.js?63"></script>
 <script src="{{ asset('telegram-miniapp.js') }}" defer></script>
@@ -16,7 +17,9 @@
       data-miniapp-nonce="{{ miniapp_nonce }}"
       data-miniapp-next="{{ request.query_params.get('next', '') }}">
   <main class="miniapp-card" aria-live="polite">
-    <div class="miniapp-mark" aria-hidden="true">4</div>
+    <div class="miniapp-mark" aria-hidden="true">
+      <img src="{{ asset('logo-standard.png') }}" alt="">
+    </div>
     <h1>date4you</h1>
     <p id="miniappStatus">Проверяем аккаунт Telegram…</p>
     <div class="miniapp-spinner" id="miniappSpinner" aria-hidden="true"></div>

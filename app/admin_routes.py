@@ -12,6 +12,7 @@ import tempfile
 import zipfile
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Annotated
 
 import segno
 
@@ -308,7 +309,6 @@ def dashboard(request: Request, conn=Depends(get_db)):
     share = next((c for c in share_cats if str(c["id"]) == sel), None) \
         or (share_cats[0] if share_cats else None)
     share_url = qr_svg = None
-    share_has_og = False
     share_preview_revision = ""
     if share:
         share_url = f"{BASE_URL}/c/{share['link_token']}"
@@ -316,9 +316,6 @@ def dashboard(request: Request, conn=Depends(get_db)):
         share_sources = _category_collage_sources(conn, int(share["id"]))
         share_custom = share["og_image"] \
             if images.upload_image_exists(share["og_image"]) else None
-        share_has_og = bool(
-            share["use_default_preview"] or share_custom or share_sources
-        )
         share_preview_revision = images.og_preview_revision(
             share_sources,
             appearance.normalize_skin(share["category_skin"]),
@@ -331,7 +328,6 @@ def dashboard(request: Request, conn=Depends(get_db)):
         request, "admin/dashboard.html",
         actx(request, conn, active="dash", stats=stats,
              share_cats=share_cats, share=share, share_url=share_url, qr_svg=qr_svg,
-             share_has_og=share_has_og,
              share_preview_revision=share_preview_revision))
 
 
@@ -826,6 +822,23 @@ def _cat_or_404(conn, cid: int, user):
     return get_owned_category(conn, cid, user["id"])
 
 
+def _normalize_og_focus(value: str | None, *, required: bool = False) -> str | None:
+    """Приводит точку фокуса OG-картинки к стабильному ``X% Y%``.
+
+    Пустое значение допустимо в общей форме редактирования (старые клиенты могли
+    не присылать поле), но отдельный endpoint перемещения фокуса требует его.
+    """
+    import re as _re
+
+    raw = (value or "").strip()
+    if not raw and not required:
+        return None
+    match = _re.fullmatch(r"(\d{1,3})%\s+(\d{1,3})%", raw)
+    if not match or int(match.group(1)) > 100 or int(match.group(2)) > 100:
+        raise HTTPException(400, "Некорректная точка фокуса")
+    return f"{int(match.group(1))}% {int(match.group(2))}%"
+
+
 @router.post("/categories/{cid}/clone")
 def category_clone(cid: int, request: Request, conn=Depends(get_db)):
     """Копирует категорию, сохраняя ссылки на уже существующие события.
@@ -1043,27 +1056,29 @@ def category_og_preview(cid: int, request: Request, skin: str | None = None,
     """Коллаж-превью ссылки для редактора категории (когда своей картинки нет).
     Та же сборка, что и публичный og:image, но за owner-гейтом."""
     cat = _cat_or_404(conn, cid, request.state.user)
+    preview_skin = appearance.normalize_skin(skin, default=cat["category_skin"])
     if cat["use_default_preview"]:
-        default_skin = appearance.normalize_skin(skin, default=cat["category_skin"])
         return FileResponse(
-            Path(__file__).with_name("static") /
-            ("og-friends.jpg" if default_skin == appearance.FRIENDS
-             else "og-default.jpg"),
+            images.og_default_path(preview_skin),
             media_type="image/jpeg",
             headers={"Cache-Control": "private, no-cache"},
         )
     if images.upload_image_exists(cat["og_image"]):
-        # своя картинка — кропаем в 1200×630 по точке фокуса (как уйдёт в og:image)
-        cropped = images.build_og_crop(cat["og_image"], cat["og_focus"])
-        if not cropped:
-            raise HTTPException(404)
-        return FileResponse(cropped, media_type="image/webp",
-                            headers={"Cache-Control": "private, no-cache"})
-    preview_skin = appearance.normalize_skin(skin, default=cat["category_skin"])
+        # Редактор фокуса показывает защищённый raw upload, а этот endpoint —
+        # итоговый link preview: тот же кроп плюс единый полупрозрачный знак.
+        cropped = images.build_og_crop(
+            cat["og_image"], cat["og_focus"], preview_skin)
+        if cropped:
+            return FileResponse(cropped, media_type="image/webp",
+                                headers={"Cache-Control": "private, no-cache"})
     collage = images.build_og_collage(
         _category_collage_sources(conn, cid), preview_skin)
     if not collage:
-        raise HTTPException(404)
+        return FileResponse(
+            images.og_default_path(preview_skin),
+            media_type="image/jpeg",
+            headers={"Cache-Control": "private, no-cache"},
+        )
     return FileResponse(collage, media_type="image/webp",
                         headers={"Cache-Control": "private, no-cache"})
 
@@ -1074,6 +1089,7 @@ def category_rename(cid: int, request: Request, name: str = Form(...),
                     og_title: str = Form(""), og_desc: str = Form(""),
                     category_skin: str | None = Form(None),
                     og_image: UploadFile | None = File(None),
+                    og_focus: Annotated[str | None, Form()] = None,
                     conn=Depends(get_db)):
     cat = _cat_or_404(conn, cid, request.state.user)
     name = clean_text(name, 200, "Название", required=True)
@@ -1081,6 +1097,10 @@ def category_rename(cid: int, request: Request, name: str = Form(...),
     og_title = clean_text(og_title, 120, "Заголовок превью")
     og_desc = clean_text(og_desc, 200, "Описание превью")
     skin = appearance.normalize_skin(category_skin, default=cat["category_skin"])
+    # Валидируем до записи файла: некорректный focus не должен оставлять orphan
+    # в uploads. Поле приходит из того же редактора, поэтому новый файл и выбранный
+    # пользователем кадр сохраняются одним submit.
+    focus_value = _normalize_og_focus(og_focus)
 
     # картинка превью — опционально; новый файл сжимаем в WebP (как фото событий),
     # старый сносим только после успешной записи
@@ -1093,12 +1113,23 @@ def category_rename(cid: int, request: Request, name: str = Form(...),
 
     old_image = cat["og_image"]
     if new_image:
-        # новая картинка — фокус к центру (старая точка к ней не относится)
+        # Точка относится уже к новой картинке; при отсутствии поля остаётся
+        # стандартный центр. Включённое fixed/default-превью отключаем, чтобы
+        # пользователь сразу увидел только что выбранный custom-вариант.
         conn.execute(
             "UPDATE categories SET name=?, description=?, og_title=?, og_desc=?, "
-            "category_skin=?, og_image=?, og_focus=NULL, use_default_preview=0 "
+            "category_skin=?, og_image=?, og_focus=?, use_default_preview=0 "
             "WHERE id=?",
-            (name, description, og_title, og_desc, skin, new_image, cid))
+            (name, description, og_title, og_desc, skin, new_image,
+             focus_value, cid))
+    elif og_focus is not None:
+        # Существующую custom-картинку можно двигать и сохранить обычной кнопкой
+        # даже если instant-save оказался недоступен. Для старых клиентов, которые
+        # вообще не присылают og_focus, прежнее значение оставляем как есть.
+        conn.execute(
+            "UPDATE categories SET name=?, description=?, og_title=?, og_desc=?, "
+            "category_skin=?, og_focus=? WHERE id=?",
+            (name, description, og_title, og_desc, skin, focus_value, cid))
     else:
         conn.execute(
             "UPDATE categories SET name=?, description=?, og_title=?, og_desc=?, "
@@ -1160,18 +1191,29 @@ def category_default_preview(cid: int, request: Request, conn=Depends(get_db)):
 
 @router.post("/categories/{cid}/og_focus")
 def category_og_focus(cid: int, request: Request, focus: str = Form(...),
+                      expected_image: Annotated[str, Form()] = "",
+                      expected_focus: Annotated[str | None, Form()] = None,
                       conn=Depends(get_db)):
     """Точка фокуса своей картинки превью: «X% Y%» (0..100). Владелец двигает
     картинку в редакторе — og:image кропается по ней (WYSIWYG)."""
-    import re as _re
     cat = _cat_or_404(conn, cid, request.state.user)
-    m = _re.fullmatch(r"\s*(\d{1,3})%\s+(\d{1,3})%\s*", focus or "")
-    if not m or int(m.group(1)) > 100 or int(m.group(2)) > 100:
-        raise HTTPException(400, "Некорректная точка фокуса")
+    value = _normalize_og_focus(focus, required=True)
     if not images.upload_image_exists(cat["og_image"]):
         raise HTTPException(400, "У превью нет своей картинки")
-    value = f"{int(m.group(1))}% {int(m.group(2))}%"
-    conn.execute("UPDATE categories SET og_focus=? WHERE id=?", (value, cid))
+    expected_value = _normalize_og_focus(expected_focus, required=True)
+    if not expected_image or Path(expected_image).name != expected_image:
+        raise HTTPException(409, "Превью уже изменилось — обнови страницу")
+    # Compare-and-set не даёт старому instant-save перезаписать focus новой
+    # картинки или более свежий обычный submit формы.
+    updated = conn.execute(
+        "UPDATE categories SET og_focus=? WHERE id=? AND og_image=? "
+        "AND use_default_preview=0 "
+        "AND COALESCE(og_focus, '50% 50%')=?",
+        (value, cid, expected_image, expected_value),
+    )
+    if updated.rowcount != 1:
+        conn.rollback()
+        raise HTTPException(409, "Превью уже изменилось — обнови страницу")
     conn.commit()
     preview_revision = images.og_preview_revision(
         [], appearance.normalize_skin(cat["category_skin"]),

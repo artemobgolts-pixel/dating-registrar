@@ -1,0 +1,15 @@
+{% macro appearance_assets(skin='friends', dynamic=true) -%}
+{% set current_skin = 'romantic' if skin == 'romantic' else 'friends' %}
+<link rel="icon"{% if dynamic %} data-skin-asset
+      data-href-friends="{{ asset('favicon-standard.png') }}"
+      data-href-romantic="{{ asset('favicon-romantic.png') }}"{% endif %}
+      href="{{ asset('favicon-romantic.png' if current_skin == 'romantic' else 'favicon-standard.png') }}">
+<link rel="apple-touch-icon"{% if dynamic %} data-skin-asset
+      data-href-friends="{{ asset('apple-touch-icon-friends.png') }}"
+      data-href-romantic="{{ asset('apple-touch-icon.png') }}"{% endif %}
+      href="{{ asset('apple-touch-icon.png' if current_skin == 'romantic' else 'apple-touch-icon-friends.png') }}">
+<link rel="manifest"{% if dynamic %} data-skin-asset
+      data-href-friends="{{ asset('manifest-friends.json') }}"
+      data-href-romantic="{{ asset('manifest.json') }}"{% endif %}
+      href="{{ asset('manifest.json' if current_skin == 'romantic' else 'manifest-friends.json') }}">
+{%- endmacro %}

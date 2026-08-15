@@ -5,10 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <title>{% if doc == 'terms' %}Пользовательское соглашение{% else %}Политика конфиденциальности{% endif %} · date4you</title>
-<link rel="icon" data-skin-asset
-      data-href-friends="{{ asset('favicon-standard.png') }}"
-      data-href-romantic="{{ asset('favicon-romantic.png') }}"
-      href="{{ asset('favicon-standard.png') }}">
+{% from "_appearance_assets.html" import appearance_assets %}
+{{ appearance_assets('friends') }}
 <meta name="theme-color" content="#554eae">
 <script src="{{ asset('theme.js') }}"></script>
 <link rel="stylesheet" href="{{ asset('public.css') }}">

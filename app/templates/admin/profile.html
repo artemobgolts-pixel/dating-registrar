@@ -113,16 +113,9 @@
 
 {% if not user['bot_linked'] %}
 <div class="card" style="max-width:540px">
-  <b>{% with icon='bell' %}{% include "admin/_icon.html" %}{% endwith %} Уведомления в Telegram</b>
-  <div class="tg-connect">
-    <p class="muted" style="margin:8px 0 12px;font-size:13.5px">
-      Подключи бота, чтобы получать уведомления о выборе событий, вопросах
-      и предложениях прямо в Telegram.</p>
-    <button type="button" data-tg-connect class="btn primary">Подключить уведомления</button>
-    <a data-tg-link href="#" target="_blank" rel="noopener" hidden></a>
-    <p data-tg-hint class="hint" hidden style="margin-top:8px">Нажми <b>Start</b>, затем <b>Подтвердить</b> в боте и вернись сюда.</p>
-    <p data-tg-error class="err" hidden style="margin-top:8px"></p>
-  </div>
+  {% with telegram_connect_class='telegram-connect-profile', telegram_connect_description='Получай уведомления о выборе событий, вопросах и предложениях прямо в Telegram.', telegram_connect_return_to='/admin/profile' %}
+    {% include "admin/_telegram_connect.html" %}
+  {% endwith %}
 </div>
 {% endif %}
 

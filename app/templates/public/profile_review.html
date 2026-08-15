@@ -8,13 +8,10 @@
   <title>Обзор: {{ review['name'] }} · date4you</title>
   <meta property="og:title" content="Обзор события «{{ review['name'] }}»">
   <meta property="og:description" content="{{ review['review_text'] or ('Оценка: ' ~ review['rating'] ~ ' из 5') }}">
-  {% if review['images'] %}
-  <meta property="og:image" content="{{ BASE_URL }}/d/{{ review['share_token'] }}/image/{{ review['images'][0]['filename'] }}">
-  {% else %}
-  <meta property="og:image" content="{{ BASE_URL }}{{ asset('og-friends.jpg' if category_skin == 'friends' else 'og-default.jpg') }}">
-  {% endif %}
+  <meta property="og:image" content="{{ BASE_URL }}/d/{{ review['share_token'] }}/og-image?skin={{ category_skin }}&amp;v={{ review_og_revision }}">
   <meta property="og:type" content="article">
-  <link rel="icon" href="{{ asset('favicon-standard.png' if category_skin == 'friends' else 'favicon-romantic.png') }}">
+  {% from "_appearance_assets.html" import appearance_assets %}
+  {{ appearance_assets(category_skin) }}
   <meta name="theme-color" content="{{ '#554eae' if category_skin == 'friends' else '#b65f6f' }}">
   <script src="{{ asset('theme.js') }}"></script>
   <link rel="stylesheet" href="{{ asset('public.css') }}">
@@ -73,7 +70,6 @@
       </form>
       {% else %}
       <h2 id="review-add-title">Понравился обзор?</h2>
-      <p>Войди, чтобы добавить событие в свою коллекцию.</p>
       <button type="button" class="btn book" data-login-open>{{ icon('plus') }} Добавить событие в коллекцию</button>
       {% endif %}
     </section>

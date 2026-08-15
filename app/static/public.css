@@ -1105,10 +1105,46 @@ details.endtime[open] summary { margin-bottom: 10px; }
   background: rgba(182,95,111,.08); text-align: center; cursor: text;
 }
 .date-widget-dialog .ed-yy { min-width: 38px; }
+.date-widget-dialog .ed-hh:empty::before,
+.date-widget-dialog .ed-mm:empty::before {
+  content: "00"; color: var(--muted); opacity: .6;
+}
+.date-widget-dialog .ed-dd:empty::before { content: "ДД"; color: var(--muted); opacity: .6; }
+.date-widget-dialog .ed-mo:empty::before { content: "ММ"; color: var(--muted); opacity: .6; }
+.date-widget-dialog .ed-yy:empty::before { content: "ГГГГ"; color: var(--muted); opacity: .6; }
+.date-widget-dialog .ed-hh:focus,
+.date-widget-dialog .ed-mm:focus,
+.date-widget-dialog .ed-dd:focus,
+.date-widget-dialog .ed-mo:focus,
+.date-widget-dialog .ed-yy:focus {
+  background: rgba(182,95,111,.18); box-shadow: 0 0 0 2px rgba(182,95,111,.25);
+}
 .date-widget-dialog .ed-dot,
 .date-widget-dialog .ed-colon,
 .date-widget-dialog .ed-dash { color: var(--muted); }
 .date-widget-dialog .ed-dash { padding: 0 4px; }
+.proposal-media-order-wrap {
+  margin-top: 10px; padding: 10px 12px; border: 1px solid var(--line);
+  border-radius: 15px; background: rgba(255,255,255,.46);
+}
+.proposal-media-order-wrap[hidden] { display: none; }
+.proposal-media-order-hint {
+  display: block; margin-bottom: 7px; color: var(--muted); font-size: 12px;
+}
+.proposal-media-order {
+  justify-content: flex-start; margin-top: 0; flex-wrap: nowrap; overflow-x: auto;
+  padding: 2px 1px 5px; scrollbar-width: thin;
+}
+.proposal-media-order .ptile {
+  flex: 0 0 62px; width: 62px; height: 62px; border-radius: 12px;
+}
+.proposal-media-order .ptile.current {
+  border-color: var(--rose); box-shadow: 0 0 0 2px var(--rose-soft), var(--shadow-soft);
+}
+.proposal-media-order .ptile:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--rose) 38%, transparent);
+  outline-offset: 2px;
+}
 .date-widget-dialog .acts { display: flex; gap: 10px; margin-top: 14px; pointer-events: none; }
 .date-widget-dialog .acts button {
   flex: 1; padding: 10px; border-radius: 12px; font: 600 14px var(--sans);
@@ -1787,6 +1823,7 @@ html[data-theme="dark"] .btn.ghost {
 }
 html[data-theme="dark"] .date-widget-dialog .pcard,
 html[data-theme="dark"] .date-widget-dialog .sec,
+html[data-theme="dark"] .proposal-media-order-wrap,
 html[data-theme="dark"] .date-widget-actions {
   background: linear-gradient(150deg, rgba(45,35,42,.88), rgba(31,25,31,.78));
   border-color: rgba(255,255,255,.11);

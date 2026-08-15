@@ -39,17 +39,14 @@ html, body { min-height: 100%; margin: 0; }
 }
 
 .miniapp-mark {
-  width: 64px;
-  height: 64px;
+  width: 72px;
+  height: 72px;
   margin: 0 auto 14px;
-  display: grid;
-  place-items: center;
-  border-radius: 22px;
-  color: #fff;
-  background: linear-gradient(145deg, #6d78c4, #554eae 58%, #228e8a);
+  border-radius: 24px;
+  overflow: hidden;
   box-shadow: 0 12px 28px rgba(85, 78, 174, .28);
-  font: 700 30px/1 Georgia, serif;
 }
+.miniapp-mark img { display: block; width: 100%; height: 100%; object-fit: contain; }
 
 .miniapp-card h1 { margin: 0 0 8px; font-size: 30px; }
 .miniapp-card p { margin: 0; color: var(--tg-muted); }

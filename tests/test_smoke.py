@@ -444,7 +444,8 @@ with TestClient(main.app, follow_redirects=False) as c:
     r = c.get(f"/c/{tok}")
     assert r.status_code == 200 and "пусто" in r.text
     assert 'data-skin="friends"' in r.text
-    assert "bg-gather" in r.text and "og-friends.jpg" in r.text
+    assert "bg-gather" in r.text
+    assert f"/c/{tok}/og-image?skin=friends&amp;v=" in r.text
     assert "Собираемся вместе" in r.text
     category_editor = c.get(f"/admin/categories/{cid}").text
     assert 'name="category_skin"' in category_editor
@@ -460,7 +461,8 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert rr.status_code == 303
     romantic_page = c.get(f"/c/{tok}").text
     assert 'data-skin="romantic"' in romantic_page
-    assert "bg-hearts" in romantic_page and "og-default.jpg" in romantic_page
+    assert "bg-hearts" in romantic_page
+    assert f"/c/{tok}/og-image?skin=romantic&amp;v=" in romantic_page
     rr = apost(c, f"/admin/categories/{cid}/rename", {
         "name": "Лето", "category_skin": "friends",
     })
@@ -2408,7 +2410,7 @@ with TestClient(main.app, follow_redirects=False) as cw:
             assert ext.status_code == 303 and ext.headers["location"] == "/admin/"
 
         # в кабинете виден баннер «подключить бота»
-        assert "Подключить бота" in cw.get("/admin/").text
+        assert "Подключить уведомления" in cw.get("/admin/").text
 
         # тот же человек запускает бота: код purpose-bound к его user_id, чужая
         # сессия его не забирает, poll не переключает аккаунт
@@ -2427,7 +2429,7 @@ with TestClient(main.app, follow_redirects=False) as cw:
         assert linked["redirect"] == "/c/guest-return"
         assert db_one("SELECT bot_linked FROM users WHERE telegram_id=990200")[0] == 1
         # баннер исчез
-        assert "Подключить бота" not in cw.get("/admin/").text
+        assert "Подключить уведомления" not in cw.get("/admin/").text
 
         # Telegram другого аккаунта не присоединяется и аккаунты не сливаются
         with TestClient(main.app, follow_redirects=False) as cconf:
@@ -3145,18 +3147,25 @@ with TestClient(main.app, follow_redirects=False) as cui:
     # флешем (см. friendly_http_exc). Без своей картинки фокус нечего кропать →
     # не сохраняется (редирект, og_focus остаётся NULL).
     cui.post(f"/admin/categories/{mcat['id']}/og_focus",
-             data={"csrf": uc, "focus": "50% 50%"})
+             data={"csrf": uc, "focus": "50% 50%",
+                   "expected_image": "", "expected_focus": "50% 50%"})
     assert db_one("SELECT og_focus FROM categories WHERE id=?", (mcat["id"],))[0] is None
     cui.post(f"/admin/categories/{mcat['id']}/rename",
              data={"csrf": uc, "name": "Меню-кат"},
              files={"og_image": ("og.png", make_png(), "image/png")})
-    assert db_one("SELECT og_image FROM categories WHERE id=?", (mcat["id"],))[0]
+    preview_row = db_one(
+        "SELECT og_image,og_focus FROM categories WHERE id=?", (mcat["id"],))
+    assert preview_row["og_image"] and preview_row["og_focus"] is None
     # кривой фокус не сохраняется; корректный — сохраняется и нормализуется (JSON 200)
     cui.post(f"/admin/categories/{mcat['id']}/og_focus",
-             data={"csrf": uc, "focus": "999% x"})
+             data={"csrf": uc, "focus": "999% x",
+                   "expected_image": preview_row["og_image"],
+                   "expected_focus": "50% 50%"})
     assert db_one("SELECT og_focus FROM categories WHERE id=?", (mcat["id"],))[0] is None
     assert cui.post(f"/admin/categories/{mcat['id']}/og_focus",
-                    data={"csrf": uc, "focus": "20% 80%"}).status_code == 200
+                    data={"csrf": uc, "focus": "20% 80%",
+                          "expected_image": preview_row["og_image"],
+                          "expected_focus": "50% 50%"}).status_code == 200
     assert db_one("SELECT og_focus FROM categories WHERE id=?", (mcat["id"],))[0] == "20% 80%"
     # og-preview отдаёт кроп 1200×630 (WebP), не падает
     assert cui.get(f"/admin/categories/{mcat['id']}/og-preview").status_code == 200
@@ -3388,7 +3397,9 @@ with TestClient(main.app, follow_redirects=False) as cui2:
     assert "Название новой категории" not in cats
     assert "настрой голосование" not in cats.lower()
     assert 'class="card cat-card has-thumb"' in cats
-    assert 'class="cat-thumb"' in cats and "og-friends.jpg" in cats
+    assert 'class="cat-thumb"' in cats
+    assert f'/admin/categories/{cc["id"]}/og-preview?skin=' in cats
+    assert "og-friends.jpg" not in cats and "og-default.jpg" not in cats
     category_new = cui2.get("/admin/categories/new").text
     assert 'action="/admin/categories/create"' in category_new
     assert "Новая категория" in category_new and "Например, Летние планы" in category_new

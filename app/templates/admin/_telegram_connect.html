@@ -1,0 +1,26 @@
+{# Единый Telegram CTA для глобального баннера, профиля и настроек уведомлений.
+   Окружение может передать telegram_connect_class/description/return_to/heading_id. #}
+{% set tg_class = telegram_connect_class|default('') %}
+{% set tg_description = telegram_connect_description|default('') %}
+{% set tg_return_to = telegram_connect_return_to|default(request.url.path) %}
+{% set tg_heading_id = telegram_connect_heading_id|default('') %}
+<span class="telegram-connect-ui {{ tg_class }}{% if not user['bot_linked'] %} tg-connect{% endif %}"
+      {% if not user['bot_linked'] %}data-return-to="{{ tg_return_to }}"{% endif %}>
+  <span class="telegram-connect-main">
+    <span class="telegram-connect-heading">
+      <span class="telegram-connect-icon notif-settings-icon" aria-hidden="true">
+        {% with icon='bell' %}{% include "admin/_icon.html" %}{% endwith %}
+      </span>
+      <span class="telegram-connect-title notif-settings-title"{% if tg_heading_id %} id="{{ tg_heading_id }}"{% endif %}
+            role="heading" aria-level="2">Уведомления в Telegram</span>
+    </span>
+    {% if not user['bot_linked'] %}
+    <button type="button" data-tg-connect class="btn primary telegram-connect-button notif-settings-connect">Подключить уведомления</button>
+    {% endif %}
+  </span>
+  {% if tg_description %}<span class="telegram-connect-description notif-settings-hint">{{ tg_description }}</span>{% endif %}
+  {% if not user['bot_linked'] %}
+  <span data-tg-hint class="telegram-connect-hint" hidden>Нажми <b>Start</b>, затем <b>Подтвердить</b> в боте и вернись сюда.</span>
+  <span data-tg-error class="err telegram-connect-error" hidden></span>
+  {% endif %}
+</span>

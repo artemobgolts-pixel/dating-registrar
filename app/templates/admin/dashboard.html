@@ -30,7 +30,7 @@
       {% endif %}
       {% set share_friends = share['category_skin'] == 'friends' %}
       <div class="og-preview dashboard-og-preview" aria-label="так ссылка выглядит при отправке">
-        <img class="og-img" src="{% if share['use_default_preview'] %}{{ asset('og-friends.jpg' if share['category_skin'] == 'friends' else 'og-default.jpg') }}{% elif share_has_og %}/admin/categories/{{ share['id'] }}/og-preview?skin={{ share['category_skin'] }}&amp;v={{ share_preview_revision }}{% else %}{{ asset('og-friends.jpg' if share['category_skin'] == 'friends' else 'og-default.jpg') }}{% endif %}" alt="">
+        <img class="og-img" src="/admin/categories/{{ share['id'] }}/og-preview?skin={{ share['category_skin'] }}&amp;v={{ share_preview_revision }}" alt="">
         {% if share['voting_status'] == 'open' and share['voting_deadline'] %}
         <div class="dashboard-vote-countdown" role="timer">
           <span data-countdown-label>До конца</span>

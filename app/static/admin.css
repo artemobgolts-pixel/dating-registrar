@@ -263,19 +263,6 @@ h1 { font-size: 22px; margin: 6px 0 16px; }
   color: #a33;
 }
 
-/* баннер «Подключи бота»: на ПК текст и кнопка в строку, кнопка справа;
-   на телефоне кнопка уезжает под текст во всю ширину (без кривого переноса). */
-.tg-connect {
-  display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
-}
-.tg-connect .tg-connect-msg { flex: 1 1 auto; min-width: 0; }
-.tg-connect [data-tg-connect] { flex: none; margin-left: auto; }
-.tg-connect [data-tg-error] { flex-basis: 100%; }
-@media (max-width: 560px) {
-  .tg-connect .tg-connect-msg { flex-basis: 100%; }
-  .tg-connect [data-tg-connect] { width: 100%; margin-left: 0; }
-}
-
 .muted { color: var(--muted); }
 
 /* ---------- таблицы ---------- */
@@ -679,6 +666,12 @@ label.chk {
     margin: 0 0 12px;
   }
 }
+/* Экран создания категории уже обычного редактора: на desktop кнопка не
+   должна прилипать вплотную к шапке даже при ширине 1280/1366. Позиционирование
+   остаётся sticky до 1380px, меняется только безопасный верхний отступ. */
+@media (min-width: 901px) {
+  .editor-back.category-new-back { top: 112px; }
+}
 @media (min-width: 1381px) {
   .editor-back.date-editor-back,
   .editor-back.category-new-back { top: 112px; }
@@ -1072,11 +1065,23 @@ input.flash { background: #f8ecea !important; transition: background .4s; }
 .notif-settings-head::-webkit-details-marker { display: none; }
 .notif-settings-head::marker { content: ""; }
 .notif-settings-head:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.notif-settings-card:not([open]) .notif-settings-hint { display: none; }
-.notif-settings-copy { display: grid; flex: 1; min-width: 0; }
-.notif-settings-title-row {
-  display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px;
+.notif-settings-card:not([open]) .telegram-connect-description { display: none; }
+.notif-settings-head > .telegram-connect-ui { flex: 1; min-width: 0; }
+.telegram-connect-ui {
+  display: grid; width: 100%; min-width: 0; gap: 5px;
 }
+.telegram-connect-main {
+  display: flex; align-items: center; min-width: 0; gap: 10px;
+}
+.telegram-connect-heading {
+  display: flex; align-items: center; min-width: 0; gap: 12px;
+}
+.telegram-connect-button { flex: none; margin-left: auto; }
+.telegram-connect-description,
+.telegram-connect-hint,
+.telegram-connect-error { margin-left: 54px; }
+.telegram-connect-hint { color: var(--muted); font-size: 12.5px; }
+.telegram-connect-error { font-size: 12px; }
 .notif-settings-title { font-family: var(--serif); font-size: 22px; font-weight: 700; color: var(--ink); }
 .notif-settings-hint { margin-top: 2px; color: var(--muted); font-size: 13.5px; }
 .notif-settings-icon {
@@ -1089,11 +1094,14 @@ input.flash { background: #f8ecea !important; transition: background .4s; }
   flex: none; min-height: 32px; margin-left: auto; padding: 6px 11px;
   border-radius: 999px; font-size: 12px; line-height: 1.2; white-space: nowrap;
 }
-.notif-settings-connect-error { flex: 1 1 100%; font-size: 12px; }
 .notif-settings-chevron {
   width: 10px; height: 10px; flex: none; margin: 0 3px 4px auto;
   border-right: 2px solid currentColor; border-bottom: 2px solid currentColor;
   color: var(--muted); transform: rotate(45deg); transition: transform .18s ease;
+}
+@media (max-width: 560px) {
+  .telegram-connect-main { align-items: stretch; flex-wrap: wrap; }
+  .telegram-connect-button { margin-left: 54px; width: calc(100% - 54px); }
 }
 .notif-settings-card[open] .notif-settings-chevron {
   margin-bottom: -3px; transform: rotate(225deg);
@@ -2330,6 +2338,14 @@ html[data-theme="dark"][data-skin="friends"] .share-qr {
   padding: 2px 8px; border-radius: 20px; pointer-events: none;
   -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
 }
+.og-focus-status {
+  max-width: 380px; margin: 6px 0 2px; color: var(--muted);
+  font-size: 12px; line-height: 1.35;
+}
+.og-focus-status:empty { display: none; }
+.og-focus-status.is-saving { color: var(--muted); }
+.og-focus-status.is-success { color: #1d6b39; }
+.og-focus-status.is-error { color: #a33; }
 .og-preview.editable.has-image.dragging .og-img-badge,
 .og-preview.editable.has-image.dragging .og-img-hint { opacity: 0; }
 /* редактируемые заголовок/описание: разворачиваем из nowrap, показываем плейсхолдер;

@@ -35,6 +35,7 @@ class PublicReviewPageUiTests(unittest.TestCase):
         self.assertIn('action="/d/{{ token }}/report"', page)
         self.assertIn('method="post" action="/d/{{ token }}/add"', page)
         self.assertIn('Добавить событие в коллекцию', page)
+        self.assertNotIn("Войди, чтобы добавить событие в свою коллекцию.", page)
         self.assertIn('{% include "auth/_login_methods.html" %}', page)
         self.assertIn('<footer>', page)
         self.assertIn("{{ asset('confirm.js') }}", page)
@@ -51,9 +52,10 @@ class PublicReviewPageUiTests(unittest.TestCase):
         self.assertIn('property="og:title"', page)
         self.assertIn('property="og:description"', page)
         self.assertIn('property="og:image"', page)
+        self.assertIn('/d/{{ review[\'share_token\'] }}/og-image?skin={{ category_skin }}', page)
+        self.assertIn("&amp;v={{ review_og_revision }}", page)
         self.assertIn('name="theme-color"', page)
-        self.assertIn("favicon-standard.png", page)
-        self.assertIn("favicon-romantic.png", page)
+        self.assertIn("appearance_assets(category_skin)", page)
         self.assertIn("{{ asset('theme.js') }}", page)
 
     def test_css_fallback_matches_the_dashboard_background(self):

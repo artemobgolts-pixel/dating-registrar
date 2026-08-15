@@ -123,14 +123,14 @@
     if (window.UI && UI.cardMenu) UI.cardMenu(document);
     if (window.UI && UI.glassTabs) UI.glassTabs(document.querySelector(".tabs"));
 
-    // на телефоне — только карточки: если из cookie пришёл список, переключаем
-    // на карточки один раз (переключатель вида на мобиле скрыт из CSS)
+    // На телефоне — только карточки: если сервер всё же отдал list-разметку,
+    // каждый раз исправляем cookie и перезагружаем страницу. После перезагрузки
+    // `.dlist` исчезнет, поэтому отдельный sessionStorage-флаг от цикла не нужен.
+    // Он, напротив, ломал сценарий mobile → desktop/list → mobile в одной вкладке.
     var dlist = document.querySelector(".dlist");
     if (dlist && window.matchMedia(
           "(max-width: 720px), (max-width: 950px) and (max-height: 600px) and (pointer: coarse)"
-        ).matches &&
-        !sessionStorage.getItem("forcedCards")) {
-      sessionStorage.setItem("forcedCards", "1");
+        ).matches) {
       document.cookie = "layout=cards;path=/admin;max-age=31536000;samesite=lax";
       if (window.Turbo && Turbo.visit) Turbo.visit(location.href, { action: "replace" });
       else location.reload();
@@ -566,10 +566,45 @@
       var ogImg = document.getElementById("ogPreviewImg");
       var ogPick = document.getElementById("ogImgPick");
       var focusHint = document.getElementById("ogFocusHint");
+      var focusField = document.getElementById("ogFocusField");
+      var focusStatus = document.getElementById("ogFocusStatus");
       var cid = ogPreview.dataset.cid;
-      // есть ли своя картинка (её можно двигать/кропать). Меняется, когда
-      // пользователь выбирает новую (новая ещё не сохранена — двигать нельзя до сабмита).
+      // Есть ли уже сохранённая custom-картинка. Новую картинку тоже можно сразу
+      // двигать: её focus уйдёт вместе с файлом через основную форму.
       var hasSavedImage = ogPreview.dataset.hasImage === "1";
+      var savedImageName = ogPreview.dataset.imageName || "";
+      var initialFocus = (focusField && focusField.value) ||
+        (ogImg && ogImg.style.objectPosition) || "50% 50%";
+      var curFocus = initialFocus;
+      var lastSavedFocus = initialFocus;
+      var imageFileChanged = false;
+      var focusChanged = false;
+      var focusStatusTimer = null;
+      var focusSaveChain = Promise.resolve();
+      var focusSaveGeneration = 0;
+
+      function syncImageChanged() {
+        ogChanged.img = imageFileChanged || focusChanged;
+        recompute();
+      }
+      function setFocusStatus(message, state, clearAfter) {
+        if (!focusStatus) return;
+        clearTimeout(focusStatusTimer);
+        focusStatus.textContent = message || "";
+        focusStatus.classList.remove("is-saving", "is-success", "is-error");
+        if (state) focusStatus.classList.add("is-" + state);
+        if (clearAfter) {
+          focusStatusTimer = setTimeout(function () {
+            focusStatus.textContent = "";
+            focusStatus.classList.remove("is-saving", "is-success", "is-error");
+          }, clearAfter);
+        }
+      }
+      function setFocus(value) {
+        curFocus = value || "50% 50%";
+        if (ogImg) ogImg.style.objectPosition = curFocus;
+        if (focusField) focusField.value = curFocus;
+      }
 
       // Переключатель оформления сразу показывает дружеские/романтические
       // стандартные тексты и картинку. Свои тексты и изображение не трогаем.
@@ -615,31 +650,37 @@
         });
         ogInput.addEventListener("change", function () {
           if (ogInput.files && ogInput.files.length && ogImg) {
+            // Ответ от instant-save прежней картинки больше не должен менять
+            // локальный crop только что выбранного файла.
+            focusSaveGeneration += 1;
             ogImg.src = URL.createObjectURL(ogInput.files[0]);
-            ogImg.style.objectPosition = "50% 50%";
-            ogChanged.img = true;
+            setFocus("50% 50%");
+            imageFileChanged = true;
+            focusChanged = false;
             // После выбора файла это уже не авто-/фирменная картинка. Иначе
             // смена темы или reorder могли поверх локального preview подставить
             // старый URL до нажатия «Сохранить».
             ogPreview.dataset.autoImage = "0";
             ogPreview.dataset.defaultImage = "0";
             ogPreview.dataset.hasImage = "0";
-            // новая картинка ещё не на сервере — двигать кадр можно после сохранения
+            // Пока файл локальный, endpoint focus ещё неприменим, но сам crop уже
+            // доступен и будет атомарно сохранён основной формой.
             hasSavedImage = false;
-            ogPreview.classList.remove("has-image");
-            if (focusHint) focusHint.hidden = true;
-            recompute();
+            ogPreview.classList.add("has-image");
+            if (focusHint) focusHint.hidden = false;
+            setFocusStatus("Двигай картинку — положение кадра сохранится вместе с категорией.", "saving");
+            syncImageChanged();
           }
         });
       }
 
       // --- перетаскивание кадра своей картинки (WYSIWYG-кроп og:image) ----------
-      // Только для УЖЕ сохранённой картинки: точка фокуса летит на сервер, og:image
-      // пересобирается по ней. Для только что выбранной (несохранённой) — сперва
-      // «Сохранить», у формы нет поля фокуса до записи файла.
-      if (ogImg && hasSavedImage && cid) {
+      // Сохранённую картинку обновляем сразу; новую отправляем с hidden og_focus
+      // вместе с файлом. Очередь не даёт быстрым drag-запросам завершиться в
+      // обратном порядке, а при ошибке возвращает последний подтверждённый кадр.
+      if (ogImg && cid) {
         var dragging = false, dragStartX = 0, dragStartY = 0;
-        var curFocus = ogImg.style.objectPosition || "50% 50%";
+        var dragOriginFocus = curFocus;
         var DRAG_THRESHOLD = 6;
         function pointerPoint(e) {
           return {
@@ -653,13 +694,58 @@
           var point = pointerPoint(e);
           var x = Math.round(Math.min(1, Math.max(0, (point.x - rect.left) / rect.width)) * 100);
           var y = Math.round(Math.min(1, Math.max(0, (point.y - rect.top) / rect.height)) * 100);
-          curFocus = x + "% " + y + "%";
-          ogImg.style.objectPosition = curFocus;
+          setFocus(x + "% " + y + "%");
+        }
+        function saveFocus(value) {
+          var generation = ++focusSaveGeneration;
+          setFocusStatus("Сохраняем положение кадра…", "saving");
+          focusSaveChain = focusSaveChain.catch(function () {}).then(function () {
+            // expected_* превращают endpoint в compare-and-set: уже летящий
+            // запрос не сможет затереть focus после обычного submit или замены
+            // картинки, даже если завершится позже них.
+            var expectedValue = lastSavedFocus;
+            var fd = new FormData();
+            fd.append("csrf", document.body.dataset.csrf);
+            fd.append("focus", value);
+            fd.append("expected_image", savedImageName);
+            fd.append("expected_focus", expectedValue);
+            return fetch("/admin/categories/" + cid + "/og_focus", {
+              method: "POST", body: fd,
+            }).then(function (response) {
+              return response.json().catch(function () { return {}; }).then(function (payload) {
+                if (!response.ok) {
+                  throw new Error(payload.detail || "Не удалось сохранить положение кадра");
+                }
+                return payload;
+              });
+            });
+          }).then(function (payload) {
+            lastSavedFocus = (payload && payload.focus) || value;
+            if (payload && payload.preview_revision) {
+              ogPreview.dataset.previewRevision = payload.preview_revision;
+            }
+            if (generation !== focusSaveGeneration) return;
+            setFocus(lastSavedFocus);
+            focusChanged = lastSavedFocus !== initialFocus;
+            syncImageChanged();
+            setFocusStatus("Положение кадра сохранено", "success", 2400);
+          }).catch(function () {
+            if (generation !== focusSaveGeneration) return;
+            setFocus(lastSavedFocus);
+            focusChanged = lastSavedFocus !== initialFocus;
+            syncImageChanged();
+            setFocusStatus(
+              "Не удалось сохранить положение кадра. Вернули предыдущий вариант — попробуй ещё раз.",
+              "error"
+            );
+          });
         }
         ogImg.addEventListener("pointerdown", function (e) {
+          if (!ogPreview.classList.contains("has-image")) return;
           var point = pointerPoint(e);
           dragging = true;
           dragMoved = false;
+          dragOriginFocus = curFocus;
           dragStartX = point.x;
           dragStartY = point.y;
           ogImg.setPointerCapture && ogImg.setPointerCapture(e.pointerId);
@@ -684,41 +770,51 @@
           // точку фокуса и не отправляем POST, пока кадр действительно не
           // сдвинут дальше небольшого порога движения.
           if (!dragMoved) return;
-          var fd = new FormData();
-          fd.append("csrf", document.body.dataset.csrf);
-          fd.append("focus", curFocus);
-          fetch("/admin/categories/" + cid + "/og_focus", { method: "POST", body: fd })
-            .then(function (r) {
-              if (!r.ok) throw 0;
-              return r.json();
-            })
-            .then(function (payload) {
-              if (payload && payload.preview_revision) {
-                ogPreview.dataset.previewRevision = payload.preview_revision;
-              }
-            })
-            .catch(function () { /* не сохранилось — тихо, кадр вернётся при перезагрузке */ });
+          focusChanged = curFocus !== initialFocus;
+          syncImageChanged();
+          if (hasSavedImage) saveFocus(curFocus);
+          else setFocusStatus(
+            "Положение кадра сохранится после нажатия «Сохранить».", "success"
+          );
+        }
+        function cancelDrag() {
+          if (!dragging) return;
+          dragging = false;
+          ogPreview.classList.remove("dragging");
+          setFocus(dragOriginFocus);
+          dragMoved = false;
         }
         ogImg.addEventListener("pointerup", endDrag);
-        ogImg.addEventListener("pointercancel", endDrag);
+        ogImg.addEventListener("pointercancel", cancelDrag);
       }
     }
 
     var tb = document.getElementById("catRows");
     if (tb && !tb.dataset.ready) {
       tb.dataset.ready = "1";
+      var categoryOrderChain = Promise.resolve();
+      var categoryOrderGeneration = 0;
       UI.sortable(tb, { selector: "tr.drag-row", onChange: function () {
         var order = Array.prototype.map.call(tb.querySelectorAll("tr.drag-row"),
           function (t) { return t.dataset.did; }).join(",");
-        var fd = new FormData();
-        fd.append("csrf", document.body.dataset.csrf);
-        fd.append("order", order);
-        fetch("/admin/categories/" + tb.dataset.cid + "/dates_reorder", { method: "POST", body: fd })
+        var generation = ++categoryOrderGeneration;
+        // Drag-end может наступить снова, пока предыдущий POST ещё в сети.
+        // Сериализуем снимки порядка: последним в БД гарантированно окажется
+        // последнее действие пользователя, а не самый медленный запрос.
+        categoryOrderChain = categoryOrderChain.catch(function () {}).then(function () {
+          var fd = new FormData();
+          fd.append("csrf", document.body.dataset.csrf);
+          fd.append("order", order);
+          return fetch("/admin/categories/" + tb.dataset.cid + "/dates_reorder", {
+            method: "POST", body: fd,
+          });
+        })
           .then(function (r) {
             if (!r.ok) throw 0;
             return r.json();
           })
           .then(function (payload) {
+            if (generation !== categoryOrderGeneration) return;
             var preview = document.getElementById("ogPreview");
             var image = document.getElementById("ogPreviewImg");
             // Перестановка влияет только на авто-коллаж. Свою картинку и
@@ -734,7 +830,11 @@
               "/og-preview?skin=" + encodeURIComponent(skin) + "&v=" +
               encodeURIComponent(revision + "-" + Date.now().toString(36));
           })
-          .catch(function () { alert("Нет связи — порядок не сохранён"); });
+          .catch(function () {
+            if (generation === categoryOrderGeneration) {
+              alert("Нет связи — порядок не сохранён");
+            }
+          });
       }});
     }
   }

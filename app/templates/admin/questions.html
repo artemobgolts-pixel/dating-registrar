@@ -13,20 +13,9 @@
 
 <details class="notif-settings-card" aria-labelledby="notif-settings-title">
   <summary class="notif-settings-head">
-    <span class="notif-settings-icon" aria-hidden="true">
-      {% with icon='bell' %}{% include "admin/_icon.html" %}{% endwith %}
-    </span>
-    <span class="notif-settings-copy">
-      <span class="notif-settings-title-row{% if not user['bot_linked'] %} tg-connect{% endif %}"
-            {% if not user['bot_linked'] %}data-return-to="/admin/questions"{% endif %}>
-        <span class="notif-settings-title" id="notif-settings-title" role="heading" aria-level="2">Уведомления в Telegram</span>
-        {% if not user['bot_linked'] %}
-        <button type="button" data-tg-connect class="btn primary notif-settings-connect">Подключить уведомления</button>
-        <span data-tg-error class="err notif-settings-connect-error" hidden></span>
-        {% endif %}
-      </span>
-      <span class="notif-settings-hint">Выбери, какие сообщения бот будет присылать тебе.</span>
-    </span>
+    {% with telegram_connect_class='telegram-connect-notifications', telegram_connect_description='Выбери, какие сообщения бот будет присылать тебе.', telegram_connect_return_to='/admin/questions', telegram_connect_heading_id='notif-settings-title' %}
+      {% include "admin/_telegram_connect.html" %}
+    {% endwith %}
     <span class="notif-settings-chevron" aria-hidden="true"></span>
   </summary>
 

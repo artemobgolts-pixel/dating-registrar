@@ -372,10 +372,12 @@
     updateChrome(root.dataset.theme || "light");
     updateButtons(root.dataset.theme || "light");
     updateSkinButtons(root.dataset.skin || "friends");
+    updateSkinAssets(root.dataset.skin || "friends");
   });
   document.addEventListener("d4y:skinchange", function () {
     updateChrome(root.dataset.theme || "light");
     updateSkinButtons(root.dataset.skin || "friends");
+    updateSkinAssets(root.dataset.skin || "friends");
   });
   // Turbo заменяет body, но не перезапускает этот скрипт.
   document.addEventListener("turbo:load", function () {
@@ -387,5 +389,8 @@
     updateChrome(root.dataset.theme || "light");
     updateButtons(root.dataset.theme || "light");
     updateSkinButtons(root.dataset.skin || "friends");
+    // Turbo может заменить head-ссылки, не перезапуская theme.js. Каждый раз
+    // доводим favicon/install-assets до фактического skin корневого документа.
+    updateSkinAssets(root.dataset.skin || "friends");
   });
 })();

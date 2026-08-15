@@ -18,6 +18,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
+from jinja2 import Environment, FileSystemLoader, select_autoescape
 from PIL import ImageChops
 from starlette.datastructures import UploadFile
 
@@ -45,6 +46,7 @@ import admin_routes  # noqa: E402
 import appearance  # noqa: E402
 import db  # noqa: E402
 import images  # noqa: E402
+import public_routes  # noqa: E402
 
 
 class ThemeMigrationTests(unittest.TestCase):
@@ -133,28 +135,52 @@ class ThemeMigrationTests(unittest.TestCase):
 class ThemePreviewTests(unittest.TestCase):
     def test_themes_use_dedicated_default_previews(self):
         static = APP / "static"
-        paths = [static / "og-friends.jpg", static / "og-default.jpg"]
-        for path in paths:
-            with self.subTest(path=path.name):
-                self.assertTrue(path.is_file())
-                self.assertLess(path.stat().st_size, 300_000)
-                with images.Image.open(path) as preview:
+        for path in images.OG_DEFAULT_BACKGROUNDS.values():
+            self.assertTrue(path.is_file())
+            with images.Image.open(path) as background:
+                self.assertGreaterEqual(background.width, 1200)
+                self.assertGreaterEqual(background.height, 630)
+
+        with tempfile.TemporaryDirectory(prefix="date4you-og-default-") as tmp, \
+                patch.object(images, "OG_CACHE_DIR", Path(tmp)), \
+                patch.object(
+                    images, "_draw_og_brand_overlay",
+                    wraps=images._draw_og_brand_overlay,
+                ) as overlay:
+            paths = [
+                images.og_default_path(appearance.FRIENDS),
+                images.og_default_path(appearance.ROMANTIC),
+            ]
+            self.assertEqual(overlay.call_count, 2)
+            for path in paths:
+                with self.subTest(path=path.name), images.Image.open(path) as preview:
                     self.assertEqual(preview.format, "JPEG")
                     self.assertEqual(preview.size, (1200, 630))
-        with images.Image.open(paths[0]) as friends, images.Image.open(paths[1]) as romantic:
-            self.assertIsNotNone(ImageChops.difference(friends, romantic).getbbox())
+            with images.Image.open(paths[0]) as friends, \
+                    images.Image.open(paths[1]) as romantic:
+                self.assertIsNotNone(ImageChops.difference(friends, romantic).getbbox())
 
         for relative in (
-            "templates/public/category.html",
-            "templates/public/share.html",
-            "templates/public/profile_review.html",
+            "templates/admin/categories.html",
             "templates/admin/dashboard.html",
             "templates/admin/category_detail.html",
         ):
             with self.subTest(template=relative):
                 source = (APP / relative).read_text("utf-8")
-                self.assertIn("og-default.jpg", source)
-                self.assertIn("og-friends.jpg", source)
+                self.assertIn("/admin/categories/", source)
+                self.assertIn("/og-preview?skin=", source)
+                self.assertNotIn("og-friends.jpg", source)
+                self.assertNotIn("og-default.jpg", source)
+
+        for relative in (
+            "templates/public/category.html",
+            "templates/public/share.html",
+            "templates/public/profile_review.html",
+        ):
+            with self.subTest(template=relative):
+                source = (APP / relative).read_text("utf-8")
+                self.assertIn("/og-image?skin=", source)
+                self.assertIn("&amp;v=", source)
 
         for filename in ("date-default-friends.jpg", "date-default.jpg"):
             with self.subTest(filename=filename), images.Image.open(
@@ -181,10 +207,50 @@ class ThemePreviewTests(unittest.TestCase):
                 self.assertGreaterEqual(right, 118)
                 self.assertGreaterEqual(bottom, 116)
 
-        login = (APP / "templates/auth/login.html").read_text("utf-8")
-        self.assertIn("favicon-standard.png", login)
-        self.assertIn("favicon-romantic.png", login)
-        self.assertIn('href="{{ asset(\'favicon-standard.png\') }}"', login)
+        asset_macro = (APP / "templates/_appearance_assets.html").read_text("utf-8")
+        self.assertIn("favicon-standard.png", asset_macro)
+        self.assertIn("favicon-romantic.png", asset_macro)
+        self.assertIn('rel="apple-touch-icon"', asset_macro)
+        self.assertIn('rel="manifest"', asset_macro)
+
+    def test_every_document_uses_one_complete_appearance_asset_macro(self):
+        templates = sorted((APP / "templates").rglob("*.html"))
+        documents = [
+            path for path in templates
+            if "<html" in path.read_text("utf-8")
+        ]
+        self.assertEqual(len(documents), 11)
+        for path in documents:
+            with self.subTest(template=path.relative_to(APP).as_posix()):
+                source = path.read_text("utf-8")
+                self.assertIn(
+                    '{% from "_appearance_assets.html" import appearance_assets %}',
+                    source,
+                )
+                self.assertIn("appearance_assets(", source)
+
+        miniapp = (APP / "templates/auth/miniapp.html").read_text("utf-8")
+        self.assertIn("appearance_assets('friends', false)", miniapp)
+        self.assertNotIn("theme.js", miniapp)
+        self.assertIn("logo-standard.png", miniapp)
+
+        env = Environment(
+            loader=FileSystemLoader(APP / "templates"),
+            autoescape=select_autoescape(("html",)),
+        )
+        env.globals["asset"] = lambda name: f"/static/{name}"
+        macro = env.get_template("_appearance_assets.html").module.appearance_assets
+        romantic = str(macro("romantic"))
+        self.assertEqual(romantic.count("data-skin-asset"), 3)
+        self.assertIn('href="/static/favicon-romantic.png"', romantic)
+        self.assertIn('href="/static/apple-touch-icon.png"', romantic)
+        self.assertIn('href="/static/manifest.json"', romantic)
+
+        fixed = str(macro("friends", False))
+        self.assertNotIn("data-skin-asset", fixed)
+        self.assertIn('href="/static/favicon-standard.png"', fixed)
+        self.assertIn('href="/static/apple-touch-icon-friends.png"', fixed)
+        self.assertIn('href="/static/manifest-friends.json"', fixed)
 
     def test_friends_install_icons_do_not_fall_back_to_romantic_assets(self):
         static = APP / "static"
@@ -261,7 +327,7 @@ class ThemePreviewTests(unittest.TestCase):
         self.assertLessEqual(strongest, 140)
         self.assertEqual(images.OG_BRAND_MAX_SIZE, (590, 465))
         self.assertEqual(images.OG_BRAND_OPACITY, 0.52)
-        self.assertEqual(images.OG_BRAND_REVISION, "10")
+        self.assertEqual(images.OG_BRAND_REVISION, "11")
 
         overlay = images.OG_BRAND_OVERLAYS[appearance.FRIENDS]
         with images.Image.open(overlay) as mark:
@@ -318,8 +384,10 @@ class ThemePreviewTests(unittest.TestCase):
 
     def test_saved_custom_preview_editor_uses_raw_protected_image(self):
         template = (APP / "templates/admin/category_detail.html").read_text("utf-8")
+        script = (APP / "static/admin.js").read_text("utf-8")
         self.assertIn(
-            "{% elif custom_og_available %}/admin/uploads/{{ cat['og_image'] }}?w=960",
+            "{% if custom_og_available and not cat['use_default_preview'] %}"
+            "/admin/uploads/{{ cat['og_image'] }}?w=960",
             template,
         )
         self.assertIn(
@@ -329,9 +397,110 @@ class ThemePreviewTests(unittest.TestCase):
         # Списки и публичная карточка продолжают использовать 1200×630 endpoint;
         # только focus-редактору нужен исходник, по которому двигается object-position.
         self.assertIn(
-            "{% elif auto_og %}/admin/categories/{{ cat['id'] }}/og-preview",
+            "{% else %}/admin/categories/{{ cat['id'] }}/og-preview",
             template,
         )
+        self.assertIn('name="og_focus" id="ogFocusField"', template)
+        self.assertIn('id="ogFocusStatus" role="status" aria-live="polite"', template)
+        self.assertIn("focusSaveChain", script)
+        self.assertIn('fd.append("expected_image", savedImageName)', script)
+        self.assertIn('fd.append("expected_focus", expectedValue)', script)
+        self.assertIn("var categoryOrderChain = Promise.resolve()", script)
+        self.assertIn("generation !== categoryOrderGeneration", script)
+        self.assertIn("setFocus(lastSavedFocus)", script)
+        self.assertNotIn("не сохранилось — тихо", script)
+
+    def test_custom_crop_keeps_focus_then_applies_skin_branding(self):
+        with tempfile.TemporaryDirectory(prefix="date4you-og-custom-") as tmp:
+            root = Path(tmp)
+            uploads = root / "uploads"
+            cache = root / "cache"
+            uploads.mkdir()
+            cache.mkdir()
+            filename = "focused-custom.webp"
+            images.Image.new("RGB", (1800, 900), "#315f8d").save(
+                uploads / filename, "WEBP",
+            )
+            branded = images.Image.new(
+                "RGB", (images.OG_W, images.OG_H), "#d45a71")
+            with patch.object(images, "UPLOAD_DIR", uploads), \
+                    patch.object(images, "OG_CACHE_DIR", cache), \
+                    patch.object(
+                        images, "_draw_og_brand_overlay", return_value=branded,
+                    ) as overlay:
+                result = images.build_og_crop(
+                    filename, "20% 80%", appearance.FRIENDS)
+
+            self.assertIsNotNone(result)
+            overlay.assert_called_once()
+            crop, skin = overlay.call_args.args
+            self.assertEqual(crop.size, (images.OG_W, images.OG_H))
+            self.assertEqual(skin, appearance.FRIENDS)
+            with images.Image.open(result) as generated:
+                generated.load()
+                red, green, blue = generated.convert("RGB").getpixel((50, 50))
+                self.assertLessEqual(abs(red - 0xD4), 3)
+                self.assertLessEqual(abs(green - 0x5A), 3)
+                self.assertLessEqual(abs(blue - 0x71), 3)
+
+            friends_name = Path(result).name
+            with patch.object(images, "UPLOAD_DIR", uploads), \
+                    patch.object(images, "OG_CACHE_DIR", cache):
+                romantic_result = images.build_og_crop(
+                    filename, "20% 80%", appearance.ROMANTIC)
+            self.assertNotEqual(friends_name, Path(romantic_result).name)
+
+    def test_shared_date_og_endpoint_brands_photo_and_has_skin_fallback(self):
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.executescript(db.SCHEMA)
+        try:
+            uid = conn.execute(
+                "INSERT INTO users(telegram_id,display_name,created_at) VALUES(?,?,?)",
+                (27101, "Автор", "2030-01-01T00:00:00"),
+            ).lastrowid
+            did = conn.execute(
+                "INSERT INTO dates(owner_id,name,share_token,created_at) VALUES(?,?,?,?)",
+                (uid, "Событие", "date-og-route", "2030-01-01T00:00:00"),
+            ).lastrowid
+            conn.executemany(
+                "INSERT INTO date_images(date_id,filename,focus,position) VALUES(?,?,?,0)",
+                [
+                    (did, "missing-first.webp", "50% 50%"),
+                    (did, "route-photo.webp", "15% 70%"),
+                ],
+            )
+            conn.commit()
+
+            generated = images.OG_CACHE_DIR / "generated-date-preview.webp"
+            with patch.object(
+                    images, "upload_image_exists",
+                    side_effect=lambda filename: filename == "route-photo.webp",
+            ), \
+                    patch.object(images, "build_og_crop", return_value=generated) as crop:
+                response = public_routes.shared_date_og_image(
+                    "date-og-route", skin="friends", conn=conn)
+            self.assertEqual(response.media_type, "image/webp")
+            self.assertEqual(
+                response.headers["cache-control"], "public, no-cache",
+            )
+            crop.assert_called_once_with(
+                "route-photo.webp", "15% 70%", appearance.FRIENDS)
+
+            with patch.object(images, "upload_image_exists", return_value=False):
+                fallback = public_routes.shared_date_og_image(
+                    "date-og-route", skin="romantic", conn=conn)
+            self.assertEqual(fallback.media_type, "image/jpeg")
+            self.assertEqual(
+                fallback.headers["cache-control"], "public, no-cache",
+            )
+            self.assertEqual(
+                Path(fallback.path).resolve(),
+                images.og_default_path(appearance.ROMANTIC).resolve(),
+            )
+        finally:
+            conn.close()
 
     def test_parallel_collage_and_crop_publish_atomically(self):
         """Одинаковый preview разрешено одновременно строить многим воркерам."""
@@ -422,29 +591,42 @@ class ThemeBrowserInteractionTests(unittest.TestCase):
             cls.playwright.stop()
 
     def make_page(self):
-        page = self.browser.new_page()
-        self.addCleanup(page.close)
+        context = self.browser.new_context()
+        self.addCleanup(context.close)
+        page = context.new_page()
         theme_source = (APP / "static/theme.js").read_text("utf-8")
-        html = """<!doctype html>
-<html lang="ru" data-skin="friends" data-skin-switchable>
-<head><meta name="theme-color" content="#554eae"><script src="/theme.js"></script></head>
-<body>
-  <button id="themeToggle" data-theme-toggle style="width:100px;height:100px">
-    Тема <span data-theme-icon></span>
-  </button>
-  <button id="friendsSkin" data-skin-set="friends">Стандартная</button>
-  <button id="romanticSkin" data-skin-set="romantic">Романтическая</button>
-</body></html>"""
+        env = Environment(
+            loader=FileSystemLoader(APP / "templates"),
+            autoescape=select_autoescape(("html",)),
+        )
+        env.globals.update(
+            asset=lambda name: f"/static/{name}",
+            VPN_URL="",
+        )
+        request = SimpleNamespace(
+            state=SimpleNamespace(user=None, csp_nonce=""),
+            query_params={},
+        )
+        # Не тестовая копия кнопок, а реально отрендеренный login template:
+        # так гонка одновременно проверяет production head-assets и DOM controls.
+        html = env.get_template("auth/login.html").render(
+            request=request, bot="", oauth=[], widget_state=None, csp_nonce="",
+        )
 
         def serve(route):
-            if route.request.url.endswith("/theme.js"):
+            path = urlsplit(route.request.url).path
+            if path.endswith("/theme.js"):
                 route.fulfill(status=200, content_type="application/javascript",
                               body=theme_source)
-            else:
+            elif path == "/login":
                 route.fulfill(status=200, content_type="text/html", body=html)
+            elif path.endswith(".css"):
+                route.fulfill(status=200, content_type="text/css", body="")
+            else:
+                route.fulfill(status=204, body="")
 
         page.route("**/*", serve)
-        page.goto("https://theme.test/")
+        page.goto("https://theme.test/login")
         if page.evaluate("typeof document.startViewTransition") != "function":
             page.close()
             self.skipTest("Chromium без View Transition API")
@@ -456,7 +638,7 @@ class ThemeBrowserInteractionTests(unittest.TestCase):
 
         # Это именно физический dblclick, а не два DOM click(): в Chromium
         # второй click во время снимка может прийти с target=<html>.
-        page.dblclick("#themeToggle", delay=5)
+        page.dblclick("[data-theme-toggle]", delay=5)
         page.wait_for_function("""() =>
           document.cookie.includes('d4y_theme=light') &&
           !document.documentElement.classList.contains('d4y-theme-transition')
@@ -464,14 +646,15 @@ class ThemeBrowserInteractionTests(unittest.TestCase):
 
         self.assertEqual(page.evaluate("document.documentElement.dataset.theme"), "light")
         self.assertIn("d4y_theme=light", page.evaluate("document.cookie"))
-        self.assertEqual(page.get_attribute("#themeToggle", "aria-pressed"), "false")
+        self.assertEqual(
+            page.get_attribute("[data-theme-toggle]", "aria-pressed"), "false")
 
     def test_mixed_fast_clicks_coalesce_theme_and_skin_independently(self):
         page = self.make_page()
         page.evaluate("""() => {
-          document.querySelector('#themeToggle').click();
-          document.querySelector('#romanticSkin').click();
-          document.querySelector('#themeToggle').click();
+          document.querySelector('[data-theme-toggle]').click();
+          document.querySelector('[data-skin-set="romantic"]').click();
+          document.querySelector('[data-theme-toggle]').click();
         }""")
         page.wait_for_function("""() =>
           document.cookie.includes('d4y_theme=light') &&
@@ -484,6 +667,13 @@ class ThemeBrowserInteractionTests(unittest.TestCase):
         cookies = page.evaluate("document.cookie")
         self.assertIn("d4y_theme=light", cookies)
         self.assertIn("d4y_skin=romantic", cookies)
+        self.assertTrue(page.get_attribute('link[rel="icon"]', "href").endswith(
+            "/static/favicon-romantic.png"))
+        self.assertTrue(page.get_attribute(
+            'link[rel="apple-touch-icon"]', "href").endswith(
+                "/static/apple-touch-icon.png"))
+        self.assertTrue(page.get_attribute('link[rel="manifest"]', "href").endswith(
+            "/static/manifest.json"))
 
     def test_category_reorder_refreshes_only_auto_preview(self):
         page = self.browser.new_page()
@@ -570,27 +760,103 @@ class ThemeBrowserInteractionTests(unittest.TestCase):
         page.wait_for_function("window.__fetchCount === 3")
         self.assertEqual(page.locator("#ogPreviewImg").get_attribute("src"), selected_src)
 
+    def test_category_reorder_requests_are_serialized_and_latest_wins(self):
+        page = self.browser.new_page()
+        self.addCleanup(page.close)
+        page.set_content("""<!doctype html>
+          <html><body data-skin="friends" data-csrf="csrf-test">
+            <div id="ogPreview" data-cid="42" data-has-image="0"
+                 data-preview-skin="friends" data-auto-image="1"
+                 data-default-image="0" data-preview-revision="initial">
+              <img id="ogPreviewImg" src="https://theme.test/initial.webp">
+            </div>
+            <table><tbody id="catRows" data-cid="42">
+              <tr class="drag-row" data-did="1"><td>Первое</td></tr>
+              <tr class="drag-row" data-did="2"><td>Второе</td></tr>
+            </tbody></table>
+          </body></html>
+        """)
+        page.evaluate("""() => {
+          window.__reorderCalls = [];
+          window.__reorderResolvers = [];
+          window.fetch = (_url, options) => new Promise((resolve) => {
+            window.__reorderCalls.push({ order: options.body.get('order') });
+            window.__reorderResolvers.push((revision) => resolve({
+              ok: true,
+              json: () => Promise.resolve({ ok: true, preview_revision: revision })
+            }));
+          });
+          window.UI = {
+            sortable: (_element, options) => { window.__sortableOptions = options; }
+          };
+        }""")
+        page.add_script_tag(content=(APP / "static/admin.js").read_text("utf-8"))
+        page.wait_for_function(
+            "() => typeof window.__sortableOptions?.onChange === 'function'"
+        )
+
+        # Второй drag фиксируется, пока первый POST намеренно висит. До ответа
+        # первого серверного вызова второй fetch вообще не должен стартовать.
+        page.evaluate("""() => {
+          window.__sortableOptions.onChange();
+          const rows = document.querySelector('#catRows');
+          rows.append(rows.firstElementChild);
+          window.__sortableOptions.onChange();
+        }""")
+        page.wait_for_function("window.__reorderCalls.length === 1")
+        self.assertEqual(
+            page.evaluate("window.__reorderCalls.map(call => call.order)"),
+            ["1,2"],
+        )
+
+        page.evaluate("window.__reorderResolvers[0]('stale-revision')")
+        page.wait_for_function("window.__reorderCalls.length === 2")
+        self.assertEqual(
+            page.evaluate("window.__reorderCalls.map(call => call.order)"),
+            ["1,2", "2,1"],
+        )
+        # Ответ неактуального поколения не обновляет картинку даже после того,
+        # как разблокировал следующий запрос.
+        self.assertEqual(
+            page.locator("#ogPreview").get_attribute("data-preview-revision"),
+            "initial",
+        )
+
+        page.evaluate("window.__reorderResolvers[1]('latest-revision')")
+        page.wait_for_function("""() =>
+          document.querySelector('#ogPreview').dataset.previewRevision ===
+            'latest-revision'
+        """)
+        latest_src = page.locator("#ogPreviewImg").get_attribute("src")
+        self.assertIn("latest-revision", latest_src)
+        self.assertNotIn("stale-revision", latest_src)
+
     def test_custom_preview_click_does_not_move_focus_but_drag_does(self):
         page = self.browser.new_page()
         self.addCleanup(page.close)
         page.set_content("""<!doctype html>
           <html><body data-skin="friends" data-csrf="csrf-test">
             <input id="ogInput" type="file">
-            <div id="ogPreview" class="has-image" data-cid="42"
-                 data-has-image="1" data-preview-skin="friends"
-                 data-auto-image="0" data-default-image="0">
+             <input id="ogFocusField" type="hidden" value="50% 50%">
+             <div id="ogPreview" class="has-image" data-cid="42"
+                  data-has-image="1" data-preview-skin="friends"
+                  data-image-name="saved-preview.webp"
+                  data-auto-image="0" data-default-image="0">
               <div id="ogImgPick">
                 <img id="ogPreviewImg" draggable="false"
                      style="display:block;width:380px;height:200px;object-fit:cover;object-position:50% 50%">
               </div>
               <span id="ogFocusHint"></span>
             </div>
+            <p id="ogFocusStatus"></p>
           </body></html>
         """)
         page.evaluate("""() => {
           window.__focusPosts = 0;
-          window.fetch = () => {
+          window.__focusBodies = [];
+          window.fetch = (_url, options) => {
             window.__focusPosts += 1;
+            window.__focusBodies.push(Object.fromEntries(options.body.entries()));
             return Promise.resolve({
               ok: true,
               json: () => Promise.resolve({ ok: true, preview_revision: 'focus' })
@@ -620,10 +886,118 @@ class ThemeBrowserInteractionTests(unittest.TestCase):
         page.mouse.move(box["x"] + 320, box["y"] + 150, steps=4)
         page.mouse.up()
         page.wait_for_function("window.__focusPosts === 1")
+        page.wait_for_function(
+            "document.querySelector('#ogFocusStatus').classList.contains('is-success')",
+        )
         self.assertNotEqual(
             page.locator("#ogPreviewImg").evaluate("img => img.style.objectPosition"),
             "50% 50%",
         )
+        self.assertEqual(
+            page.locator("#ogFocusField").input_value(),
+            page.locator("#ogPreviewImg").evaluate("img => img.style.objectPosition"),
+        )
+        focus_body = page.evaluate("window.__focusBodies[0]")
+        self.assertEqual(focus_body["expected_image"], "saved-preview.webp")
+        self.assertEqual(focus_body["expected_focus"], "50% 50%")
+        self.assertEqual(focus_body["focus"], page.locator("#ogFocusField").input_value())
+
+    def test_new_custom_preview_can_be_cropped_before_first_save(self):
+        page = self.browser.new_page()
+        self.addCleanup(page.close)
+        page.set_content("""<!doctype html>
+          <html><body data-skin="friends" data-csrf="csrf-test">
+            <input id="ogInput" type="file">
+            <input id="ogFocusField" type="hidden" value="50% 50%">
+            <div id="ogPreview" data-cid="42" data-has-image="0"
+                 data-preview-skin="friends" data-auto-image="1" data-default-image="0">
+              <div id="ogImgPick">
+                <img id="ogPreviewImg" draggable="false"
+                     style="display:block;width:380px;height:200px;object-fit:cover;object-position:50% 50%">
+              </div>
+              <span id="ogFocusHint" hidden></span>
+            </div>
+            <p id="ogFocusStatus"></p>
+          </body></html>
+        """)
+        page.evaluate("""() => {
+          window.__focusPosts = 0;
+          window.fetch = () => { window.__focusPosts += 1; return Promise.reject(); };
+          window.UI = { sortable: () => {} };
+        }""")
+        page.add_script_tag(content=(APP / "static/admin.js").read_text("utf-8"))
+        page.wait_for_function(
+            "document.querySelector('#ogPreview').dataset.ready === '1'",
+        )
+        png = io.BytesIO()
+        images.Image.new("RGB", (1200, 630), "#8060a8").save(png, "PNG")
+        page.locator("#ogInput").set_input_files({
+            "name": "preview.png", "mimeType": "image/png", "buffer": png.getvalue(),
+        })
+        page.wait_for_function(
+            "document.querySelector('#ogPreview').classList.contains('has-image')",
+        )
+        # В минимальном fixture span пустой, поэтому Playwright считает его
+        # визуально hidden даже без атрибута. В реальном шаблоне внутри есть текст.
+        self.assertIsNone(page.locator("#ogFocusHint").get_attribute("hidden"))
+
+        box = page.locator("#ogPreviewImg").bounding_box()
+        self.assertIsNotNone(box)
+        page.mouse.move(box["x"] + 190, box["y"] + 100)
+        page.mouse.down()
+        page.mouse.move(box["x"] + 300, box["y"] + 145, steps=4)
+        page.mouse.up()
+        self.assertNotEqual(page.locator("#ogFocusField").input_value(), "50% 50%")
+        self.assertEqual(page.evaluate("window.__focusPosts"), 0)
+        self.assertIn("«Сохранить»", page.locator("#ogFocusStatus").text_content())
+
+    def test_saved_preview_focus_failure_rolls_back_and_is_announced(self):
+        page = self.browser.new_page()
+        self.addCleanup(page.close)
+        page.set_content("""<!doctype html>
+          <html><body data-skin="friends" data-csrf="csrf-test">
+            <input id="ogInput" type="file">
+             <input id="ogFocusField" type="hidden" value="50% 50%">
+             <div id="ogPreview" class="has-image" data-cid="42"
+                  data-has-image="1" data-preview-skin="friends"
+                  data-image-name="saved-preview.webp"
+                  data-auto-image="0" data-default-image="0">
+              <div id="ogImgPick">
+                <img id="ogPreviewImg" draggable="false"
+                     style="display:block;width:380px;height:200px;object-fit:cover;object-position:50% 50%">
+              </div>
+              <span id="ogFocusHint"></span>
+            </div>
+            <p id="ogFocusStatus" role="status" aria-live="polite"></p>
+          </body></html>
+        """)
+        page.evaluate("""() => {
+          window.fetch = () => Promise.resolve({
+            ok: false,
+            json: () => Promise.resolve({ detail: 'temporary failure' })
+          });
+          window.UI = { sortable: () => {} };
+        }""")
+        page.add_script_tag(content=(APP / "static/admin.js").read_text("utf-8"))
+        page.wait_for_function(
+            "document.querySelector('#ogPreview').dataset.ready === '1'",
+        )
+
+        box = page.locator("#ogPreviewImg").bounding_box()
+        self.assertIsNotNone(box)
+        page.mouse.move(box["x"] + 190, box["y"] + 100)
+        page.mouse.down()
+        page.mouse.move(box["x"] + 320, box["y"] + 150, steps=4)
+        page.mouse.up()
+        page.wait_for_function(
+            "document.querySelector('#ogFocusStatus').classList.contains('is-error')",
+        )
+        self.assertEqual(page.locator("#ogFocusField").input_value(), "50% 50%")
+        self.assertEqual(
+            page.locator("#ogPreviewImg").evaluate("img => img.style.objectPosition"),
+            "50% 50%",
+        )
+        self.assertIn("Не удалось сохранить", page.locator("#ogFocusStatus").text_content())
 
 
 class ThemeRouteDataTests(unittest.IsolatedAsyncioTestCase):

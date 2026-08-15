@@ -335,10 +335,13 @@
   if (propDlg && propForm) {
   const propSlides = $("#propSlides");
   let editId = null, removed = new Set(), savedPhotos = [];
-  let curVid = null, removedVid = false;
+  let savedVideos = [], removedVideos = new Set();
   let propSlide = 0, propObjectUrls = [];
   let propSession = 0;
-  const MAX_PHOTOS = 5;
+  let propRequest = null;
+  let propMediaOrder = [], propMediaKeys = new WeakMap(), propMediaSeq = 0;
+  const MAX_PHOTOS = Math.max(1, Number(document.body.dataset.maxPhotos) || 5);
+  const MAX_VIDEOS = Math.max(1, Number(document.body.dataset.maxVideos) || 2);
   const photoPreview = document.createElement("div");
   const videoPreview = document.createElement("div");
 
@@ -357,9 +360,9 @@
     input: $("#propVideo"),
     preview: videoPreview,
     kind: "video",
-    max: 1,
-    // если у предложения уже есть видео и его не удалили — слот занят
-    keptCount: () => (curVid && !removedVid) ? 1 : 0,
+    max: MAX_VIDEOS,
+    // Сохранённые видео занимают свои слоты, пока гость явно их не убрал.
+    keptCount: () => savedVideos.filter((v) => !removedVideos.has(v.id)).length,
     onError: toast,
     onChange: renderPropGallery,
     noZoneBind: true,                 // дроп-зону держит общий mediaUploader
@@ -440,30 +443,77 @@
     if (upload.removeAt) upload.removeAt(idx);
   }
 
+  function propFileKey(file, kind) {
+    let key = propMediaKeys.get(file);
+    if (!key) {
+      key = `${kind}:n:${propMediaSeq++}`;
+      propMediaKeys.set(file, key);
+    }
+    return key;
+  }
+
+  function availablePropItems() {
+    const items = [];
+    savedPhotos.filter((photo) => !removed.has(photo.id)).forEach((photo) => {
+      items.push({
+        key: `image:s:${photo.id}`, kind: "image", saved: photo.id,
+        src: `/c/${TOKEN}/image/${photo.filename}?w=960`,
+      });
+    });
+    up.files().forEach((file, idx) => {
+      items.push({
+        key: propFileKey(file, "image"), kind: "image", file: file,
+        upload: up, idx: idx,
+      });
+    });
+    savedVideos.filter((video) => !removedVideos.has(video.id)).forEach((video) => {
+      items.push({
+        key: `video:s:${video.id}`, kind: "video", savedVideo: video.id,
+        src: `/c/${TOKEN}/video/${video.filename}`,
+      });
+    });
+    upv.files().forEach((file, idx) => {
+      items.push({
+        key: propFileKey(file, "video"), kind: "video", file: file,
+        upload: upv, idx: idx,
+      });
+    });
+    return items;
+  }
+
+  function orderedPropItems() {
+    const available = availablePropItems();
+    const byKey = new Map(available.map((item) => [item.key, item]));
+    propMediaOrder = propMediaOrder.filter((key, idx, all) =>
+      byKey.has(key) && all.indexOf(key) === idx);
+    available.forEach((item) => {
+      if (!propMediaOrder.includes(item.key)) propMediaOrder.push(item.key);
+    });
+    const ordered = propMediaOrder.map((key) => byKey.get(key)).filter(Boolean);
+    // Схема хранит position фото и видео раздельно, а карточка тоже выводит
+    // сначала фото, затем видео. Нормализуем видимую ленту тем же образом:
+    // drag меняет честно сохраняемый порядок внутри своего типа и не создаёт
+    // временного mixed-порядка, который исчез бы после reload.
+    const normalized = ordered.filter((item) => item.kind === "image")
+      .concat(ordered.filter((item) => item.kind === "video"));
+    propMediaOrder = normalized.map((item) => item.key);
+    return normalized;
+  }
+
   function renderPropGallery() {
     propObjectUrls.forEach((url) => URL.revokeObjectURL(url));
     propObjectUrls = [];
     propSlides.replaceChildren();
-    const items = [];
-    savedPhotos.filter((p) => !removed.has(p.id)).forEach((p) => {
-      items.push({ kind: "image", src: `/c/${TOKEN}/image/${p.filename}?w=960`, saved: p.id });
-    });
-    up.files().forEach((file, idx) => {
-      const src = URL.createObjectURL(file);
-      propObjectUrls.push(src);
-      items.push({ kind: "image", src: src, upload: up, idx: idx });
-    });
-    if (curVid && !removedVid) {
-      items.push({ kind: "video", src: `/c/${TOKEN}/video/${curVid.filename}`, savedVideo: true });
-    }
-    upv.files().forEach((file, idx) => {
-      const src = URL.createObjectURL(file);
-      propObjectUrls.push(src);
-      items.push({ kind: "video", src: src, upload: upv, idx: idx });
+    const items = orderedPropItems();
+    items.forEach((item) => {
+      if (!item.file) return;
+      item.src = URL.createObjectURL(item.file);
+      propObjectUrls.push(item.src);
     });
     items.forEach((item, idx) => {
       const slide = document.createElement("div");
       slide.className = "ed-slide";
+      slide.dataset.orderKey = item.key;
       if (item.kind === "video") {
         slide.innerHTML = '<video controls muted playsinline preload="metadata"></video>' +
           '<button type="button" class="ed-slide-rm" aria-label="Удалить видео">✕</button>';
@@ -479,7 +529,7 @@
           removed.add(item.saved);
           renderPropGallery();
         } else if (item.savedVideo) {
-          removedVid = true;
+          removedVideos.add(item.savedVideo);
           renderPropGallery();
         } else {
           removeNew(item.upload, item.idx);
@@ -491,9 +541,47 @@
     propSlide = Math.min(propSlide, Math.max(0, items.length - 1));
     [...propSlides.children].forEach((slide, idx) => { slide.hidden = idx !== propSlide; });
     $("#propEmpty").hidden = items.length > 0;
+
+    const order = $("#propMediaOrder");
+    order.replaceChildren();
+    items.forEach((item, idx) => {
+      const tile = document.createElement("div");
+      tile.className = "ptile" + (item.kind === "video" ? " vid" : "") +
+        (idx === propSlide ? " current" : "");
+      tile.dataset.orderKey = item.key;
+      tile.dataset.kind = item.kind;
+      tile.tabIndex = 0;
+      tile.setAttribute("role", "button");
+      tile.setAttribute("aria-label", `${item.kind === "video" ? "Видео" : "Фото"} ${idx + 1}`);
+      if (item.kind === "video") {
+        tile.innerHTML = '<video muted playsinline preload="metadata"></video>' +
+          '<span class="vtag">🎬</span>';
+        tile.querySelector("video").src = item.src;
+      } else {
+        tile.innerHTML = '<img alt="" draggable="false">';
+        tile.querySelector("img").src = item.src;
+      }
+      const select = () => {
+        const selected = propMediaOrder.indexOf(item.key);
+        if (selected < 0 || selected === propSlide) return;
+        propSlide = selected;
+        renderPropGallery();
+      };
+      tile.addEventListener("click", select);
+      tile.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        select();
+      });
+      order.appendChild(tile);
+    });
+    $("#propMediaOrderWrap").hidden = items.length < 2;
+
     function setEdge(button, canNavigate, direction) {
       const canAdd = savedPhotos.filter((p) => !removed.has(p.id)).length +
-        up.files().length < MAX_PHOTOS || (!curVid || removedVid) && upv.files().length < 1;
+        up.files().length < MAX_PHOTOS ||
+        savedVideos.filter((v) => !removedVideos.has(v.id)).length +
+        upv.files().length < MAX_VIDEOS;
       // Добавление показываем только справа после последнего слайда. На пустом
       // превью достаточно центральной кнопки; две боковые «+» выглядели как
       // сломанная навигация и открывали один и тот же picker трижды.
@@ -515,6 +603,25 @@
     }
     syncPropPay();
   }
+
+  function syncPropMediaSort() {
+    const current = $("#propMediaOrder .current");
+    const currentKey = current && current.dataset.orderKey;
+    propMediaOrder = [...$("#propMediaOrder").querySelectorAll(".ptile[data-order-key]")]
+      .map((tile) => tile.dataset.orderKey);
+    const normalized = orderedPropItems();
+    propSlide = Math.max(0, normalized.findIndex((item) => item.key === currentKey));
+    renderPropGallery();
+  }
+  // В БД фото и видео имеют независимые position и на карточке идут двумя
+  // группами. Два sortable сохраняют честный порядок внутри каждой группы и
+  // не обещают неподдерживаемого чередования video между фотографиями.
+  UI.sortable($("#propMediaOrder"), {
+    selector: '.ptile[data-kind="image"]', onChange: syncPropMediaSort,
+  });
+  UI.sortable($("#propMediaOrder"), {
+    selector: '.ptile[data-kind="video"]', onChange: syncPropMediaSort,
+  });
   function movePropSlide(delta) {
     const count = propSlides.children.length;
     if (!count) return;
@@ -543,12 +650,15 @@
     propSession += 1;
     resetPropProgress();
     propForm.reset();
-    up.clear();
     removed = new Set();
     savedPhotos = (meta && meta.photos) ? meta.photos.slice() : [];
-    curVid = (meta && meta.videos && meta.videos[0]) || null;
-    removedVid = false;
+    savedVideos = (meta && meta.videos) ? meta.videos.slice() : [];
+    removedVideos = new Set();
+    propMediaOrder = [];
+    propMediaKeys = new WeakMap();
+    propMediaSeq = 0;
     propSlide = 0;
+    up.clear();
     upv.clear();
     var payValue = String((meta && meta.pay) || 0);
     propForm.querySelectorAll('input[name="pay"]').forEach((input) => {
@@ -574,6 +684,17 @@
 
   const fabPropose = $("#fabPropose");
   if (fabPropose) fabPropose.onclick = () => requireAuth(() => openPropose(null));
+  document.addEventListener("d4y:voting-ended", () => {
+    if (fabPropose) fabPropose.hidden = true;
+    document.querySelectorAll(".mine-actions").forEach((actions) => { actions.hidden = true; });
+    document.querySelectorAll("[data-proposal-empty-cta]").forEach((hint) => {
+      hint.hidden = true;
+    });
+    if (propDlg.open) {
+      propDlg.close();
+      toast("Голосование завершено — варианты уже зафиксированы");
+    }
+  });
   document.querySelectorAll(".mine-actions .edit").forEach((b) => {
     b.addEventListener("click", () => requireAuth(() => openPropose(JSON.parse(b.dataset.meta))));
   });
@@ -586,6 +707,8 @@
     if (propMediaManager && propMediaManager.cancelPending) {
       propMediaManager.cancelPending();
     }
+    if (propRequest && propRequest.abort) propRequest.abort();
+    propRequest = null;
     propSession += 1;
     $("#propSubmit").disabled = false;
     resetPropProgress();
@@ -621,27 +744,46 @@
       if (!propDlg.open) sub.disabled = false;
       return;
     }
+
+    // Видимая лента хранит общий порядок saved+new. Перед FormData переносим
+    // его в реальные file-input, чтобы n0/n1 на сервере означали именно те
+    // файлы, которые пользователь видит на соответствующих местах.
+    const orderedBeforeSubmit = orderedPropItems();
+    up.reorderFiles(orderedBeforeSubmit
+      .filter((item) => item.kind === "image" && item.file)
+      .map((item) => item.file));
+    upv.reorderFiles(orderedBeforeSubmit
+      .filter((item) => item.kind === "video" && item.file)
+      .map((item) => item.file));
+    const orderedMedia = orderedPropItems();
+    const newPhotoIndex = new Map(up.files().map((file, idx) => [file, idx]));
+    const newVideoIndex = new Map(upv.files().map((file, idx) => [file, idx]));
     const fd = new FormData(propForm);
     let url = `/c/${TOKEN}/propose`;
     if (editId) {
       url = `/c/${TOKEN}/propose/${editId}/edit`;
       removed.forEach((id) => fd.append("remove_image", id));
-      const keep = savedPhotos
-        .filter((photo) => !removed.has(photo.id))
-        .map((photo) => photo.id);
-      fd.append("keep_order", keep.join(","));
-      if (removedVid && curVid) fd.append("remove_video", curVid.id);
+      removedVideos.forEach((id) => fd.append("remove_video", id));
+      const imageOrder = orderedMedia.filter((item) => item.kind === "image")
+        .map((item) => item.saved ? `s${item.saved}` : `n${newPhotoIndex.get(item.file)}`);
+      const videoOrder = orderedMedia.filter((item) => item.kind === "video")
+        .map((item) => item.savedVideo ? `s${item.savedVideo}` : `n${newVideoIndex.get(item.file)}`);
+      fd.append("keep_order", imageOrder.join(","));
+      fd.append("keep_video_order", videoOrder.join(","));
     }
     const bar = $("#propBar"), fill = bar.querySelector("i");
     if (up.files().length || upv.files().length) {
       fill.style.width = "0%";
       bar.hidden = false;
     }
-    const raw = await UI.postWithProgress(url, fd, (p) => {
+    const request = UI.postWithProgress(url, fd, (p) => {
       if (submitSession === propSession && propDlg.open) {
         fill.style.width = Math.round(p * 100) + "%";
       }
     });
+    propRequest = request;
+    const raw = await request;
+    if (propRequest === request) propRequest = null;
     // Ответ старого запроса не должен закрыть повторно открытый редактор.
     if (submitSession !== propSession || !propDlg.open) return;
     sub.disabled = false;

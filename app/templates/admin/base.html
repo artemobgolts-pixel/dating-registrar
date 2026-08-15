@@ -11,15 +11,8 @@
      Навигация и без префетча мгновенная (Turbo Drive подменяет <body>). -->
 <meta name="turbo-prefetch" content="false">
 <title>{% block title %}Кабинет{% endblock %} · date4you</title>
-{% if user and user['admin_skin'] == 'romantic' %}
-<link rel="icon" href="{{ asset('favicon-romantic.png') }}">
-<link rel="apple-touch-icon" href="{{ asset('apple-touch-icon.png') }}">
-<link rel="manifest" href="{{ asset('manifest.json') }}">
-{% else %}
-<link rel="icon" href="{{ asset('favicon-standard.png') }}">
-<link rel="apple-touch-icon" href="{{ asset('apple-touch-icon-friends.png') }}">
-<link rel="manifest" href="{{ asset('manifest-friends.json') }}">
-{% endif %}
+{% from "_appearance_assets.html" import appearance_assets %}
+{{ appearance_assets(user['admin_skin'] if user else 'friends') }}
 <meta name="theme-color" content="{{ '#b65f6f' if user and user['admin_skin'] == 'romantic' else '#554eae' }}">
 {% if request.session.get('telegram_miniapp') %}
 <script src="https://telegram.org/js/telegram-web-app.js?63"></script>
@@ -133,13 +126,11 @@
 <main class="wrap">
 {% set m = request.query_params.get('msg') %}
 {% if m %}<div class="flash{{ ' err' if m.startswith('⚠') else '' }}">{{ m }}</div>{% endif %}
-{% if user and not user['bot_linked'] and active != 'q' %}
-<div class="flash tg-connect">
-  <span class="tg-connect-msg">🔔 Подключи бота, чтобы получать уведомления, когда выберут событие.</span>
-  <button type="button" data-tg-connect class="btn primary">Подключить бота</button>
-  <a data-tg-link href="#" target="_blank" rel="noopener" hidden></a>
-  <span data-tg-hint hidden>Нажми <b>Start</b>, затем <b>Подтвердить</b> в боте и вернись сюда.</span>
-  <span data-tg-error class="err" hidden></span>
+{% if user and not user['bot_linked'] and active not in ('q', 'profile') %}
+<div class="flash telegram-connect-banner">
+  {% with telegram_connect_class='telegram-connect-banner-inner', telegram_connect_description='Подключи уведомления о выборе событий, вопросах и предложениях прямо в Telegram.', telegram_connect_return_to=request.url.path %}
+    {% include "admin/_telegram_connect.html" %}
+  {% endwith %}
 </div>
 {% endif %}
 {% block content %}{% endblock %}

@@ -1,0 +1,3 @@
+# Браузерные regression-тесты не входят в production image.
+# Версия зафиксирована вместе с Chromium, который ставит Playwright CLI.
+playwright==1.61.0

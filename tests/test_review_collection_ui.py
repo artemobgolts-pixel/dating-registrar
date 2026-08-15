@@ -140,6 +140,9 @@ class ReviewCollectionUiTests(unittest.TestCase):
         self.assertIn('document.getElementById("datesBulkForm")', admin_js)
         self.assertIn("bulkAll.indeterminate", admin_js)
         self.assertIn('row.classList.toggle("is-selected", item.checked)', admin_js)
+        self.assertIn('var dlist = document.querySelector(".dlist")', admin_js)
+        self.assertNotIn('sessionStorage.getItem("forcedCards")', admin_js)
+        self.assertNotIn('sessionStorage.setItem("forcedCards"', admin_js)
 
         bulk_form = dates.split('<form class="dates-bulk-form"', 1)[1].split(
             "</form>", 1,

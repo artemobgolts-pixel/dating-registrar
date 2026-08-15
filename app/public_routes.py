@@ -432,6 +432,18 @@ def date_payload_from(row, media: dict) -> dict:
     return d
 
 
+def first_existing_og_image(rows):
+    """Первое реально доступное фото по сохранённому position.
+
+    База может пережить ручное удаление/неполный перенос upload-файла. Один
+    пропавший первый кадр не должен скрывать остальные живые фото из link preview.
+    """
+    for row in rows or ():
+        if images.upload_image_exists(row["filename"]):
+            return row
+    return None
+
+
 def insert_date(conn, *, name, place, starts, ends, comment, origin, guest_token,
                 owner_id, draft=0, pay_split=0, place_url=None, proposed_by=None,
                 is_public=1, capacity=1) -> int:
@@ -482,6 +494,29 @@ def ensure_category_editable(conn, cat) -> None:
     state = _category_voting_state(conn, cat["id"])
     if state.status in voting.CLOSED_STATUSES:
         raise HTTPException(409, "Голосование завершено — варианты уже зафиксированы")
+
+
+def proposal_changes_open(state: voting.CategoryState, *, now: datetime | None = None) -> bool:
+    """Read-only проверка для публичного UI предложения событий.
+
+    Фоновое закрытие может отстать от дедлайна на несколько секунд. Поэтому
+    кнопки создания/редактирования не должны оставаться доступными лишь из-за
+    сохранённого ``status='open'`` и приводить пользователя к позднему 409.
+    """
+    if state.status == voting.STATUS_UNCONFIGURED:
+        return True
+    if state.status != voting.STATUS_OPEN or not state.voting_deadline:
+        return False
+    try:
+        deadline = datetime.fromisoformat(state.voting_deadline)
+    except (TypeError, ValueError):
+        return False
+    current = now or now_naive()
+    if current.tzinfo is not None:
+        current = current.astimezone(MSK).replace(tzinfo=None)
+    if deadline.tzinfo is not None:
+        deadline = deadline.astimezone(MSK).replace(tzinfo=None)
+    return current < deadline
 
 
 def validate_candidate_start(cat, starts_at: str | None) -> None:
@@ -583,6 +618,61 @@ def add_photos(conn, date_id: int, files: list[UploadFile], existing: int,
                 (date_id, fn, pos))
         pos += 1
     return saved
+
+
+def ordered_media_refs(raw: str, remaining_ids, new_count: int) -> list[tuple[str, int]]:
+    """Разбирает совместимый порядок saved/new медиа одного события.
+
+    Старый клиент отправлял ``1,2`` (только id сохранённых фото), новый —
+    ``s1,n0,s2``. Любой чужой id и индекс вне текущей пачки игнорируются, затем
+    все пропущенные собственные записи и новые файлы безопасно дописываются.
+    """
+    saved_ids = [int(value) for value in remaining_ids]
+    allowed_saved = set(saved_ids)
+    refs: list[tuple[str, int]] = []
+    seen: set[tuple[str, int]] = set()
+
+    def ascii_int(value: str) -> int | None:
+        # str.isdigit() принимает ² и другие Unicode-цифры, а очень длинная
+        # строка падает на лимите int(). Protocol допускает только короткий
+        # ASCII decimal id/index.
+        if not 1 <= len(value) <= 20 or not value.isascii() or not value.isdigit():
+            return None
+        try:
+            return int(value)
+        except ValueError:
+            return None
+
+    for part in (raw or "").split(","):
+        token = part.strip().lower()
+        ref: tuple[str, int] | None = None
+        legacy_id = ascii_int(token)
+        saved_id = ascii_int(token[1:]) if token.startswith("s") else None
+        new_index = ascii_int(token[1:]) if token.startswith("n") else None
+        if legacy_id is not None:                   # legacy keep_order
+            ref = ("saved", legacy_id)
+        elif saved_id is not None:
+            ref = ("saved", saved_id)
+        elif new_index is not None:
+            ref = ("new", new_index)
+        if ref is None or ref in seen:
+            continue
+        if ref[0] == "saved" and ref[1] not in allowed_saved:
+            continue
+        if ref[0] == "new" and not 0 <= ref[1] < new_count:
+            continue
+        seen.add(ref)
+        refs.append(ref)
+    for media_id in saved_ids:
+        ref = ("saved", media_id)
+        if ref not in seen:
+            refs.append(ref)
+            seen.add(ref)
+    for idx in range(new_count):
+        ref = ("new", idx)
+        if ref not in seen:
+            refs.append(ref)
+    return refs
 
 
 _FOCUS_RE = re.compile(r"\s*(\d{1,3})%\s+(\d{1,3})%\s*")
@@ -779,6 +869,7 @@ def public_category(token: str, request: Request, conn=Depends(get_db)):
     # Архивация и закрытие дедлайнов выполняются фоновыми циклами. Публичный GET
     # остаётся read-only и не захватывает writer-lock SQLite.
     vote_state = voting.get_category_state(conn, cat["id"])
+    proposals_editable = proposal_changes_open(vote_state)
 
     # Залогиненный посетитель опознаётся стабильным токеном "u<id>"; аноним —
     # только смотрит (действия в JS ведут на /login). Имя берём из профиля.
@@ -851,7 +942,7 @@ def public_category(token: str, request: Request, conn=Depends(get_db)):
         d["participation_withdrawn"] = bool(
             mine_entry and mine_entry["participation_withdrawn_at"])
         d["my_questions"] = my_q.get(d["id"], [])
-        d["editable"] = (not past and d["origin"] == "guest"
+        d["editable"] = (proposals_editable and not past and d["origin"] == "guest"
                          and d["guest_token"] == guest)
         if d["editable"]:
             d["meta_json"] = json.dumps({
@@ -902,10 +993,9 @@ def public_category(token: str, request: Request, conn=Depends(get_db)):
         "owner_name": owner_name,
         "viewer_is_owner": viewer_is_owner,
         "vote_state": vote_state,
-        # Есть ли динамическая картинка для og:image — своя или авто-коллаж.
-        # Фиксированный фирменный вариант шаблон адресует напрямую как static,
-        # поэтому переключение режима сразу меняет URL и не держит старый кэш.
-        "og_available": bool(custom_og_image) or bool(og_files),
+        "proposals_editable": proposals_editable,
+        "max_photos": images.MAX_IMAGES,
+        "max_videos": images.MAX_VIDEOS,
         # бот для вход-модалки (Telegram Login Widget). Анониму — кнопка «Войти»
         # открывает окно с этим виджетом прямо на гостевой.
         "bot": auth_routes.BOT_USERNAME,
@@ -978,16 +1068,15 @@ def public_og_image(token: str, skin: str | None = None,
     """Картинка превью ссылки (og:image) — её запрашивают краулеры мессенджеров
     (Telegram, WhatsApp) без cookie, поэтому отдаём публично по активной ссылке.
     Своя og_image категории в приоритете; иначе — коллаж из фото её событий
-    (сетка 2×2 или 4×2); если фото нет — 404 (шаблон укажет skin-fallback)."""
+    (сетка 2×2 или 4×2). Все пользовательские фото получают один branding-layer;
+    если фото нет, endpoint сам отдаёт skin-fallback без расхождения HTML-веток."""
     cat = cat_by_token(conn, token)
     if not cat or not cat["link_enabled"]:
         raise HTTPException(404)
+    preview_skin = appearance.normalize_skin(skin, default=cat["category_skin"])
     if cat["use_default_preview"]:
-        default_skin = appearance.normalize_skin(skin, default=cat["category_skin"])
         return FileResponse(
-            Path(__file__).with_name("static") /
-            ("og-friends.jpg" if default_skin == appearance.FRIENDS
-             else "og-default.jpg"),
+            images.og_default_path(preview_skin),
             media_type="image/jpeg",
             headers={"Cache-Control": "public, no-cache"},
         )
@@ -995,20 +1084,22 @@ def public_og_image(token: str, skin: str | None = None,
     if fn:
         if not images.SAFE_FILENAME.match(fn):
             raise HTTPException(404)
-        cropped = images.build_og_crop(fn, cat["og_focus"])
-        if not cropped:
-            raise HTTPException(404)
-        return FileResponse(cropped, media_type="image/webp",
-                            headers={"Cache-Control": "public, no-cache"})
+        cropped = images.build_og_crop(fn, cat["og_focus"], preview_skin)
+        if cropped:
+            return FileResponse(cropped, media_type="image/webp",
+                                headers={"Cache-Control": "public, no-cache"})
     # своей картинки нет — собираем коллаж из фото активных событий категории
     files = category_og_sources(
         conn, int(cat["id"]), include_focus=True, existing_only=True,
     )
     collage = images.build_og_collage(
-        files,
-        appearance.normalize_skin(cat["category_skin"]))
+        files, preview_skin)
     if not collage:
-        raise HTTPException(404)
+        return FileResponse(
+            images.og_default_path(preview_skin),
+            media_type="image/jpeg",
+            headers={"Cache-Control": "public, no-cache"},
+        )
     return FileResponse(collage, media_type="image/webp",
                         headers={"Cache-Control": "public, no-cache"})
 
@@ -1173,6 +1264,13 @@ def shared_date(token: str, request: Request, conn=Depends(get_db)):
     act_cat = share_action_cat(conn, d)
     category_skin = appearance.normalize_skin(
         act_cat["category_skin"] if act_cat else None)
+    first_og_image = first_existing_og_image(payload["images"])
+    payload["og_preview_revision"] = images.og_preview_revision(
+        [], category_skin,
+        custom_image=first_og_image["filename"] if first_og_image else None,
+        custom_focus=first_og_image["focus"] if first_og_image else None,
+        use_default=not first_og_image,
+    )
     vote_state = voting.get_category_state(conn, act_cat["id"]) if act_cat else None
     guest = guest_name = None
     if me and not is_mine:
@@ -1258,6 +1356,42 @@ def shared_date(token: str, request: Request, conn=Depends(get_db)):
     return resp
 
 
+@router.get("/d/{token}/og-image")
+def shared_date_og_image(token: str, skin: str | None = None,
+                         v: str | None = None, conn=Depends(get_db)):
+    """Единый link preview события и его публичных обзоров.
+
+    Первый кадр сохраняет пользовательский focus, после чего получает тот же
+    полупрозрачный знак, что и category collage. Без доступного фото возвращаем
+    фирменный fallback выбранного оформления.
+    """
+    date_row = conn.execute(
+        "SELECT id FROM dates WHERE share_token=?", (token,),
+    ).fetchone()
+    if not date_row:
+        raise HTTPException(404)
+    candidates = conn.execute(
+        "SELECT filename, focus FROM date_images WHERE date_id=? "
+        "ORDER BY position, id",
+        (date_row["id"],),
+    ).fetchall()
+    row = first_existing_og_image(candidates)
+    preview_skin = appearance.normalize_skin(skin, default=appearance.FRIENDS)
+    if row:
+        cropped = images.build_og_crop(
+            row["filename"], row["focus"], preview_skin)
+        if cropped:
+            return FileResponse(
+                cropped, media_type="image/webp",
+                headers={"Cache-Control": "public, no-cache"},
+            )
+    return FileResponse(
+        images.og_default_path(preview_skin),
+        media_type="image/jpeg",
+        headers={"Cache-Control": "public, no-cache"},
+    )
+
+
 @router.get("/d/{token}/review/{review_id}", response_class=HTMLResponse)
 def shared_profile_review(token: str, review_id: int, request: Request,
                           conn=Depends(get_db)):
@@ -1286,6 +1420,13 @@ def shared_profile_review(token: str, review_id: int, request: Request,
         me["admin_skin"] if me else appearance.FRIENDS,
     )
     review_url = f"{BASE_URL}/d/{token}/review/{review_id}"
+    first_og_image = first_existing_og_image(review["images"])
+    review_og_revision = images.og_preview_revision(
+        [], viewer_skin,
+        custom_image=first_og_image["filename"] if first_og_image else None,
+        custom_focus=first_og_image["focus"] if first_og_image else None,
+        use_default=not first_og_image,
+    )
     response = templates.TemplateResponse(
         request, "public/profile_review.html",
         {"request": request, "review": review, "is_me": False,
@@ -1294,6 +1435,7 @@ def shared_profile_review(token: str, review_id: int, request: Request,
          or f"Человек #{row['user_id']}",
          "category_skin": viewer_skin,
          "profile_return_url": "", "review_share_url": review_url,
+         "review_og_revision": review_og_revision,
          "token": token, "me": me,
          "event_owner_id": int(row["event_owner_id"]),
          "csrf": request.session.get("csrf", ""),
@@ -1958,7 +2100,8 @@ def public_propose(token: str, request: Request, bg: BackgroundTasks,
                    pay: str = Form("0"),
                    capacity: str = Form("1"),
                    photos: list[UploadFile] = File(default=[], alias="images"),
-                   video: UploadFile | None = File(None),
+                   videos: list[UploadFile] = File(default=[], alias="videos"),
+                   video: UploadFile | None = File(None),  # legacy singular client
                    conn=Depends(get_db)):
     cat = active_cat_or_410(conn, token)
     conn.execute("UPDATE categories SET id=id WHERE id=?", (cat["id"],))
@@ -1976,6 +2119,11 @@ def public_propose(token: str, request: Request, bg: BackgroundTasks,
     link_list = parse_links(links)
     capacity_value = parse_capacity(capacity)
     pay_value = parse_pay_split(pay)
+    video_files = [f for f in videos if f and f.filename]
+    if video and video.filename:
+        video_files.append(video)
+    if len(video_files) > images.MAX_VIDEOS:
+        raise HTTPException(400, f"Максимум {images.MAX_VIDEOS} видео у одного события")
 
     moderated = bool(cat["moderate_proposals"])
     date_id = insert_date(conn, name=name, place=place, starts=starts, ends=ends,
@@ -1990,16 +2138,18 @@ def public_propose(token: str, request: Request, bg: BackgroundTasks,
         (date_id, cat["id"], next_cat_pos(conn, cat["id"])))
     save_links(conn, date_id, link_list)
     saved_photos = add_photos(conn, date_id, photos, existing=0)
-    if video and video.filename:
-        try:
-            vfn = images.save_video(video)
-        except ValueError as e:
-            conn.rollback()
-            for fn in saved_photos:        # фото уже на диске — не оставляем сирот
-                images.delete_file(fn)
-            raise HTTPException(400, str(e))
-        conn.execute("INSERT INTO date_videos(date_id, filename) VALUES(?,?)",
-                     (date_id, vfn))
+    try:
+        saved_videos = images.save_videos_batch(video_files)
+    except ValueError as e:
+        conn.rollback()
+        for fn in saved_photos:        # фото уже на диске — не оставляем сирот
+            images.delete_file(fn)
+        raise HTTPException(400, str(e))
+    for position, filename in enumerate(saved_videos):
+        conn.execute(
+            "INSERT INTO date_videos(date_id, filename, position) VALUES(?,?,?)",
+            (date_id, filename, position),
+        )
     conn.commit()
     if needs_resolve:
         bg.add_task(places.resolve_into_db, date_id, place_url)
@@ -2025,12 +2175,14 @@ def public_propose_edit(token: str, date_id: int, request: Request, bg: Backgrou
                         starts_at: str = Form(""), ends_at: str = Form(""),
                         links: str = Form(""), comment: str = Form(""),
                         keep_order: str = Form(""),
+                        keep_video_order: str = Form(""),
                         remove_image: list[int] = Form(default=[]),
                         remove_video: list[int] = Form(default=[]),
                         pay: str = Form("0"),
                         capacity: str = Form("1"),
                         photos: list[UploadFile] = File(default=[], alias="images"),
-                        video: UploadFile | None = File(None),
+                        videos: list[UploadFile] = File(default=[], alias="videos"),
+                        video: UploadFile | None = File(None),  # legacy singular client
                         conn=Depends(get_db)):
     cat = active_cat_or_410(conn, token)
     ensure_category_editable(conn, cat)
@@ -2090,46 +2242,73 @@ def public_propose_edit(token: str, date_id: int, request: Request, bg: Backgrou
     new_files = [f for f in photos if f and f.filename]
     if keep_count + len(new_files) > images.MAX_IMAGES:
         raise HTTPException(400, f"Максимум {images.MAX_IMAGES} фото у одного события")
+
+    vids = conn.execute(
+        "SELECT id, filename FROM date_videos WHERE date_id=? ORDER BY position, id",
+        (date_id,),
+    ).fetchall()
+    video_remove_set = set(remove_video)
+    # Старый кэшированный клиент посылал singular `video` и ожидал замену.
+    # Новый `videos` добавляет/сортирует до общего лимита, не удаляя остальные.
+    legacy_replace = bool(video and video.filename and
+                          not any(f and f.filename for f in videos))
+    if legacy_replace:
+        video_remove_set.update(int(v["id"]) for v in vids)
+    vid_remove = [v for v in vids if v["id"] in video_remove_set]
+    remaining_vids = [v["id"] for v in vids if v["id"] not in video_remove_set]
+    new_video_files = [f for f in videos if f and f.filename]
+    if video and video.filename:
+        new_video_files.append(video)
+    if len(remaining_vids) + len(new_video_files) > images.MAX_VIDEOS:
+        raise HTTPException(400, f"Максимум {images.MAX_VIDEOS} видео у одного события")
+
+    # Разбираем недоверенные order-токены до записи upload-файлов. Даже
+    # намеренно испорченный multipart не должен оставить сироты на диске.
+    remaining = [r["id"] for r in existing if r["id"] not in remove_set]
+    photo_order = ordered_media_refs(keep_order, remaining, len(new_files))
+    video_order = ordered_media_refs(
+        keep_video_order, remaining_vids, len(new_video_files))
+
+    saved: list[str] = []
+    saved_videos: list[str] = []
     try:
         saved = images.save_batch(new_files)
+        saved_videos = images.save_videos_batch(new_video_files)
     except ValueError as e:
+        for filename in (*saved, *saved_videos):
+            images.delete_file(filename)
         raise HTTPException(400, str(e))
 
     for r in to_remove:
         conn.execute("DELETE FROM date_images WHERE id=?", (r["id"],))
 
-    # порядок оставшихся фото: как расставил гость (drag-and-drop), затем новые
-    remaining = [r["id"] for r in existing if r["id"] not in remove_set]
-    wanted = [int(x) for x in keep_order.split(",") if x.strip().isdigit()]
-    ordered = [i for i in wanted if i in remaining] + \
-              [i for i in remaining if i not in wanted]
-    pos = 0
-    for iid in ordered:
-        conn.execute("UPDATE date_images SET position=? WHERE id=?", (pos, iid))
-        pos += 1
-    for fn in saved:
-        conn.execute("INSERT INTO date_images(date_id, filename, position) VALUES(?,?,?)",
-                     (date_id, fn, pos))
-        pos += 1
+    # Порядок объединяет сохранённые и новые элементы. Bare id остаются
+    # совместимы со старым keep_order; s<ID>/n<index> задаёт точное чередование.
+    for position, (kind, value) in enumerate(photo_order):
+        if kind == "saved":
+            conn.execute(
+                "UPDATE date_images SET position=? WHERE id=? AND date_id=?",
+                (position, value, date_id),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO date_images(date_id, filename, position) VALUES(?,?,?)",
+                (date_id, saved[value], position),
+            )
 
-    # видео: новое заменяет старое; явное удаление — без замены
-    vids = conn.execute(
-        "SELECT id, filename FROM date_videos WHERE date_id=?", (date_id,)).fetchall()
-    vid_remove = [v for v in vids if v["id"] in set(remove_video)]
-    new_video_fn = None
-    if video and video.filename:
-        try:
-            new_video_fn = images.save_video(video)
-        except ValueError as e:
-            for fn in saved:           # новые фото уже на диске — убираем сирот
-                images.delete_file(fn)
-            raise HTTPException(400, str(e))
-        vid_remove = vids                      # замена: старые уходят
     for v in vid_remove:
         conn.execute("DELETE FROM date_videos WHERE id=?", (v["id"],))
-    if new_video_fn:
-        conn.execute("INSERT INTO date_videos(date_id, filename) VALUES(?,?)",
-                     (date_id, new_video_fn))
+    for position, (kind, value) in enumerate(video_order):
+        if kind == "saved":
+            conn.execute(
+                "UPDATE date_videos SET position=? WHERE id=? AND date_id=?",
+                (position, value, date_id),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO date_videos(date_id, filename, position) VALUES(?,?,?)",
+                (date_id, saved_videos[value], position),
+            )
 
     conn.execute(
         "UPDATE dates SET name=?, place=?, place_url=?, starts_at=?, ends_at=?, "
