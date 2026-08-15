@@ -17,7 +17,8 @@
   {{ appearance_assets(active_skin) }}
   <link rel="stylesheet" href="{{ asset('public.css') }}">
 </head>
-<body data-token="{{ token }}" data-name="{{ guest_name or '' }}" data-auth="{{ '1' if me else '' }}"
+<body class="public-event-page public-category-page"
+      data-token="{{ token }}" data-name="{{ guest_name or '' }}" data-auth="{{ '1' if me else '' }}"
       data-max-photos="{{ max_photos }}" data-max-videos="{{ max_videos }}"
       data-csrf="{{ csrf }}"
       data-skin="{{ active_skin }}"
@@ -177,7 +178,7 @@
              srcset="/c/{{ token }}/image/{{ im['filename'] }}?w=480 480w,
                      /c/{{ token }}/image/{{ im['filename'] }}?w=960 960w,
                      /c/{{ token }}/image/{{ im['filename'] }}?w=1600 1600w"
-             sizes="{% if active_skin == 'friends' %}(max-width: 619px) calc(100vw - 32px), 286px{% else %}(max-width: 720px) calc(100vw - 32px), 680px{% endif %}"
+             sizes="{% if active_skin == 'friends' %}(max-width: 619px) calc(100vw - 32px), (max-width: 899px) 286px, 430px{% else %}(max-width: 899px) calc(100vw - 32px), 430px{% endif %}"
              data-full="/c/{{ token }}/image/{{ im['filename'] }}" alt=""
              loading="{{ 'eager' if priority and loop.first else 'lazy' }}"
              fetchpriority="{{ 'high' if priority and loop.first else 'low' }}"
@@ -235,13 +236,15 @@
       {% if not d.pending %}
       {% set show_roster = vote_state.status in ('unconfigured', 'open')
                            or (vote_state.status == 'resolved' and d.is_winner) %}
+      {% set hide_empty_single_counter = d.capacity == 1 and d.vote_count == 0 %}
       <div class="vote-progress{% if d.is_full %} full{% endif %}">
-        <div class="vote-progress-head">
+        <div class="vote-progress-head"{% if hide_empty_single_counter %} hidden{% endif %}>
           <b>{{ d.vote_count }}/{{ d.capacity }}</b>
           <span>{{ 'участников' if show_roster else 'голосов' }}</span>
         </div>
         <div class="vote-progress-track" role="progressbar" aria-valuemin="0"
-             aria-valuemax="{{ d.capacity }}" aria-valuenow="{{ d.vote_count }}">
+             aria-valuemax="{{ d.capacity }}" aria-valuenow="{{ d.vote_count }}"
+             {% if hide_empty_single_counter %}hidden{% endif %}>
           <i style="--vote-width:{{ [100, (d.vote_count * 100 / d.capacity)] | min }}%"></i>
         </div>
         {% if show_roster and d.participants %}

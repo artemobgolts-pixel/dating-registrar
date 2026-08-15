@@ -597,6 +597,11 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert 'data-auth="1"' in page               # залогинен — кнопки активны
     assert "куда нам отправиться" not in page    # подзаголовок убран
     assert "(мск)" not in page                   # пояснение времени убрано
+    empty_single = re.search(
+        r'<article[^>]*id="date-%d".*?</article>' % did, page, re.S,
+    ).group(0)
+    assert re.search(r'class="vote-progress-head"[^>]*\bhidden\b', empty_single)
+    assert re.search(r'class="vote-progress-track"[^>]*\bhidden\b', empty_single)
     step("вход обязателен: аноним → 401 need_login и кнопка «Войти»; залогиненный гость — с именем")
 
     # ---------- бронь: toggle и /vote больше нет ----------
@@ -1365,6 +1370,11 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert pg.status_code == 200
     assert "data-login-open" in pg.text and 'id="loginDlg"' in pg.text
     assert "Сохранить к себе" not in pg.text
+    shared_card = re.search(
+        r'<article[^>]*id="date-%d".*?</article>' % shared["id"], pg.text, re.S,
+    ).group(0)
+    assert re.search(r'class="vote-progress-head"[^>]*\bhidden\b', shared_card)
+    assert re.search(r'class="vote-progress-track"[^>]*\bhidden\b', shared_card)
     assert pg.headers.get("x-robots-tag") == "noindex"
     # фото события отдаётся по share-ссылке
     a_photo = db_one("SELECT filename FROM date_images WHERE date_id=?", (shared["id"],))
@@ -2615,11 +2625,11 @@ with TestClient(main.app, follow_redirects=False) as ca:
 step("1.10: /about (текст, поддержка @→t.me, проекты автора), футер-ссылки, фильтр кривых проектов")
 
 
-# ---------- 1.9: публичный профиль /u/<id> (любой залогиненный) ----------
+# ---------- 1.9: публичный профиль /u/<id> (доступен без регистрации) ----------
 with TestClient(main.app, follow_redirects=False) as cu1, \
         TestClient(main.app, follow_redirects=False) as cu2, \
         TestClient(main.app, follow_redirects=False) as anon:
-    # незалогиненный профиль не видит — редирект на /login
+    # профиль заполняет владелец; читать его сможет и аноним
     assert tg_login(cu1, 991401, username="alice").json()["status"] == "ok"
     uid1 = db_one("SELECT id FROM users WHERE telegram_id=991401")[0]
     # заполняем профиль пользователя 1 (имя/ДР/пол)
@@ -2631,14 +2641,16 @@ with TestClient(main.app, follow_redirects=False) as cu1, \
     pg = cu2.get(f"/u/{uid1}")
     assert pg.status_code == 200, pg.status_code
     assert "Алиса" in pg.text and "Женский" in pg.text and "1995-06-15" in pg.text
-    # незалогиненному — редирект на вход (deny по умолчанию)
+    # незалогиненный видит те же публичные данные, но не действия владельца
     r = anon.get(f"/u/{uid1}")
-    assert r.status_code == 303 and "/login" in r.headers.get("location", ""), r.status_code
+    assert r.status_code == 200, r.status_code
+    assert "Алиса" in r.text and "Женский" in r.text and "1995-06-15" in r.text
+    assert ">Войти</a>" in r.text and "Редактировать профиль" not in r.text
     # несуществующий/неактивный профиль → 404 для залогиненного
     assert cu2.get("/u/999999").status_code == 404
     # свой профиль помечается (кнопка «Редактировать»)
     assert "Редактировать профиль" in cu1.get(f"/u/{uid1}").text
-step("1.9: /u/<id> виден любому залогиненному (имя/пол/полная ДР), незалогиненному — на /login, 404 на чужой")
+step("1.9: /u/<id> публичен без регистрации; владелец сохраняет редактирование; 404 на отсутствующий")
 
 
 # ---------- перф: Cache-Control на статике ----------
@@ -2932,8 +2944,8 @@ with TestClient(main.app, follow_redirects=False) as cnata, \
     assert "Ната-кат" not in feed, "категория в ленте не показывается"
     assert "Добавить в коллекцию" in feed, "главное действие карточки копирует событие"
     assert f'data-add="/d/{pub["share_token"]}/add"' in feed
-    assert 'class="cfeed-owner"' in feed and "Автор:" in feed
-    assert f'href="/u/{pub["owner_id"]}"' in feed
+    assert 'class="cfeed-owner"' not in feed and "Автор:" not in feed
+    assert f'href="/u/{pub["owner_id"]}"' not in feed
     assert "data-community-report" in feed and "пожаловаться" in feed
     assert f'data-report-url="/d/{pub["share_token"]}/report"' in feed
     assert "?w=480 480w" in feed and 'fetchpriority="low"' in feed
@@ -2943,6 +2955,7 @@ with TestClient(main.app, follow_redirects=False) as cnata, \
     # C4: мини-виджет отдаётся, есть кнопка «Добавить себе»
     wid = cgosha.get(f"/admin/community/date/{pub['id']}").text
     assert "Пикник на закате" in wid and "Добавить себе" in wid
+    assert 'class="cfeed-owner"' in wid and f'href="/u/{pub["owner_id"]}"' in wid
     assert f"/d/{pub['share_token']}/add" in wid
     assert "?w=1600 1600w" in wid and "data-full=" in wid
     # приватное чужое событие виджетом не открыть

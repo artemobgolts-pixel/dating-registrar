@@ -120,11 +120,14 @@ class NotificationUiTests(unittest.TestCase):
         self.assertIn("review_deleted", template)
         self.assertIn("declined", template)
 
-    def test_event_feed_shows_author_and_submits_reports_with_csrf(self):
+    def test_event_feed_hides_author_until_widget_and_submits_reports_with_csrf(self):
         dashboard = (APP / "templates/admin/dashboard.html").read_text(
             encoding="utf-8",
         )
         cards = (APP / "templates/admin/_community_cards.html").read_text(
+            encoding="utf-8",
+        )
+        widget = (APP / "templates/admin/_community_widget.html").read_text(
             encoding="utf-8",
         )
         admin = (APP / "static/admin.js").read_text(encoding="utf-8")
@@ -134,9 +137,21 @@ class NotificationUiTests(unittest.TestCase):
         self.assertNotIn("Встречи сообщества", dashboard)
         self.assertNotIn("Публичные события других людей", dashboard)
         self.assertIn('id="communityReportDlg"', dashboard)
-        self.assertIn("Автор: {{ d['owner_display'] }}", cards)
+        self.assertNotIn("d['owner_display']", cards)
+        self.assertNotIn('class="cfeed-owner"', cards)
+        self.assertIn("d['owner_display']", widget)
+        self.assertIn('class="cfeed-owner"', widget)
+        self.assertIn('class="cfeed-title-row"', cards)
         self.assertIn("data-community-report", cards)
         self.assertIn('data-report-url="/d/{{ d[\'share_token\'] }}/report"', cards)
+        self.assertLess(
+            cards.index("data-community-report"),
+            cards.index('class="cfeed-meta"'),
+        )
+        self.assertLess(
+            cards.index("data-community-report"),
+            cards.index('class="cfeed-card-actions"'),
+        )
         self.assertIn('"X-CSRF-Token": document.body.dataset.csrf || ""', admin)
         self.assertIn("new FormData(reportForm)", admin)
         self.assertIn(".report-link {", css)
@@ -180,7 +195,7 @@ class NotificationUiTests(unittest.TestCase):
         )
         self.assertIn("&amp;v={{ preview_revision }}", public)
         self.assertIn("images.og_default_path(preview_skin)", public_routes)
-        self.assertIn('media_type="image/jpeg"', public_routes)
+        self.assertIn('media_type="image/png"', public_routes)
 
     def test_countdown_is_continuous_turbo_safe_and_reused_on_dashboard(self):
         category = (APP / "templates/public/category.html").read_text(encoding="utf-8")

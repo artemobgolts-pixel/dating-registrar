@@ -30,6 +30,7 @@ os.environ.update({
 })
 
 import db  # noqa: E402
+import images  # noqa: E402
 import main  # noqa: E402
 
 
@@ -134,8 +135,13 @@ class PublicProfileTabsTests(unittest.TestCase):
                 "SELECT id FROM date_reviews WHERE user_id=? AND text=?",
                 (owner_id, "Личный обзор"),
             ).fetchone()[0])
+            avatar_filename = f"profile-{owner_id}.webp"
+            images.Image.new("RGB", (128, 128), "#725c91").save(
+                images.UPLOAD_DIR / avatar_filename, "WEBP",
+            )
             conn.execute(
-                "UPDATE users SET admin_skin='romantic' WHERE id=?", (owner_id,),
+                "UPDATE users SET admin_skin='romantic',avatar_path=? WHERE id=?",
+                (avatar_filename, owner_id),
             )
             conn.commit()
             conn.close()
@@ -165,7 +171,7 @@ class PublicProfileTabsTests(unittest.TestCase):
                 r'<html lang="ru"\s+data-skin="romantic">',
             )
             self.assertNotIn(
-                f'data-profile-widget="/u/{owner_id}/date/{own_public}/widget"',
+                f'data-profile-widget="/u/{owner_id}/date/{own_public}/widget?skin=romantic"',
                 own_events,
             )
             self.assertIn('id="profileEventDlg"', own_events)
@@ -230,12 +236,60 @@ class PublicProfileTabsTests(unittest.TestCase):
                 shared_review = anonymous.get(
                     f"/d/review-public/review/{public_review_id}",
                 )
+                anonymous_profile = anonymous.get(f"/u/{owner_id}?tab=events")
+                anonymous_avatar = anonymous.get(f"/u/{owner_id}/avatar?w=64")
+                anonymous_wants = anonymous.get(f"/u/{owner_id}?tab=want")
+                anonymous_reviews = anonymous.get(f"/u/{owner_id}?tab=reviews")
                 anonymous_widget = anonymous.get(
                     f"/u/{owner_id}/reviews/{public_review_id}/widget",
                 )
+                anonymous_event_widget = anonymous.get(
+                    f"/u/{owner_id}/date/{own_public}/widget",
+                )
+                anonymous_private_event = anonymous.get(
+                    f"/u/{owner_id}/date/{own_private}/widget",
+                )
+                anonymous_private_review = anonymous.get(
+                    f"/u/{owner_id}/reviews/{private_review_id}/widget",
+                )
+                anonymous_edit = anonymous.post(
+                    f"/u/{owner_id}/reviews/{public_review_id}/edit",
+                    data={"csrf": "", "rating": "5", "text": "Нельзя",
+                          "next": f"/u/{owner_id}?tab=reviews"},
+                )
+                anonymous_hide = anonymous.post(
+                    f"/u/{owner_id}/reviews/{public_review_id}/hide",
+                    data={"csrf": "", "next": f"/u/{owner_id}?tab=reviews"},
+                )
             self.assertEqual(shared_review.status_code, 200)
-            self.assertEqual(anonymous_widget.status_code, 303)
-            self.assertEqual(anonymous_widget.headers["location"], "/login")
+            self.assertEqual(anonymous_profile.status_code, 200)
+            self.assertEqual(anonymous_avatar.status_code, 200)
+            self.assertEqual(anonymous_avatar.headers["content-type"], "image/webp")
+            self.assertEqual(
+                anonymous_avatar.headers["cache-control"], "public, max-age=300",
+            )
+            self.assertIn("Публичное событие Алины", anonymous_profile.text)
+            self.assertNotIn("Личное событие Алины", anonymous_profile.text)
+            self.assertIn(">Войти</a>", anonymous_profile.text)
+            self.assertNotIn("Редактировать профиль", anonymous_profile.text)
+            self.assertIn("Открытая прогулка", anonymous_wants.text)
+            self.assertNotIn("Закрытая прогулка", anonymous_wants.text)
+            self.assertIn("Публичный обзор", anonymous_reviews.text)
+            self.assertNotIn("Личный обзор", anonymous_reviews.text)
+            self.assertEqual(anonymous_widget.status_code, 200)
+            self.assertIn("Публичный обзор", anonymous_widget.text)
+            self.assertNotIn("Сохранить обзор", anonymous_widget.text)
+            self.assertEqual(anonymous_event_widget.status_code, 200)
+            self.assertIn(
+                "Войти или зарегистрироваться, чтобы добавить в коллекцию",
+                anonymous_event_widget.text,
+            )
+            self.assertNotIn('data-add="', anonymous_event_widget.text)
+            self.assertEqual(anonymous_private_event.status_code, 404)
+            self.assertEqual(anonymous_private_review.status_code, 404)
+            for response in (anonymous_edit, anonymous_hide):
+                self.assertEqual(response.status_code, 303)
+                self.assertEqual(response.headers["location"], "/login")
             self.assertIn("Публичный обзор", shared_review.text)  # текст самого отзыва
             self.assertNotIn(
                 '<span class="review-share-eyebrow">Публичный обзор</span>',
@@ -336,9 +390,10 @@ class PublicProfileTabsTests(unittest.TestCase):
             self.assertIn("Коллекция событий <b>1</b>", foreign_events)
             self.assertNotIn("Публичные события", foreign_events)
             self.assertIn(
-                f'data-profile-widget="/u/{owner_id}/date/{own_public}/widget"',
+                f'data-profile-widget="/u/{owner_id}/date/{own_public}/widget?skin=romantic"',
                 foreign_events,
             )
+            self.assertRegex(foreign_events, r'data-csrf="[^"]+"')
 
             category_context = other.get(
                 f"/u/{owner_id}?tab=events&skin=friends",
@@ -379,10 +434,14 @@ class PublicProfileTabsTests(unittest.TestCase):
 
             # Виджет разрешает ровно те отношения, которые могут появиться в
             # профиле; приватную встречу нельзя раскрыть перебором id.
-            self.assertEqual(
-                other.get(f"/u/{owner_id}/date/{own_public}/widget").status_code,
-                200,
+            signed_event_widget = other.get(
+                f"/u/{owner_id}/date/{own_public}/widget",
             )
+            self.assertEqual(signed_event_widget.status_code, 200)
+            self.assertIn(
+                f'data-add="/d/alice-public/add"', signed_event_widget.text,
+            )
+            self.assertNotIn("Войти или зарегистрироваться", signed_event_widget.text)
             self.assertEqual(
                 other.get(f"/u/{owner_id}/date/{own_private}/widget").status_code,
                 404,

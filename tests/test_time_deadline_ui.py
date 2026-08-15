@@ -27,6 +27,13 @@ class TimeAndDeadlineContractTests(unittest.TestCase):
                 self.assertIn('data-deadline-hours="72"', source)
                 self.assertIn('data-deadline-hours="168"', source)
 
+        new_source = (APP / "templates/admin/category_new.html").read_text("utf-8")
+        detail_source = (APP / "templates/admin/category_detail.html").read_text("utf-8")
+        self.assertNotIn('data-deadline-mode="extend"', new_source)
+        self.assertIn('data-deadline-mode="extend"', detail_source)
+        self.assertIn("Продлить:", detail_source)
+        self.assertIn("Изменить дедлайн и настройки", detail_source)
+
     def test_public_time_forms_keep_duration_actions(self):
         for relative in (
             "templates/public/category.html",
@@ -167,6 +174,121 @@ class TimeAndDeadlineBrowserTests(unittest.TestCase):
           key: '2', bubbles: true, cancelable: true
         }))""")
         self.assertTrue(allowed)
+
+    def test_detail_deadline_preset_extends_selected_value_without_rounding_it(self):
+        context = self.browser.new_context(timezone_id="UTC")
+        self.addCleanup(context.close)
+        page = context.new_page()
+        page.set_content("""
+          <body>
+            <div data-deadline-picker data-deadline-mode="extend">
+              <input name="voting_deadline" type="datetime-local"
+                     value="2030-05-10T10:07" data-picker-only>
+              <button type="button" data-deadline-hours="24"
+                      aria-pressed="false">+1 день</button>
+              <small data-deadline-readable></small>
+            </div>
+          </body>
+        """)
+        page.evaluate("""() => {
+          const NativeDate = Date;
+          const fixedNow = '2030-05-07T21:07:30.000Z';
+          window.Date = class extends NativeDate {
+            constructor(...args) {
+              super(...(args.length ? args : [fixedNow]));
+            }
+            static now() { return new NativeDate(fixedNow).getTime(); }
+          };
+        }""")
+        page.add_script_tag(content=(APP / "static/admin.js").read_text("utf-8"))
+        page.wait_for_function(
+            "document.querySelector('[data-deadline-picker]').dataset.deadlineReady === '1'"
+        )
+
+        page.locator('[data-deadline-hours="24"]').click()
+
+        self.assertEqual(
+            page.locator('[name="voting_deadline"]').input_value(),
+            "2030-05-11T10:07",
+        )
+        self.assertEqual(
+            page.locator('[data-deadline-hours="24"]').get_attribute("aria-pressed"),
+            "true",
+        )
+        self.assertIn(
+            "11 мая",
+            page.locator("[data-deadline-readable]").inner_text(),
+        )
+
+    def test_public_event_card_is_horizontal_on_desktop_and_vertical_on_mobile(self):
+        page = self.browser.new_page(viewport={"width": 1280, "height": 900})
+        self.addCleanup(page.close)
+        page.set_content("""
+          <html data-skin="romantic">
+            <body class="public-event-page public-category-page">
+              <div class="wrap">
+                <section class="cards">
+                  <article class="card">
+                    <div class="gal-wrap">
+                      <div class="gallery">
+                        <img alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1200' height='800'/%3E">
+                      </div>
+                    </div>
+                    <div class="body">
+                      <h2 class="title">Событие</h2>
+                      <p class="comment">Описание события для проверки геометрии.</p>
+                    </div>
+                  </article>
+                </section>
+              </div>
+            </body>
+          </html>
+        """)
+        page.add_style_tag(content=(APP / "static/public.css").read_text("utf-8"))
+
+        def geometry():
+            return page.evaluate("""() => {
+              const wrap = document.querySelector('.wrap').getBoundingClientRect();
+              const card = document.querySelector('.card');
+              const media = document.querySelector('.gal-wrap').getBoundingClientRect();
+              const body = document.querySelector('.card > .body').getBoundingClientRect();
+              return {
+                wrapWidth: wrap.width,
+                display: getComputedStyle(card).display,
+                mediaX: media.x,
+                mediaY: media.y,
+                mediaWidth: media.width,
+                mediaHeight: media.height,
+                bodyX: body.x,
+                bodyY: body.y,
+                bodyWidth: body.width
+              };
+            }""")
+
+        for skin in ("romantic", "friends"):
+            page.locator("html").evaluate(
+                "(node, value) => node.dataset.skin = value", skin,
+            )
+            desktop = geometry()
+            self.assertEqual(desktop["display"], "grid", skin)
+            self.assertAlmostEqual(desktop["wrapWidth"], 1080, delta=1)
+            self.assertGreaterEqual(desktop["mediaWidth"], 340)
+            self.assertGreater(desktop["bodyX"], desktop["mediaX"])
+            self.assertAlmostEqual(desktop["bodyY"], desktop["mediaY"], delta=2)
+            self.assertGreater(desktop["bodyWidth"], desktop["mediaWidth"])
+
+        page.set_viewport_size({"width": 390, "height": 844})
+        for skin in ("romantic", "friends"):
+            page.locator("html").evaluate(
+                "(node, value) => node.dataset.skin = value", skin,
+            )
+            mobile = geometry()
+            self.assertEqual(mobile["display"], "block", skin)
+            self.assertLessEqual(mobile["wrapWidth"], 390)
+            self.assertAlmostEqual(mobile["bodyX"], mobile["mediaX"], delta=2)
+            self.assertGreaterEqual(
+                mobile["bodyY"], mobile["mediaY"] + mobile["mediaHeight"] - 2,
+            )
 
 
 if __name__ == "__main__":

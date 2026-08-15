@@ -332,7 +332,7 @@ html[data-theme="dark"][data-skin="friends"] body.profile-public-page {
 }
 .profile-public-actions {
   position: relative; z-index: 31;
-  width: min(100%, 1020px); margin: 0 auto; padding: 18px 22px 0;
+  width: min(100%, 1240px); margin: 0 auto; padding: 18px 22px 0;
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
 }
 .profile-public-back {
@@ -354,11 +354,11 @@ html[data-theme="dark"][data-skin="friends"] body.profile-public-page {
 }
 .profile-public-shell {
   position: relative; z-index: 1;
-  width: min(100%, 1020px); margin: 0 auto; padding: 18px 22px 80px;
+  width: min(100%, 1240px); margin: 0 auto; padding: 18px 22px 80px;
 }
 .profile-public-page .prof {
   position: relative; overflow: hidden;
-  width: min(100%, 760px); margin: 0 auto; padding: 27px 30px;
+  width: min(100%, 900px); margin: 0 auto; padding: 30px 36px;
   display: flex; align-items: center; justify-content: center; gap: 26px;
   border: 1px solid rgba(255,255,255,.72); border-radius: 26px;
   background: linear-gradient(145deg,
@@ -408,7 +408,7 @@ html[data-theme="dark"][data-skin="friends"] body.profile-public-page {
 .profile-public-page .prof .me-edit { margin-top: 14px; }
 .profile-public-page .prof .me-edit .btn { margin: 0; }
 .profile-public-page .pub-dates {
-  max-width: 980px; margin-top: 38px; padding: 0 0 16px;
+  max-width: 1200px; margin-top: 38px; padding: 0 0 16px;
 }
 .profile-public-page .pub-grid:not(.review-grid) {
   grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px;
@@ -434,6 +434,44 @@ html[data-theme="dark"] .profile-public-page .pub-card,
 html[data-theme="dark"] .profile-public-page .review-card {
   border-color: var(--line); background: color-mix(in srgb, var(--card) 82%, transparent);
   box-shadow: 0 20px 52px rgba(0,0,0,.30), inset 0 1px 0 rgba(255,255,255,.06);
+}
+
+@media (min-width: 980px) {
+  .profile-public-page .profile-tabs {
+    flex-wrap: wrap; overflow: visible; justify-content: center;
+  }
+  .profile-public-page .pub-grid:not(.review-grid) {
+    grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px;
+  }
+  .profile-public-page .review-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px;
+  }
+  .profile-public-page .review-card { grid-template-columns: 150px minmax(0, 1fr); }
+  .profile-public-page .review-card .review-cover { min-height: 180px; }
+
+  .profile-public-page .profile-event-dlg {
+    width: min(700px, calc(100vw - 56px)); max-height: min(86vh, 820px);
+  }
+  .profile-public-page .profile-event-dlg:has(.cwid.has-media) {
+    width: min(1120px, calc(100vw - 56px)); overflow: hidden;
+  }
+  .profile-public-page .profile-event-dlg .cwid.has-media {
+    display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(360px, .85fr);
+    min-height: min(680px, 82vh);
+  }
+  .profile-public-page .profile-event-dlg .cwid.has-media .cwid-gallery {
+    height: min(680px, 82vh); border-radius: 20px 0 0 20px;
+  }
+  .profile-public-page .profile-event-dlg .cwid.has-media .cwid-gallery img,
+  .profile-public-page .profile-event-dlg .cwid.has-media .cwid-gallery video {
+    height: 100%; max-height: none;
+  }
+  .profile-public-page .profile-event-dlg .cwid.has-media .cwid-body {
+    align-self: stretch; overflow: auto; padding: 28px 26px;
+  }
+  .profile-public-page .profile-event-dlg .cwid-actions {
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  }
 }
 
 @media (max-width: 640px) {

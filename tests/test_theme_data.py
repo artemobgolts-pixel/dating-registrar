@@ -133,32 +133,21 @@ class ThemeMigrationTests(unittest.TestCase):
 
 
 class ThemePreviewTests(unittest.TestCase):
-    def test_themes_use_dedicated_default_previews(self):
+    def test_both_themes_use_the_exact_attached_default_preview(self):
         static = APP / "static"
-        for path in images.OG_DEFAULT_BACKGROUNDS.values():
-            self.assertTrue(path.is_file())
-            with images.Image.open(path) as background:
-                self.assertGreaterEqual(background.width, 1200)
-                self.assertGreaterEqual(background.height, 630)
-
-        with tempfile.TemporaryDirectory(prefix="date4you-og-default-") as tmp, \
-                patch.object(images, "OG_CACHE_DIR", Path(tmp)), \
-                patch.object(
-                    images, "_draw_og_brand_overlay",
-                    wraps=images._draw_og_brand_overlay,
-                ) as overlay:
-            paths = [
-                images.og_default_path(appearance.FRIENDS),
-                images.og_default_path(appearance.ROMANTIC),
-            ]
-            self.assertEqual(overlay.call_count, 2)
-            for path in paths:
-                with self.subTest(path=path.name), images.Image.open(path) as preview:
-                    self.assertEqual(preview.format, "JPEG")
-                    self.assertEqual(preview.size, (1200, 630))
-            with images.Image.open(paths[0]) as friends, \
-                    images.Image.open(paths[1]) as romantic:
-                self.assertIsNotNone(ImageChops.difference(friends, romantic).getbbox())
+        expected = static / "category-default.png"
+        paths = [
+            images.og_default_path(appearance.FRIENDS),
+            images.og_default_path(appearance.ROMANTIC),
+        ]
+        self.assertEqual(paths, [expected, expected])
+        self.assertEqual(
+            hashlib.sha256(expected.read_bytes()).hexdigest(),
+            "07582d8329ed89ecd02ec20fdacb9a7bfd24c6837840669316432a6e53d7a616",
+        )
+        with images.Image.open(expected) as preview:
+            self.assertEqual(preview.format, "PNG")
+            self.assertEqual(preview.size, (1672, 941))
 
         for relative in (
             "templates/admin/categories.html",
@@ -293,7 +282,7 @@ class ThemePreviewTests(unittest.TestCase):
         friends = images.og_collage_name(filenames, appearance.FRIENDS)
         romantic = images.og_collage_name(filenames, appearance.ROMANTIC)
         romantic_digest = hashlib.sha256(
-            (f"{images.OG_BRAND_VERSION}:romantic\n" +
+            (f"{images.OG_RENDER_VERSION}:romantic\n" +
              "\n".join(f"{filename}|0.5000,0.5000" for filename in filenames)).encode()
         ).hexdigest()[:24]
         self.assertEqual(romantic, f"og_{romantic_digest}.webp")
@@ -303,36 +292,32 @@ class ThemePreviewTests(unittest.TestCase):
             romantic,
         )
 
-    def test_collage_overlay_is_skin_specific_and_applied(self):
-        base = images.Image.new("RGB", (images.OG_W, images.OG_H), "#ffffff")
-        romantic = images._draw_og_brand_overlay(base, appearance.ROMANTIC)
-        friends = images._draw_og_brand_overlay(base, appearance.FRIENDS)
-        self.assertEqual(romantic.size, base.size)
-        self.assertEqual(friends.size, base.size)
-        self.assertIsNotNone(ImageChops.difference(base, romantic).getbbox())
-        self.assertIsNotNone(ImageChops.difference(base, friends).getbbox())
-        self.assertIsNotNone(ImageChops.difference(friends, romantic).getbbox())
+    def test_collage_keeps_user_photo_unbranded(self):
+        with tempfile.TemporaryDirectory(prefix="date4you-og-collage-") as tmp:
+            root = Path(tmp)
+            uploads = root / "uploads"
+            cache = root / "cache"
+            uploads.mkdir()
+            cache.mkdir()
+            filename = "solid-user-photo.webp"
+            images.Image.new("RGB", (1800, 900), "#315f8d").save(
+                uploads / filename, "WEBP",
+            )
+            with patch.object(images, "UPLOAD_DIR", uploads), \
+                    patch.object(images, "OG_CACHE_DIR", cache):
+                result = images.build_og_collage(
+                    [(filename, "20% 80%")], appearance.FRIENDS,
+                )
 
-        # Знак стал примерно на 27% крупнее прежнего, но мягче:
-        # игнорируем единичные отклонения от Lanczos по краям матта.
-        difference = ImageChops.difference(base, friends)
-        visible = difference.convert("L").point(
-            lambda value: 255 if value > 2 else 0).getbbox()
-        self.assertIsNotNone(visible)
-        left, top, right, bottom = visible
-        self.assertGreaterEqual(right - left, 375)
-        self.assertGreaterEqual(bottom - top, 305)
-        strongest = max(high for _low, high in difference.getextrema())
-        self.assertGreaterEqual(strongest, 100)
-        self.assertLessEqual(strongest, 140)
-        self.assertEqual(images.OG_BRAND_MAX_SIZE, (590, 465))
-        self.assertEqual(images.OG_BRAND_OPACITY, 0.52)
-        self.assertEqual(images.OG_BRAND_REVISION, "11")
+            self.assertIsNotNone(result)
+            with images.Image.open(result) as generated:
+                self.assertEqual(generated.size, (images.OG_W, images.OG_H))
+                red, green, blue = generated.convert("RGB").getpixel((600, 315))
+                self.assertLessEqual(abs(red - 0x31), 4)
+                self.assertLessEqual(abs(green - 0x5F), 4)
+                self.assertLessEqual(abs(blue - 0x8D), 4)
 
-        overlay = images.OG_BRAND_OVERLAYS[appearance.FRIENDS]
-        with images.Image.open(overlay) as mark:
-            self.assertEqual(mark.mode, "RGBA")
-            self.assertEqual(mark.getchannel("A").getextrema(), (0, 255))
+        self.assertEqual(images.OG_RENDER_VERSION, "preview-v12:no-overlays")
 
         category = (APP / "templates/public/category.html").read_text("utf-8")
         self.assertIn("&amp;v={{ preview_revision }}", category)
@@ -410,7 +395,7 @@ class ThemePreviewTests(unittest.TestCase):
         self.assertIn("setFocus(lastSavedFocus)", script)
         self.assertNotIn("не сохранилось — тихо", script)
 
-    def test_custom_crop_keeps_focus_then_applies_skin_branding(self):
+    def test_custom_crop_keeps_focus_without_skin_branding(self):
         with tempfile.TemporaryDirectory(prefix="date4you-og-custom-") as tmp:
             root = Path(tmp)
             uploads = root / "uploads"
@@ -421,27 +406,22 @@ class ThemePreviewTests(unittest.TestCase):
             images.Image.new("RGB", (1800, 900), "#315f8d").save(
                 uploads / filename, "WEBP",
             )
-            branded = images.Image.new(
-                "RGB", (images.OG_W, images.OG_H), "#d45a71")
             with patch.object(images, "UPLOAD_DIR", uploads), \
                     patch.object(images, "OG_CACHE_DIR", cache), \
                     patch.object(
-                        images, "_draw_og_brand_overlay", return_value=branded,
-                    ) as overlay:
+                        images.ImageOps, "fit", wraps=images.ImageOps.fit,
+                    ) as fit:
                 result = images.build_og_crop(
                     filename, "20% 80%", appearance.FRIENDS)
 
             self.assertIsNotNone(result)
-            overlay.assert_called_once()
-            crop, skin = overlay.call_args.args
-            self.assertEqual(crop.size, (images.OG_W, images.OG_H))
-            self.assertEqual(skin, appearance.FRIENDS)
+            self.assertEqual(fit.call_args.kwargs["centering"], (0.2, 0.8))
             with images.Image.open(result) as generated:
                 generated.load()
                 red, green, blue = generated.convert("RGB").getpixel((50, 50))
-                self.assertLessEqual(abs(red - 0xD4), 3)
-                self.assertLessEqual(abs(green - 0x5A), 3)
-                self.assertLessEqual(abs(blue - 0x71), 3)
+                self.assertLessEqual(abs(red - 0x31), 4)
+                self.assertLessEqual(abs(green - 0x5F), 4)
+                self.assertLessEqual(abs(blue - 0x8D), 4)
 
             friends_name = Path(result).name
             with patch.object(images, "UPLOAD_DIR", uploads), \
@@ -450,7 +430,7 @@ class ThemePreviewTests(unittest.TestCase):
                     filename, "20% 80%", appearance.ROMANTIC)
             self.assertNotEqual(friends_name, Path(romantic_result).name)
 
-    def test_shared_date_og_endpoint_brands_photo_and_has_skin_fallback(self):
+    def test_shared_date_og_endpoint_crops_photo_and_has_png_fallback(self):
         conn = sqlite3.connect(":memory:")
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys=ON")
@@ -491,7 +471,7 @@ class ThemePreviewTests(unittest.TestCase):
             with patch.object(images, "upload_image_exists", return_value=False):
                 fallback = public_routes.shared_date_og_image(
                     "date-og-route", skin="romantic", conn=conn)
-            self.assertEqual(fallback.media_type, "image/jpeg")
+            self.assertEqual(fallback.media_type, "image/png")
             self.assertEqual(
                 fallback.headers["cache-control"], "public, no-cache",
             )
@@ -519,15 +499,14 @@ class ThemePreviewTests(unittest.TestCase):
             with patch.object(images, "UPLOAD_DIR", uploads), \
                     patch.object(images, "OG_CACHE_DIR", cache):
                 collage_barrier = threading.Barrier(workers)
-                original_overlay = images._draw_og_brand_overlay
+                original_fit = images.ImageOps.fit
 
-                def delayed_overlay(canvas, skin=appearance.ROMANTIC):
+                def delayed_collage_fit(*args, **kwargs):
                     collage_barrier.wait(timeout=10)
-                    return original_overlay(canvas, skin)
+                    return original_fit(*args, **kwargs)
 
-                with patch.object(
-                        images, "_draw_og_brand_overlay",
-                        side_effect=delayed_overlay):
+                with patch.object(images.ImageOps, "fit",
+                                  side_effect=delayed_collage_fit):
                     with ThreadPoolExecutor(max_workers=workers) as pool:
                         collage_paths = list(pool.map(
                             lambda _index: images.build_og_collage(

@@ -429,26 +429,11 @@ def save_videos_batch(uploads) -> list[str]:
 # ---------------------------------------------------------------------------
 
 OG_W, OG_H = 1200, 630
-OG_BRAND_OVERLAYS = {
-    appearance.FRIENDS: (
-        Path(__file__).parent / "static" / "og-collage-overlay-friends.png"
-    ),
-    appearance.ROMANTIC: (
-        Path(__file__).parent / "static" / "og-collage-overlay.png"
-    ),
-}
-OG_DEFAULT_BACKGROUNDS = {
-    appearance.FRIENDS: (
-        Path(__file__).parent / "static" / "og-background-friends.png"
-    ),
-    appearance.ROMANTIC: (
-        Path(__file__).parent / "static" / "og-background-romantic.png"
-    ),
-}
-OG_BRAND_VERSION = "brand-v11:all-photo-previews"
-OG_BRAND_REVISION = "11"
-OG_BRAND_MAX_SIZE = (590, 465)
-OG_BRAND_OPACITY = 0.52
+OG_DEFAULT_IMAGE = Path(__file__).parent / "static" / "category-default.png"
+# Версия входит в cache key, автоматически сбрасывая прежние изображения, в
+# которые накладывался логотип. Пользовательские фото и коллажи с v12 отдаются
+# без каких-либо брендовых слоёв.
+OG_RENDER_VERSION = "preview-v12:no-overlays"
 
 # Публичный API коллажа исторически принимал ``list[str]``. Для WYSIWYG-кропа
 # теперь дополнительно разрешаем пары ``(filename, focus)``; старые вызовы со
@@ -519,12 +504,12 @@ def og_collage_name(
     if not items:
         return None
     skin = appearance.normalize_skin(skin, default=appearance.ROMANTIC)
-    # Версия входит в ключ: при изменении фирменного оверлея старый кэш
-    # автоматически перестаёт использоваться. Skin оставляем в namespace:
-    # пользователь может переключать оформление прямо в редакторе превью.
-    brand_key = f"{OG_BRAND_VERSION}:{skin}\n"
+    # Версия входит в ключ, чтобы после изменения правил рендера старый кэш
+    # автоматически перестал использоваться. Skin оставляем в namespace для
+    # обратной совместимости URL при переключении оформления в редакторе.
+    render_key = f"{OG_RENDER_VERSION}:{skin}\n"
     h = hashlib.sha256(
-        (brand_key + _og_source_key(items)).encode()).hexdigest()[:24]
+        (render_key + _og_source_key(items)).encode()).hexdigest()[:24]
     return f"og_{h}.webp"
 
 
@@ -541,102 +526,29 @@ def og_preview_revision(
     """
     skin = appearance.normalize_skin(skin, default=appearance.ROMANTIC)
     if use_default:
-        payload = f"{OG_BRAND_VERSION}\n{skin}\ndefault"
+        payload = f"{OG_RENDER_VERSION}\n{skin}\ndefault"
     elif custom_image:
         payload = (
-            f"{OG_BRAND_VERSION}\n{skin}\ncustom\n"
+            f"{OG_RENDER_VERSION}\n{skin}\ncustom\n"
             f"{Path(custom_image).name}\n{custom_focus or '50% 50%'}"
         )
     else:
         items = _og_source_items(filenames)
-        payload = f"{OG_BRAND_VERSION}\n{skin}\nauto\n" + _og_source_key(items)
+        payload = f"{OG_RENDER_VERSION}\n{skin}\nauto\n" + _og_source_key(items)
     return hashlib.sha256(payload.encode()).hexdigest()[:12]
 
 
-def _draw_og_brand_overlay(
-        canvas: Image.Image, skin: str = appearance.ROMANTIC) -> Image.Image:
-    """Накладывает полупрозрачный знак выбранного оформления на OG-коллаж.
-
-    В friends-теме используется новое приложенное пользователем лого без
-    подложки; романтическая тема сохраняет свой прежний знак date4you. Raw
-    пользовательское фото без брендинга не отдаём: отсутствие обязательного
-    overlay — ошибка поставки assets, которую нужно заметить сразу.
-    """
-    skin = appearance.normalize_skin(skin, default=appearance.ROMANTIC)
-    try:
-        with Image.open(OG_BRAND_OVERLAYS[skin]) as source:
-            source.load()
-            mark = source.convert("RGBA")
-    except (OSError, ValueError) as exc:
-        log.error("OG brand overlay is unavailable for skin=%s: %s", skin, exc)
-        raise RuntimeError("OG brand overlay is unavailable") from exc
-
-    if skin == appearance.FRIENDS:
-        alpha_box = mark.getchannel("A").getbbox()
-        if not alpha_box:
-            raise RuntimeError("OG brand overlay has no visible pixels")
-        mark = mark.crop(alpha_box)
-    else:
-        width, height = mark.size
-        mark = mark.crop((
-            round(width * 0.22), round(height * 0.12),
-            round(width * 0.78), round(height * 0.88),
-        ))
-    mark.thumbnail(OG_BRAND_MAX_SIZE, Image.LANCZOS)
-    alpha = mark.getchannel("A").point(
-        lambda value: round(value * OG_BRAND_OPACITY))
-    mark.putalpha(alpha)
-
-    overlay = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
-    overlay.alpha_composite(
-        mark,
-        ((OG_W - mark.width) // 2, (OG_H - mark.height) // 2),
-    )
-    return Image.alpha_composite(canvas.convert("RGBA"), overlay).convert("RGB")
-
-
 def og_default_path(skin: str = appearance.ROMANTIC) -> Path:
-    """Собирает фирменный fallback тем же branding-layer, что и фото событий.
+    """Возвращает единый приложенный пользователем fallback категорий.
 
-    Фон намеренно хранится без знака: размер и прозрачность логотипа имеют один
-    источник правды для auto/custom/default preview. Результат публикуется
-    атомарно в восстанавливаемый OG-кэш.
+    Файл намеренно не перекодируется и не кропается: оба оформления получают
+    ровно один и тот же исходный PNG без потери качества и скрытых наложений.
     """
-    skin = appearance.normalize_skin(skin, default=appearance.ROMANTIC)
-    background = OG_DEFAULT_BACKGROUNDS[skin]
-    try:
-        stat = background.stat()
-    except OSError as exc:
-        log.error("OG default background is unavailable for skin=%s: %s", skin, exc)
-        raise RuntimeError("OG default background is unavailable") from exc
-    key = (
-        f"{OG_BRAND_VERSION}|default|{skin}|{background.name}|"
-        f"{stat.st_size}|{stat.st_mtime_ns}"
-    )
-    digest = hashlib.sha256(key.encode()).hexdigest()[:24]
-    out = OG_CACHE_DIR / f"ogd_{digest}.jpg"
-    if out.exists():
-        return out
-
-    try:
-        with Image.open(background) as source:
-            source.load()
-            canvas = ImageOps.fit(
-                source.convert("RGB"), (OG_W, OG_H), Image.LANCZOS)
-    except (OSError, ValueError) as exc:
-        log.error("OG default background is invalid for skin=%s: %s", skin, exc)
-        raise RuntimeError("OG default background is invalid") from exc
-    canvas = _draw_og_brand_overlay(canvas, skin)
-    tmp = _og_temp_path(out)
-    try:
-        canvas.save(tmp, "JPEG", quality=90, optimize=True, progressive=True)
-        _publish_og_temp(tmp, out)
-    finally:
-        try:
-            tmp.unlink()
-        except FileNotFoundError:
-            pass
-    return out
+    appearance.normalize_skin(skin, default=appearance.ROMANTIC)
+    if not OG_DEFAULT_IMAGE.is_file():
+        log.error("OG default image is unavailable: %s", OG_DEFAULT_IMAGE)
+        raise RuntimeError("OG default image is unavailable")
+    return OG_DEFAULT_IMAGE
 
 
 def build_og_collage(
@@ -684,8 +596,6 @@ def build_og_collage(
         y = (idx // cols) * cell_h
         canvas.paste(tile, (x, y))
 
-    canvas = _draw_og_brand_overlay(canvas, skin)
-
     tmp = _og_temp_path(out)
     try:
         canvas.save(tmp, "WEBP", quality=82, method=4)
@@ -713,9 +623,8 @@ def build_og_crop(
         skin: str = appearance.ROMANTIC) -> str | None:
     """Кроп своей картинки превью категории в 1200×630 по точке фокуса (WYSIWYG
     с редактором: как её двигает владелец, так og:image и выглядит). Кэш на диске
-    по (файл, фокус, оформление, версия брендинга). Фокус применяется до общего
-    полупрозрачного logo-overlay, поэтому пользовательский кадр не сдвигается.
-    None, если исходника нет/битый."""
+    по (файл, фокус, оформление, версии рендера). Результат не содержит
+    накладываемых логотипов. None, если исходника нет/битый."""
     if not filename:
         return None
     src = UPLOAD_DIR / Path(filename).name
@@ -724,7 +633,7 @@ def build_og_crop(
     skin = appearance.normalize_skin(skin, default=appearance.ROMANTIC)
     fx, fy = _parse_focus(focus)
     key = (
-        f"{OG_BRAND_VERSION}|{skin}|"
+        f"{OG_RENDER_VERSION}|{skin}|"
         f"{Path(filename).name}|{fx:.2f}|{fy:.2f}"
     )
     h = hashlib.sha256(key.encode()).hexdigest()[:24]
@@ -739,7 +648,6 @@ def build_og_crop(
         return None
     # ImageOps.fit кропает под 1200×630, centering = точка фокуса
     tile = ImageOps.fit(im, (OG_W, OG_H), Image.LANCZOS, centering=(fx, fy))
-    tile = _draw_og_brand_overlay(tile, skin)
     tmp = _og_temp_path(out)
     try:
         tile.save(tmp, "WEBP", quality=85, method=4)

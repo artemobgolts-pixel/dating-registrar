@@ -272,7 +272,7 @@ class CopyActionTests(unittest.TestCase):
     def test_responsive_feed_and_focus_drag_guards_are_present(self):
         css = (APP / "static/admin.css").read_text(encoding="utf-8")
         self.assertIn(
-            ".cfeed {\n  display: grid;\n  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));",
+            ".cfeed {\n  display: grid;\n  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));",
             css,
         )
         self.assertIn(".grid { grid-template-columns: minmax(0, 1fr); gap: 14px; }", css)
@@ -371,11 +371,13 @@ class CopyActionTests(unittest.TestCase):
             self.assertIn(
                 f'data-add="/d/date-880301/add"', feed.text,
             )
-            self.assertIn('class="cfeed-owner"', feed.text)
-            self.assertIn("Автор: ", feed.text)
+            self.assertNotIn('class="cfeed-owner"', feed.text)
+            self.assertNotIn("Автор: ", feed.text)
 
             widget = viewer.get(f"/admin/community/date/{source_date}")
             self.assertEqual(widget.status_code, 200)
+            self.assertIn('class="cfeed-owner"', widget.text)
+            self.assertIn('class="cfeed-owner-name">Тест</span>', widget.text)
             self.assertIn('class="btn ghost cwid-share"', widget.text)
             self.assertIn('data-community-share', widget.text)
 
@@ -402,11 +404,16 @@ class CopyActionTests(unittest.TestCase):
         )
 
         css = (APP / "static/admin.css").read_text(encoding="utf-8")
+        feed_buttons = css.split(".cfeed-add, .cfeed-share {", 1)[1].split("}", 1)[0]
+        self.assertIn("min-height: 44px", feed_buttons)
+        self.assertIn("font-size: 13px", feed_buttons)
+        self.assertIn("#communityDlg:has(.cwid.has-media)", css)
+        self.assertIn("grid-template-columns: minmax(330px, .95fr) minmax(0, 1.05fr)", css)
         self.assertIn(".dates-status-tabs a {", css)
         self.assertIn("font-size: 15.5px;", css)
         self.assertIn("background: var(--accent);", css)
         self.assertIn(
-            "grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);", css,
+            "grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);", css,
         )
         self.assertIn("@media (prefers-reduced-motion: reduce)", css)
         self.assertIn("cubic-bezier(.2, .75, .3, 1)", css)

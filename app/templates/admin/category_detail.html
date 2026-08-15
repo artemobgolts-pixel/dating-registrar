@@ -213,22 +213,23 @@
         </label>
       </div>
     </div>
-    <div class="field deadline-picker" style="margin:0" data-deadline-picker>
+    <div class="field deadline-picker" style="margin:0" data-deadline-picker
+         data-deadline-mode="extend">
       <label class="field-label" for="votingDeadline">Дедлайн голосования<sup class="required-mark" aria-hidden="true">*</sup></label>
       <input type="datetime-local" name="voting_deadline" id="votingDeadline"
              min="{{ deadline_min }}" required data-picker-only
              value="{{ voting_state.voting_deadline[:16] if voting_state.voting_deadline else '' }}">
-      <div class="deadline-presets" aria-label="Быстрый выбор дедлайна">
-        <span>Быстро:</span>
+      <div class="deadline-presets" aria-label="Быстрое продление дедлайна">
+        <span>Продлить:</span>
         <button type="button" class="deadline-preset" data-deadline-hours="3" aria-pressed="false">+3 часа</button>
-        <button type="button" class="deadline-preset" data-deadline-hours="24" aria-pressed="false">Завтра</button>
-        <button type="button" class="deadline-preset" data-deadline-hours="72" aria-pressed="false">Через 3 дня</button>
-        <button type="button" class="deadline-preset" data-deadline-hours="168" aria-pressed="false">Через неделю</button>
+        <button type="button" class="deadline-preset" data-deadline-hours="24" aria-pressed="false">+1 день</button>
+        <button type="button" class="deadline-preset" data-deadline-hours="72" aria-pressed="false">+3 дня</button>
+        <button type="button" class="deadline-preset" data-deadline-hours="168" aria-pressed="false">+1 неделя</button>
       </div>
       <small class="deadline-readable" data-deadline-readable aria-live="polite"></small>
-      <small class="muted">Время указывается по Москве и должно быть раньше начала всех событий.</small>
+      <small class="muted">Вручную можно поставить любой будущий срок по Москве. Быстрые кнопки прибавляют время к выбранному дедлайну; новый срок должен быть раньше начала всех событий.</small>
     </div>
-    <button class="btn primary" type="submit">{{ 'Запустить голосование' if voting_state.status == 'unconfigured' else 'Сохранить настройки' }}</button>
+    <button class="btn primary" type="submit">{{ 'Запустить голосование' if voting_state.status == 'unconfigured' else 'Изменить дедлайн и настройки' }}</button>
   </form>
   {% elif voting_state.status == 'tie' %}
   <div class="voting-tie-note">

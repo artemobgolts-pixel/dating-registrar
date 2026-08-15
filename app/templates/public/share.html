@@ -33,7 +33,8 @@
     .share-from a { color: inherit; font-weight: 700; text-underline-offset: 2px; }
   </style>
 </head>
-<body data-token="{{ token }}" data-name="{{ guest_name or '' }}"
+<body class="public-event-page public-share-page"
+      data-token="{{ token }}" data-name="{{ guest_name or '' }}"
       data-auth="{{ '1' if me else '' }}" data-action-base="/d/{{ token }}"
       data-withdraw-url="/d/{{ token }}/withdraw"
       data-csrf="{{ csrf }}"
@@ -142,7 +143,7 @@
                srcset="/d/{{ token }}/image/{{ im['filename'] }}?w=480 480w,
                        /d/{{ token }}/image/{{ im['filename'] }}?w=960 960w,
                        /d/{{ token }}/image/{{ im['filename'] }}?w=1600 1600w"
-               sizes="{% if active_skin == 'friends' %}(max-width: 619px) calc(100vw - 32px), 286px{% else %}(max-width: 720px) calc(100vw - 32px), 680px{% endif %}"
+               sizes="{% if active_skin == 'friends' %}(max-width: 619px) calc(100vw - 32px), (max-width: 899px) 286px, 430px{% else %}(max-width: 899px) calc(100vw - 32px), 430px{% endif %}"
                data-full="/d/{{ token }}/image/{{ im['filename'] }}" alt=""
                loading="{{ 'eager' if loop.first else 'lazy' }}"
                fetchpriority="{{ 'high' if loop.first else 'low' }}" decoding="async"
@@ -198,9 +199,10 @@
         {% if vote_state %}
         {% set show_roster = vote_state.status in ('unconfigured', 'open')
                              or (vote_state.status == 'resolved' and d.is_winner) %}
+        {% set hide_empty_single_counter = d.capacity == 1 and d.vote_count == 0 %}
         <div class="vote-progress{% if d.is_full %} full{% endif %}">
-          <div class="vote-progress-head"><b>{{ d.vote_count }}/{{ d.capacity }}</b><span>{{ 'участников' if show_roster else 'голосов' }}</span></div>
-          <div class="vote-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="{{ d.capacity }}" aria-valuenow="{{ d.vote_count }}">
+          <div class="vote-progress-head"{% if hide_empty_single_counter %} hidden{% endif %}><b>{{ d.vote_count }}/{{ d.capacity }}</b><span>{{ 'участников' if show_roster else 'голосов' }}</span></div>
+          <div class="vote-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="{{ d.capacity }}" aria-valuenow="{{ d.vote_count }}"{% if hide_empty_single_counter %} hidden{% endif %}>
             <i style="--vote-width:{{ [100, (d.vote_count * 100 / d.capacity)] | min }}%"></i>
           </div>
           {% if show_roster and d.participants %}<div class="participants">

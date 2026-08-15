@@ -174,6 +174,7 @@
     const count = Number(update.vote_count) || 0;
     const capacity = Math.max(1, Number(update.capacity) || 1);
     const full = Boolean(update.is_full);
+    const hideEmptySingleCounter = capacity === 1 && count === 0;
     // У legacy-архива под прогрессом могла быть дублирующая строка «было: …».
     // После снятия старого выбора актуальный ограниченный ростер уже содержит
     // всю нужную информацию, поэтому не оставляем устаревшую подпись.
@@ -184,10 +185,13 @@
     const progress = card.querySelector(".vote-progress");
     if (progress) {
       progress.classList.toggle("full", full);
-      const countLabel = progress.querySelector(".vote-progress-head b");
+      const head = progress.querySelector(".vote-progress-head");
+      if (head) head.hidden = hideEmptySingleCounter;
+      const countLabel = head && head.querySelector("b");
       if (countLabel) countLabel.textContent = `${count}/${capacity}`;
       const track = progress.querySelector(".vote-progress-track");
       if (track) {
+        track.hidden = hideEmptySingleCounter;
         track.setAttribute("aria-valuemax", String(capacity));
         track.setAttribute("aria-valuenow", String(count));
         const fill = track.querySelector("i");

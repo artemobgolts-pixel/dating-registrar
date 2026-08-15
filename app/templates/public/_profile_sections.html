@@ -10,16 +10,16 @@
   {% if tab == 'events' and dates %}
   <div class="pub-grid">
     {% for d in dates %}
-    {% set opens_editor = d['owner_id'] == request.state.user['id'] %}
+    {% set opens_editor = me and d['owner_id'] == me['id'] %}
     {% set editor_url = '/admin/dates/' ~ d['id'] ~ '/edit?return_to=' ~ ((profile_return_url ~ '#profileCollection') | urlencode) %}
     <a class="pub-card" href="{{ editor_url if opens_editor else '/d/' ~ d['share_token'] }}"
-       {% if opens_editor %}data-profile-editor="{{ editor_url }}"{% else %}data-profile-widget="/u/{{ u['id'] }}/date/{{ d['id'] }}/widget"{% endif %}>
+       {% if opens_editor %}data-profile-editor="{{ editor_url }}"{% else %}data-profile-widget="/u/{{ u['id'] }}/date/{{ d['id'] }}/widget?skin={{ profile_skin }}"{% endif %}>
       {% if d['images'] %}
       <div class="ph"><img
         src="/d/{{ d['share_token'] }}/image/{{ d['images'][0]['filename'] }}?w=480"
         srcset="/d/{{ d['share_token'] }}/image/{{ d['images'][0]['filename'] }}?w=480 480w,
                 /d/{{ d['share_token'] }}/image/{{ d['images'][0]['filename'] }}?w=960 960w"
-        sizes="(max-width: 520px) calc(100vw - 28px), 480px" alt=""
+        sizes="(min-width: 980px) 360px, (min-width: 641px) 44vw, calc(100vw - 28px)" alt=""
         loading="{{ 'eager' if loop.first else 'lazy' }}"
         fetchpriority="{{ 'high' if loop.first else 'low' }}" decoding="async"
         {% if d['images'][0]['focus'] %}style="object-position:{{ d['images'][0]['focus'] }}"{% endif %}></div>
@@ -37,12 +37,15 @@
   {% elif tab == 'want' and want_dates %}
   <div class="pub-grid">
     {% for d in want_dates %}
-    {% set opens_editor = d['owner_id'] == request.state.user['id'] %}
+    {% set opens_editor = me and d['owner_id'] == me['id'] %}
     {% set editor_url = '/admin/dates/' ~ d['id'] ~ '/edit?return_to=' ~ ((profile_return_url ~ '#profileCollection') | urlencode) %}
     <a class="pub-card" href="{{ editor_url if opens_editor else '/d/' ~ d['share_token'] }}"
-       {% if opens_editor %}data-profile-editor="{{ editor_url }}"{% else %}data-profile-widget="/u/{{ u['id'] }}/date/{{ d['id'] }}/widget"{% endif %}>
+       {% if opens_editor %}data-profile-editor="{{ editor_url }}"{% else %}data-profile-widget="/u/{{ u['id'] }}/date/{{ d['id'] }}/widget?skin={{ profile_skin }}"{% endif %}>
       {% if d['images'] %}
       <div class="ph"><img src="/d/{{ d['share_token'] }}/image/{{ d['images'][0]['filename'] }}?w=480"
+        srcset="/d/{{ d['share_token'] }}/image/{{ d['images'][0]['filename'] }}?w=480 480w,
+                /d/{{ d['share_token'] }}/image/{{ d['images'][0]['filename'] }}?w=960 960w"
+        sizes="(min-width: 980px) 360px, (min-width: 641px) 44vw, calc(100vw - 28px)"
         alt="" loading="{{ 'eager' if loop.first else 'lazy' }}" decoding="async"
         {% if d['images'][0]['focus'] %}style="object-position:{{ d['images'][0]['focus'] }}"{% endif %}></div>
       {% endif %}
@@ -57,12 +60,16 @@
   {% elif tab == 'reviews' and reviews %}
   <div class="pub-grid review-grid">
     {% for r in reviews %}
-    {% set review_widget_url = '/u/' ~ u['id'] ~ '/reviews/' ~ r['review_id'] ~ '/widget?next=' ~ (profile_return_url | urlencode) %}
+    {% set review_widget_url = '/u/' ~ u['id'] ~ '/reviews/' ~ r['review_id'] ~ '/widget?next=' ~ (profile_return_url | urlencode) ~ '&skin=' ~ profile_skin %}
     <article class="review-card" id="review-{{ r['review_id'] }}" role="link" tabindex="0"
              aria-label="Открыть «{{ r['name'] }}»"
              data-profile-widget="{{ review_widget_url }}">
       <div class="review-cover" aria-hidden="true">
-        {% if r['images'] %}<img src="/d/{{ r['share_token'] }}/image/{{ r['images'][0]['filename'] }}?w=480" alt="" loading="{{ 'eager' if loop.first else 'lazy' }}" decoding="async"{% if r['images'][0]['focus'] %} style="object-position:{{ r['images'][0]['focus'] }}"{% endif %}>{% endif %}
+        {% if r['images'] %}<img src="/d/{{ r['share_token'] }}/image/{{ r['images'][0]['filename'] }}?w=480"
+          srcset="/d/{{ r['share_token'] }}/image/{{ r['images'][0]['filename'] }}?w=480 480w,
+                  /d/{{ r['share_token'] }}/image/{{ r['images'][0]['filename'] }}?w=960 960w"
+          sizes="(min-width: 980px) 540px, (min-width: 641px) 44vw, calc(100vw - 28px)"
+          alt="" loading="{{ 'eager' if loop.first else 'lazy' }}" decoding="async"{% if r['images'][0]['focus'] %} style="object-position:{{ r['images'][0]['focus'] }}"{% endif %}>{% endif %}
       </div>
       <div class="review-card-body">
         <span class="review-event">{{ r['name'] }}</span>

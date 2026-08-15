@@ -103,7 +103,7 @@ class ReviewCollectionUiTests(unittest.TestCase):
         )
 
         self.assertIn(
-            "grid-template-columns: repeat(auto-fill, minmax(240px, 1fr))",
+            "grid-template-columns: repeat(auto-fill, minmax(320px, 1fr))",
             rule(admin_css, ".grid"),
         )
         self.assertIn(
@@ -122,7 +122,7 @@ class ReviewCollectionUiTests(unittest.TestCase):
         self.assertIn(".dates-bulk-form, .drow-select { display: none; }", admin_css)
         self.assertIn("profile-tab-{{ tab }}", profile_sections)
         self.assertIn(
-            "sizes=\"(max-width: 520px) calc(100vw - 28px), 480px\"",
+            "sizes=\"(min-width: 980px) 360px, (min-width: 641px) 44vw, calc(100vw - 28px)\"",
             profile_sections,
         )
         self.assertIn(".pub-grid { grid-template-columns: 1fr; }", profile_css)
@@ -131,6 +131,21 @@ class ReviewCollectionUiTests(unittest.TestCase):
             "  grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px;",
             profile_css,
         )
+        self.assertIn("@media (min-width: 980px)", profile_css)
+        self.assertIn(
+            "grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px;",
+            profile_css,
+        )
+        self.assertIn(
+            ".profile-public-page .review-grid {\n"
+            "    grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px;",
+            profile_css,
+        )
+        self.assertIn(
+            ".profile-public-page .profile-event-dlg:has(.cwid.has-media)",
+            profile_css,
+        )
+        self.assertIn("width: min(1120px, calc(100vw - 56px))", profile_css)
         self.assertIn(
             ".profile-public-page .pub-dates.profile-tab-events .pub-grid {\n"
             "    grid-template-columns: minmax(0, 1fr); gap: 14px;",
@@ -174,6 +189,8 @@ class ReviewCollectionUiTests(unittest.TestCase):
         self.assertIn('class="bg-hearts"', template)
         self.assertIn('class="profile-public-actions"', template)
         self.assertIn('class="profile-public-shell"', template)
+        self.assertIn("{% if me %}", template)
+        self.assertIn("/login?next={{ profile_return_url | urlencode }}", template)
         self.assertNotIn("<style>", template)
         self.assertIn("body.profile-public-page", profile_css)
         self.assertIn(

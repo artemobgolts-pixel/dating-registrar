@@ -1068,8 +1068,8 @@ def public_og_image(token: str, skin: str | None = None,
     """Картинка превью ссылки (og:image) — её запрашивают краулеры мессенджеров
     (Telegram, WhatsApp) без cookie, поэтому отдаём публично по активной ссылке.
     Своя og_image категории в приоритете; иначе — коллаж из фото её событий
-    (сетка 2×2 или 4×2). Все пользовательские фото получают один branding-layer;
-    если фото нет, endpoint сам отдаёт skin-fallback без расхождения HTML-веток."""
+    (сетка 2×2 или 4×2). Пользовательские фото отдаются без накладываемых лого;
+    если фото нет, endpoint отдаёт единый приложенный default preview."""
     cat = cat_by_token(conn, token)
     if not cat or not cat["link_enabled"]:
         raise HTTPException(404)
@@ -1077,7 +1077,7 @@ def public_og_image(token: str, skin: str | None = None,
     if cat["use_default_preview"]:
         return FileResponse(
             images.og_default_path(preview_skin),
-            media_type="image/jpeg",
+            media_type="image/png",
             headers={"Cache-Control": "public, no-cache"},
         )
     fn = cat["og_image"] if images.upload_image_exists(cat["og_image"]) else None
@@ -1097,7 +1097,7 @@ def public_og_image(token: str, skin: str | None = None,
     if not collage:
         return FileResponse(
             images.og_default_path(preview_skin),
-            media_type="image/jpeg",
+            media_type="image/png",
             headers={"Cache-Control": "public, no-cache"},
         )
     return FileResponse(collage, media_type="image/webp",
@@ -1361,9 +1361,8 @@ def shared_date_og_image(token: str, skin: str | None = None,
                          v: str | None = None, conn=Depends(get_db)):
     """Единый link preview события и его публичных обзоров.
 
-    Первый кадр сохраняет пользовательский focus, после чего получает тот же
-    полупрозрачный знак, что и category collage. Без доступного фото возвращаем
-    фирменный fallback выбранного оформления.
+    Первый кадр сохраняет пользовательский focus и не получает накладываемых
+    логотипов. Без доступного фото возвращаем единый default preview.
     """
     date_row = conn.execute(
         "SELECT id FROM dates WHERE share_token=?", (token,),
@@ -1387,7 +1386,7 @@ def shared_date_og_image(token: str, skin: str | None = None,
             )
     return FileResponse(
         images.og_default_path(preview_skin),
-        media_type="image/jpeg",
+        media_type="image/png",
         headers={"Cache-Control": "public, no-cache"},
     )
 

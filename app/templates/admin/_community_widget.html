@@ -1,7 +1,7 @@
 {# Мини-виджет события из ленты комьюнити (внутри модалки на главной).
    Категорию и модификатор оплаты не показываем. Кнопка «Добавить себе» шлёт
    fetch на /d/<share_token>/add и отвечает JSON — лента не прерывается. #}
-<div class="cwid">
+<div class="cwid{{ ' has-media' if d['images'] or d['videos'] else '' }}">
   {% if d['images'] or d['videos'] %}
   <div class="cwid-gallery">
     {% for im in d['images'] %}
@@ -18,7 +18,7 @@
     {% for v in d['videos'] %}
     <video data-src="/d/{{ d['share_token'] }}/video/{{ v['filename'] }}" controls
            playsinline preload="none"
-           poster="{% if d['images'] %}/d/{{ d['share_token'] }}/image/{{ d['images'][0]['filename'] }}?w=960{% else %}{{ asset('date-default-friends.jpg' if user['admin_skin'] == 'friends' else 'date-default.jpg') }}{% endif %}"></video>
+           poster="{% if d['images'] %}/d/{{ d['share_token'] }}/image/{{ d['images'][0]['filename'] }}?w=960{% else %}{{ asset('date-default-friends.jpg' if admin_skin == 'friends' else 'date-default.jpg') }}{% endif %}"></video>
     {% endfor %}
   </div>
   {% endif %}
@@ -61,7 +61,11 @@
         {{ 'Убрать из «Хочу сходить»' if wanted_by_me else 'Хочу сходить' }}
       </button>
       {% endif %}
+      {% if me %}
       <button type="button" class="btn ghost cwid-add" data-add="/d/{{ d['share_token'] }}/add">Добавить себе{% if admin_skin == 'romantic' %} ♥{% endif %}</button>
+      {% else %}
+      <a class="btn ghost cwid-add" href="/login?next={{ ('/d/' ~ d['share_token']) | urlencode }}">Войти или зарегистрироваться, чтобы добавить в коллекцию{% if admin_skin == 'romantic' %} ♥{% endif %}</a>
+      {% endif %}
       {% endif %}
       <button type="button" class="btn ghost cwid-share" data-community-share
               data-share-url="{{ BASE_URL }}/d/{{ d['share_token'] }}"

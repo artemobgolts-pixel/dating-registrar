@@ -8,6 +8,7 @@ import io
 import json
 import logging
 import os
+import secrets
 import tempfile
 import zipfile
 from datetime import datetime, timedelta
@@ -170,6 +171,7 @@ def profile_form(request: Request, conn=Depends(get_db)):
     return templates.TemplateResponse(
         request, "admin/profile.html",
         actx(request, conn, active="profile", oauth_providers=providers,
+             me=request.state.user,
              first_category_id=first_category["id"] if first_category else None,
              profile_base_url="/admin/profile", public_events_label="Публичные события",
              profile_skin_suffix="", profile_embedded=True,
@@ -426,34 +428,41 @@ def community_widget(did: int, request: Request, conn=Depends(get_db)):
     if not r:
         raise HTTPException(404, "Событие не найдено")
 
-    return _event_widget_response(request, conn, r)
+    return _event_widget_response(
+        request, conn, r, viewer=request.state.user,
+        widget_skin=request.state.user["admin_skin"],
+    )
 
 
-def _event_widget_response(request: Request, conn, row):
+def _event_widget_response(request: Request, conn, row, *, viewer=None,
+                           widget_skin: str | None = None):
     """Рисует общий встроенный виджет ленты и профилей."""
     did = int(row["id"])
     media = public_routes._batch_media(conn, [did])
     d = public_routes.date_payload_from(row, media)
     d["owner_display"] = (row["owner_name"] or row["owner_username"]
                           or f"Человек #{row['owner_id']}")
-    is_mine = int(row["owner_id"]) == int(request.state.user["id"])
+    is_mine = bool(
+        viewer is not None
+        and int(row["owner_id"]) == int(viewer["id"])
+    )
     wanted_by_me = False
     want_action_available = False
-    if not is_mine:
+    if viewer is not None and not is_mine:
         has_want = conn.execute(
             "SELECT 1 FROM date_wants WHERE user_id=? AND date_id=?",
-            (request.state.user["id"], did),
+            (viewer["id"], did),
         ).fetchone() is not None
         want_action_available = social_events.want_action_available(
-            conn, did, int(request.state.user["id"]), now=now_naive(),
+            conn, did, int(viewer["id"]), now=now_naive(),
         )
         wanted_by_me = has_want and want_action_available
     return templates.TemplateResponse(
         request, "admin/_community_widget.html",
-        {"request": request, "d": d,
+        {"request": request, "d": d, "me": viewer,
          "is_mine": is_mine, "wanted_by_me": wanted_by_me,
          "want_action_available": want_action_available,
-         "admin_skin": appearance.normalize_skin(request.state.user["admin_skin"])})
+         "admin_skin": appearance.normalize_skin(widget_skin)})
 
 
 @router.get("/uploads/{filename}")
@@ -1060,12 +1069,12 @@ def category_og_preview(cid: int, request: Request, skin: str | None = None,
     if cat["use_default_preview"]:
         return FileResponse(
             images.og_default_path(preview_skin),
-            media_type="image/jpeg",
+            media_type="image/png",
             headers={"Cache-Control": "private, no-cache"},
         )
     if images.upload_image_exists(cat["og_image"]):
         # Редактор фокуса показывает защищённый raw upload, а этот endpoint —
-        # итоговый link preview: тот же кроп плюс единый полупрозрачный знак.
+        # итоговый link preview с тем же кропом и без накладываемых логотипов.
         cropped = images.build_og_crop(
             cat["og_image"], cat["og_focus"], preview_skin)
         if cropped:
@@ -1076,7 +1085,7 @@ def category_og_preview(cid: int, request: Request, skin: str | None = None,
     if not collage:
         return FileResponse(
             images.og_default_path(preview_skin),
-            media_type="image/jpeg",
+            media_type="image/png",
             headers={"Cache-Control": "private, no-cache"},
         )
     return FileResponse(collage, media_type="image/webp",
@@ -2526,23 +2535,32 @@ def question_delete(qid: int, request: Request, next: str = Form("/admin/questio
 
 
 # ---------------------------------------------------------------------------
-# Публичная страница профиля /u/<id> — доступна ЛЮБОМУ залогиненному.
-# Незалогиненный сюда не попадёт (current_user → NeedLogin → /login).
+# Публичная страница профиля /u/<id> доступна без регистрации. Изменения
+# обзоров остаются защищены current_user и CSRF на конкретных POST-роутах.
 # Решение владельца: показываем имя, фото, полную дату рождения и пол.
 # (Privacy-пометка про полную ДР — в Политике конфиденциальности.)
 # ---------------------------------------------------------------------------
-user_router = APIRouter(prefix="/u", dependencies=[Depends(current_user)])
+user_router = APIRouter(prefix="/u")
 PUBLIC_PROFILE_PAGE = 12
 
 
-def _profile_sections_context(conn, user_id: int, viewer_id: int, query_params) -> dict:
+def _profile_viewer(request: Request, conn):
+    """Необязательный viewer публичного профиля с готовым CSRF для действий."""
+    me = public_routes.viewer(request, conn)
+    if me is not None and "csrf" not in request.session:
+        request.session["csrf"] = secrets.token_urlsafe(16)
+    return me
+
+
+def _profile_sections_context(conn, user_id: int, viewer_id: int | None,
+                              query_params) -> dict:
     """Данные трёх социальных вкладок профиля.
 
     Один загрузчик используется и в настройках собственного профиля, и на
     гостевой странице ``/u/<id>``. Так вкладки не расходятся по приватности и
     пагинации, хотя оболочка и подпись первой вкладки у них разные.
     """
-    is_me = int(user_id) == int(viewer_id)
+    is_me = viewer_id is not None and int(user_id) == int(viewer_id)
     tab = query_params.get("tab", "events")
     if tab not in {"events", "want", "reviews"}:
         tab = "events"
@@ -2636,14 +2654,18 @@ def public_profile(user_id: int, request: Request, conn=Depends(get_db)):
         "FROM users WHERE id=? AND is_active=1", (user_id,)).fetchone()
     if not u:
         raise HTTPException(404, "Профиль не найден")
+    me = _profile_viewer(request, conn)
     sections = _profile_sections_context(
-        conn, user_id, request.state.user["id"], request.query_params,
+        conn, user_id, int(me["id"]) if me else None, request.query_params,
     )
     # В обычном переходе профиль наследует оформление посетителя. Ссылки из
     # категории передают её skin явно, чтобы контекст категории сохранился.
     requested_skin = request.query_params.get("skin")
     profile_skin = appearance.normalize_skin(
-        requested_skin, default=appearance.normalize_skin(request.state.user["admin_skin"]),
+        requested_skin,
+        default=appearance.normalize_skin(
+            me["admin_skin"] if me else appearance.ROMANTIC,
+        ),
     )
     skin_suffix = f"&skin={profile_skin}" if requested_skin in appearance.VALID_SKINS else ""
     profile_base_url = f"/u/{user_id}"
@@ -2652,7 +2674,8 @@ def public_profile(user_id: int, request: Request, conn=Depends(get_db)):
     )
     return templates.TemplateResponse(
         request, "public/profile.html",
-        {"request": request, "u": u, "csrf": request.session.get("csrf", ""),
+        {"request": request, "u": u, "me": me,
+         "csrf": request.session.get("csrf", ""),
          "profile_skin": profile_skin, "profile_base_url": profile_base_url,
          "profile_skin_suffix": skin_suffix,
          "public_events_label": "Коллекция событий",
@@ -2682,8 +2705,9 @@ def public_profile_date_widget(user_id: int, did: int, request: Request,
     if not row:
         raise HTTPException(404, "Событие не найдено")
 
-    viewer_id = int(request.state.user["id"])
-    is_me = int(user_id) == viewer_id
+    me = _profile_viewer(request, conn)
+    viewer_id = int(me["id"]) if me else None
+    is_me = viewer_id is not None and int(user_id) == viewer_id
     date_public = bool(row["is_public"]) and not bool(row["is_draft"])
     visible = (
         int(row["owner_id"]) == int(user_id)
@@ -2708,7 +2732,10 @@ def public_profile_date_widget(user_id: int, did: int, request: Request,
 
     if not visible:
         raise HTTPException(404, "Событие не найдено")
-    return _event_widget_response(request, conn, row)
+    return _event_widget_response(
+        request, conn, row, viewer=me,
+        widget_skin=request.query_params.get("skin"),
+    )
 
 
 @user_router.get("/{user_id}/reviews/{review_id}/widget", response_class=HTMLResponse)
@@ -2727,7 +2754,8 @@ def public_profile_review_widget(user_id: int, review_id: int, request: Request,
     ).fetchone()
     if not row:
         raise HTTPException(404, "Обзор не найден")
-    is_me = int(user_id) == int(request.state.user["id"])
+    me = _profile_viewer(request, conn)
+    is_me = me is not None and int(user_id) == int(me["id"])
     shareable = bool(row["review_public"] and row["date_public"]
                      and not row["date_draft"])
     if not is_me and not shareable:
@@ -2737,7 +2765,7 @@ def public_profile_review_widget(user_id: int, review_id: int, request: Request,
     review["images"] = media["images"].get(int(row["date_id"]), [])
     return templates.TemplateResponse(
         request, "public/_profile_review_widget.html",
-        {"request": request, "review": review, "is_me": is_me,
+        {"request": request, "review": review, "me": me, "is_me": is_me,
          "shareable": shareable,
          "reviewer_display": row["display_name"] or row["tg_username"]
          or f"Человек #{user_id}",
@@ -2770,7 +2798,8 @@ def _safe_profile_return(raw: str, user_id: int) -> str:
     return raw
 
 
-@user_router.post("/{user_id}/reviews/{review_id}/edit")
+@user_router.post("/{user_id}/reviews/{review_id}/edit",
+                  dependencies=[Depends(current_user)])
 def public_profile_review_edit(user_id: int, review_id: int, request: Request,
                                rating: int = Form(...), text: str = Form(""),
                                next: str = Form(""),
@@ -2805,7 +2834,8 @@ def public_profile_review_edit(user_id: int, review_id: int, request: Request,
     return redir(_safe_profile_return(next, user_id), msg)
 
 
-@user_router.post("/{user_id}/reviews/{review_id}/hide")
+@user_router.post("/{user_id}/reviews/{review_id}/hide",
+                  dependencies=[Depends(current_user)])
 def public_profile_review_hide(user_id: int, review_id: int, request: Request,
                                next: str = Form(""),
                                conn=Depends(get_db)):
@@ -2830,8 +2860,7 @@ def public_profile_review_hide(user_id: int, review_id: int, request: Request,
 @user_router.get("/{user_id}/avatar")
 def public_avatar(user_id: int, request: Request, w: int | None = None,
                   conn=Depends(get_db)):
-    """Аватар по id пользователя — для страницы /u/<id>. Гейт логина уже на
-    роутере; отдаём только активным пользователям."""
+    """Публичный аватар по id активного пользователя для страницы /u/<id>."""
     row = conn.execute(
         "SELECT avatar_path FROM users WHERE id=? AND is_active=1", (user_id,)).fetchone()
     fn = row["avatar_path"] if row else None
@@ -2842,4 +2871,4 @@ def public_avatar(user_id: int, request: Request, w: int | None = None,
     except (FileNotFoundError, ValueError):
         raise HTTPException(404)
     return FileResponse(path, media_type="image/webp",
-                        headers={"Cache-Control": "private, max-age=300"})
+                        headers={"Cache-Control": "public, max-age=300"})

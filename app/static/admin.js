@@ -1398,11 +1398,17 @@
         button.addEventListener("click", function () {
           var hours = Number(button.dataset.deadlineHours);
           if (!Number.isFinite(hours) || hours <= 0) return;
-          var selected = toMoscowWallDate(new Date());
-          // Сначала округляем московское wall-clock время вверх до четверти
-          // часа, затем прибавляем выбранный интервал.
-          var quarterHour = 15 * 60 * 1000;
-          selected = new Date(Math.ceil(selected.getTime() / quarterHour) * quarterHour);
+          var current = toMoscowWallDate(new Date());
+          var selected = picker.dataset.deadlineMode === "extend"
+            ? parseValue(input.value) : null;
+          // В редакторе категории быстрые кнопки именно продлевают уже
+          // выбранный срок. Если поле пустое или срок успел пройти, безопасно
+          // начинаем от текущего московского времени. На экране создания база
+          // всегда текущая, как и раньше.
+          if (!selected || selected.getTime() < current.getTime()) {
+            var quarterHour = 15 * 60 * 1000;
+            selected = new Date(Math.ceil(current.getTime() / quarterHour) * quarterHour);
+          }
           selected.setUTCHours(selected.getUTCHours() + hours);
           input.value = toValue(selected);
           presets.forEach(function (item) {

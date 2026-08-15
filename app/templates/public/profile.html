@@ -16,7 +16,7 @@
 <script src="{{ asset('ink.js') }}" defer></script>
 </head>
 <body class="profile-public-page" data-skin="{{ profile_skin }}" data-csrf="{{ csrf }}"
-      data-ink-interactive="{{ '1' if request.state.user and request.state.user['cursor_effects'] else '0' }}">
+      data-ink-interactive="{{ '1' if me and me['cursor_effects'] else '0' }}">
 {% if profile_skin == 'friends' %}
 <div class="bg-gather" aria-hidden="true">
   <span class="orbit o1"></span><span class="orbit o2"></span>
@@ -31,7 +31,11 @@
 {% include "public/_bg.html" %}
 
 <div class="profile-public-actions">
+  {% if me %}
   <a class="profile-public-back" href="/admin/">← В кабинет</a>
+  {% else %}
+  <a class="profile-public-back" href="/login?next={{ profile_return_url | urlencode }}">Войти</a>
+  {% endif %}
   <button type="button" class="theme-float" data-theme-toggle aria-label="Включить тёмную тему">
     <span class="theme-moon-icon" data-theme-icon aria-hidden="true"></span>
   </button>

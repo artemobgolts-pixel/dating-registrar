@@ -114,6 +114,40 @@ class VotingDomainTests(unittest.TestCase):
             self.conn, category_id, date_id, self.owner_id, now=NOW,
         )
 
+    def test_moving_open_deadline_preserves_existing_votes(self):
+        category_id = self.category()
+        first = self.date(category_id, name="Первый")
+        second = self.date(category_id, name="Второй")
+        self.configure(category_id, voting.CHOICE_MULTIPLE)
+        voting.cast_vote(self.conn, category_id, first, 2, now=NOW)
+        voting.cast_vote(self.conn, category_id, second, 2, now=NOW)
+        booking_ids = [row["id"] for row in self.conn.execute(
+            "SELECT id FROM bookings WHERE category_id=? ORDER BY id",
+            (category_id,),
+        )]
+
+        extended = voting.configure_category(
+            self.conn, category_id, self.owner_id, voting.CHOICE_MULTIPLE,
+            "2030-01-03T10:00:00", now=NOW,
+        )
+        self.assertEqual(extended.voting_deadline, "2030-01-03T10:00:00")
+        self.assertEqual(extended.total_votes, 2)
+        self.assertEqual(extended.vote_counts, {first: 1, second: 1})
+
+        moved_manually = voting.configure_category(
+            self.conn, category_id, self.owner_id, voting.CHOICE_MULTIPLE,
+            "2030-01-01T20:00:00", now=NOW,
+        )
+        self.assertEqual(moved_manually.voting_deadline, "2030-01-01T20:00:00")
+        self.assertEqual(moved_manually.total_votes, 2)
+        self.assertEqual(
+            [row["id"] for row in self.conn.execute(
+                "SELECT id FROM bookings WHERE category_id=? ORDER BY id",
+                (category_id,),
+            )],
+            booking_ids,
+        )
+
     def test_capacity_is_counted_independently_per_category(self):
         first = self.category("Первая")
         second = self.category("Вторая")

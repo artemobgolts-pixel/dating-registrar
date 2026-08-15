@@ -136,16 +136,36 @@ class FrontendMediaContractTests(unittest.TestCase):
             css = (APP / f"static/{filename}").read_text(encoding="utf-8")
             self.assertIn("html.ink-static .bg-smoke", css, filename)
 
-    def test_friends_cards_advertise_their_narrow_desktop_media_width(self):
+    def test_public_cards_advertise_tablet_and_desktop_media_widths(self):
         for filename in ("category.html", "share.html"):
             template = (
                 APP / f"templates/public/{filename}"
             ).read_text(encoding="utf-8")
             self.assertIn(
-                "(max-width: 619px) calc(100vw - 32px), 286px",
+                "(max-width: 619px) calc(100vw - 32px), "
+                "(max-width: 899px) 286px, 430px",
                 template,
                 filename,
             )
+            self.assertIn(
+                "(max-width: 899px) calc(100vw - 32px), 430px",
+                template,
+                filename,
+            )
+
+        category = (APP / "templates/public/category.html").read_text("utf-8")
+        share = (APP / "templates/public/share.html").read_text("utf-8")
+        css = (APP / "static/public.css").read_text("utf-8")
+        self.assertIn('class="public-event-page public-category-page"', category)
+        self.assertIn('class="public-event-page public-share-page"', share)
+        self.assertIn("@media (min-width: 900px)", css)
+        self.assertIn(".public-event-page .wrap", css)
+        self.assertIn("max-width: 1080px", css)
+        self.assertIn(".public-event-page .card:not(.nophoto)", css)
+        self.assertIn(
+            "grid-template-columns: minmax(340px, 42%) minmax(0, 1fr)",
+            css,
+        )
 
     def test_vote_ui_updates_cards_without_page_reload(self):
         guest = (APP / "static/guest.js").read_text(encoding="utf-8")
@@ -153,7 +173,23 @@ class FrontendMediaContractTests(unittest.TestCase):
             'document.querySelectorAll(".withdraw-vote")', 1)[0]
         self.assertIn("applyVoteUpdate", vote_block)
         self.assertIn("renderParticipants", guest)
+        self.assertIn(
+            "const hideEmptySingleCounter = capacity === 1 && count === 0;",
+            guest,
+        )
+        self.assertIn("head.hidden = hideEmptySingleCounter", guest)
+        self.assertIn("track.hidden = hideEmptySingleCounter", guest)
         self.assertNotIn("location.reload", vote_block)
+
+        for filename in ("category.html", "share.html"):
+            template = (
+                APP / f"templates/public/{filename}"
+            ).read_text(encoding="utf-8")
+            self.assertIn(
+                "d.capacity == 1 and d.vote_count == 0",
+                template,
+                filename,
+            )
 
     def test_persisted_videos_have_lazy_source_and_poster(self):
         templates = (
@@ -178,7 +214,6 @@ class FrontendMediaContractTests(unittest.TestCase):
             APP / "templates/public/category.html",
             APP / "templates/public/share.html",
             APP / "templates/admin/_community_widget.html",
-            APP / "templates/admin/_community_cards.html",
         )
         for path in templates:
             text = path.read_text(encoding="utf-8")
@@ -186,11 +221,17 @@ class FrontendMediaContractTests(unittest.TestCase):
             self.assertIn("?w=96 96w", text, path.name)
             self.assertIn("?w=128 128w", text, path.name)
 
-        # В карточке общей ленты рядом с действиями снова виден автор.
+        # Автор скрыт в ленте и появляется только после открытия виджета.
         feed_card = (APP / "templates/admin/_community_cards.html").read_text(
             encoding="utf-8",
         )
-        self.assertIn("Автор:", feed_card)
+        widget = (APP / "templates/admin/_community_widget.html").read_text(
+            encoding="utf-8",
+        )
+        self.assertNotIn("d['owner_display']", feed_card)
+        self.assertNotIn('class="cfeed-owner"', feed_card)
+        self.assertIn("d['owner_display']", widget)
+        self.assertIn('class="cfeed-owner"', widget)
         self.assertIn("Добавить в коллекцию", feed_card)
 
 

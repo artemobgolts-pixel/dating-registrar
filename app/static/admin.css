@@ -1829,7 +1829,7 @@ html.ink-static .bg-smoke span {
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 16px;
 }
 .dcard {
@@ -1845,7 +1845,7 @@ html.ink-static .bg-smoke span {
 }
 .dcard:hover { transform: translateY(-2px); box-shadow: 0 16px 38px rgba(150, 80, 95, .14); }
 .dcard .ph {
-  height: 112px; position: relative;
+  height: auto; aspect-ratio: 16 / 9; position: relative;
   border-radius: 18px 18px 0 0; overflow: hidden;
   background: linear-gradient(135deg, #caa094, #9c6f6a);
 }
@@ -1873,6 +1873,12 @@ html.ink-static .bg-smoke span {
 .dcard .meta:empty { margin-bottom: 0; }   /* нет заполненных полей — без пустого места */
 .dcard .meta .mrow { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dcard .meta .mcats { white-space: normal; }
+@media (min-width: 721px) {
+  .dcard .b { padding: 15px 16px 16px; }
+  .dcard.nocover .b { padding-top: 17px; }
+  .dcard .ttl { font-size: 20px; margin-bottom: 7px; }
+  .dcard .meta { font-size: 13px; gap: 5px; margin-bottom: 14px; }
+}
 
 /* бейджи поверх миниатюры */
 .badges { position: absolute; top: 8px; left: 8px; display: flex; gap: 5px; flex-wrap: wrap; z-index: 2; max-width: calc(100% - 16px); }
@@ -2948,7 +2954,7 @@ html[data-theme="dark"][data-skin="friends"] .share-qr {
 .cfeed-intro { margin-bottom: 14px; }
 .cfeed {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 16px;
 }
 .cfeed-card {
@@ -2963,14 +2969,21 @@ html[data-theme="dark"][data-skin="friends"] .share-qr {
 }
 .cfeed-card:hover { transform: translateY(-2px); box-shadow: 0 16px 38px rgba(150, 80, 95, .14); }
 .cfeed-card:focus-visible { outline: 2px solid var(--rose); outline-offset: 2px; }
-.cfeed-ph { height: 132px; background: linear-gradient(135deg, #caa094, #9c6f6a); }
+.cfeed-ph {
+  height: auto; aspect-ratio: 16 / 9;
+  background: linear-gradient(135deg, #caa094, #9c6f6a);
+}
 .cfeed-ph img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .cfeed-ph-vid { display: grid; place-items: center; font-size: 34px; }
-.cfeed-body { padding: 12px 13px 13px; display: flex; flex-direction: column; gap: 7px; flex: 1; }
-.cfeed-ttl { font-size: 17px; color: var(--ink); margin: 0; line-height: 1.2; }
-.cfeed-meta { font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 2px; }
+.cfeed-body { padding: 15px 16px 16px; display: flex; flex-direction: column; gap: 9px; flex: 1; }
+.cfeed-title-row {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 12px; min-width: 0;
+}
+.cfeed-ttl { min-width: 0; font-size: 20px; color: var(--ink); margin: 0; line-height: 1.2; }
+.cfeed-meta { font-size: 13px; color: var(--muted); display: flex; flex-direction: column; gap: 3px; }
 .cfeed-desc {
-  font-size: 13px; color: #6b5b5e; margin: 0;
+  font-size: 14px; color: #6b5b5e; margin: 0;
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -2985,30 +2998,22 @@ html[data-theme="dark"][data-skin="friends"] .share-qr {
 .cfeed-ava { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; }
 .cfeed-ava-ph { display: grid; place-items: center; background: #f3e6e9; font-size: 15px; }
 .cfeed-owner-name { max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cfeed-card-byline {
-  display: flex; align-items: center; justify-content: space-between;
-  gap: 10px; margin-top: auto; min-width: 0;
-}
-.cfeed-card-byline .cfeed-owner {
-  flex: 1 1 auto; min-width: 0; margin-top: 0; overflow: hidden;
-}
-.cfeed-card-byline .cfeed-owner-name { min-width: 0; max-width: none; }
 .report-link {
   margin-top: 9px; border: 0; background: none; padding: 0; cursor: pointer;
   font: inherit; font-size: 12px; color: var(--muted); opacity: .7;
   text-decoration: underline dotted; text-underline-offset: 3px;
 }
 .report-link:hover { color: var(--rose-2); opacity: 1; }
-.cfeed-card-byline .report-link { flex: none; margin-top: 0; white-space: nowrap; }
+.cfeed-title-row .report-link { flex: none; margin-top: 3px; white-space: nowrap; }
 .cfeed-card-actions {
-  display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
-  align-items: center; gap: 8px; margin-top: 0;
+  display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  align-items: center; gap: 10px; margin-top: auto; padding-top: 5px;
   min-width: 0;
 }
 .cfeed-add, .cfeed-share {
-  width: 100%; min-width: 0; appearance: none; cursor: pointer;
+  width: 100%; min-width: 0; min-height: 44px; appearance: none; cursor: pointer;
   border: 1px solid var(--line); border-radius: 999px;
-  padding: 7px 6px; font-family: inherit; font-size: 11px;
+  padding: 10px 12px; font-family: inherit; font-size: 13px;
   font-weight: 600; line-height: 1.2;
   transition: background .18s ease, border-color .18s ease, color .18s ease;
 }
@@ -3078,6 +3083,33 @@ html[data-theme="dark"][data-skin="friends"] .share-qr {
 .cwid-links a { font-size: 13px; color: var(--rose-2); }
 .cwid-actions { display: grid; gap: 8px; margin-top: 16px; }
 .cwid-actions .btn { width: 100%; text-align: center; padding: 12px; font-size: 15px; font-weight: 600; }
+@media (min-width: 760px) {
+  #communityDlg:has(.cwid.has-media) { max-width: 900px; }
+  #communityDlg .cwid.has-media {
+    display: grid; grid-template-columns: minmax(330px, .95fr) minmax(0, 1.05fr);
+    min-height: 430px;
+  }
+  #communityDlg .cwid.has-media .cwid-gallery {
+    height: 100%; min-width: 0; border-radius: 20px 0 0 20px;
+  }
+  #communityDlg .cwid.has-media .cwid-gallery img,
+  #communityDlg .cwid.has-media .cwid-gallery video {
+    height: 100%; min-height: 430px; max-height: none;
+  }
+  #communityDlg .cwid-body {
+    min-width: 0; padding: 28px 30px 30px;
+    display: flex; flex-direction: column;
+  }
+  #communityDlg .cwid-ttl { margin-right: 38px; font-size: 30px; }
+  #communityDlg .cwid-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-top: auto; padding-top: 20px;
+  }
+  #communityDlg .cwid-actions .cwid-want { grid-column: 1 / -1; }
+  #communityDlg .cwid-actions .btn {
+    min-height: 48px; display: inline-flex; align-items: center; justify-content: center;
+  }
+}
 
 /* собственный тост админки (на гостевой есть свой) */
 .admin-toast {

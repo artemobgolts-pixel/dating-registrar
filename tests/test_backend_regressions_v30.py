@@ -294,7 +294,7 @@ class BackendV30RegressionTests(unittest.TestCase):
         self.assertEqual(row["og_focus"], "24% 76%")
 
         preview = public_routes.public_og_image("fixed-preview", conn=self.conn)
-        self.assertEqual(preview.media_type, "image/jpeg")
+        self.assertEqual(preview.media_type, "image/png")
         self.assertEqual(
             Path(preview.path).resolve(),
             images.og_default_path("friends").resolve(),
