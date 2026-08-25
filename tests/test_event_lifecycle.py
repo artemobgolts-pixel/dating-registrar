@@ -87,10 +87,13 @@ class EventLifecycleTests(unittest.TestCase):
             "INSERT INTO date_categories(date_id,category_id) VALUES(?,?)",
             (conflict, category),
         )
-        # Свежая фикстура уже содержит объекты v30; убираем их, чтобы версия 28
-        # честно прогнала обе последующие миграции.
+        # Свежая фикстура уже содержит объекты v30/v31; убираем их, чтобы версия
+        # 28 честно прогнала все последующие миграции.
         conn.execute("DROP TABLE review_queue")
         conn.execute("ALTER TABLE categories DROP COLUMN use_default_preview")
+        conn.execute("ALTER TABLE users DROP COLUMN birth_date_public")
+        conn.execute("ALTER TABLE users DROP COLUMN gender_public")
+        conn.execute("ALTER TABLE categories DROP COLUMN show_participants")
         conn.execute("PRAGMA user_version=28")
         conn.commit()
         conn.close()

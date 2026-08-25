@@ -114,6 +114,10 @@ class PublicCsrfTests(unittest.TestCase):
         conn = db.connect()
         try:
             conn.execute("DELETE FROM questions WHERE category_id=?", (self.category_id,))
+            conn.execute(
+                "DELETE FROM reports WHERE target_type='date' AND target_id=?",
+                (self.date_id,),
+            )
             conn.commit()
         finally:
             conn.close()
@@ -166,6 +170,40 @@ class PublicCsrfTests(unittest.TestCase):
         self.assertEqual(response.status_code, 401)
         self.assertTrue(response.json()["detail"]["need_login"])
 
+    def test_report_is_anonymous_deduplicated_and_not_ip_derived(self):
+        payload = {
+            "target_type": "date",
+            "target_id": self.date_id,
+            "reason": "Проверить без входа",
+        }
+        first = self.anonymous.post("/c/csrf-category/report", data=payload)
+        second = self.anonymous.post("/d/csrf-date/report", data=payload)
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(second.status_code, 200, second.text)
+
+        conn = db.connect()
+        try:
+            rows = conn.execute(
+                "SELECT reporter, reason FROM reports "
+                "WHERE target_type='date' AND target_id=?",
+                (self.date_id,),
+            ).fetchall()
+        finally:
+            conn.close()
+        self.assertEqual(len(rows), 1)
+        self.assertRegex(rows[0]["reporter"], r"^a:[A-Za-z0-9_-]{24,64}$")
+        self.assertNotIn("127.0.0.1", rows[0]["reporter"])
+        self.assertNotIn("testclient", rows[0]["reporter"])
+        self.assertEqual(rows[0]["reason"], "Проверить без входа")
+
+    def test_anonymous_report_rejects_cross_site_browser_post(self):
+        response = self.anonymous.post(
+            "/c/csrf-category/report",
+            data={"target_type": "date", "target_id": self.date_id},
+            headers={"Origin": "https://evil.example"},
+        )
+        self.assertEqual(response.status_code, 403)
+
     def test_withdraw_has_a_rate_rule(self):
         self.assertIn("withdraw", ratelimit.RATE_RULES)
 
@@ -181,7 +219,9 @@ class PublicCsrfTests(unittest.TestCase):
             if ".post(" not in decorators:
                 continue
             body = ast.unparse(node)
-            if "acting_user(" not in body and "users.current_user" not in decorators:
+            if ("acting_user(" not in body
+                    and "report_identity(" not in body
+                    and "users.current_user" not in decorators):
                 unguarded.append(node.name)
         self.assertEqual(unguarded, [])
 

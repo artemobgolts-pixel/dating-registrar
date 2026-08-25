@@ -8,6 +8,7 @@ import io
 import json
 import logging
 import os
+import re
 import secrets
 import tempfile
 import zipfile
@@ -186,6 +187,8 @@ def profile_save(request: Request,
                  display_name: str = Form(""),
                  birth_date: str = Form(""),
                  gender: str = Form(""),
+                 birth_date_public: Annotated[str | None, Form()] = None,
+                 gender_public: Annotated[str | None, Form()] = None,
                  cursor_effects: str | None = Form(None),
                  admin_skin: str | None = Form(None),
                  avatar: UploadFile | None = File(None),
@@ -196,6 +199,8 @@ def profile_save(request: Request,
     name = clean_text(display_name, 80, "Имя", required=True)
     bdate = parse_birth_date(birth_date)
     g = gender if gender in ("m", "f") else None
+    birth_public = 1 if bdate and birth_date_public == "1" else 0
+    gender_visible = 1 if g and gender_public == "1" else 0
 
     new_avatar = None
     if avatar is not None and (avatar.filename or "").strip():
@@ -212,12 +217,15 @@ def profile_save(request: Request,
     if new_avatar:
         conn.execute(
             "UPDATE users SET display_name=?, birth_date=?, gender=?, avatar_path=?, "
-            "cursor_effects=?, admin_skin=? WHERE id=?",
-            (name, bdate, g, new_avatar, effects, skin, uid))
+            "birth_date_public=?, gender_public=?, cursor_effects=?, admin_skin=? WHERE id=?",
+            (name, bdate, g, new_avatar, birth_public, gender_visible,
+             effects, skin, uid))
     else:
         conn.execute(
-            "UPDATE users SET display_name=?, birth_date=?, gender=?, cursor_effects=?, "
-            "admin_skin=? WHERE id=?", (name, bdate, g, effects, skin, uid))
+            "UPDATE users SET display_name=?, birth_date=?, gender=?, "
+            "birth_date_public=?, gender_public=?, cursor_effects=?, "
+            "admin_skin=? WHERE id=?",
+            (name, bdate, g, birth_public, gender_visible, effects, skin, uid))
     conn.commit()
     if new_avatar and old_avatar:        # старый аватар — только после коммита
         images.delete_file(old_avatar)
@@ -448,11 +456,13 @@ def _event_widget_response(request: Request, conn, row, *, viewer=None,
     )
     wanted_by_me = False
     want_action_available = False
+    want = None
     if viewer is not None and not is_mine:
-        has_want = conn.execute(
-            "SELECT 1 FROM date_wants WHERE user_id=? AND date_id=?",
+        want = conn.execute(
+            "SELECT is_public FROM date_wants WHERE user_id=? AND date_id=?",
             (viewer["id"], did),
-        ).fetchone() is not None
+        ).fetchone()
+        has_want = want is not None
         want_action_available = social_events.want_action_available(
             conn, did, int(viewer["id"]), now=now_naive(),
         )
@@ -461,6 +471,9 @@ def _event_widget_response(request: Request, conn, row, *, viewer=None,
         request, "admin/_community_widget.html",
         {"request": request, "d": d, "me": viewer,
          "is_mine": is_mine, "wanted_by_me": wanted_by_me,
+         "want_is_public": bool(want and want["is_public"]),
+         "want_visibility": (("public" if want["is_public"] else "private")
+                             if want else None),
          "want_action_available": want_action_available,
          "admin_skin": appearance.normalize_skin(widget_skin)})
 
@@ -506,8 +519,7 @@ def admin_image(filename: str, request: Request, w: int | None = None,
 # ----- Экспорт ---------------------------------------------------------------
 
 def _require_operator(request: Request) -> None:
-    """Экспорт/импорт данных — только операторам. Обычный пользователь даже не
-    должен знать о ручках: 404, как и на всей операторской поверхности."""
+    """Операторские экспорт/импорт — только операторам, остальным отвечаем 404."""
     if not request.state.user["is_operator"]:
         raise HTTPException(404)
 
@@ -591,34 +603,91 @@ def export_csv(request: Request, conn=Depends(get_db)):
                              f'attachment; filename="date4you-events-{day}.csv"'})
 
 
-@router.get("/export/archive")
-def export_archive(request: Request, conn=Depends(get_db)):
-    """Архив владельца: его данные (export.json) + только его фото/видео.
+def _account_media_names(data: dict, user) -> set[str]:
+    """Исходные uploads, принадлежащие одному аккаунту и описанные export.json."""
+    names = {user["avatar_path"]} if user["avatar_path"] else set()
+    names.update(c["og_image"] for c in data["categories"] if c.get("og_image"))
+    for date in data["dates"]:
+        names.update(date["images"])
+        names.update(date["videos"])
+    return names
 
-    Полный снимок базы (app.db) кладём ТОЛЬКО оператору — он содержит данные
-    всех арендаторов. Обычный пользователь получает выгрузку строго своих данных.
-    """
-    _require_operator(request)
-    user = request.state.user
-    data = _full_dump(conn, user["id"])
-    own_files = set()
-    for d in data["dates"]:
-        own_files.update(d["images"])
-        own_files.update(d["videos"])
+
+def _write_account_archive(path: str, data: dict, user) -> None:
+    """Пишет переносимый ZIP без общей SQLite-базы и чужих файлов."""
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(
+            "export.json", json.dumps(data, ensure_ascii=False, indent=2),
+        )
+        for filename in sorted(_account_media_names(data, user)):
+            # Имена обычно пришли из БД, но повреждённая/ручная запись не должна
+            # превратить экспорт в чтение произвольного файла рядом с uploads.
+            if (not images.SAFE_FILENAME.fullmatch(filename)
+                    or Path(filename).name != filename):
+                continue
+            source = images.UPLOAD_DIR / filename
+            if source.is_file() and not source.is_symlink():
+                archive.write(source, arcname=f"uploads/{filename}")
+
+
+def _write_platform_backup(path: str, database_snapshot: Path) -> None:
+    """Пишет операторский ZIP: консистентный app.db и все исходные uploads."""
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.write(database_snapshot, arcname="app.db")
+        for source in sorted(images.UPLOAD_DIR.rglob("*")):
+            if not source.is_file() or source.is_symlink():
+                continue
+            relative = source.relative_to(images.UPLOAD_DIR)
+            archive.write(source, arcname=(Path("uploads") / relative).as_posix())
+
+
+def _zip_response(writer, filename: str) -> FileResponse:
+    """Создаёт временный ZIP и гарантирует уборку при ошибке и после ответа."""
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
     tmp.close()
-    with zipfile.ZipFile(tmp.name, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr("export.json", json.dumps(data, ensure_ascii=False, indent=2))
-        if user["is_operator"]:
-            z.write(backup.make_backup(), arcname="app.db")
-        for fn in sorted(own_files):
-            p = images.UPLOAD_DIR / fn
-            if p.exists():
-                z.write(p, arcname=f"uploads/{fn}")
+    try:
+        writer(tmp.name)
+    except Exception:
+        os.unlink(tmp.name)
+        raise
+    return FileResponse(
+        tmp.name,
+        media_type="application/zip",
+        filename=filename,
+        headers={"Cache-Control": "private, no-store",
+                 "X-Content-Type-Options": "nosniff"},
+        background=BackgroundTask(os.unlink, tmp.name),
+    )
+
+
+@router.get("/export/account-archive")
+def export_account_archive(request: Request, conn=Depends(get_db)):
+    """export.json и только исходные медиа текущего аккаунта; общей БД нет."""
+    user = request.state.user
+    data = _full_dump(conn, user["id"])
     day = now_naive().strftime("%Y-%m-%d")
-    return FileResponse(tmp.name, media_type="application/zip",
-                        filename=f"date4you-export-{day}.zip",
-                        background=BackgroundTask(os.unlink, tmp.name))
+    return _zip_response(
+        lambda path: _write_account_archive(path, data, user),
+        f"date4you-account-{day}.zip",
+    )
+
+
+@router.get("/export/platform-backup")
+def export_platform_backup(request: Request):
+    """Операторский снимок всей SQLite-базы и всех исходных медиа из uploads."""
+    _require_operator(request)
+    database_snapshot = backup.make_backup()
+    day = now_naive().strftime("%Y-%m-%d")
+    return _zip_response(
+        lambda path: _write_platform_backup(path, database_snapshot),
+        f"date4you-platform-backup-{day}.zip",
+    )
+
+
+@router.get("/export/archive", include_in_schema=False)
+def export_archive(request: Request):
+    """Обратносуместимый URL прежнего операторского «полного архива»."""
+    return export_platform_backup(request)
 
 
 @router.post("/import/json")
@@ -669,12 +738,13 @@ async def import_json(request: Request, file: UploadFile = File(...),
         token = new_link_token()
         cur = conn.execute(
             "INSERT INTO categories(owner_id, name, category_skin, description, link_token, "
-            "link_enabled, moderate_proposals, choice_mode, voting_deadline, created_at) "
-            "VALUES(?,?,?,?,?,?,?,?,?,?)",
+            "link_enabled, moderate_proposals, show_participants, choice_mode, "
+            "voting_deadline, created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
             (uid, name, category_skin,
              clean_text(str(c.get("description") or ""), 1000, "Описание"),
              token, 1 if c.get("link_enabled", 1) else 0,
              1 if c.get("moderate_proposals") else 0,
+             1 if c.get("show_participants") else 0,
              choice_mode, voting_deadline, now_iso()))
         if c.get("id") is not None:
             cat_map[c["id"]] = cur.lastrowid
@@ -693,7 +763,7 @@ async def import_json(request: Request, file: UploadFile = File(...),
             pay_split=1 if d.get("pay_split") else 0, place_url=d.get("place_url"),
             # Импортированный старый «неактивный» объект становится обычным
             # активным событием, но не публикуется без явного решения владельца.
-            is_public=0 if d.get("is_draft") else d.get("is_public", 1),
+            is_public=0 if d.get("is_draft") else d.get("is_public", 0),
             capacity=capacity_value)
         if d.get("archived_at"):
             conn.execute("UPDATE dates SET archived_at=? WHERE id=?",
@@ -893,13 +963,15 @@ def category_clone(cid: int, request: Request, conn=Depends(get_db)):
             "owner_id, name, category_skin, link_token, link_enabled, "
             "moderate_proposals, is_reviewed, description, og_title, og_desc, "
             "og_image, og_focus, use_default_preview, choice_mode, "
-            "voting_deadline, voting_status, created_at"
-            ") VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "show_participants, voting_deadline, voting_status, created_at"
+            ") VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (owner_id, name, src["category_skin"], new_link_token(),
              0, src["moderate_proposals"], reviewed,
              src["description"], src["og_title"], src["og_desc"], og_image,
              src["og_focus"] if og_image else None, src["use_default_preview"],
-             src["choice_mode"],
+             # Копия получает новую секретную ссылку, поэтому публикацию её
+             # ростера владелец подтверждает заново.
+             src["choice_mode"], 0,
              copied_deadline, voting.STATUS_UNCONFIGURED,
              now_iso()),
         )
@@ -972,6 +1044,26 @@ def category_detail(cid: int, request: Request, conn=Depends(get_db)):
     deadline_min = (now_naive() + timedelta(minutes=1)).replace(
         second=0, microsecond=0,
     ).strftime("%Y-%m-%dT%H:%M")
+    is_operator = bool(request.state.user["is_operator"])
+    editor_return_url = _safe_category_editor_return(
+        request.query_params.get("return_to", ""), int(cat["owner_id"]),
+        allow_operator=is_operator,
+    )
+    editor_self_url = _category_editor_url(
+        cid, request.query_params.get("return_to", ""), int(cat["owner_id"]),
+        allow_operator=is_operator,
+    )
+    operator_context = None
+    if is_operator and int(cat["owner_id"]) != int(request.state.user["id"]):
+        owner = conn.execute(
+            "SELECT display_name, tg_username FROM users WHERE id=?",
+            (cat["owner_id"],),
+        ).fetchone()
+        owner_name = (
+            (owner["display_name"] or owner["tg_username"])
+            if owner else None
+        ) or f"#{cat['owner_id']}"
+        operator_context = {"owner_name": owner_name}
     return templates.TemplateResponse(
         request, "admin/category_detail.html",
         actx(request, conn, active="cats", cat=cat, dates=dates, attachable=attachable,
@@ -979,7 +1071,10 @@ def category_detail(cid: int, request: Request, conn=Depends(get_db)):
              voting_state=state, leader_ids=leader_ids,
              can_change_composition=can_change_composition,
              deadline_min=deadline_min,
-             preview_revision=preview_revision))
+             preview_revision=preview_revision,
+             editor_return_url=editor_return_url,
+             editor_self_url=editor_self_url,
+             operator_context=operator_context))
 
 
 @router.post("/categories/{cid}/voting")
@@ -1020,7 +1115,7 @@ def category_voting_configure(cid: int, request: Request,
         "Голосование возобновлено, новый дедлайн сохранён"
         if reopened else "Настройки голосования сохранены"
     )
-    return redir(f"/admin/categories/{cid}", message)
+    return _category_editor_redir(request, cid, int(cat["owner_id"]), message)
 
 
 @router.post("/categories/{cid}/voting/resolve")
@@ -1037,13 +1132,101 @@ def category_voting_resolve_tie(cid: int, request: Request,
     if state.winner_date_id is not None:
         social_events.queue_review_prompts_for_date(conn, int(state.winner_date_id))
     conn.commit()
-    return redir(f"/admin/categories/{cid}", "Победитель выбран")
+    return _category_editor_redir(
+        request, cid, int(cat["owner_id"]), "Победитель выбран",
+    )
 
 
 def _category_collage_sources(conn, cid: int) -> list[images.OgSource]:
     """Общий с публичной страницей round-robin набор фото и точек фокуса."""
     return public_routes.category_og_sources(
         conn, cid, include_focus=True, existing_only=True,
+    )
+
+
+def _safe_operator_editor_return(raw: str, owner_id: int) -> str | None:
+    """Возвращает только известный локальный URL операторской поверхности.
+
+    Редакторы кабинета принимают ``return_to`` из query string. Оператору
+    разрешены три конкретные точки возврата; схема, host, fragment и любые
+    неизвестные параметры отбрасываются, чтобы редирект нельзя было превратить
+    в open redirect.
+    """
+    if not raw:
+        return None
+    parsed = urlsplit(raw)
+    if parsed.scheme or parsed.netloc or parsed.fragment:
+        return None
+    user_path = f"/operator/users/{owner_id}"
+    if parsed.path == user_path:
+        return user_path
+    query = dict(parse_qsl(parsed.query, keep_blank_values=False))
+    clean: list[tuple[str, str]] = []
+    if parsed.path == "/operator/categories":
+        if query.get("q"):
+            clean.append(("q", query["q"][:200]))
+        if query.get("page", "").isdigit() and int(query["page"]) > 1:
+            clean.append(("page", str(int(query["page"]))))
+    elif parsed.path == "/operator/dates":
+        if query.get("flt") in {"draft", "booked", "reported", "archived"}:
+            clean.append(("flt", query["flt"]))
+        if query.get("q"):
+            clean.append(("q", query["q"][:200]))
+        if query.get("page", "").isdigit() and int(query["page"]) > 1:
+            clean.append(("page", str(int(query["page"]))))
+    else:
+        return None
+    return parsed.path + (f"?{urlencode(clean)}" if clean else "")
+
+
+def _safe_public_editor_return(raw: str, kind: str) -> str | None:
+    """Разрешает контекстный возврат только на локальную секретную страницу."""
+    parsed = urlsplit(raw)
+    if parsed.scheme or parsed.netloc or parsed.query or parsed.fragment:
+        return None
+    pattern = rf"/{re.escape(kind)}/[A-Za-z0-9_-]+"
+    return parsed.path if re.fullmatch(pattern, parsed.path) else None
+
+
+def _safe_category_editor_return(raw: str, owner_id: int,
+                                 *, allow_operator: bool = False) -> str:
+    """Безопасная точка возврата из редактора подборки."""
+    public_target = _safe_public_editor_return(raw, "c")
+    if public_target:
+        return public_target
+    if allow_operator:
+        operator_target = _safe_operator_editor_return(raw, owner_id)
+        if operator_target:
+            return operator_target
+    return "/admin/categories"
+
+
+def _category_editor_url(cid: int, return_to: str, owner_id: int,
+                         *, allow_operator: bool = False,
+                         fragment: str = "") -> str:
+    target = _safe_category_editor_return(
+        return_to, owner_id, allow_operator=allow_operator,
+    )
+    base = f"/admin/categories/{cid}"
+    if target != "/admin/categories":
+        base += f"?{urlencode({'return_to': target})}"
+    if fragment:
+        base += f"#{fragment}"
+    return base
+
+
+def _category_editor_redir(request: Request, cid: int, owner_id: int,
+                           message: str, *, fragment: str = ""):
+    query_params = getattr(request, "query_params", {})
+    return redir(
+        _category_editor_url(
+            cid,
+            query_params.get("return_to", ""),
+            owner_id,
+            allow_operator=bool(request.state.user["is_operator"]),
+            fragment=fragment,
+        ),
+        message,
     )
 
 
@@ -1162,7 +1345,9 @@ def category_rename(cid: int, request: Request, name: str = Form(...),
     conn.commit()
     if new_image and old_image:          # старую картинку — только после коммита
         images.delete_file(old_image)
-    return redir(f"/admin/categories/{cid}", "Сохранено")
+    return _category_editor_redir(
+        request, cid, int(cat["owner_id"]), "Сохранено",
+    )
 
 
 @router.post("/categories/{cid}/og_image/delete")
@@ -1174,7 +1359,9 @@ def category_og_image_delete(cid: int, request: Request, conn=Depends(get_db)):
     conn.commit()
     if old:
         images.delete_file(old)
-    return redir(f"/admin/categories/{cid}", "Картинка превью убрана")
+    return _category_editor_redir(
+        request, cid, int(cat["owner_id"]), "Картинка превью убрана",
+    )
 
 
 @router.post("/categories/{cid}/preview/reset")
@@ -1190,7 +1377,10 @@ def category_preview_reset(cid: int, request: Request, conn=Depends(get_db)):
     conn.commit()
     if old:
         images.delete_file(old)
-    return redir(f"/admin/categories/{cid}", "Превью сброшено к стандартному")
+    return _category_editor_redir(
+        request, cid, int(cat["owner_id"]),
+        "Превью сброшено к стандартному",
+    )
 
 
 @router.post("/categories/{cid}/default_preview")
@@ -1206,8 +1396,8 @@ def category_default_preview(cid: int, request: Request, conn=Depends(get_db)):
         "UPDATE categories SET use_default_preview=? WHERE id=?", (value, cid),
     )
     conn.commit()
-    return redir(
-        f"/admin/categories/{cid}",
+    return _category_editor_redir(
+        request, cid, int(cat["owner_id"]),
         "Стандартное превью установлено" if value
         else "Стандартное превью отключено",
     )
@@ -1254,8 +1444,10 @@ def category_toggle(cid: int, request: Request, conn=Depends(get_db)):
     new_val = 0 if cat["link_enabled"] else 1
     conn.execute("UPDATE categories SET link_enabled=? WHERE id=?", (new_val, cid))
     conn.commit()
-    return redir(f"/admin/categories/{cid}",
-                 "Ссылка включена" if new_val else "Ссылка отключена")
+    return _category_editor_redir(
+        request, cid, int(cat["owner_id"]),
+        "Ссылка включена" if new_val else "Ссылка отключена",
+    )
 
 
 @router.post("/categories/{cid}/moderation")
@@ -1269,9 +1461,31 @@ def category_moderation(cid: int, request: Request, conn=Depends(get_db)):
     new_val = 0 if cat["moderate_proposals"] else 1
     conn.execute("UPDATE categories SET moderate_proposals=? WHERE id=?", (new_val, cid))
     conn.commit()
-    return redir(f"/admin/categories/{cid}",
-                 "Предложения гостей теперь попадают на модерацию в списке событий"
-                 if new_val else "Предложения гостей теперь публикуются сразу")
+    return _category_editor_redir(
+        request, cid, int(cat["owner_id"]),
+        "Предложения гостей теперь попадают на модерацию в списке событий"
+        if new_val else "Предложения гостей теперь публикуются сразу",
+    )
+
+
+@router.post("/categories/{cid}/participants")
+def category_participants_visibility(cid: int, request: Request,
+                                     enabled: Annotated[str, Form()] = "0",
+                                     conn=Depends(get_db)):
+    """Явно управляет публикацией имён и аватаров по секретной ссылке."""
+    cat = _cat_or_404(conn, cid, request.state.user)
+    if enabled not in {"0", "1"}:
+        raise HTTPException(400, "Некорректная настройка видимости участников")
+    value = int(enabled)
+    conn.execute(
+        "UPDATE categories SET show_participants=? WHERE id=?", (value, cid),
+    )
+    conn.commit()
+    return _category_editor_redir(
+        request, cid, int(cat["owner_id"]),
+        ("Имена и аватары участников видны по секретной ссылке"
+         if value else "Состав участников скрыт; виден только счётчик"),
+    )
 
 
 @router.post("/categories/{cid}/regenerate")
@@ -1318,13 +1532,19 @@ def category_regenerate(cid: int, request: Request, conn=Depends(get_db)):
     elif cat["voting_status"] in voting.CLOSED_STATUSES:
         voting_events.queue_category_outcome(conn, voting.get_category_state(conn, cid))
     conn.commit()
-    return redir(f"/admin/categories/{cid}",
-                 "Новая ссылка сгенерирована. Старая больше не работает, все данные сохранены.")
+    return _category_editor_redir(
+        request, cid, int(cat["owner_id"]),
+        "Новая ссылка сгенерирована. Старая больше не работает, все данные сохранены.",
+    )
 
 
 @router.post("/categories/{cid}/delete")
 def category_delete(cid: int, request: Request, bg: BackgroundTasks, conn=Depends(get_db)):
     cat = _cat_or_404(conn, cid, request.state.user)
+    editor_return_url = _safe_category_editor_return(
+        request.query_params.get("return_to", ""), int(cat["owner_id"]),
+        allow_operator=bool(request.state.user["is_operator"]),
+    )
     cat = _require_category_composition_mutable(conn, cat)
     affected = conn.execute(
         "SELECT DISTINCT d.id, d.name FROM dates d JOIN bookings b ON b.date_id=d.id "
@@ -1349,7 +1569,7 @@ def category_delete(cid: int, request: Request, bg: BackgroundTasks, conn=Depend
         "🗑 Удалена категория",
         f"«{notify.esc(cat['name'])}»",
         f"Кто: {notify.esc(actor)}"))
-    return redir("/admin/categories", "Категория удалена (события остались)")
+    return redir(editor_return_url, "Подборка удалена (события остались)")
 
 
 @router.post("/categories/{cid}/attach")
@@ -1368,9 +1588,10 @@ def category_attach(cid: int, request: Request, date_id: int = Form(...),
     # только отдельным действием владельца.
     social_events.queue_review_prompts_for_date(conn, date_id)
     conn.commit()
-    return redir(
-        f"/admin/categories/{cid}#categoryDates",
+    return _category_editor_redir(
+        request, cid, int(cat["owner_id"]),
         "Событие добавлено в категорию",
+        fragment="categoryDates",
     )
 
 
@@ -1431,7 +1652,10 @@ def category_detach(cid: int, request: Request, date_id: int = Form(...),
     # определяет участие в голосовании, а не жизненный статус события.
     social_events.queue_review_prompts_for_date(conn, date_id)
     conn.commit()
-    return redir(f"/admin/categories/{cid}", "Событие убрано из категории")
+    return _category_editor_redir(
+        request, cid, int(cat["owner_id"]),
+        "Событие убрано из подборки", fragment="categoryDates",
+    )
 
 
 # ----- События -------------------------------------------------------------
@@ -1563,8 +1787,8 @@ def parse_pay(value) -> int:
 
 def parse_public(value) -> int:
     """Тумблер «Публичное/Приватное» из формы → 1/0. Чекбокс: присутствует в
-    форме (любое значение) = публичное (1); отсутствует = приватное (0)."""
-    return 0 if value is None else 1
+    форме со штатным value=1 = публичное; всё остальное = приватное."""
+    return 1 if value == "1" else 0
 
 
 
@@ -1579,6 +1803,7 @@ def date_new_form(request: Request, conn=Depends(get_db)):
     checked.difference_update(locked_cat_ids)
     editor_return_url = _safe_date_editor_return(
         request.query_params.get("return_to", ""), int(request.state.user["id"]),
+        allow_operator=bool(request.state.user["is_operator"]),
     )
     return templates.TemplateResponse(
         request, "admin/date_form.html",
@@ -1656,6 +1881,7 @@ def date_create(request: Request, bg: BackgroundTasks,
     return redir(
         _safe_date_editor_return(
             request.query_params.get("return_to", ""), int(uid),
+            allow_operator=bool(request.state.user["is_operator"]),
         ),
         "Событие создано",
     )
@@ -1705,7 +1931,8 @@ def _require_date_not_in_closed_vote(conn, did: int, action: str) -> None:
             )
 
 
-def _safe_date_editor_return(raw: str, owner_id: int) -> str:
+def _safe_date_editor_return(raw: str, owner_id: int,
+                             *, allow_operator: bool = False) -> str:
     """Безопасный возврат из редактора в список или профиль.
 
     Значение приходит из query string, поэтому не переносим его в ``Location``
@@ -1714,6 +1941,13 @@ def _safe_date_editor_return(raw: str, owner_id: int) -> str:
     fallback = "/admin/dates"
     if not raw:
         return fallback
+    public_target = _safe_public_editor_return(raw, "d")
+    if public_target:
+        return public_target
+    if allow_operator:
+        operator_target = _safe_operator_editor_return(raw, owner_id)
+        if operator_target:
+            return operator_target
     parsed = urlsplit(raw)
     allowed_paths = {"/admin/dates", "/admin/profile", f"/u/{owner_id}"}
     category_parts = parsed.path.strip("/").split("/")
@@ -1725,9 +1959,16 @@ def _safe_date_editor_return(raw: str, owner_id: int) -> str:
     if (parsed.scheme or parsed.netloc
             or (parsed.path not in allowed_paths and not is_category_return)):
         return fallback
-    if is_category_return:
-        return parsed.path + ("#categoryDates" if parsed.fragment == "categoryDates" else "")
     query = dict(parse_qsl(parsed.query, keep_blank_values=False))
+    if is_category_return:
+        target = parsed.path
+        if allow_operator:
+            nested = _safe_operator_editor_return(
+                query.get("return_to", ""), owner_id,
+            )
+            if nested:
+                target += f"?{urlencode({'return_to': nested})}"
+        return target + ("#categoryDates" if parsed.fragment == "categoryDates" else "")
     if parsed.path == "/admin/dates":
         clean_dates = []
         if query.get("view") in {"active", "archived"}:
@@ -1753,8 +1994,11 @@ def _safe_date_editor_return(raw: str, owner_id: int) -> str:
     return f"{parsed.path}?{urlencode(clean)}#profileCollection"
 
 
-def _date_editor_url(did: int, return_to: str, owner_id: int) -> str:
-    target = _safe_date_editor_return(return_to, owner_id)
+def _date_editor_url(did: int, return_to: str, owner_id: int,
+                     *, allow_operator: bool = False) -> str:
+    target = _safe_date_editor_return(
+        return_to, owner_id, allow_operator=allow_operator,
+    )
     base = f"/admin/dates/{did}/edit"
     if target == "/admin/dates":
         return base
@@ -1785,7 +2029,20 @@ def date_edit_form(did: int, request: Request, conn=Depends(get_db)):
     locked_cat_ids = {c["id"] for c in cats if _category_voting_is_closed(c)}
     editor_return_url = _safe_date_editor_return(
         request.query_params.get("return_to", ""), int(d["owner_id"]),
+        allow_operator=bool(request.state.user["is_operator"]),
     )
+    operator_context = None
+    if (request.state.user["is_operator"]
+            and int(d["owner_id"]) != int(request.state.user["id"])):
+        owner = conn.execute(
+            "SELECT display_name, tg_username FROM users WHERE id=?",
+            (d["owner_id"],),
+        ).fetchone()
+        owner_name = (
+            (owner["display_name"] or owner["tg_username"])
+            if owner else None
+        ) or f"#{d['owner_id']}"
+        operator_context = {"owner_name": owner_name}
     return templates.TemplateResponse(
         request, "admin/date_form.html",
         actx(request, conn, active="dates", date=d, photos=photos, videos=videos,
@@ -1795,6 +2052,7 @@ def date_edit_form(did: int, request: Request, conn=Depends(get_db)):
              # категории показываем владельца события (админ может править чужое)
              cats=cats, checked=checked, locked_cat_ids=locked_cat_ids,
              editor_return_url=editor_return_url,
+             operator_context=operator_context,
              slots=images.MAX_IMAGES - len(photos)))
 
 
@@ -1935,6 +2193,7 @@ def date_update(did: int, request: Request, bg: BackgroundTasks, name: str = For
     return redir(
         _date_editor_url(
             did, request.query_params.get("return_to", ""), int(d["owner_id"]),
+            allow_operator=bool(request.state.user["is_operator"]),
         ),
         "Сохранено",
     )
@@ -2109,7 +2368,9 @@ def dates_bulk(request: Request, bg: BackgroundTasks,
         "make_private": "Публичность отключена",
         "delete": "Удалено",
     }
-    target = _safe_date_editor_return(next, uid)
+    target = _safe_date_editor_return(
+        next, uid, allow_operator=bool(request.state.user["is_operator"]),
+    )
     return redir(
         target,
         f"{labels[action]}: {changed} "
@@ -2248,7 +2509,10 @@ def date_clone(did: int, request: Request, next: str = Form("/admin/dates"),
             images.delete_file(filename)
         raise
     return redir(
-        _date_editor_url(new_id, next, int(request.state.user["id"])),
+        _date_editor_url(
+            new_id, next, int(request.state.user["id"]),
+            allow_operator=bool(request.state.user["is_operator"]),
+        ),
         "Событие скопировано и оставлено непубличным",
     )
 
@@ -2592,7 +2856,7 @@ def _profile_sections_context(conn, user_id: int, viewer_id: int | None,
     # остаётся только в Reviews. Строку wants сохраняем как право на сам обзор.
     all_want_rows = conn.execute(
         "SELECT d.id, d.owner_id, d.name, d.share_token, d.starts_at, d.ends_at, d.place, "
-        "w.updated_at AS marked_at FROM date_wants w "
+        "w.is_public AS want_public, w.updated_at AS marked_at FROM date_wants w "
         "JOIN dates d ON d.id=w.date_id "
         "WHERE w.user_id=?" + want_visibility +
         " ORDER BY w.updated_at DESC",
@@ -2665,7 +2929,8 @@ def _profile_sections_context(conn, user_id: int, viewer_id: int | None,
 @user_router.get("/{user_id}", response_class=HTMLResponse)
 def public_profile(user_id: int, request: Request, conn=Depends(get_db)):
     u = conn.execute(
-        "SELECT id, display_name, avatar_path, birth_date, gender, tg_username "
+        "SELECT id, display_name, avatar_path, birth_date, gender, tg_username, "
+        "birth_date_public, gender_public "
         "FROM users WHERE id=? AND is_active=1", (user_id,)).fetchone()
     if not u:
         raise HTTPException(404, "Профиль не найден")

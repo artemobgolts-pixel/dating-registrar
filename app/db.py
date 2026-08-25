@@ -80,6 +80,10 @@
   v30 — фиксированное стандартное превью категории и пользовательская очередь
         событий, которые ждут обзора после завершения, отказа или удаления
         ранее созданного обзора.
+  v31 — приватность по умолчанию: новые события и отметки «Хочу сходить»
+        создаются скрытыми; дата рождения, пол и состав участников получают
+        отдельные настройки видимости. Уже опубликованные данные сохраняют
+        прежнюю видимость.
 
 Свежая база создаётся сразу по последней схеме. Существующая —
 докатывается миграциями при старте приложения.
@@ -93,7 +97,7 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "app.db"
 
-LATEST_VERSION = 30
+LATEST_VERSION = 31
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -104,6 +108,10 @@ CREATE TABLE IF NOT EXISTS users (
     avatar_path TEXT,             -- фото профиля, хранится локально (опционально)
     birth_date TEXT,              -- дата рождения (ISO yyyy-mm-dd)
     gender TEXT,                  -- 'm' | 'f'
+    birth_date_public INTEGER NOT NULL DEFAULT 0
+        CHECK(birth_date_public IN (0, 1)), -- отдельно разрешается для публичного профиля
+    gender_public INTEGER NOT NULL DEFAULT 0
+        CHECK(gender_public IN (0, 1)),     -- отдельно разрешается для публичного профиля
     is_active INTEGER NOT NULL DEFAULT 1,    -- 0 = забанен
     is_operator INTEGER NOT NULL DEFAULT 0,  -- суперадмин (модерация/баны/лимиты)
     is_reviewed INTEGER NOT NULL DEFAULT 1,  -- 0 = новый, ждёт проверки админом (мягкая очередь)
@@ -200,6 +208,8 @@ CREATE TABLE IF NOT EXISTS categories (
     og_focus TEXT,             -- точка фокуса своей картинки превью: «X% Y%» (NULL = центр)
     use_default_preview INTEGER NOT NULL DEFAULT 0
         CHECK(use_default_preview IN (0, 1)), -- 1 = не заменять дефолт авто-коллажем
+    show_participants INTEGER NOT NULL DEFAULT 0
+        CHECK(show_participants IN (0, 1)), -- имена и аватары ростера только по opt-in
     choice_mode TEXT CHECK(choice_mode IN ('single', 'multiple')),
     voting_deadline TEXT,      -- задаётся владельцем явно, время МСК
     voting_status TEXT NOT NULL DEFAULT 'unconfigured'
@@ -225,7 +235,7 @@ CREATE TABLE IF NOT EXISTS dates (
     pay_split INTEGER NOT NULL DEFAULT 0,   -- бейдж «оплата 50/50»
     place_url TEXT,            -- если «место» вставили ссылкой на карты
     share_token TEXT,          -- секретная ссылка на это событие (/d/<токен>) для «добавить себе»
-    is_public INTEGER NOT NULL DEFAULT 1,   -- 1 = видно в общей ленте комьюнити
+    is_public INTEGER NOT NULL DEFAULT 0,   -- 1 = видно в общей ленте комьюнити
     capacity INTEGER NOT NULL DEFAULT 1 CHECK(capacity BETWEEN 1 AND 100),
     archived_at TEXT,          -- NULL = активно
     created_at TEXT NOT NULL
@@ -237,7 +247,7 @@ CREATE TABLE IF NOT EXISTS dates (
 CREATE TABLE IF NOT EXISTS date_wants (
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     date_id INTEGER NOT NULL REFERENCES dates(id) ON DELETE CASCADE,
-    is_public INTEGER NOT NULL DEFAULT 1 CHECK(is_public IN (0, 1)),
+    is_public INTEGER NOT NULL DEFAULT 0 CHECK(is_public IN (0, 1)),
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     PRIMARY KEY (user_id, date_id)
@@ -1251,6 +1261,95 @@ MIGRATIONS: dict[int, str] = {
         );
         CREATE INDEX IF NOT EXISTS idx_review_queue_user
             ON review_queue(user_id, updated_at DESC);
+    """,
+    31: """
+        -- Ранее заполненные поля профиля уже были публичными. Сохраняем это
+        -- поведение только там, где значение действительно существовало;
+        -- новые поля и новые аккаунты остаются приватными до явного opt-in.
+        ALTER TABLE users ADD COLUMN birth_date_public INTEGER NOT NULL DEFAULT 0
+            CHECK(birth_date_public IN (0, 1));
+        ALTER TABLE users ADD COLUMN gender_public INTEGER NOT NULL DEFAULT 0
+            CHECK(gender_public IN (0, 1));
+        UPDATE users SET birth_date_public=1
+            WHERE birth_date IS NOT NULL AND TRIM(birth_date)<>'';
+        UPDATE users SET gender_public=1
+            WHERE gender IS NOT NULL AND TRIM(gender)<>'';
+
+        -- До этой версии ростер был виден во всех действующих категориях.
+        -- Существующие ссылки не меняем, но новая категория получает opt-in
+        -- DEFAULT 0 и не раскрывает имена/аватары участников автоматически.
+        ALTER TABLE categories ADD COLUMN show_participants INTEGER NOT NULL DEFAULT 0
+            CHECK(show_participants IN (0, 1));
+        UPDATE categories SET show_participants=1;
+
+        -- SQLite не умеет ALTER COLUMN DEFAULT. Пересобираем dates с теми же
+        -- id и значениями: меняется исключительно DEFAULT будущих INSERT.
+        -- foreign_keys выключены оболочкой init_db на время каждой миграции.
+        -- Перед DROP убираем зависимые триггеры: SQLite перепроверяет их SQL
+        -- во время RENAME и иначе видит короткое промежуточное отсутствие
+        -- dates. Идемпотентный SCHEMA восстановит весь набор после миграции.
+        DROP TRIGGER IF EXISTS trg_bookings_capacity_insert;
+        DROP TRIGGER IF EXISTS trg_bookings_single_insert;
+        DROP TRIGGER IF EXISTS trg_bookings_closed_insert;
+        DROP TRIGGER IF EXISTS trg_dates_capacity_update;
+        DROP TRIGGER IF EXISTS trg_categories_single_update;
+        DROP TRIGGER IF EXISTS trg_categories_voting_config_update;
+        DROP TRIGGER IF EXISTS trg_date_categories_deadline_insert;
+        DROP TRIGGER IF EXISTS trg_date_categories_frozen_insert;
+        DROP TRIGGER IF EXISTS trg_date_categories_deadline_update;
+        DROP TRIGGER IF EXISTS trg_date_categories_frozen_update;
+        DROP TRIGGER IF EXISTS trg_dates_open_deadline_update;
+        DROP TRIGGER IF EXISTS trg_users_delete_owned_categories;
+
+        CREATE TABLE dates_private_default (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            place TEXT,
+            starts_at TEXT,
+            ends_at TEXT,
+            comment TEXT,
+            origin TEXT NOT NULL DEFAULT 'admin',
+            guest_token TEXT,
+            proposed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            is_draft INTEGER NOT NULL DEFAULT 0,
+            pay_split INTEGER NOT NULL DEFAULT 0,
+            place_url TEXT,
+            share_token TEXT,
+            is_public INTEGER NOT NULL DEFAULT 0,
+            capacity INTEGER NOT NULL DEFAULT 1 CHECK(capacity BETWEEN 1 AND 100),
+            archived_at TEXT,
+            created_at TEXT NOT NULL
+        );
+        INSERT INTO dates_private_default(
+            id, owner_id, name, place, starts_at, ends_at, comment, origin,
+            guest_token, proposed_by, is_draft, pay_split, place_url,
+            share_token, is_public, capacity, archived_at, created_at
+        )
+        SELECT id, owner_id, name, place, starts_at, ends_at, comment, origin,
+            guest_token, proposed_by, is_draft, pay_split, place_url,
+            share_token, is_public, capacity, archived_at, created_at
+        FROM dates;
+        DROP TABLE dates;
+        ALTER TABLE dates_private_default RENAME TO dates;
+
+        -- То же правило для социальной отметки: старые 0/1 копируются без
+        -- изменений, а новая строка без явной видимости становится приватной.
+        CREATE TABLE date_wants_private_default (
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            date_id INTEGER NOT NULL REFERENCES dates(id) ON DELETE CASCADE,
+            is_public INTEGER NOT NULL DEFAULT 0 CHECK(is_public IN (0, 1)),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (user_id, date_id)
+        );
+        INSERT INTO date_wants_private_default(
+            user_id, date_id, is_public, created_at, updated_at
+        )
+        SELECT user_id, date_id, is_public, created_at, updated_at
+        FROM date_wants;
+        DROP TABLE date_wants;
+        ALTER TABLE date_wants_private_default RENAME TO date_wants;
     """,
 }
 

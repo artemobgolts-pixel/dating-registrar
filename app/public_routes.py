@@ -7,9 +7,11 @@
 
 import json
 import re
+import secrets
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Annotated
 
 from fastapi import (APIRouter, BackgroundTasks, Depends, File, Form,
                      HTTPException, Request, UploadFile)
@@ -68,6 +70,30 @@ def acting_user(request, conn, csrf: str = ""):
                                   "msg": "Войди в аккаунт, чтобы продолжить ♥"})
     users.require_csrf(request, csrf)
     return u
+
+
+def report_identity(request: Request, conn, csrf: str = "") -> str:
+    """Неперсональный идентификатор отправителя жалобы.
+
+    Жалоба — единственное публичное POST-действие, доступное без аккаунта.
+    Для вошедшего пользователя сохраняем прежнюю стабильную ссылку ``u<ID>``
+    и обычную CSRF-защиту. Анониму выдаём случайный токен в подписанной
+    HttpOnly-сессии: он нужен только для дедупликации и per-browser лимита,
+    не содержит IP, fingerprint или другого персонального идентификатора.
+    IP участвует лишь в существующем краткоживущем in-memory rate limit.
+    """
+    user = viewer(request, conn)
+    if user:
+        users.require_csrf(request, csrf)
+        return viewer_token(user)
+
+    users.require_same_origin(request)
+    key = "anonymous_reporter"
+    token = str(request.session.get(key) or "")
+    if not re.fullmatch(r"[A-Za-z0-9_-]{24,64}", token):
+        token = secrets.token_urlsafe(24)
+        request.session[key] = token
+    return f"a:{token}"
 
 
 def viewer_token(user) -> str | None:
@@ -446,7 +472,7 @@ def first_existing_og_image(rows):
 
 def insert_date(conn, *, name, place, starts, ends, comment, origin, guest_token,
                 owner_id, draft=0, pay_split=0, place_url=None, proposed_by=None,
-                is_public=1, capacity=1) -> int:
+                is_public=0, capacity=1) -> int:
     # Каждое событие получает стабильную секретную ссылку /d/<share_token>
     # сразу при создании — через неё им можно поделиться, чтобы другой
     # пользователь добавил копию себе. Генерим здесь, чтобы ВСЕ пути создания
@@ -714,7 +740,8 @@ def _booking_rows(conn, category_id: int):
     ).fetchall()
 
 
-def _vote_card_updates(conn, category_id: int, date_ids, guest: str) -> list[dict]:
+def _vote_card_updates(conn, category_id: int, date_ids, guest: str,
+                       *, show_participants: bool | None = None) -> list[dict]:
     """Компактный снимок изменившихся карточек для обновления без reload.
 
     Возвращаем только затронутые варианты и не более ``PUBLIC_ROSTER_LIMIT``
@@ -723,6 +750,11 @@ def _vote_card_updates(conn, category_id: int, date_ids, guest: str) -> list[dic
     ids = sorted({int(date_id) for date_id in date_ids})
     if not ids:
         return []
+    if show_participants is None:
+        visibility = conn.execute(
+            "SELECT show_participants FROM categories WHERE id=?", (category_id,),
+        ).fetchone()
+        show_participants = bool(visibility and visibility["show_participants"])
     ph = ",".join("?" * len(ids))
     capacities = {
         int(row["id"]): int(row["capacity"] or 1)
@@ -758,7 +790,10 @@ def _vote_card_updates(conn, category_id: int, date_ids, guest: str) -> list[dic
     updates = []
     for date_id in ids:
         capacity = capacities.get(date_id, 1)
-        people, hidden_count = _visible_participants(participants[date_id])
+        if show_participants:
+            people, hidden_count = _visible_participants(participants[date_id])
+        else:
+            people, hidden_count = [], 0
         total = totals[date_id]
         updates.append({
             "date_id": date_id,
@@ -766,6 +801,7 @@ def _vote_card_updates(conn, category_id: int, date_ids, guest: str) -> list[dic
             "vote_count": total,
             "capacity": capacity,
             "is_full": total >= capacity,
+            "show_participants": bool(show_participants),
             "participants": people,
             "hidden_count": hidden_count,
         })
@@ -835,25 +871,46 @@ def robots():
     return PlainTextResponse("User-agent: *\nDisallow: /\n")
 
 
+_INFO_RETURN_RE = re.compile(
+    r"^/(?:login|admin/?|c/[A-Za-z0-9_-]+|d/[A-Za-z0-9_-]+|"
+    r"u/\d+(?:/reviews)?)$",
+)
+
+
+def _safe_info_return(request: Request) -> str:
+    """Контекстный и безопасный «назад» для справочных страниц."""
+    raw = request.query_params.get("return_to", "")
+    if raw:
+        from urllib.parse import urlsplit
+        parsed = urlsplit(raw)
+        if (not parsed.scheme and not parsed.netloc and not parsed.query
+                and not parsed.fragment and _INFO_RETURN_RE.fullmatch(parsed.path)):
+            return parsed.path
+    return "/admin/" if getattr(request.state, "user", None) else "/login"
+
+
 @router.get("/terms", response_class=HTMLResponse)
 def terms(request: Request):
     return templates.TemplateResponse(
         request, "public/legal.html",
-        {"doc": "terms", "support": SUPPORT_CONTACT, "domain": DOMAIN})
+        {"doc": "terms", "support": SUPPORT_CONTACT, "domain": DOMAIN,
+         "back_url": _safe_info_return(request)})
 
 
 @router.get("/privacy", response_class=HTMLResponse)
 def privacy(request: Request):
     return templates.TemplateResponse(
         request, "public/legal.html",
-        {"doc": "privacy", "support": SUPPORT_CONTACT, "domain": DOMAIN})
+        {"doc": "privacy", "support": SUPPORT_CONTACT, "domain": DOMAIN,
+         "back_url": _safe_info_return(request)})
 
 
 @router.get("/about", response_class=HTMLResponse)
 def about(request: Request):
     return templates.TemplateResponse(
         request, "public/about.html",
-        {"support": support_link(), "projects": AUTHOR_PROJECTS, "about_text": ABOUT_TEXT})
+        {"support": support_link(), "projects": AUTHOR_PROJECTS,
+         "about_text": ABOUT_TEXT, "back_url": _safe_info_return(request)})
 
 
 # ---------------------------------------------------------------------------
@@ -871,8 +928,9 @@ def public_category(token: str, request: Request, conn=Depends(get_db)):
     vote_state = voting.get_category_state(conn, cat["id"])
     proposals_editable = proposal_changes_open(vote_state)
 
-    # Залогиненный посетитель опознаётся стабильным токеном "u<id>"; аноним —
-    # только смотрит (действия в JS ведут на /login). Имя берём из профиля.
+    # Залогиненный посетитель опознаётся стабильным токеном "u<id>"; аноним
+    # может смотреть и отправить неперсональную жалобу, остальные действия в
+    # JS ведут на /login. Имя вошедшего берём из профиля.
     me = viewer(request, conn)
     if me:
         guest, guest_name = guest_identity(me)
@@ -880,6 +938,7 @@ def public_category(token: str, request: Request, conn=Depends(get_db)):
         guest = None
         guest_name = None
     owner = users.get_user(conn, cat["owner_id"])
+    show_participants = bool(cat["show_participants"])
 
     bookings: dict[int, list] = {}
     visible_bookings = view_booking_rows(
@@ -921,14 +980,18 @@ def public_category(token: str, request: Request, conn=Depends(get_db)):
         d["past"] = past
         entries = bookings.get(d["id"], [])
         d["booked_by_me"] = any(e["is_me"] for e in entries)
-        others = [e["name"] for e in entries if not e["is_me"]]
+        others = ([e["name"] for e in entries if not e["is_me"]]
+                  if show_participants else [])
         d["booked_others_list"] = others         # инициалы-аватарки в карточке
         d["booked_others"] = ", ".join(others)   # для обновления DOM без reload
         parts = (["ты ♥"] if d["booked_by_me"] else []) + others
         d["booked_label"] = ", ".join(parts)
-        participant_rows = [dict(e) for e in entries]
-        d["participants"], d["participant_hidden_count"] = \
-            _visible_participants(participant_rows)
+        if show_participants:
+            participant_rows = [dict(e) for e in entries]
+            d["participants"], d["participant_hidden_count"] = \
+                _visible_participants(participant_rows)
+        else:
+            d["participants"], d["participant_hidden_count"] = [], 0
         d["vote_count"] = len(entries)
         d["capacity"] = int(d.get("capacity") or 1)
         d["is_full"] = d["vote_count"] >= d["capacity"]
@@ -992,6 +1055,8 @@ def public_category(token: str, request: Request, conn=Depends(get_db)):
         "me": me, "owner": owner,
         "owner_name": owner_name,
         "viewer_is_owner": viewer_is_owner,
+        "viewer_has_vote": any(bool(d["booked_by_me"]) for d in dates),
+        "show_participants": show_participants,
         "vote_state": vote_state,
         "proposals_editable": proposals_editable,
         "max_photos": images.MAX_IMAGES,
@@ -1046,6 +1111,7 @@ def public_participant_avatar(token: str, user_id: int, w: int | None = None,
         "JOIN bookings b ON b.category_id=c.id "
         "JOIN users u ON u.id=b.user_id AND u.is_active=1 "
         "WHERE c.link_token=? AND c.link_enabled=1 AND u.id=? "
+        "AND c.show_participants=1 "
         "AND (c.voting_status IN (?,?) "
         "     OR (c.voting_status=? AND b.date_id=c.winner_date_id)) LIMIT 1",
         (token, user_id, voting.STATUS_UNCONFIGURED, voting.STATUS_OPEN,
@@ -1237,14 +1303,20 @@ def shared_date(token: str, request: Request, conn=Depends(get_db)):
     is_mine = bool(me and me["id"] == d["owner_id"])
     has_want = False
     wanted_by_me = False
+    want_is_public = False
+    want_visibility = None
     want_action_available = False
     my_review = None
     can_review = False
     if me and not is_mine:
-        has_want = conn.execute(
-            "SELECT 1 FROM date_wants WHERE user_id=? AND date_id=?",
+        want = conn.execute(
+            "SELECT is_public FROM date_wants WHERE user_id=? AND date_id=?",
             (me["id"], d["id"]),
-        ).fetchone() is not None
+        ).fetchone()
+        has_want = want is not None
+        want_is_public = bool(want and want["is_public"])
+        want_visibility = (("public" if want_is_public else "private")
+                           if want else None)
         my_review = conn.execute(
             "SELECT id, rating, text, is_public FROM date_reviews "
             "WHERE user_id=? AND date_id=?",
@@ -1262,6 +1334,25 @@ def shared_date(token: str, request: Request, conn=Depends(get_db)):
     # Гостю (не автору) показываем полноценную карточку с действиями. Контекст
     # выбора существует только при ровно одной активной категории события.
     act_cat = share_action_cat(conn, d)
+    active_category = None
+    active_category_event_count = 0
+    if act_cat:
+        # Передаём шаблону только данные уже доступной секретной ссылки, не всю
+        # строку категории. Счётчик повторяет универсально видимый состав /c/:
+        # чужие draft и архив не раскрываются даже косвенно.
+        active_category = {
+            "id": int(act_cat["id"]),
+            "name": act_cat["name"],
+            "link_token": act_cat["link_token"],
+        }
+        active_category_event_count = int(conn.execute(
+            "SELECT COUNT(*) FROM date_categories dc "
+            "JOIN dates candidate ON candidate.id=dc.date_id "
+            "WHERE dc.category_id=? AND candidate.is_draft=0 "
+            "AND candidate.archived_at IS NULL",
+            (act_cat["id"],),
+        ).fetchone()[0])
+    show_participants = bool(act_cat and act_cat["show_participants"])
     category_skin = appearance.normalize_skin(
         act_cat["category_skin"] if act_cat else None)
     first_og_image = first_existing_og_image(payload["images"])
@@ -1299,13 +1390,15 @@ def shared_date(token: str, request: Request, conn=Depends(get_db)):
             if e["date_id"] == d["id"] and e["is_me"]
         ]
         date_entries = [e for e in entries if e["date_id"] == d["id"]]
-        others = [e["name"] for e in date_entries if not e["is_me"]]
+        others = ([e["name"] for e in date_entries if not e["is_me"]]
+                  if show_participants else [])
         payload["booked_by_me"] = bool(mine)
         payload["booked_others_list"] = others
         payload["booked_others"] = ", ".join(others)
-        participant_rows = [dict(e) for e in date_entries]
-        payload["participants"], payload["participant_hidden_count"] = \
-            _visible_participants(participant_rows)
+        if show_participants:
+            participant_rows = [dict(e) for e in date_entries]
+            payload["participants"], payload["participant_hidden_count"] = \
+                _visible_participants(participant_rows)
         payload["vote_count"] = len(date_entries)
         payload["is_full"] = payload["vote_count"] >= payload["capacity"]
         payload["is_winner"] = bool(
@@ -1336,6 +1429,9 @@ def shared_date(token: str, request: Request, conn=Depends(get_db)):
         "is_mine": is_mine,
         "has_want": has_want,
         "wanted_by_me": wanted_by_me,
+        "want_is_public": want_is_public,
+        "want_visibility": want_visibility,
+        "can_publish_want": bool(d["is_public"] and not d["is_draft"]),
         "want_action_available": want_action_available,
         "my_review": my_review,
         "can_review": can_review,
@@ -1346,6 +1442,9 @@ def shared_date(token: str, request: Request, conn=Depends(get_db)):
                           and not payload["past"] and not bool(d["is_draft"])),
         "can_question": not is_mine,
         "vote_state": vote_state,
+        "active_category": active_category,
+        "active_category_event_count": active_category_event_count,
+        "show_participants": show_participants,
         "category_skin": category_skin,
         "bot": auth_routes.BOT_USERNAME,
         "oauth": auth_routes._oauth_buttons(),
@@ -1448,20 +1547,49 @@ def shared_profile_review(token: str, review_id: int, request: Request,
 
 
 @router.post("/d/{token}/want", dependencies=[Depends(users.current_user)])
-def shared_date_want(token: str, request: Request, conn=Depends(get_db)):
-    """Переключает независимую отметку исходного события «Хочу сходить»."""
+def shared_date_want(token: str, request: Request,
+                     visibility: Annotated[str | None, Form()] = None,
+                     conn=Depends(get_db)):
+    """Создаёт приватную по умолчанию отметку и управляет её видимостью.
+
+    POST без ``visibility`` сохраняет прежний toggle-контракт: существующая
+    отметка удаляется, новая создаётся приватной. Явное ``private|public`` у
+    существующей строки меняет только видимость и не удаляет пользовательский
+    выбор.
+    """
     d = date_by_share(conn, token)
     if not d:
         raise HTTPException(404, "Событие не найдено")
     user = request.state.user
     if int(user["id"]) == int(d["owner_id"]):
         raise HTTPException(400, "Это твоё событие")
+    if visibility not in {None, "private", "public"}:
+        raise HTTPException(400, "Видимость должна быть private или public")
+    requested_visibility = visibility or "private"
+    requested_public = requested_visibility == "public"
+    if requested_public and (not d["is_public"] or d["is_draft"]):
+        raise HTTPException(
+            400,
+            "Приватное событие нельзя показывать в публичном профиле",
+        )
     guest_throttle("want", viewer_token(user), request)
     existing = conn.execute(
-        "SELECT 1 FROM date_wants WHERE user_id=? AND date_id=?",
+        "SELECT is_public FROM date_wants WHERE user_id=? AND date_id=?",
         (user["id"], d["id"]),
     ).fetchone()
-    if existing:
+    want_public: bool | None
+    if existing and visibility is not None:
+        stamp = now_iso()
+        conn.execute(
+            "UPDATE date_wants SET is_public=?, updated_at=? "
+            "WHERE user_id=? AND date_id=?",
+            (1 if requested_public else 0, stamp, user["id"], d["id"]),
+        )
+        msg = ("Отметка видна в публичном профиле"
+               if requested_public else "Отметку видишь только ты")
+        wanted = True
+        want_public = requested_public
+    elif existing:
         conn.execute(
             "DELETE FROM date_wants WHERE user_id=? AND date_id=?",
             (user["id"], d["id"]),
@@ -1471,6 +1599,7 @@ def shared_date_want(token: str, request: Request, conn=Depends(get_db)):
         )
         msg = "Убрано из «Хочу сходить»"
         wanted = False
+        want_public = None
     else:
         if not social_events.want_action_available(
                 conn, int(d["id"]), int(user["id"]), now=now_naive()):
@@ -1481,15 +1610,25 @@ def shared_date_want(token: str, request: Request, conn=Depends(get_db)):
         stamp = now_iso()
         conn.execute(
             "INSERT INTO date_wants(user_id, date_id, is_public, created_at, updated_at) "
-            "VALUES(?,?,1,?,?)",
-            (user["id"], d["id"], stamp, stamp),
+            "VALUES(?,?,?,?,?)",
+            (user["id"], d["id"], 1 if requested_public else 0, stamp, stamp),
         )
         social_events.queue_review_prompt(conn, d["id"], user["id"])
-        msg = "Добавлено в «Хочу сходить»"
+        msg = ("Добавлено в «Хочу сходить» и показано в публичном профиле"
+               if requested_public
+               else "Добавлено в «Хочу сходить»; отметку видишь только ты")
         wanted = True
+        want_public = requested_public
     conn.commit()
     if request.headers.get("x-requested-with") == "fetch":
-        return JSONResponse({"ok": True, "wanted": wanted, "message": msg})
+        return JSONResponse({
+            "ok": True,
+            "wanted": wanted,
+            "want_is_public": bool(want_public),
+            "want_visibility": (("public" if want_public else "private")
+                                if want_public is not None else None),
+            "message": msg,
+        })
     return redir(f"/d/{token}", msg)
 
 
@@ -1586,7 +1725,7 @@ def _share_act_or_410(conn, token: str):
 def shared_participant_avatar(token: str, user_id: int, w: int | None = None,
                               conn=Depends(get_db)):
     d, cat = _share_act_or_410(conn, token)
-    if not cat:
+    if not cat or not cat["show_participants"]:
         raise HTTPException(404)
     if not (cat["voting_status"] in {
                 voting.STATUS_UNCONFIGURED, voting.STATUS_OPEN}
@@ -1651,7 +1790,10 @@ def shared_date_book(token: str, request: Request, bg: BackgroundTasks,
                  action_url=action_url, action_label="Открыть категорию")
     notify_admin(bg, conn, d["owner_id"], card, action_url=action_url,
                  action_label="Открыть категорию")
-    updates = _vote_card_updates(conn, cat["id"], (d["id"],), guest)
+    updates = _vote_card_updates(
+        conn, cat["id"], (d["id"],), guest,
+        show_participants=bool(cat["show_participants"]),
+    )
     conn.commit()
     return JSONResponse({"ok": True, "booked": booked, "name": name,
                          "choices": list(result.current_date_ids),
@@ -1970,7 +2112,10 @@ def public_book(token: str, request: Request, bg: BackgroundTasks,
     affected.update(legacy_date_ids)
     if legacy_date_ids:
         affected.update(result.current_date_ids)
-    updates = _vote_card_updates(conn, cat["id"], affected, guest)
+    updates = _vote_card_updates(
+        conn, cat["id"], affected, guest,
+        show_participants=bool(cat["show_participants"]),
+    )
     conn.commit()
     return JSONResponse({"ok": True, "booked": booked, "name": name,
                          "choices": list(result.current_date_ids),
@@ -2399,13 +2544,17 @@ def public_propose_delete(token: str, date_id: int, request: Request, bg: Backgr
 @router.post("/c/{token}/report")
 def public_report(token: str, request: Request, bg: BackgroundTasks,
                   target_type: str = Form(...), target_id: int = Form(...),
-                  reason: str = Form(""), conn=Depends(get_db)):
-    """Жалоба гостя на событие или саму категорию. Контент существует и виден
-    по этой ссылке — иначе 404 (нельзя слать жалобы на чужой/скрытый id)."""
+                  reason: str = Form(""), csrf: str = Form(""),
+                  conn=Depends(get_db)):
+    """Жалоба без обязательного входа на событие или саму подборку.
+
+    Контент существует и виден по этой ссылке — иначе 404 (нельзя слать
+    жалобы на чужой/скрытый id). Для анонима в БД попадает только случайный
+    per-browser токен, не IP или fingerprint.
+    """
     cat = active_cat_or_410(conn, token)
-    user = acting_user(request, conn)
-    guest = viewer_token(user)
-    guest_throttle("report", guest, request)
+    reporter = report_identity(request, conn, csrf)
+    guest_throttle("report", reporter, request)
 
     if target_type not in ("date", "category"):
         raise HTTPException(400, "Некорректная цель жалобы")
@@ -2421,13 +2570,13 @@ def public_report(token: str, request: Request, bg: BackgroundTasks,
     # Защита от дублей: один гость — одна открытая жалоба на объект.
     dup = conn.execute(
         "SELECT 1 FROM reports WHERE target_type=? AND target_id=? AND reporter=? "
-        "AND status='open'", (target_type, target_id, guest)).fetchone()
+        "AND status='open'", (target_type, target_id, reporter)).fetchone()
     if not dup:
         reason = clean_text(reason, 1000, "Причина") or None
         conn.execute(
             "INSERT INTO reports(target_type, target_id, reporter, reason, "
             "status, created_at) VALUES(?,?,?,?,'open',?)",
-            (target_type, target_id, guest, reason, now_iso()))
+            (target_type, target_id, reporter, reason, now_iso()))
         conn.commit()
         bg.add_task(notify.notify, notify.card(
             "🚩 Жалоба",
@@ -2441,7 +2590,8 @@ def public_report(token: str, request: Request, bg: BackgroundTasks,
 @router.post("/d/{token}/report")
 def shared_date_report(token: str, request: Request, bg: BackgroundTasks,
                        target_type: str = Form("date"), target_id: int = Form(0),
-                       reason: str = Form(""), conn=Depends(get_db)):
+                       reason: str = Form(""), csrf: str = Form(""),
+                       conn=Depends(get_db)):
     """Жалоба со страницы события или его публичного обзора.
 
     Операторская модель жалоб знает события и категории, поэтому кнопка обзора
@@ -2450,8 +2600,7 @@ def shared_date_report(token: str, request: Request, bg: BackgroundTasks,
     d = date_by_share(conn, token)
     if not d:
         raise HTTPException(404, "Событие не найдено")
-    user = acting_user(request, conn)
-    reporter = viewer_token(user)
+    reporter = report_identity(request, conn, csrf)
     guest_throttle("report", reporter, request)
     if target_type != "date" or (target_id and int(target_id) != int(d["id"])):
         raise HTTPException(400, "Некорректная цель жалобы")

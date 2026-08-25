@@ -117,6 +117,13 @@ class DatabasePerformanceMigrationTests(unittest.TestCase):
                 conn.execute("DROP TABLE notification_preferences")
                 conn.execute("DROP TABLE review_queue")
                 conn.execute("ALTER TABLE categories DROP COLUMN use_default_preview")
+                conn.execute("ALTER TABLE users DROP COLUMN birth_date_public")
+                conn.execute("ALTER TABLE users DROP COLUMN gender_public")
+                conn.execute("ALTER TABLE categories DROP COLUMN show_participants")
+                # В реальной v24 колонка is_public имела DEFAULT 1. Свежая
+                # v31-фикстура уже использует приватный default, поэтому
+                # восстанавливаем историческое состояние до миграции.
+                conn.execute("UPDATE dates SET is_public=1")
                 conn.execute("PRAGMA user_version=24")
                 conn.commit()
                 conn.close()

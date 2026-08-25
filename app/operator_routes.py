@@ -13,6 +13,7 @@ current_operator: не-оператор получает 404, аноним → /
 import logging
 import secrets
 from datetime import datetime
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse
@@ -189,10 +190,21 @@ PAGE = 30
 
 
 @router.get("/users", response_class=HTMLResponse)
-def users_list(request: Request, q: str = "", page: int = 1, conn=Depends(get_db)):
+def users_list(request: Request, q: str = "", state: str = "", role: str = "",
+               page: int = 1, conn=Depends(get_db)):
     q = (q or "").strip()
+    state = state if state in {"active", "blocked"} else ""
+    role = role if role in {"operator", "member"} else ""
     page = max(1, page)
     where, args = "WHERE COALESCE(telegram_id,-1)<>0", []
+    if state == "active":
+        where += " AND is_active=1"
+    elif state == "blocked":
+        where += " AND is_active=0"
+    if role == "operator":
+        where += " AND is_operator=1"
+    elif role == "member":
+        where += " AND is_operator=0"
     if q:
         where += (" AND (display_name LIKE ? OR tg_username LIKE ? "
                   "OR CAST(telegram_id AS TEXT) LIKE ?)")
@@ -209,8 +221,8 @@ def users_list(request: Request, q: str = "", page: int = 1, conn=Depends(get_db
     pages = max(1, (total + PAGE - 1) // PAGE)
     return templates.TemplateResponse(
         request, "operator/users.html",
-        octx(request, active="users", rows=rows, q=q, page=page, pages=pages,
-             total=total))
+        octx(request, active="users", rows=rows, q=q, state=state, role=role,
+             page=page, pages=pages, total=total))
 
 
 def _target(conn, uid: int):
@@ -457,7 +469,14 @@ def cats_list(request: Request, q: str = "", page: int = 1, conn=Depends(get_db)
     return templates.TemplateResponse(
         request, "operator/categories.html",
         octx(request, active="cats", rows=rows, q=q, page=page, pages=pages,
-             total=total, base_url=BASE_URL))
+             total=total, base_url=BASE_URL,
+             editor_return_to=(
+                 "/operator/categories"
+                 + ("?" + urlencode([
+                     *([("q", q)] if q else []),
+                     *([("page", str(page))] if page > 1 else []),
+                 ]) if q or page > 1 else "")
+             )))
 
 
 def _cat_or_404(conn, cid: int):
@@ -537,7 +556,15 @@ def dates_list(request: Request, q: str = "", flt: str = "", page: int = 1,
     return templates.TemplateResponse(
         request, "operator/dates.html",
         octx(request, active="dates", rows=rows, q=q, flt=flt, page=page,
-             pages=pages, total=total))
+             pages=pages, total=total,
+             editor_return_to=(
+                 "/operator/dates"
+                 + ("?" + urlencode([
+                     *( [("flt", flt)] if flt else [] ),
+                     *( [("q", q)] if q else [] ),
+                     *( [("page", str(page))] if page > 1 else [] ),
+                 ]) if flt or q or page > 1 else "")
+             )))
 
 
 def _date_or_404(conn, did: int):
@@ -714,6 +741,3 @@ def review_category_approve(cid: int, request: Request, conn=Depends(get_db)):
     conn.commit()
     log.warning("operator %s approved category %s", request.state.user["id"], cid)
     return redir("/operator/review", "Категория одобрена")
-
-
-
