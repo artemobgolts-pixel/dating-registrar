@@ -19,13 +19,110 @@
   const ACT = document.body.dataset.actionBase || ("/c/" + TOKEN);
 
   const $ = (s) => document.querySelector(s);
+  const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
+  const GESTURE_HYSTERESIS = 10;
   const toastEl = $("#toast");
   let toastTimer;
   function toast(msg) {
+    if (!toastEl) return;
     toastEl.textContent = msg;
     toastEl.classList.add("show");
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => toastEl.classList.remove("show"), 2600);
+  }
+
+  // Компактное меню аккаунта остаётся нативным <details>, но закрывается как
+  // привычный popover: снаружи и по Escape, с возвратом фокуса на trigger.
+  const accountMenus = Array.from(document.querySelectorAll(".public-account-menu"));
+  if (accountMenus.length) {
+    document.addEventListener("pointerdown", (event) => {
+      accountMenus.forEach((menu) => {
+        if (menu.open && !menu.contains(event.target)) menu.open = false;
+      });
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      const menu = accountMenus.find((item) => item.open);
+      if (!menu) return;
+      menu.open = false;
+      const trigger = menu.querySelector("summary");
+      if (trigger) trigger.focus();
+    });
+  }
+
+  // Apple-style projection: the release position is not the resting position.
+  // A short history smooths noisy final pointer events before velocity handoff.
+  function projectedDistance(velocity, decelerationRate = 0.998) {
+    return (velocity / 1000) * decelerationRate / (1 - decelerationRate);
+  }
+
+  function rubberband(overshoot, dimension, constant = 0.55) {
+    return (overshoot * dimension * constant) /
+      (dimension + constant * Math.abs(overshoot));
+  }
+
+  function recentVelocity(history, now = performance.now()) {
+    const recent = history.filter((sample) => now - sample.t <= 120);
+    if (recent.length < 2) return 0;
+    const first = recent[0];
+    const last = recent[recent.length - 1];
+    const seconds = (last.t - first.t) / 1000;
+    const velocity = seconds > 0 ? (last.p - first.p) / seconds : 0;
+    // Coalesced/synthetic events can share an almost identical timestamp.
+    // Cap only impossible spikes; real flick velocity is preserved below it.
+    return Math.max(-5000, Math.min(5000, velocity));
+  }
+
+  // Native <dialog> owns focus containment. We additionally remember the
+  // exact source so Escape, Cancel and successful completion return agency to
+  // the control that opened the task.
+  const dialogOpeners = new WeakMap();
+  function openModal(dialog, trigger, focusTarget) {
+    if (!dialog || typeof dialog.showModal !== "function") return false;
+    const source = trigger || document.activeElement;
+    if (source instanceof HTMLElement && source !== document.body) {
+      dialogOpeners.set(dialog, source);
+    }
+    if (!dialog.open) dialog.showModal();
+    requestAnimationFrame(() => {
+      const target = typeof focusTarget === "string"
+        ? dialog.querySelector(focusTarget) : focusTarget;
+      if (target && typeof target.focus === "function") target.focus({ preventScroll: true });
+    });
+    return true;
+  }
+
+  document.querySelectorAll("dialog").forEach((dialog) => {
+    dialog.addEventListener("close", () => {
+      // A native close event is queued. A very fast reopen may already have
+      // started a new modal session by the time it is delivered.
+      if (dialog.open) return;
+      const source = dialogOpeners.get(dialog);
+      dialogOpeners.delete(dialog);
+      if (source && source.isConnected && typeof source.focus === "function") {
+        requestAnimationFrame(() => source.focus({ preventScroll: true }));
+      }
+    });
+  });
+
+  const controlDisabledState = new WeakMap();
+  function setControlBusy(control, busy) {
+    if (!control) return;
+    const form = control.form;
+    if (busy) {
+      if (!controlDisabledState.has(control)) {
+        controlDisabledState.set(control, Boolean(control.disabled));
+      }
+      control.disabled = true;
+      control.setAttribute("aria-busy", "true");
+      if (form) form.setAttribute("aria-busy", "true");
+      return;
+    }
+    const wasDisabled = controlDisabledState.get(control);
+    controlDisabledState.delete(control);
+    control.disabled = Boolean(wasDisabled);
+    control.removeAttribute("aria-busy");
+    if (form) form.removeAttribute("aria-busy");
   }
 
   function setVoteButtonLabel(button, mine, fullLabel) {
@@ -36,14 +133,45 @@
     button.innerHTML = CHECK_ICON + (mine ? " Выбрано" : " Выбрать");
   }
 
-  /* Вход обязателен для любого действия. Аноним видит окно входа (модалку с
-     Telegram-виджетом) прямо здесь; после входа Telegram вернёт на эту же
-     страницу (адрес возврата передаётся прямо в способ входа). Если модалки нет — фолбэк
-     на страницу /login. */
+  /* Вход обязателен для персональных действий. Жалоба остаётся доступна без
+     аккаунта; выбор, вопрос, предложение и сохранение открывают вход. После
+     входа Telegram вернёт на эту же страницу. Если модалки нет — фолбэк на
+     страницу /login. */
   const loginDlg = $("#loginDlg");
-  function goLogin() {
+  const loginTitle = $("#loginDlgTitle");
+  const loginDescription = $("#loginDlgDescription");
+  const loginDefaultCopy = {
+    title: loginTitle ? loginTitle.textContent : "Войти",
+    description: loginDescription ? loginDescription.textContent : "Вход через Telegram — быстро и без пароля",
+  };
+  const loginCopy = {
+    vote: {
+      title: "Войти, чтобы выбрать событие",
+      description: "После входа выбор будет связан с твоим профилем; до дедлайна его можно изменить или снять.",
+    },
+    question: {
+      title: "Войти, чтобы задать вопрос",
+      description: "Вопрос увидит организатор, а ответ появится на этой странице.",
+    },
+    propose: {
+      title: "Войти, чтобы предложить событие",
+      description: "После входа можно отправить идею организатору и затем изменить или удалить её.",
+    },
+    time: {
+      title: "Войти, чтобы предложить дату",
+      description: "Организатор увидит, кто предложил время, и сможет учесть его при планировании.",
+    },
+    manage: {
+      title: "Войти, чтобы управлять участием",
+      description: "После входа можно изменить свой выбор или управлять своим предложением.",
+    },
+  };
+  function goLogin(action = "default", trigger) {
     if (loginDlg && typeof loginDlg.showModal === "function") {
-      loginDlg.showModal();
+      const copy = loginCopy[action] || loginDefaultCopy;
+      if (loginTitle) loginTitle.textContent = copy.title;
+      if (loginDescription) loginDescription.textContent = copy.description;
+      openModal(loginDlg, trigger, "#loginClose");
       return;
     }
     location.href = "/login?next=" + encodeURIComponent(location.pathname);
@@ -55,14 +183,14 @@
     document.addEventListener("click", (e) => {
       if (e.target.closest("#loginOpen, [data-login-open]")) {
         e.preventDefault();
-        loginDlg.showModal();
+        goLogin("default", e.target.closest("#loginOpen, [data-login-open]"));
       }
     });
     if (lc) lc.addEventListener("click", () => loginDlg.close());
     loginDlg.addEventListener("click", (e) => { if (e.target === loginDlg) loginDlg.close(); });
   }
-  function requireAuth(fn) {
-    if (!AUTH) { goLogin(); return; }
+  function requireAuth(fn, action, trigger) {
+    if (!AUTH) { goLogin(action, trigger); return; }
     fn();
   }
 
@@ -72,7 +200,7 @@
       c.style.setProperty("--i", Math.min(i, 7)));
   });
 
-  async function post(url, fd) {
+  async function post(url, fd, options = {}) {
     let r;
     try {
       r = await fetch(url, {
@@ -83,7 +211,14 @@
     catch (_) { toast("Нет связи — попробуй ещё раз"); return { ok: false }; }
     let j = {};
     try { j = await r.json(); } catch (_) {}
-    if (r.status === 401 && j.detail && j.detail.need_login) { goLogin(); return { ok: false }; }
+    if (r.status === 401 && j.detail && j.detail.need_login) {
+      if (options.allowAnonymous) {
+        toast("Не удалось отправить без входа — попробуй ещё раз позже");
+      } else {
+        goLogin();
+      }
+      return { ok: false };
+    }
     if (!r.ok) {
       const d = j.detail;
       toast(typeof d === "string" ? d : (d && d.msg) || "Что-то пошло не так");
@@ -110,6 +245,7 @@
 
   function renderParticipants(progress, update) {
     progress.querySelectorAll(".participants, .vote-empty").forEach((el) => el.remove());
+    if (update.show_participants === false) return;
     const people = Array.isArray(update.participants) ? update.participants : [];
     if (!people.length) {
       const empty = document.createElement("p");
@@ -184,6 +320,10 @@
     }
     const progress = card.querySelector(".vote-progress");
     if (progress) {
+      const rosterLabel = progress.querySelector(".vote-progress-head span");
+      if (rosterLabel && typeof update.show_participants === "boolean") {
+        rosterLabel.textContent = update.show_participants ? "участников" : "голосов";
+      }
       progress.classList.toggle("full", full);
       const head = progress.querySelector(".vote-progress-head");
       if (head) head.hidden = hideEmptySingleCounter;
@@ -204,6 +344,7 @@
     const button = card.querySelector(".btn.book[data-id]");
     if (!button) return;
     delete button.dataset.busy;
+    button.removeAttribute("aria-busy");
     if (votingStatus === "unconfigured" && !update.mine) {
       button.remove();
       return;
@@ -223,11 +364,13 @@
     const wasDisabled = btn.disabled;
     btn.disabled = true;
     btn.dataset.busy = "1";
+    btn.setAttribute("aria-busy", "true");
     const fd = new FormData();
     fd.append("date_id", btn.dataset.id);
     const res = await post(`${ACT}/book`, fd);
     if (!res.ok) {
       delete btn.dataset.busy;
+      btn.removeAttribute("aria-busy");
       btn.disabled = wasDisabled;
       voteBusy = false;
       return;
@@ -237,6 +380,12 @@
     (res.j.updates || []).forEach(
       (update) => applyVoteUpdate(update, res.j.voting_status));
     if (res.j.booked) {
+      let notifyRevealed = false;
+      document.querySelectorAll("[data-deferred-notify]").forEach((box) => {
+        notifyRevealed = notifyRevealed || box.hidden;
+        box.hidden = false;
+        box.classList.add("is-revealed");
+      });
       const r = btn.getBoundingClientRect();
       UI.burst(r.left + r.width / 2, r.top + 6);
       const cr = card.getBoundingClientRect();     // второй залп — из центра карточки
@@ -244,15 +393,18 @@
                                 Math.max(70, cr.top + cr.height / 2)), 140);
       card.classList.remove("glow"); void card.offsetWidth;   // перезапуск анимации
       card.classList.add("glow");
-      toast(FRIENDS ? "Голос учтён" : "Голос учтён ♥");
+      toast(notifyRevealed
+        ? "Голос учтён. Теперь можно подключить уведомления в Telegram"
+        : (FRIENDS ? "Голос учтён" : "Голос учтён ♥"));
     } else {
       toast("Голос снят");
     }
     delete btn.dataset.busy;
+    btn.removeAttribute("aria-busy");
     voteBusy = false;
   }
   document.querySelectorAll(".btn.book[data-id]").forEach((b) => {
-    b.addEventListener("click", () => requireAuth(() => doBook(b)));
+    b.addEventListener("click", () => requireAuth(() => doBook(b), "vote", b));
   });
 
   document.querySelectorAll(".withdraw-vote").forEach((b) => {
@@ -261,12 +413,13 @@
         "Отказаться от участия? Победитель и результат голосования не изменятся.",
         { trigger: b }
       )) return;
+      setControlBusy(b, true);
       const withdrawUrl = document.body.dataset.withdrawUrl || (`/c/${TOKEN}/withdraw`);
       const res = await post(withdrawUrl, new FormData());
-      if (!res.ok) return;
+      if (!res.ok) { setControlBusy(b, false); return; }
       toast("Организатор уведомлён");
       setTimeout(() => location.reload(), 500);
-    }));
+    }, "manage", b));
   });
 
   /* --- вопрос --------------------------------------------------------------*/
@@ -276,14 +429,18 @@
       $("#askDateId").value = b.dataset.id;
       $("#askTitle").textContent = b.dataset.name;
       $("#askText").value = "";
-      askDlg.showModal();
-    }));
+      openModal(askDlg, b, "#askText");
+    }, "question", b));
   });
   $("#askCancel").onclick = () => askDlg.close();
   askForm.addEventListener("submit", async (e) => {
     e.preventDefault();
+    const submit = e.submitter || askForm.querySelector('[type="submit"]');
+    if (submit && submit.getAttribute("aria-busy") === "true") return;
+    setControlBusy(submit, true);
     const res = await post(`${ACT}/question`, new FormData(askForm));
-    if (!res.ok) return;
+    if (!res.ok) { setControlBusy(submit, false); return; }
+    setControlBusy(submit, false);
     askDlg.close();
     toast(FRIENDS ? "Вопрос отправлен — ответ появится здесь же"
       : "Вопрос отправлен 💌 Ответ появится здесь же");
@@ -293,19 +450,23 @@
   /* --- жалоба --------------------------------------------------------------*/
   const reportDlg = $("#reportDlg"), reportForm = $("#reportForm");
   document.querySelectorAll(".report-link[data-id]").forEach((b) => {
-    b.addEventListener("click", () => requireAuth(() => {
+    b.addEventListener("click", () => {
       $("#reportType").value = "date";
       $("#reportTargetId").value = b.dataset.id;
       $("#reportTitle").textContent = b.dataset.name;
       $("#reportReason").value = "";
-      reportDlg.showModal();
-    }));
+      openModal(reportDlg, b, "#reportReason");
+    });
   });
   $("#reportCancel").onclick = () => reportDlg.close();
   reportForm.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const res = await post(`${ACT}/report`, new FormData(reportForm));
-    if (!res.ok) return;
+    const submit = e.submitter || reportForm.querySelector('[type="submit"]');
+    if (submit && submit.getAttribute("aria-busy") === "true") return;
+    setControlBusy(submit, true);
+    const res = await post(`${ACT}/report`, new FormData(reportForm), { allowAnonymous: true });
+    if (!res.ok) { setControlBusy(submit, false); return; }
+    setControlBusy(submit, false);
     reportDlg.close();
     toast("Спасибо, жалоба отправлена. Модератор проверит 🙏");
   });
@@ -319,14 +480,18 @@
       $("#timeTitle").textContent = b.dataset.name;
       timeForm.reset();
       $("#timeDateId").value = b.dataset.id;
-      timeDlg.showModal();
-    }));
+      openModal(timeDlg, b, "#timeStart");
+    }, "time", b));
   });
   $("#timeCancel").onclick = () => timeDlg.close();
   timeForm.addEventListener("submit", async (e) => {
     e.preventDefault();
+    const submit = e.submitter || timeForm.querySelector('[type="submit"]');
+    if (submit && submit.getAttribute("aria-busy") === "true") return;
+    setControlBusy(submit, true);
     const res = await post(`${ACT}/suggest_time`, new FormData(timeForm));
-    if (!res.ok) return;
+    if (!res.ok) { setControlBusy(submit, false); return; }
+    setControlBusy(submit, false);
     timeDlg.close();
     toast(FRIENDS ? "Предложение времени отправлено" : "Предложение отправлено 📅");
     setTimeout(() => location.reload(), 1100);
@@ -672,7 +837,7 @@
     editId = meta ? meta.id : null;
     $("#propHead").textContent = meta ? "Изменить своё событие" : "Предложить своё событие";
     $("#propSubmit").textContent = meta ? "Сохранить изменения" : "Предложить своё событие";
-    $("#propSubmit").disabled = false;
+    setControlBusy($("#propSubmit"), false);
     propTitleEdit.set(meta ? meta.name : "");
     propPlaceEdit.set(meta ? meta.place : "");
     propLinksEdit.set(meta ? meta.links : "");
@@ -683,13 +848,18 @@
     if (propRich) propRich.fromTextarea();
     if (UI.numberSteppers) UI.numberSteppers(propForm);
     renderPropGallery();
-    propDlg.showModal();
+    openModal(propDlg, document.activeElement, "#propEdTitle");
   }
 
-  const fabPropose = $("#fabPropose");
-  if (fabPropose) fabPropose.onclick = () => requireAuth(() => openPropose(null));
+  const proposeTriggers = Array.from(
+    document.querySelectorAll("#fabPropose, [data-propose-open]")
+  );
+  proposeTriggers.forEach((trigger) => {
+    trigger.onclick = () => requireAuth(
+      () => openPropose(null), "propose", trigger);
+  });
   document.addEventListener("d4y:voting-ended", () => {
-    if (fabPropose) fabPropose.hidden = true;
+    proposeTriggers.forEach((trigger) => { trigger.hidden = true; });
     document.querySelectorAll(".mine-actions").forEach((actions) => { actions.hidden = true; });
     document.querySelectorAll("[data-proposal-empty-cta]").forEach((hint) => {
       hint.hidden = true;
@@ -700,7 +870,8 @@
     }
   });
   document.querySelectorAll(".mine-actions .edit").forEach((b) => {
-    b.addEventListener("click", () => requireAuth(() => openPropose(JSON.parse(b.dataset.meta))));
+    b.addEventListener("click", () => requireAuth(
+      () => openPropose(JSON.parse(b.dataset.meta)), "manage", b));
   });
   $("#propCancel").onclick = () => propDlg.close();
   $("#propCancelBottom").onclick = () => propDlg.close();
@@ -714,7 +885,7 @@
     if (propRequest && propRequest.abort) propRequest.abort();
     propRequest = null;
     propSession += 1;
-    $("#propSubmit").disabled = false;
+    setControlBusy($("#propSubmit"), false);
     resetPropProgress();
     up.clear();
     upv.clear();
@@ -735,7 +906,8 @@
     }
     const sub = $("#propSubmit");
     const submitSession = propSession;
-    sub.disabled = true;
+    if (sub.getAttribute("aria-busy") === "true") return;
+    setControlBusy(sub, true);
     // Большие фото сжимаются асинхронно. Дожидаемся их подготовки до сборки
     // FormData, иначе быстрый submit отправлял событие без только что выбранных
     // фото (особенно заметно на телефоне).
@@ -745,7 +917,7 @@
     // За время подготовки большого фото пользователь мог закрыть диалог или
     // открыть его заново. Закрытая/уже другая форма не должна отправляться.
     if (submitSession !== propSession || !propDlg.open) {
-      if (!propDlg.open) sub.disabled = false;
+      if (!propDlg.open) setControlBusy(sub, false);
       return;
     }
 
@@ -790,10 +962,10 @@
     if (propRequest === request) propRequest = null;
     // Ответ старого запроса не должен закрыть повторно открытый редактор.
     if (submitSession !== propSession || !propDlg.open) return;
-    sub.disabled = false;
+    setControlBusy(sub, false);
     resetPropProgress();
     if (raw.status === 401 && raw.j.detail && raw.j.detail.need_login) {
-      goLogin();
+      goLogin("propose", sub);
       return;
     }
     if (raw.status < 200 || raw.status >= 300) {
@@ -811,10 +983,11 @@
 
   document.querySelectorAll(".mine-actions .del").forEach((b) => {
     b.addEventListener("click", async () => {
-      if (!AUTH) { goLogin(); return; }
+      if (!AUTH) { goLogin("manage", b); return; }
       if (!await window.d4yConfirm(`Удалить «${b.dataset.name}»?`, { trigger: b })) return;
+      setControlBusy(b, true);
       const res = await post(`/c/${TOKEN}/propose/${b.dataset.id}/delete`, new FormData());
-      if (!res.ok) return;
+      if (!res.ok) { setControlBusy(b, false); return; }
       toast("Удалено");
       setTimeout(() => location.reload(), 700);
     });
@@ -828,84 +1001,442 @@
       e.preventDefault();
       $("#calGoogle").href = a.dataset.gcal;
       $("#calIcs").href = a.dataset.ics;
-      calDlg.showModal();
+      openModal(calDlg, a, "#calGoogle");
     });
   });
   $("#calCancel").onclick = () => calDlg.close();
   $("#calGoogle").addEventListener("click", () => setTimeout(() => calDlg.close(), 300));
   $("#calIcs").addEventListener("click", () => setTimeout(() => calDlg.close(), 300));
 
-  /* --- галереи: точки, счётчик, стрелки ----------------------------------------*/
+  /* --- физическая модель для галерей и полноэкранного просмотра --------------*/
+  function springValue(from, target, initialVelocity, update, complete, options = {}) {
+    if (REDUCED_MOTION.matches) {
+      update(target);
+      if (complete) complete();
+      return () => {};
+    }
+    let value = from;
+    let velocity = Number.isFinite(initialVelocity) ? initialVelocity : 0;
+    let frame = 0;
+    let stopped = false;
+    let previous = performance.now();
+    const response = options.response || 0.36;
+    const damping = options.damping || 1;
+    const omega = 2 * Math.PI / response;
+    const stiffness = omega * omega;
+    const friction = 2 * damping * omega;
+
+    const tick = (now) => {
+      if (stopped) return;
+      const dt = Math.min(0.032, Math.max(0.001, (now - previous) / 1000));
+      previous = now;
+      const acceleration = -stiffness * (value - target) - friction * velocity;
+      velocity += acceleration * dt;
+      value += velocity * dt;
+      update(value);
+      if (Math.abs(value - target) < 0.45 && Math.abs(velocity) < 5) {
+        update(target);
+        if (complete) complete();
+        return;
+      }
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => {
+      stopped = true;
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }
+
+  /* --- галереи: 1:1 Pointer Events, проекция скорости и snap -----------------*/
   document.querySelectorAll(".gal-wrap").forEach((w) => {
     const g = w.querySelector(".gallery");
-    const n = g.children.length;          // фото и видео — единая лента
+    const slides = [...g.children];       // фото и видео — единая лента
+    const n = slides.length;
+    if (!n) return;
+    const cardTitle = w.closest(".card")?.querySelector(".title")?.textContent?.trim();
+    g.setAttribute("role", "region");
+    g.setAttribute("aria-roledescription", "карусель");
+    g.setAttribute("aria-label", cardTitle ? `Галерея события «${cardTitle}»` : "Галерея события");
+    slides.forEach((slide, index) => {
+      if (slide.matches("video") && !slide.getAttribute("aria-label")) {
+        slide.setAttribute("aria-label", `Видео ${index + 1} из ${n}`);
+      }
+    });
+
     if (n < 2) return;
     const dots = document.createElement("div");
     dots.className = "gal-dots";
+    dots.setAttribute("aria-hidden", "true");
     for (let k = 0; k < n; k++) dots.appendChild(document.createElement("i"));
     const cnt = document.createElement("div");
     cnt.className = "gal-count";
+    cnt.setAttribute("aria-live", "polite");
+    cnt.setAttribute("aria-atomic", "true");
     const prev = document.createElement("button");
     prev.type = "button"; prev.className = "gal-nav prev"; prev.textContent = "‹";
-    prev.setAttribute("aria-label", "Предыдущее фото");
+    prev.setAttribute("aria-label", "Предыдущий элемент галереи");
     const next = document.createElement("button");
     next.type = "button"; next.className = "gal-nav next"; next.textContent = "›";
-    next.setAttribute("aria-label", "Следующее фото");
+    next.setAttribute("aria-label", "Следующий элемент галереи");
     w.append(dots, cnt, prev, next);
+
     const upd = () => {
-      const i = Math.round(g.scrollLeft / Math.max(1, g.clientWidth));
+      const i = Math.max(0, Math.min(n - 1,
+        Math.round(g.scrollLeft / Math.max(1, g.clientWidth))));
       [...dots.children].forEach((d, k) => d.classList.toggle("on", k === i));
-      cnt.textContent = (i + 1) + "/" + n;
+      cnt.textContent = `${i + 1}/${n}`;
+      cnt.setAttribute("aria-label", `Элемент ${i + 1} из ${n}`);
       prev.disabled = i === 0;
       next.disabled = i === n - 1;
     };
     upd();
-    g.addEventListener("scroll", () => requestAnimationFrame(upd), { passive: true });
-    prev.addEventListener("click", (e) => { e.stopPropagation(); g.scrollBy({ left: -g.clientWidth, behavior: "smooth" }); });
-    next.addEventListener("click", (e) => { e.stopPropagation(); g.scrollBy({ left: g.clientWidth, behavior: "smooth" }); });
+    let scrollFramePending = false;
+    g.addEventListener("scroll", () => {
+      if (scrollFramePending) return;
+      scrollFramePending = true;
+      requestAnimationFrame(() => { scrollFramePending = false; upd(); });
+    }, { passive: true });
+
+    let cancelScrollSpring = null;
+    let cancelEdgeSpring = null;
+    let edgePull = 0;
+    let gesture = null;
+    function stopGalleryMotion() {
+      if (cancelScrollSpring) cancelScrollSpring();
+      if (cancelEdgeSpring) cancelEdgeSpring();
+      cancelScrollSpring = cancelEdgeSpring = null;
+    }
+    function setEdgePull(value) {
+      edgePull = value;
+      slides.forEach((slide) => {
+        slide.style.transform = value ? `translate3d(${value}px, 0, 0)` : "";
+        slide.style.willChange = value ? "transform" : "";
+      });
+    }
+    function releaseEdge(initialVelocity = 0) {
+      if (!edgePull) return;
+      if (cancelEdgeSpring) cancelEdgeSpring();
+      cancelEdgeSpring = springValue(edgePull, 0, initialVelocity, setEdgePull, () => {
+        cancelEdgeSpring = null;
+        setEdgePull(0);
+      }, { response: 0.3, damping: 1 });
+    }
+    function snapGallery(target, velocity = 0) {
+      const width = Math.max(1, g.clientWidth);
+      const max = width * (n - 1);
+      const clamped = Math.max(0, Math.min(max, target));
+      if (cancelScrollSpring) cancelScrollSpring();
+      cancelScrollSpring = springValue(g.scrollLeft, clamped, velocity, (value) => {
+        g.scrollLeft = value;
+      }, () => {
+        cancelScrollSpring = null;
+        g.scrollLeft = clamped;
+        g.style.scrollSnapType = "";
+        upd();
+      }, { response: 0.36, damping: Math.abs(velocity) > 140 ? 0.88 : 1 });
+    }
+
+    prev.addEventListener("click", (e) => {
+      e.stopPropagation();
+      g.style.scrollSnapType = "none";
+      snapGallery(g.scrollLeft - g.clientWidth);
+    });
+    next.addEventListener("click", (e) => {
+      e.stopPropagation();
+      g.style.scrollSnapType = "none";
+      snapGallery(g.scrollLeft + g.clientWidth);
+    });
+
+    g.addEventListener("dragstart", (event) => event.preventDefault());
+    g.addEventListener("pointerdown", (event) => {
+      if (!event.isPrimary || event.button !== 0) return;
+      const video = event.target.closest("video");
+      // Leave the native transport/seek controls untouched. A drag on the
+      // visual part of a video may still page the carousel after hysteresis.
+      if (video && event.clientY >= video.getBoundingClientRect().bottom - 56) return;
+      stopGalleryMotion();
+      g.style.scrollSnapType = "none";
+      gesture = {
+        id: event.pointerId,
+        x: event.clientX,
+        y: event.clientY,
+        startScroll: g.scrollLeft,
+        mode: "pending",
+        capturePending: Boolean(video),
+        history: [{ p: g.scrollLeft, t: performance.now() }],
+      };
+      if (!video) g.setPointerCapture(event.pointerId);
+    });
+    g.addEventListener("pointermove", (event) => {
+      if (!gesture || event.pointerId !== gesture.id) return;
+      const dx = event.clientX - gesture.x;
+      const dy = event.clientY - gesture.y;
+      if (gesture.mode === "pending") {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) < GESTURE_HYSTERESIS) return;
+        if (Math.abs(dy) >= Math.abs(dx)) {
+          gesture.mode = "vertical";
+          g.style.scrollSnapType = "";
+          if (g.hasPointerCapture(event.pointerId)) g.releasePointerCapture(event.pointerId);
+          return;
+        }
+        gesture.mode = "horizontal";
+        if (gesture.capturePending) g.setPointerCapture(event.pointerId);
+        g.classList.add("is-dragging");
+      }
+      if (gesture.mode !== "horizontal") return;
+      event.preventDefault();
+      const width = Math.max(1, g.clientWidth);
+      const max = width * (n - 1);
+      const desired = gesture.startScroll - dx;
+      if (desired < 0) {
+        g.scrollLeft = 0;
+        setEdgePull(rubberband(-desired, width));
+      } else if (desired > max) {
+        g.scrollLeft = max;
+        setEdgePull(-rubberband(desired - max, width));
+      } else {
+        g.scrollLeft = desired;
+        setEdgePull(0);
+      }
+      const now = performance.now();
+      gesture.history.push({ p: desired, t: now });
+      gesture.history = gesture.history.filter((sample) => now - sample.t <= 140);
+    }, { passive: false });
+
+    function finishGalleryGesture(event, cancelled) {
+      if (!gesture || event.pointerId !== gesture.id) return;
+      const current = gesture;
+      gesture = null;
+      if (g.hasPointerCapture(event.pointerId)) g.releasePointerCapture(event.pointerId);
+      g.classList.remove("is-dragging");
+      if (current.mode !== "horizontal") {
+        g.style.scrollSnapType = "";
+        return;
+      }
+      g._d4ySuppressClickUntil = performance.now() + 350;
+      const velocity = cancelled ? 0 : recentVelocity(current.history);
+      const width = Math.max(1, g.clientWidth);
+      const projected = g.scrollLeft + projectedDistance(velocity);
+      const target = Math.round(projected / width) * width;
+      releaseEdge(-velocity * 0.08);
+      snapGallery(target, velocity);
+    }
+    g.addEventListener("pointerup", (event) => finishGalleryGesture(event, false));
+    g.addEventListener("pointercancel", (event) => finishGalleryGesture(event, true));
   });
 
-  /* --- лайтбокс: листание всех фото карточки -----------------------------------*/
+  /* --- native lightbox: focus-safe, interruptible, velocity-aware ------------*/
   const lb = $("#lightbox"), lbImg = lb.querySelector("img"), lbCnt = $("#lbCount");
   const lbPrev = $("#lbPrev"), lbNext = $("#lbNext");
-  let lbList = [], lbI = 0;
+  let lbList = [];
+  let lbI = 0;
+  let lbOffset = 0;
+  let lbGesture = null;
+  let cancelLbSpring = null;
+
+  function setLbOffset(value) {
+    lbOffset = value;
+    lbImg.style.transform = value ? `translate3d(${value}px, 0, 0)` : "";
+    lbImg.style.willChange = value ? "transform" : "";
+  }
+  function stopLbMotion() {
+    if (cancelLbSpring) cancelLbSpring();
+    cancelLbSpring = null;
+  }
+  function preloadLbNeighbors() {
+    [lbList[lbI - 1], lbList[lbI + 1]].filter(Boolean).forEach((item) => {
+      const image = new Image();
+      image.src = item.src;
+    });
+  }
   function lbShow(i) {
+    if (!lbList.length) return;
     lbI = Math.max(0, Math.min(i, lbList.length - 1));
-    lbImg.src = lbList[lbI];
-    lbCnt.textContent = (lbI + 1) + "/" + lbList.length;
+    const item = lbList[lbI];
+    lbImg.src = item.src;
+    lbImg.alt = item.alt || `Фото ${lbI + 1} из ${lbList.length}`;
+    lbCnt.textContent = `${lbI + 1}/${lbList.length}`;
+    lbCnt.setAttribute("aria-label", `Фото ${lbI + 1} из ${lbList.length}`);
     const single = lbList.length < 2;
     lbCnt.hidden = single;
     lbPrev.hidden = lbNext.hidden = single;
     lbPrev.disabled = lbI === 0;
     lbNext.disabled = lbI === lbList.length - 1;
+    preloadLbNeighbors();
   }
-  function lbClose() { lb.classList.remove("open"); lbImg.src = ""; }
-  document.addEventListener("click", (e) => {
-    const img = e.target.closest(".gallery img");
-    if (!img) return;
-    const imgs = [...img.closest(".gallery").querySelectorAll("img")];
-    // Карточка использует уменьшенную responsive-копию, а оригинал скачивается
-    // только после явного открытия полноэкранного просмотра.
-    lbList = imgs.map((x) => x.dataset.full || x.src);
-    lb.classList.add("open");
+  function springLbTo(target, velocity, complete, momentum = false) {
+    stopLbMotion();
+    cancelLbSpring = springValue(lbOffset, target, velocity, setLbOffset, () => {
+      cancelLbSpring = null;
+      setLbOffset(target);
+      if (complete) complete();
+    }, { response: momentum ? 0.32 : 0.36, damping: momentum ? 0.88 : 1 });
+  }
+  function moveLbBy(delta, velocity = 0) {
+    const nextIndex = lbI + delta;
+    if (nextIndex < 0 || nextIndex >= lbList.length) {
+      springLbTo(0, velocity);
+      return;
+    }
+    if (REDUCED_MOTION.matches) {
+      setLbOffset(0);
+      lbShow(nextIndex);
+      return;
+    }
+    const width = Math.max(1, lb.clientWidth || window.innerWidth);
+    const exitTarget = delta > 0 ? -width : width;
+    springLbTo(exitTarget, velocity, () => {
+      lbShow(nextIndex);
+      setLbOffset(delta > 0 ? width : -width);
+      const incomingVelocity = delta > 0
+        ? Math.min(-180, velocity) : Math.max(180, velocity);
+      springLbTo(0, incomingVelocity, null, true);
+    }, true);
+  }
+  function openLightbox(img) {
+    const gallery = img.closest(".gallery");
+    const imgs = [...gallery.querySelectorAll("img")];
+    const title = gallery.closest(".card")?.querySelector(".title")?.textContent?.trim();
+    // Карточка использует responsive-копию; оригинал загружается только после
+    // явного открытия. Текстовое имя остаётся полезным и без декоративного alt.
+    lbList = imgs.map((source, index) => ({
+      src: source.dataset.full || source.currentSrc || source.src,
+      alt: `Фото ${index + 1} из ${imgs.length}${title ? `: ${title}` : ""}`,
+    }));
+    stopLbMotion();
+    setLbOffset(0);
     lbShow(imgs.indexOf(img));
+    if (!lb.open) {
+      openModal(lb, img, "#lbX");
+      lb.classList.add("open");
+    }
+  }
+  function lbClose() {
+    stopLbMotion();
+    if (lb.open) lb.close();
+  }
+  lb.addEventListener("close", () => {
+    if (lb.open) return;
+    stopLbMotion();
+    lbGesture = null;
+    lb.classList.remove("open", "is-dragging");
+    setLbOffset(0);
+    lbImg.removeAttribute("src");
+    lbList = [];
   });
-  lbPrev.addEventListener("click", (e) => { e.stopPropagation(); lbShow(lbI - 1); });
-  lbNext.addEventListener("click", (e) => { e.stopPropagation(); lbShow(lbI + 1); });
+  lb.addEventListener("cancel", () => stopLbMotion());
+
+  document.addEventListener("click", (event) => {
+    const img = event.target.closest(".gallery img");
+    if (!img) return;
+    const gallery = img.closest(".gallery");
+    if (gallery._d4ySuppressClickUntil > performance.now()) {
+      event.preventDefault();
+      return;
+    }
+    openLightbox(img);
+  });
+  document.querySelectorAll(".gallery img").forEach((img) => {
+    // Legacy cards receive the same semantics even if they were rendered by an
+    // older cached template while this script is already fresh.
+    img.setAttribute("role", "button");
+    img.tabIndex = 0;
+    img.setAttribute("aria-haspopup", "dialog");
+    img.setAttribute("aria-controls", "lightbox");
+    img.draggable = false;
+    img.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        openLightbox(img);
+        return;
+      }
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      const imgs = [...img.closest(".gallery").querySelectorAll("img")];
+      const direction = event.key === "ArrowRight" ? 1 : -1;
+      const target = imgs[imgs.indexOf(img) + direction];
+      if (!target) return;
+      event.preventDefault();
+      target.focus({ preventScroll: true });
+      target.scrollIntoView({ behavior: REDUCED_MOTION.matches ? "auto" : "smooth", block: "nearest", inline: "center" });
+    });
+  });
+
+  lbPrev.addEventListener("click", (event) => { event.stopPropagation(); moveLbBy(-1); });
+  lbNext.addEventListener("click", (event) => { event.stopPropagation(); moveLbBy(1); });
   $("#lbX").addEventListener("click", lbClose);
-  lb.addEventListener("click", (e) => { if (e.target === lb || e.target === lbImg) lbClose(); });
-  document.addEventListener("keydown", (e) => {
-    if (!lb.classList.contains("open")) return;
-    if (e.key === "Escape") lbClose();
-    if (e.key === "ArrowLeft") lbShow(lbI - 1);
-    if (e.key === "ArrowRight") lbShow(lbI + 1);
+  lb.addEventListener("click", (event) => { if (event.target === lb) lbClose(); });
+  lb.addEventListener("keydown", (event) => {
+    if (!lb.open) return;
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      moveLbBy(-1);
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault();
+      moveLbBy(1);
+    }
   });
-  let touchX = null;
-  lb.addEventListener("touchstart", (e) => { touchX = e.touches[0].clientX; }, { passive: true });
-  lb.addEventListener("touchend", (e) => {
-    if (touchX === null) return;
-    const dx = e.changedTouches[0].clientX - touchX;
-    touchX = null;
-    if (Math.abs(dx) > 44) lbShow(lbI + (dx < 0 ? 1 : -1));
-  }, { passive: true });
+
+  lbImg.addEventListener("pointerdown", (event) => {
+    if (!event.isPrimary || event.button !== 0) return;
+    stopLbMotion();                         // grab the presentation value now
+    lbGesture = {
+      id: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      startOffset: lbOffset,
+      mode: "pending",
+      history: [{ p: lbOffset, t: performance.now() }],
+    };
+    lbImg.setPointerCapture(event.pointerId);
+  });
+  lbImg.addEventListener("pointermove", (event) => {
+    if (!lbGesture || event.pointerId !== lbGesture.id) return;
+    const dx = event.clientX - lbGesture.x;
+    const dy = event.clientY - lbGesture.y;
+    if (lbGesture.mode === "pending") {
+      if (Math.max(Math.abs(dx), Math.abs(dy)) < GESTURE_HYSTERESIS) return;
+      if (Math.abs(dy) >= Math.abs(dx)) {
+        lbGesture.mode = "vertical";
+        if (lbImg.hasPointerCapture(event.pointerId)) lbImg.releasePointerCapture(event.pointerId);
+        return;
+      }
+      lbGesture.mode = "horizontal";
+      lb.classList.add("is-dragging");
+    }
+    if (lbGesture.mode !== "horizontal") return;
+    event.preventDefault();
+    const width = Math.max(1, lb.clientWidth || window.innerWidth);
+    let value = lbGesture.startOffset + dx;
+    if (value > 0 && lbI === 0) value = rubberband(value, width);
+    if (value < 0 && lbI === lbList.length - 1) value = -rubberband(-value, width);
+    if (!REDUCED_MOTION.matches) setLbOffset(value);
+    const now = performance.now();
+    lbGesture.history.push({ p: value, t: now });
+    lbGesture.history = lbGesture.history.filter((sample) => now - sample.t <= 140);
+  }, { passive: false });
+
+  function finishLbGesture(event, cancelled) {
+    if (!lbGesture || event.pointerId !== lbGesture.id) return;
+    const current = lbGesture;
+    lbGesture = null;
+    if (lbImg.hasPointerCapture(event.pointerId)) lbImg.releasePointerCapture(event.pointerId);
+    lb.classList.remove("is-dragging");
+    if (current.mode !== "horizontal") return;
+    const velocity = cancelled ? 0 : recentVelocity(current.history);
+    const width = Math.max(1, lb.clientWidth || window.innerWidth);
+    const currentOffset = REDUCED_MOTION.matches
+      ? current.history[current.history.length - 1].p : lbOffset;
+    const projected = currentOffset + projectedDistance(velocity);
+    const snapPoints = [{ value: 0, delta: 0 }];
+    if (lbI > 0) snapPoints.push({ value: width, delta: -1 });
+    if (lbI < lbList.length - 1) snapPoints.push({ value: -width, delta: 1 });
+    const target = snapPoints.reduce((nearest, point) =>
+      Math.abs(point.value - projected) < Math.abs(nearest.value - projected)
+        ? point : nearest, snapPoints[0]);
+    if (target.delta) moveLbBy(target.delta, velocity);
+    else springLbTo(0, velocity);
+  }
+  lbImg.addEventListener("pointerup", (event) => finishLbGesture(event, false));
+  lbImg.addEventListener("pointercancel", (event) => finishLbGesture(event, true));
 })();

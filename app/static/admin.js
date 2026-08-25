@@ -40,6 +40,19 @@
     document.addEventListener("change", function (e) {
       if (e.target.matches("[data-autosubmit]")) e.target.form.submit();
     });
+    document.addEventListener("click", function (e) {
+      document.querySelectorAll(".mobile-account-menu[open]").forEach(function (menu) {
+        if (!menu.contains(e.target)) menu.removeAttribute("open");
+      });
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key !== "Escape") return;
+      var menu = document.querySelector(".mobile-account-menu[open]");
+      if (!menu) return;
+      menu.removeAttribute("open");
+      var trigger = menu.querySelector("summary");
+      if (trigger) trigger.focus();
+    });
     document.addEventListener("turbo:visit", function () {
       document.documentElement.classList.add("turbo-loading");
     });
@@ -72,6 +85,16 @@
   // --- общие для всех страниц кабинета: стеклянный индикатор главной навигации -
   function initNav() {
     if (window.UI && UI.glassTabs) UI.glassTabs(document.querySelector("nav.glass-nav"));
+    var accountMenu = document.querySelector(".mobile-account-menu");
+    if (accountMenu && !accountMenu.dataset.ready) {
+      accountMenu.dataset.ready = "1";
+      var summary = accountMenu.querySelector("summary");
+      function syncExpanded() {
+        if (summary) summary.setAttribute("aria-expanded", accountMenu.open ? "true" : "false");
+      }
+      accountMenu.addEventListener("toggle", syncExpanded);
+      syncExpanded();
+    }
   }
 
   // Оформление кабинета хранится в профиле. Turbo заменяет <body>, но не
@@ -277,10 +300,14 @@
     var emptyEl = document.getElementById("edEmpty");
     var prev = document.getElementById("edPrev"), next = document.getElementById("edNext");
     var dots = document.getElementById("edDots"), focusHint = document.getElementById("edFocusHint");
+    var cropToggle = document.getElementById("edCropToggle");
+    var galleryStatus = document.getElementById("edGalleryStatus");
     var slots = parseInt(form.dataset.slots || "0", 10);
     var vslots = parseInt(form.dataset.vslots || "2", 10);
     var focusesField = document.getElementById("imageFocuses");
     var cur = 0;
+    var cropMode = false;
+    var settleAnimation = null;
 
     // загрузчики: только собирают файлы в скрытые input (превью рисуем сами)
     // slots/vslots уже «оставшиеся» (сервер вычел сохранённые), поэтому keptCount=0
@@ -395,7 +422,13 @@
       if (emptyEl) emptyEl.hidden = n > 0;
       // D4: сообщаем наверх о наличии медиа — модификатор прыгает фото↔заголовок
       if (onMediaChange && (n > 0) !== lastHasMedia) { lastHasMedia = n > 0; onMediaChange(n > 0); }
-      all.forEach(function (s, i) { s.style.display = (i === cur) ? "" : "none"; });
+      all.forEach(function (s, i) {
+        s.style.display = (i === cur) ? "" : "none";
+        s.setAttribute("aria-hidden", i === cur ? "false" : "true");
+        s.classList.toggle("crop-active", i === cur && cropMode);
+        var image = s.querySelector('img');
+        if (image) image.tabIndex = (i === cur && cropMode) ? 0 : -1;
+      });
       // точки
       if (dots) {
         dots.innerHTML = "";
@@ -408,8 +441,21 @@
       var addMore = canAddMore();
       setEdge(prev, cur > 0, addMore, "prev");
       setEdge(next, cur < n - 1, addMore, "next");
-      if (focusHint) focusHint.hidden = !(all[cur] && all[cur].dataset.kind === "image");
-      bindFocusDrag(all[cur]);
+      var active = all[cur];
+      var canCrop = !!(active && active.dataset.kind === "image");
+      if (!canCrop) cropMode = false;
+      if (cropToggle) {
+        cropToggle.hidden = !canCrop;
+        cropToggle.setAttribute("aria-pressed", cropMode ? "true" : "false");
+        cropToggle.textContent = cropMode ? "Готово" : "Настроить кадр";
+      }
+      gallery.classList.toggle("crop-mode", cropMode);
+      if (focusHint) focusHint.hidden = !cropMode;
+      bindFocusDrag(active);
+      if (galleryStatus && n) {
+        galleryStatus.textContent = "Медиа " + (cur + 1) + " из " + n
+          + (cropMode ? ". Режим настройки кадра включён" : "");
+      }
     }
     function setEdge(btn, canNav, canAdd, dir) {
       if (!btn) return;
@@ -419,32 +465,123 @@
     }
     if (prev) prev.addEventListener("click", function () {
       if (prev.classList.contains("as-add")) openPicker();
-      else { cur = Math.max(0, cur - 1); layout(); }
+      else { cropMode = false; cur = Math.max(0, cur - 1); layout(); }
     });
     if (next) next.addEventListener("click", function () {
       if (next.classList.contains("as-add")) openPicker();
-      else { cur = Math.min(slides().length - 1, cur + 1); layout(); }
+      else { cropMode = false; cur = Math.min(slides().length - 1, cur + 1); layout(); }
     });
 
-    // свайп на телефоне (как на гостевой)
-    var tx = null, touchEditsFocus = false;
-    gallery.addEventListener("touchstart", function (e) {
-      tx = e.touches[0].clientX;
-      // На фото один палец двигает зону кадра. Не трактуем тот же жест как
-      // перелистывание галереи; перейти к соседнему слайду можно стрелками.
-      touchEditsFocus = !!e.target.closest('.ed-slide[data-kind="image"] img');
-    }, { passive: true });
-    gallery.addEventListener("touchend", function (e) {
-      if (tx === null) return;
-      var dx = e.changedTouches[0].clientX - tx;
-      tx = null;
-      if (touchEditsFocus) { touchEditsFocus = false; return; }
-      if (Math.abs(dx) > 44) {
-        if (dx < 0) cur = Math.min(slides().length - 1, cur + 1);
-        else cur = Math.max(0, cur - 1);
-        layout();
+    if (cropToggle) cropToggle.addEventListener("click", function () {
+      var active = slides()[cur];
+      if (!active || active.dataset.kind !== "image") return;
+      cropMode = !cropMode;
+      layout();
+      if (galleryStatus) galleryStatus.textContent = cropMode
+        ? "Настройка кадра включена. Перетаскивай фото или используй стрелки клавиатуры."
+        : "Настройка кадра завершена. Свайп снова листает галерею.";
+    });
+
+    // Прямое перелистывание Pointer Events: карточка следует за пальцем 1:1,
+    // ось фиксируется после небольшого гистерезиса, а решение на отпускании
+    // учитывает и расстояние, и скорость. Край пружинит вместо жёсткой стены.
+    var swipe = null;
+    function rubberBand(distance, dimension) {
+      var absolute = Math.abs(distance);
+      var c = 0.55;
+      return Math.sign(distance) * ((absolute * c * dimension)
+        / (dimension + c * absolute));
+    }
+    function activeSlide() { return slides()[cur] || null; }
+    function reducedMotion() {
+      return window.matchMedia
+        && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    }
+    function settleSlide(slide, fromX, toX, velocity, done) {
+      if (!slide) { if (done) done(); return; }
+      if (settleAnimation) { settleAnimation.cancel(); settleAnimation = null; }
+      slide.style.transform = "";
+      if (reducedMotion() || !slide.animate) { if (done) done(); return; }
+      var speed = Math.min(1.8, Math.abs(velocity || 0));
+      var duration = Math.round(420 - speed * 90);
+      settleAnimation = slide.animate([
+        { transform: "translate3d(" + fromX + "px,0,0)" },
+        { transform: "translate3d(" + toX + "px,0,0)" },
+      ], {
+        duration: Math.max(260, duration),
+        easing: "cubic-bezier(.22,.72,.18,1)",
+      });
+      settleAnimation.finished.catch(function () {}).then(function () {
+        settleAnimation = null;
+        if (done) done();
+      });
+    }
+    gallery.addEventListener("pointerdown", function (e) {
+      if (e.button !== undefined && e.button !== 0) return;
+      if (e.target.closest("button,a,video,[contenteditable=true]")) return;
+      var active = activeSlide();
+      if (!active || (cropMode && e.target.closest('img'))) return;
+      if (settleAnimation) { settleAnimation.cancel(); settleAnimation = null; }
+      swipe = {
+        id: e.pointerId, x0: e.clientX, y0: e.clientY,
+        x: e.clientX, t: performance.now(), dx: 0, shown: 0,
+        velocity: 0, axis: "",
+      };
+      gallery.setPointerCapture && gallery.setPointerCapture(e.pointerId);
+    });
+    gallery.addEventListener("pointermove", function (e) {
+      if (!swipe || swipe.id !== e.pointerId) return;
+      var dx = e.clientX - swipe.x0;
+      var dy = e.clientY - swipe.y0;
+      if (!swipe.axis && Math.max(Math.abs(dx), Math.abs(dy)) >= 8) {
+        swipe.axis = Math.abs(dx) > Math.abs(dy) * 1.15 ? "x" : "y";
       }
-    }, { passive: true });
+      if (swipe.axis !== "x") return;
+      var now = performance.now();
+      var dt = Math.max(1, now - swipe.t);
+      var instant = (e.clientX - swipe.x) / dt;
+      swipe.velocity = swipe.velocity * 0.65 + instant * 0.35;
+      swipe.x = e.clientX; swipe.t = now; swipe.dx = dx;
+      var all = slides();
+      var hasTarget = (dx < 0 && cur < all.length - 1) || (dx > 0 && cur > 0);
+      var shown = hasTarget ? dx : rubberBand(dx, Math.max(1, gallery.clientWidth));
+      swipe.shown = shown;
+      var active = activeSlide();
+      if (active) active.style.transform = "translate3d(" + shown + "px,0,0)";
+      gallery.classList.add("is-swiping");
+      e.preventDefault();
+    });
+    function finishSwipe(e, cancelled) {
+      if (!swipe || (e && swipe.id !== e.pointerId)) return;
+      var state = swipe;
+      swipe = null;
+      gallery.classList.remove("is-swiping");
+      if (gallery.hasPointerCapture && e && gallery.hasPointerCapture(e.pointerId)) {
+        gallery.releasePointerCapture(e.pointerId);
+      }
+      var old = activeSlide();
+      var width = Math.max(1, gallery.clientWidth);
+      var projected = state.dx + state.velocity * 180;
+      var threshold = Math.min(96, width * 0.22);
+      var direction = 0;
+      if (!cancelled && state.axis === "x" && Math.abs(projected) >= threshold) {
+        direction = projected < 0 ? 1 : -1;
+        if (cur + direction < 0 || cur + direction >= slides().length) direction = 0;
+      }
+      if (!direction) {
+        settleSlide(old, state.shown, 0, state.velocity);
+        return;
+      }
+      if (old) old.style.transform = "";
+      cropMode = false;
+      cur += direction;
+      layout();
+      var incoming = activeSlide();
+      var entry = direction > 0 ? Math.min(72, width * 0.18) : -Math.min(72, width * 0.18);
+      settleSlide(incoming, entry, 0, state.velocity);
+    }
+    gallery.addEventListener("pointerup", function (e) { finishSwipe(e, false); });
+    gallery.addEventListener("pointercancel", function (e) { finishSwipe(e, true); });
 
     // --- зона кадра ПЕРЕТАСКИВАНИЕМ (клик убрали, #14) --------------------------
     var dragBound = null;
@@ -454,7 +591,9 @@
       var img = slide.querySelector("img");
       if (!img || img.dataset.dragReady) return;
       img.dataset.dragReady = "1";
+      img.setAttribute("aria-label", "Зона кадра. Используй стрелки, чтобы сместить изображение; Escape завершает настройку");
       var dragging = false;
+      var keyboardSaveTimer = null;
       function apply(e) {
         var rect = img.getBoundingClientRect();
         if (!rect.width || !rect.height) return;
@@ -476,6 +615,7 @@
         }
       }
       img.addEventListener("pointerdown", function (e) {
+        if (!cropMode || activeSlide() !== slide) return;
         dragging = true; img.setPointerCapture && img.setPointerCapture(e.pointerId);
         slide.classList.add("dragging"); apply(e); e.preventDefault();
       });
@@ -498,6 +638,39 @@
       }
       img.addEventListener("pointerup", end);
       img.addEventListener("pointercancel", end);
+      img.addEventListener("keydown", function (e) {
+        if (!cropMode || activeSlide() !== slide) return;
+        if (e.key === "Escape" || e.key === "Enter") {
+          e.preventDefault();
+          cropMode = false;
+          layout();
+          if (cropToggle) cropToggle.focus();
+          return;
+        }
+        var step = e.shiftKey ? 10 : 2;
+        var dx = 0, dy = 0;
+        if (e.key === "ArrowLeft") dx = -step;
+        else if (e.key === "ArrowRight") dx = step;
+        else if (e.key === "ArrowUp") dy = -step;
+        else if (e.key === "ArrowDown") dy = step;
+        else if (e.key === "Home") { dx = "center"; }
+        else return;
+        e.preventDefault();
+        var match = /([\d.]+)%\s+([\d.]+)%/.exec(slide.dataset.focus || "50% 50%");
+        var x = match ? parseFloat(match[1]) : 50;
+        var y = match ? parseFloat(match[2]) : 50;
+        if (dx === "center") { x = 50; y = 50; }
+        else {
+          x = Math.min(100, Math.max(0, x + dx));
+          y = Math.min(100, Math.max(0, y + dy));
+        }
+        var focus = Math.round(x) + "% " + Math.round(y) + "%";
+        img.style.objectPosition = focus;
+        slide.dataset.focus = focus;
+        clearTimeout(keyboardSaveTimer);
+        keyboardSaveTimer = setTimeout(function () { save(focus); }, 180);
+        if (galleryStatus) galleryStatus.textContent = "Кадр: " + focus;
+      });
       // Дополнительная защита для Safari/iOS: совместимый click может прийти
       // уже после pointerup, отдельным событием. Он не должен всплыть к picker.
       img.addEventListener("click", function (e) {
@@ -794,7 +967,7 @@
       tb.dataset.ready = "1";
       var categoryOrderChain = Promise.resolve();
       var categoryOrderGeneration = 0;
-      UI.sortable(tb, { selector: "tr.drag-row", onChange: function () {
+      UI.sortable(tb, { selector: "tr.drag-row", handle: "[data-sort-handle]", onChange: function () {
         var order = Array.prototype.map.call(tb.querySelectorAll("tr.drag-row"),
           function (t) { return t.dataset.did; }).join(",");
         var generation = ++categoryOrderGeneration;

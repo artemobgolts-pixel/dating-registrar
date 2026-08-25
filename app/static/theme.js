@@ -12,19 +12,20 @@
   var MAX_AGE = 60 * 60 * 24 * 365;
   var root = document.documentElement;
   var transitionBusy = false;
-  // View Transition держит снимок страницы до конца волны. Пока
-  // снимок жив, DOM больше не меняем: запоминаем желаемые theme и skin
-  // отдельно, а после волны одним переходом доводим оба состояния до
-  // последнего намерения. Это сохраняет чётность быстрых toggle-кликов и
-  // не даёт переключателям light/dark и friends/romantic перезаписать друг друга.
-  var queuedAppearance = null;
+  var activeTransition = null;
+  var activeRevealAnimation = null;
+  var appearanceGeneration = 0;
+  // Желаемое состояние хранится отдельно от DOM: если новая команда прерывает
+  // активную волну, следующий callback применяет обе последние координаты
+  // оформления вместе и старый callback уже не может откатить одну из них.
   var desiredTheme = null;
+  var desiredThemePersist = false;
   var desiredSkin = null;
   var desiredSkinPersist = false;
   var SKIN_TIMING = {
-    minDuration: 1050,
-    maxDuration: 1550,
-    durationFactor: 1.04,
+    minDuration: 320,
+    maxDuration: 480,
+    durationFactor: 0.34,
     easing: "cubic-bezier(.18,.62,.2,1)"
   };
 
@@ -155,40 +156,12 @@
       && !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   }
 
-  function queueAppearance(kind, source, event) {
-    if (!queuedAppearance) {
-      queuedAppearance = {
-        theme: false,
-        skin: false,
-        source: source,
-        event: event
-      };
-    }
-    queuedAppearance[kind] = true;
-    // Вторую волну раскрываем из последней нажатой кнопки.
-    queuedAppearance.source = source;
-    queuedAppearance.event = event;
-  }
-
-  function flushQueuedAppearance(pending) {
+  function applyDesiredAppearance() {
     var theme = desiredTheme || root.dataset.theme || "light";
     var skin = desiredSkin || root.dataset.skin || "friends";
-    var themeChanged = pending.theme && theme !== root.dataset.theme;
-    var skinChanged = pending.skin && skin !== root.dataset.skin;
-    var persistSkin = desiredSkinPersist;
-
-    // Нажатие на уже активный вариант всё равно должно записать cookie,
-    // но пустую View Transition для этого не запускаем.
-    if (!themeChanged && !skinChanged) {
-      if (pending.theme) applyTheme(theme, true);
-      if (pending.skin) applySkin(skin, persistSkin);
-      return;
-    }
-
-    animateAppearance(function () {
-      if (pending.theme) applyTheme(theme, true);
-      if (pending.skin) applySkin(skin, persistSkin);
-    }, pending.source, pending.event, skinChanged ? SKIN_TIMING : null);
+    // Skin первым: theme-color затем вычисляется уже для итоговой палитры.
+    applySkin(skin, desiredSkinPersist);
+    applyTheme(theme, desiredThemePersist);
   }
 
   function animateAppearance(change, source, event, timing) {
@@ -197,19 +170,25 @@
       return;
     }
 
+    // Повторное намерение не ждёт старую волну: текущая View Transition
+    // завершается, а новая сразу начинается из уже применённого состояния.
+    // Это сохраняет agency даже при очень быстрых переключениях.
+    if (transitionBusy) interruptAppearance();
+
     var point = transitionOrigin(source, event);
     var farX = Math.max(point.x, window.innerWidth - point.x);
     var farY = Math.max(point.y, window.innerHeight - point.y);
     var radius = Math.ceil(Math.hypot(farX, farY));
     timing = timing || {};
-    var minDuration = timing.minDuration || 520;
-    var maxDuration = timing.maxDuration || 760;
-    var durationFactor = timing.durationFactor || 0.52;
+    var minDuration = timing.minDuration || 260;
+    var maxDuration = timing.maxDuration || 420;
+    var durationFactor = timing.durationFactor || 0.30;
     var duration = Math.round(Math.max(
       minDuration,
       Math.min(maxDuration, radius * durationFactor)
     ));
     transitionBusy = true;
+    var generation = ++appearanceGeneration;
     root.classList.add("d4y-theme-transition");
 
     var transition;
@@ -217,6 +196,7 @@
       transition = document.startViewTransition(function () {
         change();
       });
+      activeTransition = transition;
     } catch (_) {
       root.classList.remove("d4y-theme-transition");
       transitionBusy = false;
@@ -226,7 +206,7 @@
 
     transition.ready.then(function () {
       var at = point.x + "px " + point.y + "px";
-      root.animate(
+      activeRevealAnimation = root.animate(
         {
           clipPath: [
             "circle(0px at " + at + ")",
@@ -245,28 +225,43 @@
     });
 
     transition.finished.finally(function () {
+      if (generation !== appearanceGeneration) return;
       root.classList.remove("d4y-theme-transition");
       transitionBusy = false;
-      var next = queuedAppearance;
-      queuedAppearance = null;
-      if (next) flushQueuedAppearance(next);
+      activeTransition = null;
+      activeRevealAnimation = null;
     });
+  }
+
+  function interruptAppearance() {
+    appearanceGeneration += 1;
+    if (activeRevealAnimation) {
+      try { activeRevealAnimation.cancel(); } catch (_) {}
+    }
+    if (activeTransition && typeof activeTransition.skipTransition === "function") {
+      try { activeTransition.skipTransition(); } catch (_) {}
+    }
+    activeRevealAnimation = null;
+    activeTransition = null;
+    transitionBusy = false;
+    root.classList.remove("d4y-theme-transition");
   }
 
   function animateTheme(theme, source, event) {
     theme = theme === "dark" ? "dark" : "light";
     desiredTheme = theme;
+    desiredThemePersist = true;
     if (transitionBusy) {
-      queueAppearance("theme", source, event);
+      interruptAppearance();
+    }
+    var skinChanged = desiredSkin !== root.dataset.skin;
+    if (theme === root.dataset.theme && !skinChanged) {
+      applyDesiredAppearance();
       return;
     }
-    if (theme === root.dataset.theme) {
-      applyTheme(theme, true);
-      return;
-    }
-    animateAppearance(function () {
-      applyTheme(theme, true);
-    }, source, event);
+    animateAppearance(
+      applyDesiredAppearance, source, event, skinChanged ? SKIN_TIMING : null,
+    );
   }
 
   function animateSkin(skin, source, event, persist) {
@@ -274,16 +269,14 @@
     desiredSkin = skin;
     desiredSkinPersist = Boolean(persist);
     if (transitionBusy) {
-      queueAppearance("skin", source, event);
+      interruptAppearance();
+    }
+    var themeChanged = desiredTheme !== root.dataset.theme;
+    if (skin === root.dataset.skin && !themeChanged) {
+      applyDesiredAppearance();
       return;
     }
-    if (skin === root.dataset.skin) {
-      applySkin(skin, persist);
-      return;
-    }
-    animateAppearance(function () {
-      applySkin(skin, persist);
-    }, source, event, SKIN_TIMING);
+    animateAppearance(applyDesiredAppearance, source, event, SKIN_TIMING);
   }
 
   // Выполняется синхронно до CSS.
@@ -382,7 +375,7 @@
   // Turbo заменяет body, но не перезапускает этот скрипт.
   document.addEventListener("turbo:load", function () {
     syncSkin();
-    if (!transitionBusy && !queuedAppearance) {
+    if (!transitionBusy) {
       desiredTheme = root.dataset.theme || "light";
       desiredSkin = root.dataset.skin || "friends";
     }

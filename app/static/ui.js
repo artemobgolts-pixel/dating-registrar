@@ -67,10 +67,87 @@ window.UI = (() => {
      соседи плавно «доезжают» на свои места через FLIP-анимацию. */
   function sortable(container, opts = {}) {
     const sel = opts.selector || "[data-sort]";
+    const handleSelector = opts.handle || "[data-sort-handle]";
     let drag = null, started = false;
     let startPX = 0, startPY = 0;      // палец в момент захвата
     let lastDX = 0, lastDY = 0;        // текущий визуальный сдвиг плитки
     let slot0X = 0, slot0Y = 0;        // слот плитки в момент захвата
+    let history = [];
+    let keyboardDrag = null;
+
+    function liveRegion() {
+      let live = document.getElementById("d4y-sort-status");
+      if (!live) {
+        live = document.createElement("div");
+        live.id = "d4y-sort-status";
+        live.className = "sr-only";
+        live.setAttribute("role", "status");
+        live.setAttribute("aria-live", "polite");
+        live.setAttribute("aria-atomic", "true");
+        document.body.appendChild(live);
+      }
+      return live;
+    }
+
+    function announce(item, action) {
+      const items = [...container.querySelectorAll(sel)];
+      const name = item.getAttribute("data-sort-label") ||
+        (item.textContent || "Элемент").trim().replace(/\s+/g, " ").slice(0, 80);
+      liveRegion().textContent = `${name}. ${action}. Позиция ${items.indexOf(item) + 1} из ${items.length}.`;
+    }
+
+    function stopSpring(el) {
+      let x = 0, y = 0;
+      if (el && el._d4ySortSpring) {
+        cancelAnimationFrame(el._d4ySortSpring);
+        el._d4ySortSpring = 0;
+        try {
+          const matrix = new DOMMatrixReadOnly(getComputedStyle(el).transform);
+          x = matrix.m41; y = matrix.m42;
+        } catch (_) {}
+      }
+      if (el) {
+        el.style.transition = "none";
+        el.style.transform = (x || y) ? `translate(${x}px, ${y}px) scale(1.03)` : "";
+      }
+      return { x, y };
+    }
+
+    function springToRest(el, x, y, vx, vy) {
+      if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        el.style.transform = "";
+        el.style.transition = "";
+        el.classList.remove("dragging");
+        return;
+      }
+      if (el._d4ySortSpring) cancelAnimationFrame(el._d4ySortSpring);
+      // Response ≈ .35s; небольшой bounce появляется только после быстрого flick.
+      const response = .35;
+      const damping = Math.hypot(vx, vy) > 420 ? .82 : 1;
+      const omega = 2 * Math.PI / response;
+      const stiffness = omega * omega;
+      const dragDamping = 2 * damping * omega;
+      let previous = performance.now();
+      function frame(now) {
+        const dt = Math.min(.032, Math.max(.001, (now - previous) / 1000));
+        previous = now;
+        vx += (-stiffness * x - dragDamping * vx) * dt;
+        vy += (-stiffness * y - dragDamping * vy) * dt;
+        x += vx * dt; y += vy * dt;
+        const distance = Math.hypot(x, y);
+        const scale = 1 + .07 * Math.min(1, distance / 44);
+        el.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
+        if (distance < .35 && Math.hypot(vx, vy) < 5) {
+          el._d4ySortSpring = 0;
+          el.style.transform = "";
+          el.style.transition = "";
+          el.classList.remove("dragging");
+          return;
+        }
+        el._d4ySortSpring = requestAnimationFrame(frame);
+      }
+      el._d4ySortSpring = requestAnimationFrame(frame);
+    }
 
     function flip(els, mutate) {
       const first = new Map(els.map((el) => [el, el.getBoundingClientRect()]));
@@ -102,24 +179,34 @@ window.UI = (() => {
     container.addEventListener("pointerdown", (e) => {
       const it = e.target.closest(sel);
       if (!it || !container.contains(it)) return;
-      if (e.target.closest("button, a, input, textarea, select")) return;
-      drag = it; started = false;
+      const handle = e.target.closest(handleSelector);
+      if (opts.handle && (!handle || !it.contains(handle))) return;
+      if (!opts.handle && e.target.closest("button, a, input, textarea, select")) return;
+      if (keyboardDrag) return;
+      const live = stopSpring(it);
+      drag = it; started = !!(live.x || live.y);
       startPX = e.clientX; startPY = e.clientY;
-      lastDX = 0; lastDY = 0;
+      lastDX = live.x; lastDY = live.y;
+      const rect = it.getBoundingClientRect();
+      slot0X = rect.left - lastDX; slot0Y = rect.top - lastDY;
+      history = [{ x: e.clientX, y: e.clientY, t: performance.now() }];
+      if (started) it.classList.add("dragging");
       try { it.setPointerCapture(e.pointerId); } catch (_) {}
     });
 
     container.addEventListener("pointermove", (e) => {
       if (!drag) return;
       if (!started) {
-        if (Math.hypot(e.clientX - startPX, e.clientY - startPY) < 7) return; // не мешаем тапам
+        if (Math.hypot(e.clientX - startPX, e.clientY - startPY) < 10) return; // hysteresis жеста
         started = true;
         const r = drag.getBoundingClientRect();
-        slot0X = r.left; slot0Y = r.top;
+        slot0X = r.left - lastDX; slot0Y = r.top - lastDY;
         drag.classList.add("dragging");
         drag.style.transition = "none";
       }
       e.preventDefault();
+      history.push({ x: e.clientX, y: e.clientY, t: performance.now() });
+      history = history.filter((point) => performance.now() - point.t <= 100).slice(-6);
       follow(e);
 
       const others = [...container.querySelectorAll(sel)].filter((x) => x !== drag);
@@ -145,12 +232,12 @@ window.UI = (() => {
       const el = drag;
       drag = null; started = false;
       if (moved) {
-        // плавный «доезд» плитки в свой слот
-        el.style.transition = "transform .18s ease";
-        el.style.transform = "";
-        const cleanup = () => { el.classList.remove("dragging"); el.style.transition = ""; };
-        el.addEventListener("transitionend", cleanup, { once: true });
-        setTimeout(cleanup, 260);     // подстраховка
+        const first = history[0], last = history[history.length - 1];
+        const seconds = first && last ? Math.max(.016, (last.t - first.t) / 1000) : 1;
+        const vx = first && last ? (last.x - first.x) / seconds : 0;
+        const vy = first && last ? (last.y - first.y) / seconds : 0;
+        // Скорость пальца бесшовно переходит в прерываемый spring к слоту.
+        springToRest(el, lastDX, lastDY, vx, vy);
         if (opts.onChange) opts.onChange();
       } else {
         el.classList.remove("dragging");
@@ -164,6 +251,56 @@ window.UI = (() => {
     };
     container.addEventListener("pointerup", end);
     container.addEventListener("pointercancel", end);
+
+    container.addEventListener("keydown", (e) => {
+      const handle = e.target.closest(handleSelector);
+      if (!handle || !container.contains(handle)) return;
+      const item = handle.closest(sel);
+      if (!item) return;
+      if (e.key === " " || e.key === "Enter") {
+        e.preventDefault();
+        if (!keyboardDrag) {
+          keyboardDrag = { item, order: [...container.querySelectorAll(sel)], moved: false };
+          item.classList.add("dragging", "keyboard-dragging");
+          handle.setAttribute("aria-pressed", "true");
+          announce(item, "Элемент захвачен. Перемещайте стрелками");
+        } else if (keyboardDrag.item === item) {
+          item.classList.remove("dragging", "keyboard-dragging");
+          handle.setAttribute("aria-pressed", "false");
+          announce(item, "Новая позиция сохранена");
+          const changed = keyboardDrag.moved;
+          keyboardDrag = null;
+          if (changed && opts.onChange) opts.onChange();
+        }
+        return;
+      }
+      if (!keyboardDrag || keyboardDrag.item !== item) return;
+      if (e.key === "Escape") {
+        e.preventDefault();
+        const current = [...container.querySelectorAll(sel)];
+        flip(current, () => keyboardDrag.order.forEach((node) => container.appendChild(node)));
+        item.classList.remove("dragging", "keyboard-dragging");
+        handle.setAttribute("aria-pressed", "false");
+        announce(item, "Перемещение отменено");
+        keyboardDrag = null;
+        return;
+      }
+      const backward = e.key === "ArrowUp" || e.key === "ArrowLeft";
+      const forward = e.key === "ArrowDown" || e.key === "ArrowRight";
+      if (!backward && !forward) return;
+      e.preventDefault();
+      const items = [...container.querySelectorAll(sel)];
+      const index = items.indexOf(item);
+      const nextIndex = Math.max(0, Math.min(items.length - 1, index + (backward ? -1 : 1)));
+      if (nextIndex === index) {
+        announce(item, "Достигнута граница списка");
+        return;
+      }
+      const reference = backward ? items[nextIndex] : items[nextIndex].nextSibling;
+      flip(items.filter((node) => node !== item), () => container.insertBefore(item, reference));
+      keyboardDrag.moved = true;
+      announce(item, "Позиция изменена");
+    });
   }
 
   /* --- Небольшой салют после выбора ------------------------------------ */
@@ -1097,6 +1234,9 @@ window.UI = (() => {
     function part(el, max) {
       // делает span редактируемым числом 00..max (2 цифры)
       el.setAttribute("contenteditable", "true");
+      el.setAttribute("role", "textbox");
+      el.setAttribute("inputmode", "numeric");
+      el.setAttribute("aria-multiline", "false");
       el.addEventListener("focus", function () { el._had = el.innerText; });
       el.addEventListener("keydown", function (e) {
         if (e.key === "Enter") { e.preventDefault(); el.blur(); }
@@ -1116,6 +1256,9 @@ window.UI = (() => {
     function datePart(el, len, min, max, padTo) {
       if (!el) return;
       el.setAttribute("contenteditable", "true");
+      el.setAttribute("role", "textbox");
+      el.setAttribute("inputmode", "numeric");
+      el.setAttribute("aria-multiline", "false");
       el.addEventListener("keydown", function (e) {
         if (e.key === "Enter") { e.preventDefault(); el.blur(); }
         if (e.key.length === 1 && !/[0-9]/.test(e.key)) e.preventDefault();

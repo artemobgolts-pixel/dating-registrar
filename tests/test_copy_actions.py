@@ -324,7 +324,9 @@ class CopyActionTests(unittest.TestCase):
         ui = (APP / "static/ui.js").read_text(encoding="utf-8")
         self.assertIn('.ptile, .ed-slide, button, a', ui)
         admin = (APP / "static/admin.js").read_text(encoding="utf-8")
-        self.assertIn("touchEditsFocus", admin)
+        self.assertIn("cropMode", admin)
+        self.assertIn('gallery.addEventListener("pointermove"', admin)
+        self.assertIn("rubberBand", admin)
         self.assertIn("img.releasePointerCapture(e.pointerId)", admin)
         self.assertIn("e.stopPropagation();", admin)
 

@@ -10,7 +10,8 @@
  * Самохостинг, без зависимостей и Three.js — под нашу строгую CSP.
  * Нет WebGL2 / float-рендера → тихий выход, остаётся CSS-дым (.bg-smoke).
  * prefers-reduced-motion / Save-Data / действительно слабое устройство →
- * один статичный кадр. На остальных устройствах анимация ограничена 30 FPS.
+ * один статичный кадр. На остальных устройствах — 30 FPS при взаимодействии,
+ * 8 FPS в покое и адаптивное разрешение по реальной стоимости кадра.
  */
 (function () {
   "use strict";
@@ -640,7 +641,7 @@ void main(){
     pointer.x = cx / window.innerWidth;
     pointer.y = 1.0 - cy / window.innerHeight;
     pointer.moved = true;
-    play();
+    play(true);
   }
   function onClick(cx, cy) {
     if (!interactiveEnabled()) return;
@@ -648,7 +649,7 @@ void main(){
     clickY = 1.0 - cy / window.innerHeight;
     clickPending = true;
     activeUntil = (performance.now() - start) / 1000 + CLICK_HOLD;
-    play();
+    play(true);
   }
   if (!staticBackground) {
     // След и клик-всплеск — только на устройствах с ТОЧНЫМ указателем (мышь/трекпад).
@@ -666,6 +667,7 @@ void main(){
   // пониженном буфере на неё приходилось бы лишь несколько пикселей и она шла
   // «лесенкой». Сглаживание нитей внутри лечит суперсэмплинг в inkAt.
   var SCALE = 1.0;
+  var slowFrames = 0, fastFrames = 0;
   function resize() {
     var dpr = Math.min(window.devicePixelRatio || 1, 2);
     var w = Math.max(2, Math.floor(window.innerWidth * dpr * SCALE));
@@ -674,7 +676,8 @@ void main(){
   }
 
   // --- цикл ----------------------------------------------------------------
-  var TARGET_FRAME_MS = 1000 / 30;
+  var ACTIVE_FRAME_MS = 1000 / 30;
+  var IDLE_FRAME_MS = 1000 / 8;
   // Малый допуск не даёт мониторам с дробной частотой (например, 59.94 Гц)
   // периодически проваливаться с 30 до 20 FPS из-за долей миллисекунды.
   var FRAME_EARLY_TOLERANCE_MS = 1;
@@ -682,14 +685,19 @@ void main(){
 
   function render(now) {
     raf = 0;
+    var relativeNow = (now - start) / 1000;
+    var highActivity = pointer.moved || clickPending
+      || relativeNow < activeUntil || relativeNow < decayUntil;
+    var targetFrameMs = highActivity ? ACTIVE_FRAME_MS : IDLE_FRAME_MS;
     if (nextFrameAt && now + FRAME_EARLY_TOLERANCE_MS < nextFrameAt) {
       if (!document.hidden) raf = requestAnimationFrame(render);
       return;
     }
     if (!nextFrameAt) nextFrameAt = now;
     do {
-      nextFrameAt += TARGET_FRAME_MS;
+      nextFrameAt += targetFrameMs;
     } while (nextFrameAt <= now);
+    var renderStarted = performance.now();
     if (!last) last = now;
     var dt = Math.min((now - last) / 1000, 0.022);
     last = now;
@@ -785,12 +793,36 @@ void main(){
     gl.uniform1fv(dp.u["uClickSeed[0]"], clickSeed);
     blit(null);
 
+    // Подстраиваем только display-buffer: при устойчиво тяжёлом GPU снижаем
+    // scale небольшими шагами, а после спокойного периода возвращаем детализацию.
+    // Симуляция и геометрия страницы не меняются, поэтому скачков layout нет.
+    var renderCost = performance.now() - renderStarted;
+    if (highActivity && renderCost > 22) {
+      slowFrames += 1; fastFrames = 0;
+    } else if (renderCost < 11) {
+      fastFrames += 1; slowFrames = Math.max(0, slowFrames - 1);
+    } else {
+      slowFrames = Math.max(0, slowFrames - 1);
+      fastFrames = Math.max(0, fastFrames - 1);
+    }
+    if (slowFrames >= 24 && SCALE > .72) {
+      SCALE = Math.max(.72, SCALE - .08);
+      slowFrames = 0; nextFrameAt = 0;
+    } else if (fastFrames >= 180 && SCALE < 1) {
+      SCALE = Math.min(1, SCALE + .04);
+      fastFrames = 0; nextFrameAt = 0;
+    }
+
     // фон сам по себе анимирован всегда; даже без курсора крутим цикл,
     // чтобы fbm жил. (раньше при затухании жидкости цикл засыпал)
     if (!document.hidden) raf = requestAnimationFrame(render);
   }
 
-  function play() {
+  function play(immediate) {
+    if (immediate && raf) {
+      cancelAnimationFrame(raf);
+      raf = 0;
+    }
     if (!raf && !document.hidden) {
       last = 0;
       nextFrameAt = 0;

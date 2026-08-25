@@ -1,4 +1,4 @@
-/* Публичная страница обзора: только вход и жалоба.
+/* Публичная страница обзора: вход для коллекции и анонимная жалоба.
    Действия гостевой карточки намеренно сюда не подключаются. */
 (function () {
   "use strict";
@@ -6,7 +6,6 @@
   var body = document.body;
   if (!body || !body.classList.contains("review-share-page")) return;
 
-  var authenticated = body.dataset.auth === "1";
   var csrf = body.dataset.csrf || "";
   var loginDialog = document.getElementById("loginDlg");
   var reportDialog = document.getElementById("reportDlg");
@@ -118,10 +117,6 @@
     var reportTrigger = event.target.closest("[data-report-open]");
     if (!reportTrigger) return;
     event.preventDefault();
-    if (!authenticated) {
-      openLogin();
-      return;
-    }
     var title = document.getElementById("reportTitle");
     var target = document.getElementById("reportTargetId");
     var reason = document.getElementById("reportReason");
@@ -178,12 +173,6 @@
         }
       }).then(function (response) {
         return response.json().catch(function () { return {}; }).then(function (data) {
-          if (response.status === 401 && data.detail && data.detail.need_login) {
-            authenticated = false;
-            closeDialog(reportDialog);
-            openLogin();
-            return;
-          }
           if (!response.ok || data.ok === false) {
             throw new Error(errorMessage(response, data));
           }
