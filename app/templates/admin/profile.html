@@ -49,6 +49,15 @@
     <div class="field">
       <label>Дата рождения</label>
       <input type="date" name="birth_date" value="{{ user['birth_date'] or '' }}">
+      <label class="toggle" style="margin-top:10px">
+        <input type="checkbox" name="birth_date_public" value="1"
+               {% if user['birth_date_public'] %}checked{% endif %}>
+        <span class="sw" aria-hidden="true"></span>
+        <span class="tcol">
+          <span class="t">Показывать дату рождения в публичном профиле</span>
+          <span class="muted">По умолчанию её видишь только ты.</span>
+        </span>
+      </label>
     </div>
 
     <div class="field" style="margin-bottom:0">
@@ -58,6 +67,15 @@
         <label class="gender-opt"><input type="radio" name="gender" value="f" {{ 'checked' if user['gender'] == 'f' else '' }}> Ж</label>
         <label class="gender-opt"><input type="radio" name="gender" value="" {{ 'checked' if not user['gender'] else '' }}> Не указан</label>
       </div>
+      <label class="toggle" style="margin-top:10px">
+        <input type="checkbox" name="gender_public" value="1"
+               {% if user['gender_public'] %}checked{% endif %}>
+        <span class="sw" aria-hidden="true"></span>
+        <span class="tcol">
+          <span class="t">Показывать пол в публичном профиле</span>
+          <span class="muted">По умолчанию его видишь только ты.</span>
+        </span>
+      </label>
     </div>
 
     {% set profile_skin = user['admin_skin'] or 'friends' %}
@@ -119,14 +137,40 @@
 </div>
 {% endif %}
 
+<div class="card" style="max-width:540px">
+  <b>Архив данных аккаунта</b>
+  <p class="muted" style="margin:8px 0 14px;font-size:13.5px">
+    Переносимый ZIP содержит export.json с твоими подборками, событиями,
+    вопросами и связанными гостевыми данными, а также только исходные медиа
+    этого аккаунта: аватар, свои превью, фото и видео событий. Общей базы
+    SQLite, чужих файлов и производных кешей в нём нет.
+  </p>
+  <a class="btn primary" href="/admin/export/account-archive">
+    Скачать архив аккаунта
+  </a>
+
+  {% if user['is_operator'] %}
+  <div style="height:1px;background:var(--line);margin:20px 0" aria-hidden="true"></div>
+  <b>Резервная копия всей платформы</b>
+  <p class="muted" style="margin:8px 0 14px;font-size:13.5px">
+    Только для оператора. ZIP содержит консистентный снимок всей SQLite-базы
+    app.db и все исходные медиафайлы из uploads для всех аккаунтов. export.json,
+    responsive-копии и кеши OG-превью не включаются: они создаются заново.
+  </p>
+  <a class="btn ghost" href="/admin/export/platform-backup">
+    Скачать резервную копию платформы
+  </a>
+  {% endif %}
+</div>
+
 <div class="card profile-support-card" style="max-width:540px">
   <b>Помощь</b>
   <div class="tour-course-actions">
     <button type="button" class="btn small primary" data-tour-start="dashboard">Основы</button>
     {% if first_category_id %}
-    <a class="btn small primary" href="/admin/categories/{{ first_category_id }}#tour=category-editor">Категории</a>
+    <a class="btn small primary" href="/admin/categories/{{ first_category_id }}#tour=category-editor">Подборки</a>
     {% else %}
-    <a class="btn small primary" href="/admin/categories">Категории</a>
+    <a class="btn small primary" href="/admin/categories">Подборки</a>
     {% endif %}
     <a class="btn small primary" href="/admin/dates/new#tour=date-editor">События</a>
   </div>

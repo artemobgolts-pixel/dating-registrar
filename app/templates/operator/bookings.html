@@ -13,7 +13,7 @@
       <span class="sr-only">Поиск голосов</span>
       <svg class="op-icon" aria-hidden="true"><use href="#op-i-search"></use></svg>
       <input type="search" name="q" value="{{ q }}"
-             placeholder="Гость, событие, категория или владелец"
+             placeholder="Гость, событие, подборка или владелец"
              autocomplete="off" data-op-search>
       <span class="search-shortcut" aria-hidden="true">/</span>
     </label>
@@ -34,7 +34,7 @@
   <div class="table-scroll">
     <table class="data-table responsive-table">
       <thead>
-        <tr><th>Участник</th><th>Событие</th><th>Категория</th><th>Владелец</th><th>Когда</th><th></th></tr>
+        <tr><th>Участник</th><th>Событие</th><th>Подборка</th><th>Владелец</th><th>Когда</th><th></th></tr>
       </thead>
       <tbody>
         {% for b in rows %}
@@ -49,7 +49,7 @@
             </div>
           </td>
           <td data-label="Событие"><span class="cell-primary">{{ b['date_name'] }}</span></td>
-          <td data-label="Категория">{{ b['cat_name'] }}</td>
+          <td data-label="Подборка">{{ b['cat_name'] }}</td>
           <td data-label="Владелец">
             <a class="link" href="/operator/users/{{ b['owner_id'] }}">{{ b['owner'] or 'Без имени' }}</a>
           </td>

@@ -44,7 +44,7 @@
         {% endfor %}
         </div>
       </fieldset>
-      <textarea name="text" maxlength="4000"
+      <textarea name="text" maxlength="4000" aria-label="Текст обзора"
                  placeholder="Текст необязателен">{{ review['review_text'] or '' }}</textarea>
       <div class="profile-review-actions{{ ' is-single' if not shareable else '' }}">
         <button type="submit" class="btn primary">Сохранить обзор</button>

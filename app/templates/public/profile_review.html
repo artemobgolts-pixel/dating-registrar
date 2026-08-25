@@ -84,8 +84,8 @@
     сделано с любовью
     {% endif %}
     <div class="foot-legal">
-      <a href="/about">О проекте</a> · <a href="/terms">Соглашение</a> ·
-      <a href="/privacy">Конфиденциальность</a>
+      <a href="/about?return_to={{ request.url.path | urlencode }}">О проекте</a> · <a href="/terms?return_to={{ request.url.path | urlencode }}">Соглашение</a> ·
+      <a href="/privacy?return_to={{ request.url.path | urlencode }}">Конфиденциальность</a>
     </div>
   </footer>
 </div>
@@ -98,7 +98,7 @@
       {% if category_skin == 'friends' %}{{ icon('gather') }}{% else %}♥{% endif %}
     </div>
     <h2 class="dlg-head" id="reviewLoginTitle">Войти в date4you</h2>
-    <p class="dlg-sub">Сохрани событие или отправь жалобу, не покидая страницу.</p>
+    <p class="dlg-sub">Войди, чтобы сохранить событие в личную коллекцию.</p>
   </div>
   {% set next_url = "/d/" ~ token ~ "/review/" ~ review['review_id'] %}
   {% if bot or oauth %}
@@ -109,14 +109,16 @@
 </dialog>
 {% endif %}
 
-<dialog id="reportDlg" aria-labelledby="reviewReportTitle">
+<dialog id="reportDlg" aria-labelledby="reviewReportTitle"
+        aria-describedby="reviewReportDescription">
   <h2 class="dlg-head" id="reviewReportTitle">Пожаловаться на «<span id="reportTitle"></span>»</h2>
-  <p class="dlg-sub">Сообщи, если контент нарушает правила — модератор проверит.</p>
+  <p class="dlg-sub" id="reviewReportDescription">Вход не требуется. Жалобу увидит только модератор, который проверит контент.</p>
   <form id="reportForm" method="post" action="/d/{{ token }}/report">
     <input type="hidden" name="target_type" value="date">
     <input type="hidden" name="target_id" id="reportTargetId" value="{{ review['date_id'] }}">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <div class="field">
+      <label class="sr-only" for="reportReason">Причина жалобы</label>
       <textarea name="reason" id="reportReason" maxlength="1000"
                 placeholder="Что не так? (необязательно)"></textarea>
     </div>

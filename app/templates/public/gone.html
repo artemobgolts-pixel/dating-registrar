@@ -59,6 +59,14 @@
     <div class="home-heart gone-heart" aria-hidden="true">💔</div>
     <h1>Ссылка не&nbsp;действует</h1>
     <p>попроси новую у того, кто её прислал</p>
+    <div class="gone-actions" aria-label="Что можно сделать дальше">
+      {% if request.state.user %}
+      <a class="btn primary" href="/admin/">Вернуться в кабинет</a>
+      {% else %}
+      <a class="btn primary" href="/login">Создать свою подборку</a>
+      {% endif %}
+      <a class="btn ghost" href="/about?return_to=%2Flogin">О проекте</a>
+    </div>
     <div class="home-dots" aria-hidden="true">♥ ♥ ♥</div>
   </div>
 </main>

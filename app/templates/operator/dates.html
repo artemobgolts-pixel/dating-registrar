@@ -68,7 +68,7 @@
           </td>
           <td data-label="Действия" class="action-cell">
             <div class="button-row">
-              <a class="btn small" href="/admin/dates/{{ d['id'] }}/edit">
+              <a class="btn small" href="/admin/dates/{{ d['id'] }}/edit?return_to={{ editor_return_to | urlencode }}">
                 <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-edit"></use></svg>
                 Изменить
               </a>

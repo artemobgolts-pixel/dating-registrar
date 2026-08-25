@@ -3,7 +3,7 @@
 {% block page_eyebrow %}Безопасность{% endblock %}
 {% block page_title %}Жалобы <span class="count">{{ items|length }}</span>{% endblock %}
 {% block page_intro %}
-<p class="op-page-intro">Обращения пользователей о категориях и событиях, требующих внимания.</p>
+<p class="op-page-intro">Обращения пользователей о подборках и событиях, требующих внимания.</p>
 {% endblock %}
 
 {% block content %}
@@ -38,7 +38,7 @@
             <span class="cell-primary">
               {% if t %}{{ t['name'] }}{% else %}<span class="muted">Контент удалён</span>{% endif %}
             </span>
-            <span class="cell-secondary">{{ 'Категория' if r['target_type']=='category' else 'Событие' }} · жалоба #{{ r['id'] }}</span>
+            <span class="cell-secondary">{{ 'Подборка' if r['target_type']=='category' else 'Событие' }} · жалоба #{{ r['id'] }}</span>
           </td>
           <td data-label="Владелец" class="muted">{{ t['owner'] if t else '—' }}</td>
           <td data-label="Причина">{{ r['reason'] or 'Причина не указана' }}</td>

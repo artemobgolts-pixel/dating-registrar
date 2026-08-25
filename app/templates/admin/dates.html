@@ -1,12 +1,12 @@
 {% extends "admin/base.html" %}
 {% from "admin/_entity_status.html" import event_lifecycle, event_visibility %}
-{% block title %}Встречи{% endblock %}
+{% block title %}События{% endblock %}
 {# Список меняется после каждой правки (активные/архив). Запрещаем Turbo
    показывать устаревший кэш-снимок после мутаций. #}
 {% block head %}<meta name="turbo-cache-control" content="no-cache">{% endblock %}
 {% block content %}
 <div class="bar">
-  <h1 class="serif" style="margin:0">Встречи</h1>
+  <h1 class="serif" style="margin:0">События</h1>
   <a class="btn primary" href="/admin/dates/new?{{ editor_return_query }}" data-tour="dates-create">+ Новое событие</a>
 </div>
 
@@ -33,7 +33,7 @@
       <option value="nodate" {{ 'selected' if flt == 'nodate' }}>Без даты</option>
     </select>
     <select name="cat" data-autosubmit>
-      <option value="">Все категории</option>
+      <option value="">Все подборки</option>
       {% for c in cats %}<option value="{{ c['id'] }}" {{ 'selected' if cat == c['id'] | string }}>{{ c['name'] }}</option>{% endfor %}
     </select>
   </form>

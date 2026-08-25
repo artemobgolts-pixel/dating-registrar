@@ -18,8 +18,9 @@
   --bg: #faf5f2;
   --card: #fffdfb;
   --ink: #43373a;
-  --muted: #9a8a8c;
-  --rose: #b65f6f;
+  /* Secondary/accent copy clears WCAG AA on the light romantic surfaces. */
+  --muted: #716166;
+  --rose: #a34c60;
   --rose-2: #8f4a58;
   --rose-soft: #f7e9e7;
   --peach: #e2b08a;
@@ -27,7 +28,27 @@
   --shadow: 0 10px 30px rgba(120, 70, 80, .10);
   --shadow-soft: 0 4px 16px rgba(120, 70, 80, .07);
   --ease: cubic-bezier(.22, .8, .3, 1);
+  --ease-press: cubic-bezier(.2, .8, .2, 1);
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --serif: "Cormorant Garamond", Georgia, serif;
+
+  /* Material hierarchy: only chrome and sheets sample the scene behind them.
+     Cards and controls stay calm and legible, so materials never stack blur. */
+  --material-chrome: color-mix(in srgb, var(--card) 76%, transparent);
+  --material-sheet: color-mix(in srgb, var(--card) 92%, transparent);
+  --material-card: color-mix(in srgb, var(--card) 94%, var(--bg));
+  --material-control: color-mix(in srgb, var(--card) 88%, var(--rose-soft));
+  --material-solid: var(--card);
+  --material-border: color-mix(in srgb, var(--line) 76%, var(--ink) 8%);
+  --material-blur-chrome: blur(18px) saturate(1.35);
+  --material-blur-sheet: blur(24px) saturate(1.25);
+  --shadow-card: 0 12px 34px color-mix(in srgb, var(--ink) 10%, transparent);
+  --shadow-sheet: 0 28px 80px color-mix(in srgb, var(--ink) 28%, transparent);
+
+  --type-body: clamp(.9375rem, .91rem + .12vw, 1rem);
+  --type-title: clamp(2.25rem, 1.85rem + 2vw, 3.125rem);
+  --leading-body: 1.55;
+  --tracking-display: -.022em;
 }
 
 * { box-sizing: border-box; }
@@ -45,7 +66,9 @@ html { scroll-behavior: smooth; scrollbar-gutter: stable; overflow-x: clip; }
 body {
   margin: 0;
   color: var(--ink);
-  font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font: var(--type-body)/var(--leading-body) var(--sans);
+  font-optical-sizing: auto;
+  text-rendering: optimizeLegibility;
   /* мягкий перелив роза → персик → сирень — наша палитра, без кислотности */
   background: linear-gradient(180deg, #fdf2f0 0%, #f9e6ea 45%, #f1e4f1 100%);
   background-attachment: fixed;
@@ -1340,11 +1363,22 @@ details.endtime[open] summary { margin-bottom: 10px; }
   font: 700 16.5px/1.1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   white-space: nowrap; text-align: center;
 }
+.fab-inline { display: none; }
 .fab:hover { transform: translateY(-2px) scale(1.05); box-shadow: 0 16px 34px rgba(150, 70, 85, .5); }
 .fab:active { transform: scale(.94); }
-@media (max-width: 420px) {
-  .fab { right: 12px; bottom: 14px; height: 52px; padding: 0 18px; }
-  .fab-label { font-size: 15px; }
+@media (max-width: 600px) {
+  .fab-floating { display: none; }
+  .fab-inline {
+    position: static;
+    display: inline-flex;
+    width: 100%;
+    min-height: 52px;
+    height: auto;
+    margin: 24px 0 2px;
+    padding: 12px 18px;
+    animation: none;
+  }
+  .fab-inline .fab-label { font-size: 15px; }
 }
 
 .alt-time { display: block; font-size: 12.5px; color: var(--muted); margin: 2px 0 6px; }
@@ -2155,18 +2189,18 @@ html[data-skin="friends"] {
   --bg: #f6f3e9;
   --card: rgba(255, 254, 249, .93);
   --ink: #29283d;
-  --muted: #707184;
+  --muted: #686f82;
   /* Старые семантические переменные сохраняем как API компонентов,
      но в этом скине они означают primary / primary-strong / primary-soft. */
-  --rose: #554eae;
-  --rose-2: #39347e;
+  --rose: #4b59a6;
+  --rose-2: #34417f;
   --rose-soft: #ebeafd;
   --peach: #d6a13d;
   --line: #dcdbea;
-  --friends-teal: #118b86;
+  --friends-teal: #238e89;
   --friends-teal-soft: #e1f3ef;
-  --friends-amber: #d39a32;
-  --friends-indigo: #554eae;
+  --friends-amber: #d79a2f;
+  --friends-indigo: #4b59a6;
   --shadow: 0 18px 48px rgba(52, 50, 108, .16);
   --shadow-soft: 0 7px 24px rgba(52, 50, 108, .10);
   --serif: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -2230,9 +2264,9 @@ html[data-skin="friends"] ::selection { background: var(--friends-teal); }
 }
 
 html[data-skin="friends"] .bg-smoke .turb { mix-blend-mode: multiply; opacity: .45; }
-html[data-skin="friends"] .bg-smoke #smokeFade stop:nth-child(1) { stop-color: #554eae; }
-html[data-skin="friends"] .bg-smoke #smokeFade stop:nth-child(2) { stop-color: #118b86; }
-html[data-skin="friends"] .bg-smoke #smokeFade stop:nth-child(3) { stop-color: #118b86; }
+html[data-skin="friends"] .bg-smoke #smokeFade stop:nth-child(1) { stop-color: var(--friends-indigo); }
+html[data-skin="friends"] .bg-smoke #smokeFade stop:nth-child(2) { stop-color: var(--friends-teal); }
+html[data-skin="friends"] .bg-smoke #smokeFade stop:nth-child(3) { stop-color: var(--friends-teal); }
 html[data-skin="friends"] .bg-smoke span:nth-child(2) {
   background:
     radial-gradient(46% 48% at 40% 40%, rgba(85, 78, 174, .42), transparent 67%),
@@ -2823,4 +2857,478 @@ html[data-theme="dark"][data-skin="friends"] body.review-share-page {
     min-width: 0; flex: 1;
     padding: 22px 24px 24px;
   }
+}
+
+/* ========================================================================
+   APPLE MATERIAL + INTERACTION CONTRACT
+   Chrome/sheets may sample the scene. Content cards and controls are denser
+   materials and deliberately never add a second backdrop-filter.
+   ======================================================================== */
+html { font-size: 100%; }
+
+.hero h1,
+.home-card h1,
+.review-share-hero h1 {
+  font-size: var(--type-title);
+  font-optical-sizing: auto;
+  letter-spacing: var(--tracking-display);
+  line-height: 1.06;
+}
+.title,
+.dlg-head,
+.review-cta h2,
+.profile-review-title {
+  font-optical-sizing: auto;
+  font-weight: 600;
+  letter-spacing: -.012em;
+}
+
+/* Functional floating chrome. */
+:is(.greet, .author, .promo-btn, .theme-float) {
+  background: var(--material-chrome);
+  border-color: var(--material-border);
+  -webkit-backdrop-filter: var(--material-blur-chrome);
+  backdrop-filter: var(--material-blur-chrome);
+}
+
+/* Modal and hero sheets: one blur boundary, never a stack of blurred panes. */
+:is(dialog:not(.lightbox), .home-card, .review-share-page .profile-review-widget) {
+  background: var(--material-sheet);
+  border-color: var(--material-border);
+  -webkit-backdrop-filter: var(--material-blur-sheet);
+  backdrop-filter: var(--material-blur-sheet);
+  box-shadow: var(--shadow-sheet);
+}
+
+/* Reading surfaces stay stable over animated branding. */
+.card,
+.notify-cta,
+.vote-summary,
+.share-cta,
+.review-cta,
+.review-share-cta,
+.date-widget-dialog .sec,
+.date-widget-dialog .pcard,
+.pub-card {
+  background: var(--material-card);
+  border-color: var(--material-border);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: var(--shadow-card);
+}
+.card .body { background: transparent; -webkit-backdrop-filter: none; backdrop-filter: none; }
+
+/* Controls inside a material use a solid/tinted fill instead of sampling the
+   already blurred parent again. */
+:is(.card, dialog, .home-card, .notify-cta, .vote-summary, .share-cta,
+    .review-cta, .review-share-cta, .date-widget-dialog)
+  :is(.btn.ghost, .chip, .chip-suggest, .suggest-chip, .alt-link, .links a,
+      .badge, .participant, .gal-count, .gal-nav, .ptile button,
+      .ed-empty-inner, input, textarea, select, .rich-ed) {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+:is(.btn.ghost, .chip, .chip-suggest, .suggest-chip, .alt-link,
+    input[type="text"], input[type="number"], input[type="datetime-local"],
+    textarea, select, .rich-ed) {
+  background: var(--material-control);
+  border-color: var(--material-border);
+}
+
+/* Every actionable control has an Apple-size target and immediate pointer-down
+   feedback. The disabled OAuth state remains visible without pretending to work. */
+:is(button, .btn, .oauth-btn, .login-corner, .promo-btn, .theme-float,
+    .author, .chip, .chip-suggest, .suggest-chip, .alt-link,
+    .report-link, summary, [role="button"]) {
+  min-block-size: 44px;
+  min-inline-size: 44px;
+}
+:is(input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+    select, textarea) { min-block-size: 44px; }
+
+:where(button, .btn, .oauth-btn, .login-corner, .promo-btn, .theme-float,
+       .author, .chip, .chip-suggest, .suggest-chip, .alt-link,
+       .pub-card, [role="button"]):not(:disabled):not([aria-disabled="true"]):active {
+  transform: scale(.97);
+  transition: transform 80ms var(--ease-press);
+}
+.lb-prev:active { transform: translateY(-50%) scale(.94); }
+.lb-next:active { transform: translateY(-50%) scale(.94); }
+
+.oauth-btn.disabled[aria-disabled="true"] {
+  min-width: 44px;
+  min-height: 44px;
+  opacity: .52;
+  color: var(--muted);
+  background: var(--material-solid);
+  border-color: var(--material-border);
+  box-shadow: none;
+  filter: saturate(.35);
+  cursor: default;
+  pointer-events: none;
+}
+.oauth-btn.disabled[aria-disabled="true"]:is(:hover, :active) {
+  transform: none;
+  box-shadow: none;
+}
+
+.login-return {
+  min-height: 44px;
+  margin-top: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--rose-2);
+  text-underline-offset: .22em;
+}
+
+.gone-actions {
+  width: min(100%, 440px);
+  margin: 24px auto 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+.gone-actions .btn { flex: 1 1 11rem; min-height: 44px; justify-content: center; }
+@media (max-width: 480px) {
+  .gone-actions { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .gone-actions .btn { width: 100%; }
+}
+
+/* Safe areas for standalone iOS/PWA and Telegram webviews. */
+.corner-actions {
+  top: max(14px, calc(env(safe-area-inset-top, 0px) + 8px));
+  right: max(14px, calc(env(safe-area-inset-right, 0px) + 8px));
+}
+.fab {
+  right: max(12px, calc(env(safe-area-inset-right, 0px) + 12px));
+  bottom: max(14px, calc(env(safe-area-inset-bottom, 0px) + 14px));
+}
+.toast { bottom: max(30px, calc(env(safe-area-inset-bottom, 0px) + 18px)); }
+.wrap { padding-bottom: calc(110px + env(safe-area-inset-bottom, 0px)); }
+.public-event-page .wrap { padding-bottom: calc(120px + env(safe-area-inset-bottom, 0px)); }
+
+/* Ambient motion remains part of the identity, but no longer competes with
+   task feedback. Shimmer is reserved for an explicit loading state. */
+body::before { animation-duration: 52s; }
+body::after { animation-duration: 64s; }
+.bg-smoke .turb { animation-duration: 54s; }
+.bg-smoke .plume,
+.bg-smoke span { animation-duration: 48s !important; }
+.bg-hearts span { animation-duration: 54s !important; }
+.hero .hearts span,
+.booked .bo-heart { animation-duration: 4.8s; }
+.bg-gather span { animation-duration: 36s !important; }
+.card.booked-me { animation: none; background-size: 100% 100%, 100% 100%; }
+.card.booked-me::before { animation: none; background-size: 100% 100%; }
+.gallery { animation: none; }
+.gallery:is(.is-loading, [aria-busy="true"]) { animation: shimmer 1.6s linear infinite; }
+
+/* Native, labelled lightbox plus 1:1 pointer-drag hooks. */
+dialog.lightbox {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  max-width: none;
+  height: 100dvh;
+  max-height: none;
+  margin: 0;
+  padding:
+    max(20px, env(safe-area-inset-top, 0px))
+    max(20px, env(safe-area-inset-right, 0px))
+    max(20px, env(safe-area-inset-bottom, 0px))
+    max(20px, env(safe-area-inset-left, 0px));
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  color: #fff;
+  background: rgba(25, 18, 22, .94);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+dialog.lightbox::backdrop { background: transparent; -webkit-backdrop-filter: none; backdrop-filter: none; }
+@keyframes d4-lightbox-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes d4-lightbox-out { from { opacity: 1; } to { opacity: 0; } }
+dialog.lightbox[open], dialog.lightbox.open {
+  display: flex;
+  transform: none;
+  animation: d4-lightbox-in .2s ease-out both;
+}
+dialog.lightbox:is(.is-closing, [data-closing="true"]) {
+  transform: none;
+  animation: d4-lightbox-out .18s ease-in both;
+  pointer-events: none;
+}
+.gallery { touch-action: pan-y pinch-zoom; cursor: grab; }
+.gallery img[role="button"] {
+  touch-action: pan-y pinch-zoom;
+  -webkit-user-drag: none;
+  user-select: none;
+}
+.gallery img[role="button"]:focus-visible { outline: 3px solid #fff; outline-offset: -5px; }
+.gallery.is-dragging { scroll-snap-type: none; cursor: grabbing; user-select: none; }
+.lightbox img {
+  touch-action: pan-y pinch-zoom;
+  -webkit-user-drag: none;
+  user-select: none;
+  cursor: grab;
+}
+.lightbox.is-dragging img { cursor: grabbing; }
+.lb-x {
+  top: max(18px, calc(env(safe-area-inset-top, 0px) + 10px));
+  right: max(18px, calc(env(safe-area-inset-right, 0px) + 10px));
+}
+.lb-prev { left: max(14px, calc(env(safe-area-inset-left, 0px) + 8px)); }
+.lb-next { right: max(14px, calc(env(safe-area-inset-right, 0px) + 8px)); }
+.lb-count { bottom: max(22px, calc(env(safe-area-inset-bottom, 0px) + 12px)); }
+
+/* Closing hooks let JS keep a native dialog in the top layer until the reverse
+   path completes; entry and exit share the same spatial origin. */
+@keyframes d4-sheet-in {
+  from { opacity: 0; transform: translateY(1rem) scale(.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes d4-sheet-out {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(1rem) scale(.97); }
+}
+@keyframes d4-scrim-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes d4-scrim-out { from { opacity: 1; } to { opacity: 0; } }
+dialog[open]:not(.lightbox) { animation: d4-sheet-in .28s var(--ease) both; }
+dialog[open]:not(.lightbox)::backdrop { animation: d4-scrim-in .28s ease-out both; }
+dialog:is(.is-closing, [data-closing="true"]):not(.lightbox) {
+  animation: d4-sheet-out .22s var(--ease) both;
+  pointer-events: none;
+}
+dialog:is(.is-closing, [data-closing="true"]):not(.lightbox)::backdrop {
+  animation: d4-scrim-out .22s ease-in both;
+}
+
+/* Solid fallbacks and independent accessibility preferences. */
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  :root {
+    --material-chrome: var(--material-solid);
+    --material-sheet: var(--material-solid);
+  }
+  :is(.greet, .author, .promo-btn, .theme-float, dialog:not(.lightbox),
+      .home-card, .card, .notify-cta, .vote-summary, .share-cta,
+      .review-cta, .review-share-cta) {
+    background: var(--material-solid) !important;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --material-chrome: var(--material-solid);
+    --material-sheet: var(--material-solid);
+    --material-card: var(--material-solid);
+    --material-control: color-mix(in srgb, var(--card) 92%, var(--bg));
+  }
+  :where(.greet, .author, .promo-btn, .theme-float, dialog:not(.lightbox),
+         .home-card, .card, .notify-cta, .vote-summary, .share-cta,
+         .review-cta, .review-share-cta) {
+    background: var(--material-solid) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+  dialog.lightbox { background: #191216 !important; }
+  .toast { background: var(--ink) !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+  dialog::backdrop {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --muted: color-mix(in srgb, var(--ink) 78%, var(--bg));
+    --material-chrome: var(--card);
+    --material-sheet: var(--card);
+    --material-card: var(--card);
+    --material-control: color-mix(in srgb, var(--card) 90%, var(--ink));
+    --material-border: color-mix(in srgb, var(--ink) 54%, var(--line));
+  }
+  :is(.card, dialog, .home-card, .notify-cta, .vote-summary, .share-cta,
+      .review-cta, .review-share-cta, .btn, .oauth-btn, input, textarea, select) {
+    border-color: var(--material-border);
+  }
+  :is(.greet, .author, .promo-btn, .theme-float, dialog:not(.lightbox),
+      .home-card, .card, .notify-cta, .vote-summary, .share-cta,
+      .review-cta, .review-share-cta) {
+    background: var(--card) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+  :where(.foot-legal a, .home-foot a, footer .hearts) { opacity: 1; }
+  :focus-visible { outline-width: 3px; outline-offset: 3px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  dialog[open], dialog:is(.is-closing, [data-closing="true"]),
+  .toast, .lightbox[open] {
+    transform: none !important;
+    animation: none !important;
+    transition: opacity 160ms linear !important;
+  }
+  .gallery, .gallery img, .lightbox img { scroll-behavior: auto; }
+}
+
+/* Context and account chrome added to the public flows. */
+.public-account-menu { position: relative; }
+.public-account-menu > summary {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 5px;
+  overflow: hidden;
+  list-style: none;
+  cursor: pointer;
+  color: var(--rose-2);
+  border: 1px solid var(--material-border);
+  border-radius: 999px;
+  background: var(--material-solid);
+  box-shadow: var(--shadow-soft);
+}
+.public-account-menu > summary::-webkit-details-marker { display: none; }
+.public-account-menu > summary img {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.public-account-menu > summary .ui-icon { width: 20px; height: 20px; }
+.public-account-popover {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 8px);
+  right: 0;
+  display: grid;
+  min-width: 210px;
+  padding: 8px;
+  overflow: hidden;
+  color: var(--ink);
+  border: 1px solid var(--material-border);
+  border-radius: 16px;
+  background: var(--material-sheet);
+  -webkit-backdrop-filter: var(--material-blur-sheet);
+  backdrop-filter: var(--material-blur-sheet);
+  box-shadow: var(--shadow-sheet);
+  transform-origin: top right;
+  animation: d4-account-menu-in .2s var(--ease) both;
+}
+@keyframes d4-account-menu-in {
+  from { opacity: 0; transform: translateY(-5px) scale(.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.public-account-popover strong {
+  padding: 9px 11px 7px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.public-account-popover :is(a, button) {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 44px;
+  padding: 9px 11px;
+  color: inherit;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+.public-account-popover :is(a, button):hover { background: var(--material-control); }
+.public-account-popover form { margin: 0; }
+.owner-edit-link { text-decoration: none; }
+
+.collection-context {
+  display: inline-grid;
+  gap: 2px;
+  max-width: min(100%, 520px);
+  margin-top: 13px;
+  padding: 11px 15px;
+  color: var(--ink);
+  text-align: left;
+  text-decoration: none;
+  border: 1px solid var(--material-border);
+  border-radius: 14px;
+  background: var(--material-card);
+  box-shadow: var(--shadow-soft);
+}
+.collection-context span { color: var(--muted); font-size: 12px; }
+.collection-context strong { color: var(--rose-2); font-size: 13.5px; }
+.vote-rule { display: block; margin-top: 3px; }
+
+.want-form { display: grid; justify-items: center; gap: 12px; width: 100%; }
+.want-visibility {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  width: min(100%, 510px);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.want-visibility legend {
+  width: 100%;
+  margin-bottom: 7px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: left;
+}
+.want-visibility label {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  min-height: 68px;
+  padding: 11px 12px;
+  text-align: left;
+  border: 1px solid var(--material-border);
+  border-radius: 13px;
+  background: var(--material-control);
+  cursor: pointer;
+}
+.want-visibility label:has(input:checked) {
+  border-color: var(--rose-2);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--rose-2) 22%, transparent);
+}
+.want-visibility label.disabled { opacity: .58; cursor: not-allowed; }
+.want-visibility input { flex: none; margin: 3px 0 0; accent-color: var(--rose-2); }
+.want-visibility span { display: grid; gap: 2px; }
+.want-visibility b { color: var(--ink); font-size: 13px; }
+.want-visibility small { color: var(--muted); font-size: 11.5px; line-height: 1.3; }
+.want-remove-form { margin-top: -2px !important; }
+.want-remove-form .btn { color: var(--muted); }
+
+.notify-cta.is-revealed { animation: d4-notify-reveal .34s var(--ease) both; }
+@keyframes d4-notify-reveal {
+  from { opacity: 0; transform: translateY(10px) scale(.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (max-width: 600px) {
+  .corner-actions { gap: 7px; }
+  .owner-edit-link { padding-inline: 12px; }
+  .want-visibility { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .public-account-popover {
+    background: var(--material-solid);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .public-account-popover,
+  .notify-cta.is-revealed { animation: none; }
 }

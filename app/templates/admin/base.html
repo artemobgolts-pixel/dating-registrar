@@ -82,31 +82,31 @@
 </svg>
 <header class="top">
   <a class="brand" href="/admin/">date<span class="d4">4</span>you</a>
-  <nav class="glass-nav">
-    <a href="/admin/" class="{{ 'on' if active == 'dash' else '' }}">
+  <nav class="glass-nav" aria-label="Основная навигация">
+    <a href="/admin/" class="{{ 'on' if active == 'dash' else '' }}"{% if active == 'dash' %} aria-current="page"{% endif %}>
       <span class="ic">{% with icon='home' %}{% include "admin/_icon.html" %}{% endwith %}</span>
       <span class="lb">Главная</span>
     </a>
-    <a href="/admin/categories" class="{{ 'on' if active == 'cats' else '' }}">
+    <a href="/admin/categories" class="{{ 'on' if active == 'cats' else '' }}"{% if active == 'cats' %} aria-current="page"{% endif %}>
       <span class="ic">{% with icon='categories' %}{% include "admin/_icon.html" %}{% endwith %}</span>
-      <span class="lb">Категории</span>
+      <span class="lb">Подборки</span>
     </a>
-    <a href="/admin/dates" class="{{ 'on' if active == 'dates' else '' }}">
+    <a href="/admin/dates" class="{{ 'on' if active == 'dates' else '' }}"{% if active == 'dates' %} aria-current="page"{% endif %}>
       <span class="ic">{% with icon='calendar' %}{% include "admin/_icon.html" %}{% endwith %}</span>
       <span class="lb">События</span>
     </a>
-    <a href="/admin/profile" class="{{ 'on' if active == 'profile' else '' }}">
+    <a href="/admin/profile" class="{{ 'on' if active == 'profile' else '' }}"{% if active == 'profile' %} aria-current="page"{% endif %}>
       <span class="ic">{% with icon='profile' %}{% include "admin/_icon.html" %}{% endwith %}</span>
-      <span class="lb">{{ user['display_name'] or 'Профиль' }}</span>
+      <span class="lb">Профиль</span>
     </a>
-    {% if user['is_operator'] %}<a href="/operator/" class="op-link"><span class="ic" aria-hidden="true">⚙</span><span class="lb">Админ</span></a>{% endif %}
+    {% if user['is_operator'] %}<a href="/operator/" class="op-link"><span class="ic">{% with icon='settings' %}{% include "admin/_icon.html" %}{% endwith %}</span><span class="lb">Админ</span></a>{% endif %}
   </nav>
   <div class="top-right">
-    <button type="button" class="bell" data-theme-toggle aria-label="Включить тёмную тему">
+    <button type="button" class="bell secondary-top-control" data-theme-toggle aria-label="Включить тёмную тему">
       <span class="bell-ic theme-moon-icon" data-theme-icon aria-hidden="true"></span>
     </button>
     {% if VPN_URL %}
-    <a class="bell bell-link" href="{{ VPN_URL }}" target="_blank" rel="noopener"
+    <a class="bell bell-link secondary-top-control" href="{{ VPN_URL }}" target="_blank" rel="noopener"
        aria-label="VPN">
       <img class="bell-img" src="{{ asset('vpn-logo.webp') }}" alt="" width="42" height="42" decoding="async">
       <span class="bell-lb">VPN</span>
@@ -117,10 +117,25 @@
       <span class="bell-ic">{% with icon='bell' %}{% include "admin/_icon.html" %}{% endwith %}</span>
       {% if unread %}<span class="bell-count" aria-hidden="true">{{ '99+' if unread > 99 else unread }}</span>{% endif %}
     </a>
-    <form class="logout-top" method="post" action="/admin/logout">
+    <form class="logout-top secondary-top-control" method="post" action="/admin/logout">
       <input type="hidden" name="csrf" value="{{ csrf }}">
       <button type="submit" class="logout-mini" aria-label="Выйти" title="Выйти"></button>
     </form>
+    <details class="mobile-account-menu">
+      <summary class="bell account-menu-trigger" aria-label="Открыть меню профиля">
+        <span class="account-menu-avatar" aria-hidden="true">{{ (user['display_name'] or user['tg_username'] or '?')[:1] }}</span>
+      </summary>
+      <div class="account-popover" role="group" aria-label="Профиль и настройки">
+        <a href="/admin/profile">{% with icon='profile' %}{% include "admin/_icon.html" %}{% endwith %}<span>Мой профиль</span></a>
+        <button type="button" data-theme-toggle>{% with icon='gather' %}{% include "admin/_icon.html" %}{% endwith %}<span data-theme-label>Сменить тему</span></button>
+        {% if VPN_URL %}<a href="{{ VPN_URL }}" target="_blank" rel="noopener">{% with icon='link' %}{% include "admin/_icon.html" %}{% endwith %}<span>VPN</span></a>{% endif %}
+        {% if user['is_operator'] %}<a href="/operator/">{% with icon='settings' %}{% include "admin/_icon.html" %}{% endwith %}<span>Администрирование</span></a>{% endif %}
+        <form method="post" action="/admin/logout">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button type="submit">{% with icon='logout' %}{% include "admin/_icon.html" %}{% endwith %}<span>Выйти</span></button>
+        </form>
+      </div>
+    </details>
   </div>
 </header>
 <main class="wrap">

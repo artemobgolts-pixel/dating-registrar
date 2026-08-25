@@ -24,7 +24,7 @@
 <body data-ink-interactive="{{ '1' if request.state.user and request.state.user['cursor_effects'] else '0' }}">
 {% include "public/_bg.html" %}
 <main class="legal">
-  <a class="back" href="/">← на главную</a>
+  <a class="back" href="{{ back_url | default('/admin/' if request.state.user else '/login', true) }}">← Вернуться</a>
 {% if doc == 'terms' %}
   {% include "public/_terms.html" %}
 {% else %}

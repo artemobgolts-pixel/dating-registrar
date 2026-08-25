@@ -6,10 +6,18 @@
 {% block head %}<meta name="turbo-cache-control" content="no-cache">{% endblock %}
 {% block content %}
 <a class="btn ghost editor-back date-editor-back" href="{{ editor_return_url | default('/admin/dates', true) }}">← Назад</a>
-<div class="crumb">Встречи › {{ 'Редактирование' if date else 'Новое' }}</div>
+<div class="crumb">События › {{ 'Редактирование' if date else 'Новое' }}</div>
 <div class="bar">
   <h1 class="serif" style="margin:0">{{ 'Редактировать событие' if date else 'Новое событие' }}</h1>
 </div>
+
+{% if operator_context %}
+<aside class="operator-edit-context" role="status">
+  <span class="operator-edit-context-icon">{% with icon='settings' %}{% include "admin/_icon.html" %}{% endwith %}</span>
+  <span><strong>Режим администратора</strong><small>Редактируется событие пользователя {{ operator_context.owner_name }}.</small></span>
+  <a class="btn small" href="/operator/users/{{ date['owner_id'] }}">Открыть владельца</a>
+</aside>
+{% endif %}
 
 {% if date and date['origin'] == 'guest' %}
 <div class="card" style="background:rgba(253,248,241,.8);border-color:#f1e2c8">
@@ -64,11 +72,12 @@
   <div class="ed-cols">
   <!-- РЕДАКТИРУЕМОЕ ПРЕВЬЮ -->
   <div class="ed-preview-col">
-    <div class="preview-cap">Твоя карточка <span class="muted" style="font-weight:400;font-size:12px">— кликай и меняй прямо здесь; фото двигай, чтобы выбрать кадр</span></div>
+    <div class="preview-cap">{{ 'Карточка пользователя' if operator_context else 'Карточка события' }} <span class="muted" style="font-weight:400;font-size:12px">— текст меняется прямо здесь; листай фото, а кадр настраивай отдельной кнопкой</span></div>
     <div class="pcard editable" id="edCard" data-tour="date-card-editor"
          data-token="{{ date['share_token'] if date else '' }}">
       <!-- галерея фото/видео: листание + добавление кнопкой + -->
-      <div class="ed-gallery" id="edGallery" data-tour="date-media">
+      <div class="ed-gallery" id="edGallery" data-tour="date-media"
+           role="region" aria-label="Медиа события" aria-roledescription="карусель">
         <!-- D4: модификатор (оплата) бейджем ПОВЕРХ фото; JS прячет его, когда
              фото нет (edEmpty виден) — тогда бейдж показываем в теле у названия. -->
         <span class="ed-gallery-pay bdg pay" data-preview="pay-photo"
@@ -111,13 +120,16 @@
         </div>
         <button type="button" class="ed-nav prev" id="edPrev" aria-label="Предыдущее" hidden>‹</button>
         <button type="button" class="ed-nav next" id="edNext" aria-label="Следующее" hidden>›</button>
+        <button type="button" class="ed-crop-toggle" id="edCropToggle"
+                aria-pressed="false" hidden>Настроить кадр</button>
         <div class="ed-dots" id="edDots" aria-hidden="true"></div>
         <span class="ed-focus-hint" id="edFocusHint" hidden>двигай, чтобы выбрать кадр</span>
+        <span class="sr-only" id="edGalleryStatus" aria-live="polite"></span>
       </div>
 
       <div class="body">
         <h3 class="ttl">
-          <span class="required-title"><span class="ed-field" id="edTitle" data-ph="Название события">{{ date['name'] if date else '' }}</span><sup class="required-mark" aria-hidden="true">*</sup></span>
+          <span class="required-title"><span class="ed-field" id="edTitle" data-ph="Название события" aria-label="Название события">{{ date['name'] if date else '' }}</span><sup class="required-mark" aria-hidden="true">*</sup></span>
           {# запасное место модификатора — в заголовке, когда фото НЕТ (иначе он
              живёт бейджем на фото, см. .ed-gallery-pay). JS переключает видимость. #}
           <span class="pay" data-preview="pay" {% if not (date and date['pay_split']) or (date and photos) %}hidden{% endif %}>{{ pay_label(date['pay_split']) if date else '' }}</span>
@@ -130,22 +142,22 @@
           <div class="ed-when" id="edWhen" data-tour="date-when">
             <input type="hidden" class="ed-day" data-tr-day value="{{ (date['starts_at'].split('T')[0]) if (date and date['starts_at']) else '' }}">
             <span class="ed-date" data-tr-datewidget>
-              <span class="ed-dd" data-tr-dd>{{ (date['starts_at'].split('T')[0].split('-')[2]) if (date and date['starts_at']) else '' }}</span><span class="ed-dot">.</span><span class="ed-mo" data-tr-mo>{{ (date['starts_at'].split('T')[0].split('-')[1]) if (date and date['starts_at']) else '' }}</span><span class="ed-dot">.</span><span class="ed-yy" data-tr-yy>{{ (date['starts_at'].split('T')[0].split('-')[0]) if (date and date['starts_at']) else '' }}</span>
+              <span class="ed-dd" data-tr-dd aria-label="День">{{ (date['starts_at'].split('T')[0].split('-')[2]) if (date and date['starts_at']) else '' }}</span><span class="ed-dot">.</span><span class="ed-mo" data-tr-mo aria-label="Месяц">{{ (date['starts_at'].split('T')[0].split('-')[1]) if (date and date['starts_at']) else '' }}</span><span class="ed-dot">.</span><span class="ed-yy" data-tr-yy aria-label="Год">{{ (date['starts_at'].split('T')[0].split('-')[0]) if (date and date['starts_at']) else '' }}</span>
             </span>
             <span class="ed-at" aria-hidden="true">в</span>
             <span class="ed-time">
-              <span class="ed-hh" data-tr-hh>{{ (date['starts_at'].split('T')[1][:2]) if (date and date['starts_at']) else '' }}</span><span class="ed-colon">:</span><span class="ed-mm" data-tr-mm>{{ (date['starts_at'].split('T')[1][3:5]) if (date and date['starts_at']) else '' }}</span>
+              <span class="ed-hh" data-tr-hh aria-label="Часы начала">{{ (date['starts_at'].split('T')[1][:2]) if (date and date['starts_at']) else '' }}</span><span class="ed-colon">:</span><span class="ed-mm" data-tr-mm aria-label="Минуты начала">{{ (date['starts_at'].split('T')[1][3:5]) if (date and date['starts_at']) else '' }}</span>
               <span class="ed-dash">–</span>
-              <span class="ed-hh" data-tr-ehh>{{ (date['ends_at'].split('T')[1][:2]) if (date and date['ends_at']) else '' }}</span><span class="ed-colon">:</span><span class="ed-mm" data-tr-emm>{{ (date['ends_at'].split('T')[1][3:5]) if (date and date['ends_at']) else '' }}</span>
+              <span class="ed-hh" data-tr-ehh aria-label="Часы окончания">{{ (date['ends_at'].split('T')[1][:2]) if (date and date['ends_at']) else '' }}</span><span class="ed-colon">:</span><span class="ed-mm" data-tr-emm aria-label="Минуты окончания">{{ (date['ends_at'].split('T')[1][3:5]) if (date and date['ends_at']) else '' }}</span>
             </span>
           </div>
           <div class="ed-place-row">
             <span aria-hidden="true">{% with icon='pin' %}{% include "admin/_icon.html" %}{% endwith %}</span>
-            <span class="ed-field ed-place" id="edPlace" data-ph="Место — адрес или ссылка на карты">{{ (date['place'] or '') if date else '' }}</span>
+            <span class="ed-field ed-place" id="edPlace" data-ph="Место — адрес или ссылка на карты" aria-label="Место события">{{ (date['place'] or '') if date else '' }}</span>
           </div>
         </div>
 
-        <div class="ed-field ed-desc" id="edDesc" contenteditable="true" role="textbox" aria-multiline="true"
+        <div class="ed-field ed-desc" id="edDesc" contenteditable="true" role="textbox" aria-label="Описание события" aria-multiline="true"
              data-ph="Детали — расскажи, чем хорошо это событие (можно выделить текст и отформатировать)">{{ (date['comment'] | rich | safe) if (date and date['comment']) else '' }}</div>
         <div class="toolbar ed-desc-toolbar" id="descToolbar" data-target="descInput" hidden>
           <button type="button" class="b" data-wrap="**|**" title="Жирный">Ж</button>
@@ -157,7 +169,7 @@
 
         <div class="ed-links-row">
           <span aria-hidden="true">{% with icon='link' %}{% include "admin/_icon.html" %}{% endwith %}</span>
-          <span class="ed-field ed-links" id="edLinks" data-ph="Ссылки — каждая с новой строки">{{ links_text }}</span>
+          <span class="ed-field ed-links" id="edLinks" data-ph="Ссылки — каждая с новой строки" aria-label="Ссылки события">{{ links_text }}</span>
         </div>
 
         <div class="acts">
@@ -171,7 +183,7 @@
   <!-- МОДИФИКАТОРЫ + КАТЕГОРИИ -->
   <div class="ed-side-col">
     <div class="sec" data-tour="date-modifiers">
-      <h2 class="serif"><span class="n">1</span> Модификаторы</h2>
+      <h2 class="serif"><span class="n">1</span> Условия участия</h2>
       <div class="field" style="margin:0">
         <label>Оплата</label>
         <div class="pay-pick" id="payPick">
@@ -182,7 +194,7 @@
         </div>
       </div>
       <label class="field capacity-field">
-        <span>Количество участников</span>
+        <span>Максимум участников</span>
         <span class="capacity-stepper" data-number-stepper>
           <button type="button" class="capacity-step" data-step="-1"
                   aria-label="Уменьшить количество участников">−</button>
@@ -195,8 +207,8 @@
     </div>
 
     <div class="sec" data-tour="date-visibility">
-      <h2 class="serif"><span class="n">2</span> Категории</h2>
-      <p class="muted" style="margin:0 0 10px;font-size:13px">Категории нужны для общего голосования. Событие без категории всё равно остаётся активным в твоей коллекции.</p>
+      <h2 class="serif"><span class="n">2</span> Подборки</h2>
+      <p class="muted" style="margin:0 0 10px;font-size:13px">Подборки нужны для общего голосования. Событие без подборки всё равно остаётся активным в твоей коллекции.</p>
       <div class="chips-cat">
         {% for c in cats %}
         <label class="chip-cat{% if c['id'] in locked_cat_ids %} locked{% endif %}"
@@ -211,14 +223,15 @@
           <input type="hidden" name="categories" value="{{ c['id'] }}">
         {% endif %}
         {% else %}
-        <span class="muted">категорий пока нет — <a href="/admin/categories">создать</a></span>
+        <span class="muted">подборок пока нет — <a href="/admin/categories">создать</a></span>
         {% endfor %}
       </div>
       <label class="toggle" style="margin:14px 0 0">
-        <input type="checkbox" name="is_public" value="1" {% if not date or date['is_public'] %}checked{% endif %}>
+        <input type="checkbox" name="is_public" value="1" {% if date and date['is_public'] %}checked{% endif %}>
         <span class="sw" aria-hidden="true"></span>
         <span class="tcol">
           <span class="t">Показывать в общей ленте событий</span>
+          <span class="muted">Если включить, событие увидят все пользователи date4you. Без этого оно доступно только тебе и по секретным ссылкам.</span>
         </span>
       </label>
     </div>

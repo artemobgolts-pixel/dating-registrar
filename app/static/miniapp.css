@@ -2,10 +2,17 @@
   color-scheme: light dark;
   --tg-page-bg: var(--tg-theme-bg-color, #f7f5ff);
   --tg-page-text: var(--tg-theme-text-color, #26233b);
-  --tg-muted: var(--tg-theme-hint-color, #77738d);
-  --tg-accent: var(--tg-theme-button-color, #554eae);
+  --tg-muted: var(--tg-theme-hint-color, #6f6a84);
+  --tg-accent: var(--tg-theme-button-color, #4b59a6);
   --tg-accent-text: var(--tg-theme-button-text-color, #fff);
-  font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --tg-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --tg-ease: cubic-bezier(.2, .8, .2, 1);
+  --tg-material-sheet: color-mix(in srgb, var(--tg-page-bg) 92%, transparent);
+  --tg-material-control: color-mix(in srgb, var(--tg-page-bg) 86%, var(--tg-page-text) 4%);
+  --tg-material-border: color-mix(in srgb, var(--tg-page-text) 18%, transparent);
+  --tg-shadow-soft: 0 12px 32px color-mix(in srgb, var(--tg-page-text) 14%, transparent);
+  font: clamp(.9375rem, .91rem + .12vw, 1rem)/1.5 var(--tg-sans);
+  font-optical-sizing: auto;
 }
 
 * { box-sizing: border-box; }
@@ -17,10 +24,10 @@ html, body { min-height: 100%; margin: 0; }
   display: grid;
   place-items: center;
   padding:
-    max(24px, var(--tg-content-safe-area-inset-top, 0px))
-    max(18px, var(--tg-content-safe-area-inset-right, 0px))
-    max(24px, var(--tg-content-safe-area-inset-bottom, 0px))
-    max(18px, var(--tg-content-safe-area-inset-left, 0px));
+    max(24px, var(--tg-content-safe-area-inset-top, 0px), env(safe-area-inset-top, 0px))
+    max(18px, var(--tg-content-safe-area-inset-right, 0px), env(safe-area-inset-right, 0px))
+    max(24px, var(--tg-content-safe-area-inset-bottom, 0px), env(safe-area-inset-bottom, 0px))
+    max(18px, var(--tg-content-safe-area-inset-left, 0px), env(safe-area-inset-left, 0px));
   background:
     radial-gradient(circle at 22% 12%, rgba(109, 120, 196, .18), transparent 36%),
     radial-gradient(circle at 82% 86%, rgba(34, 142, 138, .14), transparent 34%),
@@ -31,10 +38,12 @@ html, body { min-height: 100%; margin: 0; }
 .miniapp-card {
   width: min(440px, 100%);
   padding: 34px 28px 30px;
-  border: 1px solid color-mix(in srgb, var(--tg-page-text) 11%, transparent);
+  border: 1px solid var(--tg-material-border);
   border-radius: 28px;
-  background: color-mix(in srgb, var(--tg-page-bg) 88%, transparent);
-  box-shadow: 0 24px 70px rgba(40, 35, 90, .14);
+  background: var(--tg-material-sheet);
+  -webkit-backdrop-filter: blur(18px) saturate(1.12);
+  backdrop-filter: blur(18px) saturate(1.12);
+  box-shadow: var(--tg-shadow-soft);
   text-align: center;
 }
 
@@ -48,7 +57,13 @@ html, body { min-height: 100%; margin: 0; }
 }
 .miniapp-mark img { display: block; width: 100%; height: 100%; object-fit: contain; }
 
-.miniapp-card h1 { margin: 0 0 8px; font-size: 30px; }
+.miniapp-card h1 {
+  margin: 0 0 8px;
+  font-size: clamp(1.625rem, 1.48rem + .62vw, 1.875rem);
+  font-weight: 600;
+  letter-spacing: -.025em;
+  line-height: 1.12;
+}
 .miniapp-card p { margin: 0; color: var(--tg-muted); }
 .miniapp-card .miniapp-error { margin-top: 16px; color: #b84555; }
 
@@ -72,6 +87,11 @@ html, body { min-height: 100%; margin: 0; }
   font: inherit;
   font-weight: 650;
   cursor: pointer;
+  transition:
+    transform 160ms var(--tg-ease),
+    filter 160ms var(--tg-ease),
+    background-color 180ms var(--tg-ease),
+    border-color 180ms var(--tg-ease);
 }
 .miniapp-primary {
   border: 0;
@@ -79,9 +99,9 @@ html, body { min-height: 100%; margin: 0; }
   background: var(--tg-accent);
 }
 .miniapp-secondary {
-  border: 1px solid color-mix(in srgb, var(--tg-page-text) 18%, transparent);
+  border: 1px solid var(--tg-material-border);
   color: var(--tg-page-text);
-  background: transparent;
+  background: var(--tg-material-control);
 }
 .miniapp-browser-link {
   margin-top: 22px;
@@ -94,5 +114,57 @@ html, body { min-height: 100%; margin: 0; }
 }
 .miniapp-browser-link[hidden] { display: none; }
 
+.miniapp-actions button:focus-visible,
+.miniapp-browser-link:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--tg-accent) 44%, transparent);
+  outline-offset: 3px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .miniapp-actions button:hover,
+  .miniapp-browser-link:hover { filter: brightness(1.04); }
+}
+
+.miniapp-actions button:active,
+.miniapp-browser-link:active {
+  transform: scale(.975);
+  filter: brightness(.97);
+  transition-duration: 70ms;
+}
+
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .miniapp-card { background: var(--tg-page-bg); }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .miniapp-card {
+    background: var(--tg-page-bg);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .miniapp-card,
+  .miniapp-secondary {
+    background: var(--tg-page-bg);
+    border-color: currentColor;
+  }
+  .miniapp-card {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .miniapp-actions button:focus-visible,
+  .miniapp-browser-link:focus-visible {
+    outline-color: currentColor;
+    outline-width: 3px;
+  }
+}
+
 @keyframes miniapp-spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .miniapp-spinner { animation: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .miniapp-spinner { animation: none; }
+  .miniapp-actions button,
+  .miniapp-browser-link { transition: none; }
+}

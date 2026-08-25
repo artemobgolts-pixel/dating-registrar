@@ -1,7 +1,7 @@
 {% extends "operator/base.html" %}
-{% block title %}Категории{% endblock %}
+{% block title %}Подборки{% endblock %}
 {% block page_eyebrow %}Контент платформы{% endblock %}
-{% block page_title %}Категории <span class="count">{{ total }}</span>{% endblock %}
+{% block page_title %}Подборки <span class="count">{{ total }}</span>{% endblock %}
 {% block page_intro %}
 <p class="op-page-intro">Публичные подборки пользователей, их наполнение и состояние секретных ссылок.</p>
 {% endblock %}
@@ -10,7 +10,7 @@
 <div class="toolbar">
   <form class="search-form" method="get" action="/operator/categories" role="search">
     <label class="search-field">
-      <span class="sr-only">Поиск категорий</span>
+      <span class="sr-only">Поиск подборок</span>
       <svg class="op-icon" aria-hidden="true"><use href="#op-i-search"></use></svg>
       <input type="search" name="q" value="{{ q }}" placeholder="Название или владелец"
              autocomplete="off" data-op-search>
@@ -24,7 +24,7 @@
 <section class="panel">
   <div class="panel__head">
     <div class="panel__title-wrap">
-      <h2 class="panel__title">{% if q %}Результаты поиска{% else %}Все категории{% endif %}</h2>
+      <h2 class="panel__title">{% if q %}Результаты поиска{% else %}Все подборки{% endif %}</h2>
       <span class="panel__hint">
         {% if q %}По запросу «{{ q }}» найдено: {{ total }}{% else %}Сначала созданные недавно{% endif %}
       </span>
@@ -33,12 +33,12 @@
   <div class="table-scroll">
     <table class="data-table responsive-table">
       <thead>
-        <tr><th>Категория</th><th>Владелец</th><th>События</th><th>Ссылка</th><th>Действия</th></tr>
+        <tr><th>Подборка</th><th>Владелец</th><th>События</th><th>Ссылка</th><th>Действия</th></tr>
       </thead>
       <tbody>
         {% for c in rows %}
         <tr>
-          <td data-label="Категория">
+          <td data-label="Подборка">
             <span class="cell-primary">{{ c['name'] }}</span>
             <span class="cell-secondary">ID {{ c['id'] }}</span>
           </td>
@@ -57,7 +57,7 @@
           </td>
           <td data-label="Действия" class="action-cell">
             <div class="button-row">
-              <a class="btn small" href="/admin/categories/{{ c['id'] }}">
+              <a class="btn small" href="/admin/categories/{{ c['id'] }}?return_to={{ editor_return_to | urlencode }}">
                 <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-edit"></use></svg>
                 Изменить
               </a>
@@ -66,9 +66,9 @@
                 <button class="btn small" type="submit">{{ 'Выключить' if c['link_enabled'] else 'Включить' }} ссылку</button>
               </form>
               <form class="inline" method="post" action="/operator/categories/{{ c['id'] }}/delete"
-                    data-confirm="Удалить категорию «{{ c['name'] }}»? События останутся у владельца.">
+                    data-confirm="Удалить подборку «{{ c['name'] }}»? События останутся у владельца.">
                 <input type="hidden" name="csrf" value="{{ csrf }}">
-                <button class="btn small danger" type="submit" aria-label="Удалить категорию {{ c['name'] }}">
+                <button class="btn small danger" type="submit" aria-label="Удалить подборку {{ c['name'] }}">
                   <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-trash"></use></svg>
                   Удалить
                 </button>
@@ -83,7 +83,7 @@
               <div>
                 <span class="empty-state__icon"><svg class="op-icon" aria-hidden="true"><use href="#op-i-categories"></use></svg></span>
                 <strong class="empty-state__title">Ничего не найдено</strong>
-                <p>{% if q %}Измените запрос или сбросьте поиск.{% else %}Категорий на платформе пока нет.{% endif %}</p>
+                <p>{% if q %}Измените запрос или сбросьте поиск.{% else %}Подборок на платформе пока нет.{% endif %}</p>
               </div>
             </div>
           </td>

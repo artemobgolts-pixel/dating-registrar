@@ -439,7 +439,10 @@ with TestClient(main.app, follow_redirects=False) as c:
     # модерация предложений по умолчанию ВЫКЛючена — оператор включает её осознанно;
     # иначе бейдж «модерация» висел на каждой новой категории (баг)
     assert db_one("SELECT moderate_proposals FROM categories WHERE id=?", (cid,))[0] == 0
-    step("категория создана, секретная ссылка получена")
+    # v31: новая секретная ссылка не раскрывает имена и аватары участников,
+    # пока владелец явно не включит ростер.
+    assert db_one("SELECT show_participants FROM categories WHERE id=?", (cid,))[0] == 0
+    step("категория создана, секретная ссылка получена; ростер приватный")
 
     r = c.get(f"/c/{tok}")
     assert r.status_code == 200 and "пусто" in r.text
@@ -611,11 +614,8 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert vote_json["updates"] == [{
         "date_id": did, "mine": True, "vote_count": 1, "capacity": 1,
         "is_full": True,
-        "participants": [{
-            "name": "Аня", "user_id": db_one(
-                "SELECT id FROM users WHERE telegram_id=700101")["id"],
-            "has_avatar": False, "is_me": True, "withdrawn": False,
-        }],
+        "show_participants": False,
+        "participants": [],
         "hidden_count": 0,
     }]
     r = ga.post(f"/c/{tok}/book", data={"date_id": did})
@@ -631,9 +631,20 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert "booked-me" in mycard                        # карточка помечена выбором
     assert "vote-progress" in mycard and "1/1" in mycard
     assert '<div class="seal">' in mycard and "ui-icon-check" in mycard
-    assert "Аня" in mycard and "· ты" in mycard        # участники видны во время голосования
+    assert "Аня" not in mycard and "· ты" not in mycard  # приватный ростер не утекает
+    # Остальная часть smoke проверяет открытый ростер: владелец включает его
+    # осознанно через ту же настройку, что доступна в редакторе подборки.
+    r = apost(c, f"/admin/categories/{cid}/participants", {"enabled": "1"})
+    assert r.status_code == 303
+    assert db_one("SELECT show_participants FROM categories WHERE id=?", (cid,))[0] == 1
+    mycard = re.search(
+        r'<article[^>]*id="date-%d".*?</article>' % did,
+        ga.get(f"/c/{tok}").text,
+        re.S,
+    ).group(0)
+    assert "Аня" in mycard and "· ты" in mycard
     assert ga.post(f"/c/{tok}/vote", data={"date_id": did}).status_code == 404
-    step("голос работает как переключатель; видны прогресс и участники; /vote удалён")
+    step("голос переключается; приватный ростер включается только явно; /vote удалён")
 
     # ---------- вопрос и ответ ----------
     r = ga.post(f"/c/{tok}/question", data={"date_id": did, "text": "Можно прийти позже?"})
@@ -1084,14 +1095,16 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert r.status_code == 200 and r.content[:2] == b"PK"
     zf = zipfile.ZipFile(io.BytesIO(r.content))
     names = zf.namelist()
-    assert "app.db" in names and "export.json" in names
+    # Legacy URL остаётся alias операторской резервной копии платформы:
+    # консистентная БД + исходные uploads, без переносимого export.json.
+    assert "app.db" in names and "export.json" not in names
     assert any(n.startswith("uploads/") for n in names)
     # видео-файл попал в архив
     assert f"uploads/{exp_vid_fn}" in names, names
     assert any(n.endswith((".mp4", ".webm")) for n in names)
     # подчищаем, чтобы не сдвинуть счётчики пагинации ниже
     apost(c, f"/admin/dates/{exp_vid['did']}/delete", {})
-    step("экспорт: CSV с именами, JSON+zip содержат данные, фото и видео")
+    step("экспорт: CSV/JSON переносимы; platform backup содержит БД и uploads")
 
     # ---------- вопросы: прочитано/удалить ----------
     apost(c, f"/admin/questions/{qid}/toggle", {"next": "/admin/questions"})
@@ -2129,7 +2142,8 @@ with TestClient(main.app, follow_redirects=False) as crole:
         assert "Данные платформы" not in crole.get("/admin/").text
         operator_settings = crole.get("/operator/settings").text
         assert "Данные платформы" in operator_settings
-        assert "/admin/export/archive" in operator_settings
+        assert "/admin/export/platform-backup" in operator_settings
+        assert "app.db" in operator_settings and "не входят export.json" in operator_settings
         assert "/admin/import/json?return_to=operator" in operator_settings
     finally:
         _users.OPERATOR_TG_IDS.clear(); _users.OPERATOR_TG_IDS.update(_saved_ops)
@@ -2160,7 +2174,7 @@ with TestClient(main.app, follow_redirects=False) as cown, \
                    {"name": "Подозрительное", "categories": str(rcid)}).status_code == 303
     rdid = db_one("SELECT id FROM dates WHERE name='Подозрительное'")[0]
 
-    # гость заходит и жалуется на событие (жалоба требует входа)
+    # вошедший гость жалуется на событие; анонимный сценарий покрыт отдельно
     main._rates.clear()
     assert tg_login(g, 990011, username="reporter").json()["status"] == "ok"
     assert "пожаловаться" in g.get(f"/c/{rtok}").text
@@ -2584,8 +2598,10 @@ with TestClient(main.app, follow_redirects=False) as cl:
     assert "Telegram не открывается?" not in lp
     assert "Подключить VPN" not in lp
     assert "Вход через Telegram, Google, Discord или Яндекс." not in lp
-    # страница входа несёт footer-ссылки на юр-документы
-    assert 'href="/terms"' in lp and 'href="/about"' in lp
+    # Footer сохраняет безопасный возврат на страницу входа после документов.
+    assert 'href="/about?return_to=%2Flogin"' in lp
+    assert 'href="/terms?return_to=%2Flogin"' in lp
+    assert 'href="/privacy?return_to=%2Flogin"' in lp
     # домен ведёт сразу на вход/регистрацию (декоративный лендинг убран)
     root = cl.get("/")
     assert root.status_code == 307 and root.headers["location"] == "/login"
@@ -2617,7 +2633,7 @@ with TestClient(main.app, follow_redirects=False) as ca:
     assert "Мой VPN" in ab.text and "https://vpn.example.com" in ab.text
     assert "Блог" in ab.text and "https://blog.example.com" in ab.text
     # /about в футере страницы входа (домен ведёт на /login)
-    assert 'href="/about"' in ca.get("/login").text
+    assert 'href="/about?return_to=%2Flogin"' in ca.get("/login").text
     # кривая запись проекта без http-ссылки не должна попадать (парсер фильтрует)
     from config import support_link, _parse_projects
     assert _parse_projects("Плохой;ОК|https://ok.com") == [{"name": "ОК", "url": "https://ok.com"}]
@@ -2636,21 +2652,34 @@ with TestClient(main.app, follow_redirects=False) as cu1, \
     pc = re.search(r'name="csrf" value="([^"]+)"', cu1.get("/admin/profile").text).group(1)
     cu1.post("/admin/profile", data={"csrf": pc, "display_name": "Алиса",
                                      "birth_date": "1995-06-15", "gender": "f"})
-    # второй залогиненный видит чужой профиль целиком (имя, пол, полная ДР)
+    # v31: заполненные чувствительные поля нового профиля сначала приватны.
+    profile_visibility = db_one(
+        "SELECT birth_date_public,gender_public FROM users WHERE id=?", (uid1,),
+    )
+    assert tuple(profile_visibility) == (0, 0)
     assert tg_login(cu2, 991402, username="bob").json()["status"] == "ok"
     pg = cu2.get(f"/u/{uid1}")
     assert pg.status_code == 200, pg.status_code
-    assert "Алиса" in pg.text and "Женский" in pg.text and "1995-06-15" in pg.text
-    # незалогиненный видит те же публичные данные, но не действия владельца
+    assert "Алиса" in pg.text and "Женский" not in pg.text and "1995-06-15" not in pg.text
+    # Незалогиненный также не получает приватные поля и действия владельца.
     r = anon.get(f"/u/{uid1}")
     assert r.status_code == 200, r.status_code
-    assert "Алиса" in r.text and "Женский" in r.text and "1995-06-15" in r.text
+    assert "Алиса" in r.text and "Женский" not in r.text and "1995-06-15" not in r.text
     assert ">Войти</a>" in r.text and "Редактировать профиль" not in r.text
+    # Владелец публикует каждое поле отдельным осознанным opt-in.
+    cu1.post("/admin/profile", data={
+        "csrf": pc, "display_name": "Алиса", "birth_date": "1995-06-15",
+        "gender": "f", "birth_date_public": "1", "gender_public": "1",
+    })
+    pg = cu2.get(f"/u/{uid1}")
+    assert "Женский" in pg.text and "1995-06-15" in pg.text
+    r = anon.get(f"/u/{uid1}")
+    assert "Женский" in r.text and "1995-06-15" in r.text
     # несуществующий/неактивный профиль → 404 для залогиненного
     assert cu2.get("/u/999999").status_code == 404
     # свой профиль помечается (кнопка «Редактировать»)
     assert "Редактировать профиль" in cu1.get(f"/u/{uid1}").text
-step("1.9: /u/<id> публичен без регистрации; владелец сохраняет редактирование; 404 на отсутствующий")
+step("1.9: /u/<id> публичен; ДР и пол раскрываются только отдельным opt-in")
 
 
 # ---------- перф: Cache-Control на статике ----------
@@ -3129,7 +3158,7 @@ with TestClient(main.app, follow_redirects=False) as cui:
     # B2: в списке категорий — меню ⋯ (три пункта), больше нет строки-linkbox
     cats = cui.get("/admin/categories").text
     assert 'class="more"' in cats and "Скопировать ссылку" in cats
-    assert "Перегенерировать ссылку" in cats and "Удалить категорию" in cats
+    assert "Перегенерировать ссылку" in cats and "Удалить подборку" in cats
     assert "Отключить ссылку" in cats
     assert all(mark not in cats for mark in ("👀 Открыть", "🔗 Скопировать ссылку",
                                               "🔒 Отключить ссылку", "↻ Перегенерировать ссылку",
@@ -3144,7 +3173,7 @@ with TestClient(main.app, follow_redirects=False) as cui:
     assert "cat-editor-main-actions" in ed and ">Отмена</a>" in ed
     assert "Скопировать ссылку" in ed
     assert "Открыть ссылку" in ed
-    assert "Удалить категорию" in ed
+    assert "Удалить подборку" in ed
     assert "Никто не выбрал" not in ed
 
     # B3: «Сбросить превью» чистит и картинку, и текст превью
@@ -3185,11 +3214,16 @@ with TestClient(main.app, follow_redirects=False) as cui:
     # og-preview отдаёт кроп 1200×630 (WebP), не падает
     assert cui.get(f"/admin/categories/{mcat['id']}/og-preview").status_code == 200
 
-    # D: кнопки OAuth-провайдеров на странице входа — активны сразу, с иконками.
+    # D: OAuth-провайдеры показаны с иконками, но ненастроенные варианты честно
+    # недоступны и не выглядят рабочими ссылками.
     # Нужен анонимный клиент.
     with TestClient(main.app, follow_redirects=False) as canon:
         login = canon.get("/login").text
-        assert "/auth/discord" in login and "/auth/google" in login and "/auth/yandex" in login
+        assert all(f"oauth-{provider}" in login
+                   for provider in ("discord", "google", "yandex"))
+        assert login.count('aria-disabled="true"') >= 3
+        assert not any(f'href="/auth/{provider}"' in login
+                       for provider in ("discord", "google", "yandex"))
         assert "data-login-methods" in login and "oauth-ico" in login
         assert "tg-consent" not in login
     # не настроенный провайдер → 503; неизвестный → 404; настроенный → редирект на провайдера
@@ -3348,7 +3382,7 @@ with TestClient(main.app, follow_redirects=False) as cui2:
     assert "Короткие подсказки по основным разделам" not in profile
     help_actions = re.search(r'<div class="tour-course-actions">(.*?)</div>', profile, re.S).group(1)
     assert "События</a>" in help_actions and "Встречи</a>" not in help_actions
-    assert help_actions.index("Категории") < help_actions.index("События")
+    assert help_actions.index("Подборки") < help_actions.index("События")
     assert 'class="social-links"' in profile and "social-service" in profile
     # Счётчики событий живут в двух статусах: Активные/Архив.
     cui2.post("/admin/dates/new", data={"csrf": uc2, "name": "Акт", "categories": str(cc["id"])})
@@ -3408,7 +3442,7 @@ with TestClient(main.app, follow_redirects=False) as cui2:
     # В списке — одна полноширинная кнопка создания, без старого поля и
     # без служебных плашек о необходимости настроить голосование.
     cats = cui2.get("/admin/categories").text
-    assert ">Создать категорию</a>" in cats
+    assert ">Создать подборку</a>" in cats
     assert "Название новой категории" not in cats
     assert "настрой голосование" not in cats.lower()
     assert 'class="card cat-card has-thumb"' in cats
@@ -3417,7 +3451,7 @@ with TestClient(main.app, follow_redirects=False) as cui2:
     assert "og-friends.jpg" not in cats and "og-default.jpg" not in cats
     category_new = cui2.get("/admin/categories/new").text
     assert 'action="/admin/categories/create"' in category_new
-    assert "Новая категория" in category_new and "Например, Летние планы" in category_new
+    assert "Новая подборка" in category_new and "Например, Летние планы" in category_new
     assert 'class="btn editor-back category-new-back"' in category_new
     # #10: ⋯-меню идёт ПЕРЕД стрелкой (menu-wrap раньше cat-arrow)
     assert cats.index("menu-wrap") < cats.index("cat-arrow")
@@ -3473,8 +3507,11 @@ with TestClient(main.app, follow_redirects=False) as ctour:
     assert "prefers-reduced-motion: reduce" in theme_source
     assert "getBoundingClientRect" in theme_source
     assert "animateSkin" in theme_source and "animateAppearance" in theme_source
-    assert "queuedAppearance" in theme_source
-    assert "minDuration: 1050" in theme_source and "maxDuration: 1550" in theme_source
+    assert "queuedAppearance" not in theme_source
+    assert "applyDesiredAppearance" in theme_source
+    assert "minDuration = timing.minDuration || 260" in theme_source
+    assert "maxDuration = timing.maxDuration || 420" in theme_source
+    assert "minDuration: 320" in theme_source and "maxDuration: 480" in theme_source
     assert 'SKIN_COOKIE = "d4y_skin"' in theme_source
     assert 'root.dataset.theme = theme' in theme_source
     assert 'root.dataset.skin = skin' in theme_source
@@ -3485,18 +3522,25 @@ with TestClient(main.app, follow_redirects=False) as ctour:
     assert "Фото и видео" not in tour_source
     assert "Когда и где" not in tour_source
     assert "Сохрани результат" not in tour_source
-    assert "Делись ссылкой с друзьями." in tour_source
-    assert "Нужен VPN?" in tour_source
-    assert "Тогда жми сюда и забирай бесплатный пробный период." in tour_source
+    assert "Проверь гостевую страницу, скопируй ссылку и отправь её участникам." in tour_source
+    assert "Нужен VPN?" not in tour_source
+    assert "Тогда жми сюда и забирай бесплатный пробный период." not in tour_source
     assert 'extra: "#communityFeed .cfeed-card:first-child"' in tour_source
     assert tour_source.index('sel: \'[data-tour="dashboard-feed"]\'') < \
         tour_source.index('sel: \'[data-tour="dashboard-share"]\'')
     assert 'sel: \'[data-tour="category-actions"]\'' in tour_source
+    assert tour_source.index('sel: \'[data-tour="category-dates"]\'') < \
+        tour_source.index('sel: \'[data-tour="category-voting"]\'') < \
+        tour_source.index('sel: \'[data-tour="category-actions"]\'') < \
+        tour_source.index('sel: \'[data-tour="category-skin"]\'')
     assert "document.documentElement.classList.add(\"tour-lock\")" in tour_source
-    # Автопоказ любого курса — один раз навсегда, без повторов после смены версии.
-    # Ручной запуск «Основ» переживает Turbo-переход через sessionStorage.
+    # Тур запускается только явным #tour=... или d4yStartTour; переход между
+    # страницами при ручном запуске переживает Turbo через sessionStorage.
     assert "var VERSIONS" not in tour_source
     assert "seen[id] = true" in tour_source
+    assert 'location.hash.indexOf("#tour=")' in tour_source
+    assert "window.d4yStartTour = function" in tour_source
+    assert "start(screenId(), false)" not in tour_source
     assert 'var REQUEST_KEY = "d4y_tour_request"' in tour_source
     assert "sessionStorage.setItem(REQUEST_KEY, id)" in tour_source
     assert "sessionStorage.removeItem(REQUEST_KEY)" in tour_source

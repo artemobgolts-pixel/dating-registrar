@@ -57,9 +57,11 @@
       <span class="prof-kicker">Профиль</span>
       <h1 id="profileTitle">{{ u['display_name'] or 'Без имени' }}</h1>
       <div class="meta">
-        {% if u['gender'] == 'm' %}<span class="row">Мужской</span>
-        {% elif u['gender'] == 'f' %}<span class="row">Женский</span>{% endif %}
-        {% if u['birth_date'] %}<span class="row">🎂 {{ u['birth_date'] }}</span>{% endif %}
+        {% if is_me or u['gender_public'] %}
+          {% if u['gender'] == 'm' %}<span class="row">Мужской</span>
+          {% elif u['gender'] == 'f' %}<span class="row">Женский</span>{% endif %}
+        {% endif %}
+        {% if u['birth_date'] and (is_me or u['birth_date_public']) %}<span class="row">🎂 {{ u['birth_date'] }}</span>{% endif %}
       </div>
       {% if is_me %}
         <div class="me-edit"><a class="btn ghost" href="/admin/profile">Редактировать профиль</a></div>

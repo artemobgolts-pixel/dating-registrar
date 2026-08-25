@@ -1,12 +1,12 @@
 {% extends "admin/base.html" %}
 {% from "admin/_entity_status.html" import category_link, category_voting %}
-{% block title %}Категории{% endblock %}
+{% block title %}Подборки{% endblock %}
 {% block head %}<meta name="turbo-cache-control" content="no-cache">{% endblock %}
 {% block content %}
-<h1>Категории</h1>
+<h1>Подборки</h1>
 
 <div class="category-create-only" data-tour="category-create">
-  <a class="btn primary category-create-btn" href="/admin/categories/new">Создать категорию</a>
+  <a class="btn primary category-create-btn" href="/admin/categories/new">Создать подборку</a>
 </div>
 
 <div data-tour="categories-collection">
@@ -48,13 +48,13 @@
             </form>
             <form method="post" action="/admin/categories/{{ c['id'] }}/clone">
               <input type="hidden" name="csrf" value="{{ csrf }}">
-              <button type="submit">Скопировать категорию</button>
+              <button type="submit">Скопировать подборку</button>
             </form>
             <div class="sepa"></div>
             <form method="post" action="/admin/categories/{{ c['id'] }}/delete"
-                  data-confirm="Удалить категорию? События останутся, но голоса в этой категории удалятся, а ссылка перестанет работать.">
+                  data-confirm="Удалить подборку? События останутся, но голоса в этой подборке удалятся, а ссылка перестанет работать.">
               <input type="hidden" name="csrf" value="{{ csrf }}">
-              <button type="submit" class="danger">Удалить категорию</button>
+              <button type="submit" class="danger">Удалить подборку</button>
             </form>
           </div>
         </div>
@@ -64,7 +64,7 @@
   </div>
 </div>
 {% else %}
-<p class="muted">Пока нет ни одной категории — создай первую выше.</p>
+<p class="muted">Пока нет ни одной подборки — создай первую выше.</p>
 {% endfor %}
 </div>
 {% endblock %}

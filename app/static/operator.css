@@ -34,8 +34,8 @@
   --op-surface-soft: rgba(255, 248, 248, .72);
   --op-ink: #43373a;
   --op-ink-strong: #2e2528;
-  --op-muted: #78696d;
-  --op-accent: #b65f6f;
+  --op-muted: #716166;
+  --op-accent: #a34c60;
   --op-accent-strong: #8f4a58;
   --op-accent-soft: #f6e6e5;
   --op-peach: #e2b08a;
@@ -56,8 +56,19 @@
   --op-radius-lg: 26px;
   --op-sidebar: 268px;
   --op-ease: cubic-bezier(.22, .72, .24, 1);
+  --op-ease-press: cubic-bezier(.2, .8, .2, 1);
+  --op-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --op-serif: "Cormorant Garamond", Georgia, "Times New Roman", serif;
   --op-script: "Great Vibes", "Cormorant Garamond", cursive;
+  --op-material-chrome: color-mix(in srgb, var(--op-surface-solid) 78%, transparent);
+  --op-material-sheet: color-mix(in srgb, var(--op-surface-solid) 92%, transparent);
+  --op-material-card: color-mix(in srgb, var(--op-surface-solid) 94%, var(--op-bg));
+  --op-material-control: color-mix(in srgb, var(--op-surface-solid) 88%, var(--op-accent-soft));
+  --op-material-border: color-mix(in srgb, var(--op-line-strong) 76%, var(--op-ink) 8%);
+  --op-material-blur-chrome: blur(20px) saturate(1.35);
+  --op-material-blur-sheet: blur(26px) saturate(1.25);
+  --op-type-body: clamp(.9375rem, .91rem + .1vw, 1rem);
+  --op-type-title: clamp(1.875rem, 1.55rem + 1.55vw, 2.6875rem);
 }
 
 html[data-skin="friends"] {
@@ -67,7 +78,7 @@ html[data-skin="friends"] {
   --op-surface-soft: rgba(246, 248, 244, .76);
   --op-ink: #30364a;
   --op-ink-strong: #252a3d;
-  --op-muted: #717789;
+  --op-muted: #686f82;
   --op-accent: #4b59a6;
   --op-accent-strong: #34417f;
   --op-accent-soft: #eceffb;
@@ -96,8 +107,9 @@ body {
     radial-gradient(circle at 8% 4%, rgba(231, 183, 170, .32), transparent 32rem),
     radial-gradient(circle at 92% 90%, rgba(190, 114, 135, .2), transparent 34rem),
     var(--op-bg);
-  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-        "Helvetica Neue", Arial, sans-serif;
+  font: var(--op-type-body)/1.5 var(--op-sans);
+  font-optical-sizing: auto;
+  text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -2492,4 +2504,186 @@ html[data-theme="dark"] .search-shortcut { background: rgba(255,255,255,.05); }
   .metric {
     background: var(--op-surface-solid);
   }
+}
+
+/* ========================================================================
+   APPLE MATERIAL + INTERACTION CONTRACT
+   ======================================================================== */
+.op-page-title {
+  font-size: var(--op-type-title);
+  font-optical-sizing: auto;
+  letter-spacing: -.022em;
+  line-height: 1.04;
+}
+:where(.panel__title, .op-brand__mark, .profile-hero__name, .mini-stat strong) {
+  font-optical-sizing: auto;
+  font-weight: 600;
+  letter-spacing: -.012em;
+}
+
+/* Structural chrome samples the background once. */
+.op-sidebar {
+  background: var(--op-material-chrome);
+  border-color: var(--op-material-border);
+  -webkit-backdrop-filter: var(--op-material-blur-chrome);
+  backdrop-filter: var(--op-material-blur-chrome);
+}
+.op-topbar {
+  background: var(--op-material-chrome);
+  -webkit-backdrop-filter: var(--op-material-blur-chrome);
+  backdrop-filter: var(--op-material-blur-chrome);
+}
+
+/* Work content is a stable card material, not another blurred viewport. */
+:is(.panel, .metric) {
+  background: var(--op-material-card);
+  border-color: var(--op-material-border);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+:is(.panel, .metric)
+  :is(.btn, input, select, textarea, .segmented, .switch-card,
+      .detail-grid, .detail-item, .action-row, .mini-stat) {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+:is(.btn:not(.primary):not(.danger-solid), .op-cabinet-link,
+    .op-icon-button, input, select, textarea) {
+  background-color: var(--op-material-control);
+  border-color: var(--op-material-border);
+}
+
+/* 44pt targets and immediate pointer-down feedback. */
+:is(button, .btn, .op-nav a, .op-cabinet-link, .op-icon-button,
+    .segmented a, summary, [role="button"]) {
+  min-block-size: 44px;
+  min-inline-size: 44px;
+}
+/* The legacy compact modifier has higher specificity than the generic target
+   rule above; keep its typography compact without shrinking the hit area. */
+.btn.small { min-height: 44px; min-block-size: 44px; }
+:is(input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+    select, textarea) { min-block-size: 44px; }
+:where(button, .btn, .op-nav a, .op-cabinet-link, .op-icon-button,
+       .segmented a, .metric, .quick-link, [role="button"]):not(:disabled):not([aria-disabled="true"]):active {
+  transform: scale(.97);
+  transition: transform 80ms var(--op-ease-press);
+}
+.metric:active, .quick-link:active { transform: scale(.985); }
+
+/* Gesture hooks shared with the operator drawer controller. */
+.op-nav-edge { display: none; }
+@media (max-width: 900px) {
+  .op-sidebar {
+    inset:
+      max(10px, env(safe-area-inset-top, 0px)) auto
+      max(10px, env(safe-area-inset-bottom, 0px))
+      max(10px, env(safe-area-inset-left, 0px));
+    will-change: transform;
+  }
+  .op-topbar {
+    padding-top: max(10px, calc(env(safe-area-inset-top, 0px) + 6px));
+    padding-left: max(20px, calc(env(safe-area-inset-left, 0px) + 14px));
+    padding-right: max(20px, calc(env(safe-area-inset-right, 0px) + 14px));
+  }
+  .op-content {
+    padding-left: max(20px, calc(env(safe-area-inset-left, 0px) + 14px));
+    padding-right: max(20px, calc(env(safe-area-inset-right, 0px) + 14px));
+    padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+  }
+  .op-nav-edge {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 65;
+    width: max(24px, env(safe-area-inset-left, 0px));
+    display: block;
+    border: 0;
+    background: transparent;
+    touch-action: pan-y;
+    cursor: e-resize;
+  }
+  .op-sidebar,
+  .op-nav-overlay { touch-action: pan-y; }
+  body.op-nav-open .op-nav-edge { pointer-events: none; }
+  body.op-nav-gesturing { user-select: none; }
+  body.op-nav-gesturing .op-sidebar { transition: none !important; }
+}
+
+/* Ambient branding remains, but its pace no longer reads as task motion. */
+.bg-smoke > span { animation-duration: 48s; }
+
+@keyframes op-sheet-in {
+  from { opacity: 0; transform: translateY(1rem) scale(.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes op-sheet-out {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(1rem) scale(.97); }
+}
+dialog[open] {
+  background: var(--op-material-sheet);
+  border-color: var(--op-material-border);
+  -webkit-backdrop-filter: var(--op-material-blur-sheet);
+  backdrop-filter: var(--op-material-blur-sheet);
+  animation: op-sheet-in .28s var(--op-ease) both;
+}
+dialog:is(.is-closing, [data-closing="true"]) {
+  animation: op-sheet-out .22s var(--op-ease) both;
+  pointer-events: none;
+}
+
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  :root {
+    --op-material-chrome: var(--op-surface-solid);
+    --op-material-sheet: var(--op-surface-solid);
+  }
+  :is(.op-sidebar, .op-topbar, .panel, .metric, dialog) {
+    background: var(--op-surface-solid) !important;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --op-material-chrome: var(--op-surface-solid);
+    --op-material-sheet: var(--op-surface-solid);
+    --op-material-card: var(--op-surface-solid);
+    --op-material-control: color-mix(in srgb, var(--op-surface-solid) 92%, var(--op-bg));
+  }
+  :where(.op-sidebar, .op-topbar, .op-nav-overlay, .panel, .metric, dialog) {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+  :is(.op-sidebar, .op-topbar, .panel, .metric, dialog) {
+    background: var(--op-surface-solid) !important;
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --op-muted: color-mix(in srgb, var(--op-ink) 78%, var(--op-bg));
+    --op-material-chrome: var(--op-surface-solid);
+    --op-material-sheet: var(--op-surface-solid);
+    --op-material-card: var(--op-surface-solid);
+    --op-material-control: color-mix(in srgb, var(--op-surface-solid) 90%, var(--op-ink));
+    --op-material-border: color-mix(in srgb, var(--op-ink) 54%, var(--op-line));
+  }
+  :is(.op-sidebar, .panel, .metric, .btn, input, select, textarea) {
+    border-color: var(--op-material-border);
+  }
+  :is(.op-sidebar, .op-topbar, .panel, .metric, dialog) {
+    background: var(--op-surface-solid) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+  :focus-visible { outline-width: 3px; outline-offset: 3px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  dialog[open], dialog:is(.is-closing, [data-closing="true"]),
+  .op-nav-overlay {
+    transform: none !important;
+    animation: none !important;
+    transition: opacity 160ms linear !important;
+  }
+  .op-sidebar { will-change: auto; }
 }

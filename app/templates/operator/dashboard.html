@@ -12,7 +12,7 @@
     <svg class="op-icon" aria-hidden="true"><use href="#op-i-review"></use></svg>
   </span>
   <div class="attention-card__copy">
-    <strong>На проверке — {{ stats.review_users }} пользователей и {{ stats.review_cats }} категорий</strong>
+    <strong>На проверке — {{ stats.review_users }} пользователей и {{ stats.review_cats }} подборок</strong>
     <p>Новые объекты доступны на платформе, но ждут просмотра администратора.</p>
   </div>
   <a class="btn primary" href="/operator/review">Открыть очередь</a>
@@ -30,7 +30,7 @@
       <span class="metric__label">пользователей</span>
     </span>
   </a>
-  <a class="metric success" href="/operator/users">
+  <a class="metric success" href="/operator/users?state=active">
     <span class="metric__top">
       <span class="metric__icon"><svg class="op-icon" aria-hidden="true"><use href="#op-i-check"></use></svg></span>
       <svg class="op-icon sm metric__arrow" aria-hidden="true"><use href="#op-i-arrow-up-right"></use></svg>
@@ -40,7 +40,7 @@
       <span class="metric__label">активных аккаунтов</span>
     </span>
   </a>
-  <a class="metric warning" href="/operator/users">
+  <a class="metric warning" href="/operator/users?role=operator">
     <span class="metric__top">
       <span class="metric__icon"><svg class="op-icon" aria-hidden="true"><use href="#op-i-review"></use></svg></span>
       <svg class="op-icon sm metric__arrow" aria-hidden="true"><use href="#op-i-arrow-up-right"></use></svg>
@@ -50,7 +50,7 @@
       <span class="metric__label">админов</span>
     </span>
   </a>
-  <a class="metric danger" href="/operator/users">
+  <a class="metric danger" href="/operator/users?state=blocked">
     <span class="metric__top">
       <span class="metric__icon"><svg class="op-icon" aria-hidden="true"><use href="#op-i-ban"></use></svg></span>
       <svg class="op-icon sm metric__arrow" aria-hidden="true"><use href="#op-i-arrow-up-right"></use></svg>
@@ -67,7 +67,7 @@
     </span>
     <span>
       <strong class="metric__value">{{ stats.cats }}</strong>
-      <span class="metric__label">категорий</span>
+      <span class="metric__label">подборок</span>
     </span>
   </a>
   <a class="metric info" href="/operator/dates">
@@ -167,7 +167,7 @@
       <div class="quick-list">
         <a class="quick-link" href="/operator/review">
           <span class="quick-link__icon"><svg class="op-icon" aria-hidden="true"><use href="#op-i-review"></use></svg></span>
-          <span class="quick-link__copy"><strong>Проверить очередь</strong><span>Новые пользователи и категории</span></span>
+          <span class="quick-link__copy"><strong>Проверить очередь</strong><span>Новые пользователи и подборки</span></span>
           <svg class="op-icon" aria-hidden="true"><use href="#op-i-arrow-right"></use></svg>
         </a>
         <a class="quick-link" href="/operator/reports">

@@ -3,7 +3,7 @@
 {% block page_eyebrow %}Мягкая модерация{% endblock %}
 {% block page_title %}На проверке <span class="count">{{ (users_q|length) + (cats_q|length) }}</span>{% endblock %}
 {% block page_intro %}
-<p class="op-page-intro">Просмотрите новые аккаунты и категории, отмеченные правилами модерации.</p>
+<p class="op-page-intro">Просмотрите новые аккаунты и подборки, отмеченные правилами модерации.</p>
 {% endblock %}
 {% block page_actions %}
 <a class="btn" href="/operator/settings">
@@ -19,7 +19,7 @@
   </span>
   <div class="info-card__copy">
     <strong>Проверка не ограничивает доступ</strong>
-    <p>Это мягкая очередь: пользователи и категории продолжают работать, пока администратор их просматривает.</p>
+    <p>Это мягкая очередь: пользователи и подборки продолжают работать, пока администратор их просматривает.</p>
   </div>
 </div>
 
@@ -33,7 +33,7 @@
   <div class="table-scroll">
     <table class="data-table responsive-table">
       <thead>
-        <tr><th>Пользователь</th><th>Категории</th><th>События</th><th>Регистрация</th><th></th></tr>
+        <tr><th>Пользователь</th><th>Подборки</th><th>События</th><th>Регистрация</th><th></th></tr>
       </thead>
       <tbody>
         {% for u in users_q %}
@@ -47,7 +47,7 @@
               </span>
             </div>
           </td>
-          <td data-label="Категории" class="number-cell">{{ u['n_cats'] }}</td>
+          <td data-label="Подборки" class="number-cell">{{ u['n_cats'] }}</td>
           <td data-label="События" class="number-cell">{{ u['n_dates'] }}</td>
           <td data-label="Регистрация" class="muted">{{ u['created_at'][:10] }}</td>
           <td data-label="Действие" class="action-cell">
@@ -81,19 +81,19 @@
 <section class="panel">
   <div class="panel__head">
     <div class="panel__title-wrap">
-      <h2 class="panel__title">Категории <span class="badge warning no-dot">{{ cats_q|length }}</span></h2>
+      <h2 class="panel__title">Подборки <span class="badge warning no-dot">{{ cats_q|length }}</span></h2>
       <span class="panel__hint">Новые подборки, ожидающие просмотра</span>
     </div>
   </div>
   <div class="table-scroll">
     <table class="data-table responsive-table">
       <thead>
-        <tr><th>Категория</th><th>Владелец</th><th>События</th><th>Ссылка</th><th>Создана</th><th></th></tr>
+        <tr><th>Подборка</th><th>Владелец</th><th>События</th><th>Ссылка</th><th>Создана</th><th></th></tr>
       </thead>
       <tbody>
         {% for c in cats_q %}
         <tr>
-          <td data-label="Категория">
+          <td data-label="Подборка">
             <span class="cell-primary">{{ c['name'] }}</span>
             <span class="cell-secondary">ID {{ c['id'] }}</span>
           </td>
@@ -124,7 +124,7 @@
             <div class="empty-state compact">
               <div>
                 <span class="empty-state__icon"><svg class="op-icon" aria-hidden="true"><use href="#op-i-check"></use></svg></span>
-                <strong class="empty-state__title">Все категории проверены</strong>
+                <strong class="empty-state__title">Все подборки проверены</strong>
                 <p>Новых подборок в очереди нет.</p>
               </div>
             </div>

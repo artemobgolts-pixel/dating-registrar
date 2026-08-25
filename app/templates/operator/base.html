@@ -153,7 +153,7 @@
         <a href="/operator/categories" class="{{ 'on' if active=='cats' else '' }}"
            {% if active=='cats' %}aria-current="page"{% endif %}>
           <span class="op-nav__icon"><svg class="op-icon" aria-hidden="true"><use href="#op-i-categories"></use></svg></span>
-          <span class="op-nav__text">Категории</span>
+          <span class="op-nav__text">Подборки</span>
         </a>
         <a href="/operator/dates" class="{{ 'on' if active=='dates' else '' }}"
            {% if active=='dates' %}aria-current="page"{% endif %}>
@@ -213,7 +213,9 @@
   <button type="button" class="op-nav-overlay" data-op-nav-close
           aria-label="Закрыть меню"></button>
 
-  <div class="op-main">
+  <div class="op-nav-edge" data-op-nav-edge aria-hidden="true"></div>
+
+  <div class="op-main" data-op-main>
     <header class="op-topbar">
       <div class="op-topbar__left">
         <button type="button" class="op-menu-button" data-op-nav-toggle

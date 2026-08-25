@@ -4,11 +4,42 @@
 {% block content %}
 <h1 class="serif">Главная</h1>
 
+{% set has_event = stats.active or stats.archived %}
+{% set setup_done = has_event and stats.cats and share %}
+{% if not setup_done %}
+<section class="setup-checklist" aria-labelledby="setupChecklistTitle">
+  <div class="setup-checklist-head">
+    <div>
+      <span class="setup-eyebrow">Быстрый старт</span>
+      <h2 id="setupChecklistTitle">Подготовь первую подборку</h2>
+    </div>
+    <button type="button" class="btn small ghost" data-tour-start="dashboard">Показать подсказки</button>
+  </div>
+  <ol class="setup-steps">
+    <li class="{{ 'done' if has_event else 'current' }}">
+      <span class="setup-step-icon">{% if has_event %}{% with icon='check' %}{% include "admin/_icon.html" %}{% endwith %}{% else %}{% with icon='calendar' %}{% include "admin/_icon.html" %}{% endwith %}{% endif %}</span>
+      <span><strong>Создай событие</strong><small>Добавь идею, время и место.</small></span>
+      {% if not has_event %}<a href="/admin/dates/new">Начать</a>{% endif %}
+    </li>
+    <li class="{{ 'done' if stats.cats else ('current' if has_event else '') }}">
+      <span class="setup-step-icon">{% if stats.cats %}{% with icon='check' %}{% include "admin/_icon.html" %}{% endwith %}{% else %}{% with icon='categories' %}{% include "admin/_icon.html" %}{% endwith %}{% endif %}</span>
+      <span><strong>Собери подборку</strong><small>Добавь варианты и правила выбора.</small></span>
+      {% if has_event and not stats.cats %}<a href="/admin/categories/new">Продолжить</a>{% endif %}
+    </li>
+    <li class="{{ 'done' if share else ('current' if stats.cats else '') }}">
+      <span class="setup-step-icon">{% if share %}{% with icon='check' %}{% include "admin/_icon.html" %}{% endwith %}{% else %}{% with icon='link' %}{% include "admin/_icon.html" %}{% endwith %}{% endif %}</span>
+      <span><strong>Проверь и поделись</strong><small>Открой гостевую страницу перед отправкой.</small></span>
+      {% if stats.cats and not share %}<a href="/admin/categories">Открыть подборки</a>{% endif %}
+    </li>
+  </ol>
+</section>
+{% endif %}
+
 <div class="quick" data-tour="dashboard-create">
   <a class="btn primary" href="/admin/dates/new">Создать событие</a>
   {% if share %}
-  <button type="button" class="btn ghost" data-copy="{{ share_url }}" data-tour="dashboard-share">🔗 <span class="lbl-full">Скопировать ссылку</span><span class="lbl-short">Ссылка</span></button>
-  <a class="btn ghost" href="/c/{{ share['link_token'] }}" target="_blank" rel="noopener">👀 Открыть</a>
+  <button type="button" class="btn ghost" data-copy="{{ share_url }}" data-tour="dashboard-share">{% with icon='link' %}{% include "admin/_icon.html" %}{% endwith %} <span class="lbl-full">Скопировать ссылку</span><span class="lbl-short">Ссылка</span></button>
+  <a class="btn ghost" href="/c/{{ share['link_token'] }}" target="_blank" rel="noopener">{% with icon='gather' %}{% include "admin/_icon.html" %}{% endwith %} Проверить страницу</a>
   {% endif %}
 </div>
 
@@ -16,11 +47,11 @@
 <div class="card">
   <div class="share-grid">
     <div>
-      <b>🔗 Поделиться</b>
+      <b>{% with icon='link' %}{% include "admin/_icon.html" %}{% endwith %} Поделиться</b>
       <p class="muted" style="margin:6px 0 14px;font-size:13.5px">Отправь эту ссылку — по ней человек откроет твою подборку событий.</p>
       {% if share_cats | length > 1 %}
       <form method="get" action="/admin/" class="share-pick">
-        <label>Категория</label>
+        <label>Подборка</label>
         <select name="share" data-autosubmit>
           {% for c in share_cats %}<option value="{{ c['id'] }}" {{ 'selected' if c['id'] == share['id'] }}>{{ c['name'] }}</option>{% endfor %}
         </select>
@@ -44,7 +75,7 @@
           <div class="og-host">date4you.online</div>
         </div>
       </div>
-      <p class="muted" style="margin:10px 0 0;font-size:12.5px">Текст превью и саму ссылку можно изменить на странице <a href="/admin/categories/{{ share['id'] }}">категории</a>.</p>
+      <p class="muted" style="margin:10px 0 0;font-size:12.5px">Текст превью и саму ссылку можно изменить на странице <a href="/admin/categories/{{ share['id'] }}">подборки</a>.</p>
     </div>
     <div class="share-qr-col">
       <button type="button" class="btn ghost qr-toggle" id="qrToggle">Показать QR-код</button>
@@ -68,9 +99,9 @@
 {% else %}
 <div class="card">
   <div class="empty-state" style="padding:30px 20px">
-    <div class="big">🔗</div>
-    <p>Чтобы поделиться подборкой, создай категорию с секретной ссылкой.</p>
-    <a class="btn primary" href="/admin/categories">К категориям</a>
+    <div class="big">{% with icon='link' %}{% include "admin/_icon.html" %}{% endwith %}</div>
+    <p>Чтобы поделиться событиями, создай подборку с секретной ссылкой.</p>
+    <a class="btn primary" href="/admin/categories">К подборкам</a>
   </div>
 </div>
 {% endif %}

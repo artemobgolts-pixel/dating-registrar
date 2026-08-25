@@ -13,7 +13,7 @@
   </span>
   <div class="info-card__copy">
     <strong>Мягкая модерация не блокирует публикацию</strong>
-    <p>Новые пользователи и категории работают сразу, а очередь помогает посмотреть их постфактум.</p>
+    <p>Новые пользователи и подборки работают сразу, а очередь помогает посмотреть их постфактум.</p>
   </div>
 </div>
 
@@ -41,7 +41,7 @@
 
       <label class="switch-card">
         <span class="switch-card__copy">
-          <strong>Новые категории</strong>
+          <strong>Новые подборки</strong>
           <span>Каждая новая подборка появится в очереди администратора.</span>
         </span>
         <span class="switch">
@@ -65,26 +65,28 @@
   <div class="panel__head">
     <div class="panel__title-wrap">
       <h2 class="panel__title">Данные платформы</h2>
-      <span class="panel__hint">Экспорт, резервный архив и перенос данных аккаунта</span>
+      <span class="panel__hint">Экспорт данных и резервная копия всей платформы</span>
     </div>
   </div>
   <div class="panel__body">
     <p class="muted platform-data-copy">
-      CSV подходит для таблиц, JSON — для переноса категорий и событий, а полный
-      архив содержит снимок базы, медиафайлы и export.json.
+      CSV подходит для таблиц, JSON — для переноса подборок и событий. Резервная
+      копия платформы содержит консистентный снимок app.db и все исходные медиа
+      из uploads для всех аккаунтов. В неё не входят export.json, адаптивные
+      версии изображений и OG-кэши.
     </p>
     <div class="platform-export-actions">
       <a class="btn" href="/admin/export/csv">Скачать CSV</a>
       <a class="btn" href="/admin/export/json">Скачать JSON</a>
-      <a class="btn" href="/admin/export/archive">
+      <a class="btn" href="/admin/export/platform-backup">
         <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-archive"></use></svg>
-        Полный архив
+        Резервная копия платформы
       </a>
     </div>
 
     <form class="platform-import-form" method="post"
           action="/admin/import/json?return_to=operator" enctype="multipart/form-data"
-          data-confirm="Импортировать данные из файла? Категории и события добавятся к твоему аккаунту.">
+          data-confirm="Импортировать данные из файла? Подборки и события добавятся к твоему аккаунту.">
       <input type="hidden" name="csrf" value="{{ csrf }}">
       <label class="platform-file-field">
         <span>Файл export.json</span>

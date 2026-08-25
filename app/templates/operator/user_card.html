@@ -27,7 +27,7 @@
     </div>
   </div>
   <div class="profile-hero__stats" aria-label="Статистика пользователя">
-    <span class="mini-stat"><strong>{{ cats|length }}</strong><span>категорий</span></span>
+    <span class="mini-stat"><strong>{{ cats|length }}</strong><span>подборок</span></span>
     <span class="mini-stat"><strong>{{ dates|length }}</strong><span>событий</span></span>
   </div>
 </section>
@@ -74,7 +74,7 @@
   <section class="panel">
     <div class="panel__head">
       <div class="panel__title-wrap">
-        <h2 class="panel__title">Категории <span class="badge no-dot">{{ cats|length }}</span></h2>
+        <h2 class="panel__title">Подборки <span class="badge no-dot">{{ cats|length }}</span></h2>
         <span class="panel__hint">Подборки этого пользователя</span>
       </div>
     </div>
@@ -84,14 +84,14 @@
         <tbody>
           {% for c in cats %}
           <tr>
-            <td data-label="Категория"><span class="cell-primary">{{ c['name'] }}</span></td>
+            <td data-label="Подборка"><span class="cell-primary">{{ c['name'] }}</span></td>
             <td data-label="События" class="number-cell">{{ c['n'] }}</td>
             <td data-label="Ссылка">
               {% if c['link_enabled'] and c['link_token'] %}<span class="badge success">включена</span>
               {% else %}<span class="badge neutral">выключена</span>{% endif %}
             </td>
             <td data-label="Действие" class="action-cell">
-              <a class="btn small" href="/admin/categories/{{ c['id'] }}">
+              <a class="btn small" href="/admin/categories/{{ c['id'] }}?return_to={{ ('/operator/users/' ~ target['id']) | urlencode }}">
                 <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-edit"></use></svg>
                 Изменить
               </a>
@@ -103,7 +103,7 @@
               <div class="empty-state compact">
                 <div>
                   <span class="empty-state__icon"><svg class="op-icon" aria-hidden="true"><use href="#op-i-categories"></use></svg></span>
-                  <strong class="empty-state__title">Категорий нет</strong>
+                  <strong class="empty-state__title">Подборок нет</strong>
                 </div>
               </div>
             </td>
@@ -173,9 +173,9 @@
 
       <div class="danger-zone">
         <strong class="danger-zone__title">Опасная зона</strong>
-        <p class="danger-zone__copy">Удаление сотрёт аккаунт, категории, события и медиа без возможности восстановления.</p>
+        <p class="danger-zone__copy">Удаление сотрёт аккаунт, подборки, события и медиа без возможности восстановления.</p>
         <form method="post" action="/operator/users/{{ u['id'] }}/delete"
-              data-confirm="УДАЛИТЬ пользователя и ВСЕ его данные (категории, события, фото)? Необратимо.">
+              data-confirm="УДАЛИТЬ пользователя и ВСЕ его данные (подборки, события, фото)? Необратимо.">
           <input type="hidden" name="csrf" value="{{ csrf }}">
           <button class="btn danger-solid" type="submit"
                   {% if u['id'] == user['id'] %}disabled title="Нельзя удалить свой аккаунт здесь"{% endif %}>
@@ -207,7 +207,7 @@
             </td>
             <td data-label="Источник" class="muted">{{ 'Гость' if d['origin']=='guest' else 'Владелец' }}</td>
             <td data-label="Действие" class="action-cell">
-              <a class="btn small" href="/admin/dates/{{ d['id'] }}/edit">
+              <a class="btn small" href="/admin/dates/{{ d['id'] }}/edit?return_to={{ ('/operator/users/' ~ target['id']) | urlencode }}">
                 <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-edit"></use></svg>
                 Изменить
               </a>

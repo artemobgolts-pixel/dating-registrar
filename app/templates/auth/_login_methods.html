@@ -12,10 +12,17 @@
   <div class="oauth-sep"><span>{{ 'или через соцсети' if bot else 'Войти через соцсеть' }}</span></div>
   <div class="oauth-row">
     {% for p in oauth %}
+    {% if p['enabled'] %}
     <a class="oauth-btn oauth-{{ p['slug'] }}" href="/auth/{{ p['slug'] }}{% if next_url %}?next={{ next_url | urlencode }}{% endif %}"
        aria-label="Войти через {{ p['label'] }}" title="Войти через {{ p['label'] }}">
       {% include "auth/_oauth_icon.html" %}
     </a>
+    {% else %}
+    <span class="oauth-btn oauth-{{ p['slug'] }} disabled" role="img" aria-disabled="true"
+          aria-label="{{ p['label'] }}: вход пока недоступен" title="{{ p['label'] }} — скоро">
+      {% include "auth/_oauth_icon.html" %}
+    </span>
+    {% endif %}
     {% endfor %}
   </div>
   {% endif %}

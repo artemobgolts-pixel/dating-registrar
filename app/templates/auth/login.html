@@ -34,11 +34,11 @@
 <div class="login-page">
   <div class="login-center">
   <div class="login-card">
-    <h1 class="login-mark" aria-hidden="true">
+    <div class="login-mark" aria-hidden="true">
       <img class="login-mark-romantic" src="{{ asset('logo-romantic.png') }}" alt="">
       <img class="login-mark-standard" src="{{ asset('logo-standard.png') }}" alt="">
-    </h1>
-    <div class="login-brand">date<span class="d4">4</span>you</div>
+    </div>
+    <h1 class="login-brand">date<span class="d4">4</span>you<span class="sr-only"> — вход</span></h1>
     <p class="login-lead">Войди, чтобы создавать события и организовывать встречи.</p>
     {% if bot and VPN_URL %}
       <p class="login-vpn-note">Чтобы войти через Telegram, включите
@@ -49,10 +49,13 @@
     {% else %}
       {% include "auth/_login_methods.html" %}
     {% endif %}
+    {% if next_url %}
+      <a class="oauth-btn login-return" href="{{ next_url }}">Вернуться без входа</a>
+    {% endif %}
   </div>
   </div>
   <footer class="login-foot">
-    <a href="/about">О проекте</a> · <a href="/terms">Соглашение</a> · <a href="/privacy">Конфиденциальность</a>
+    <a href="/about?return_to=%2Flogin">О проекте</a> · <a href="/terms?return_to=%2Flogin">Соглашение</a> · <a href="/privacy?return_to=%2Flogin">Конфиденциальность</a>
   </footer>
 </div>
 <script src="{{ asset('ink.js') }}" defer></script>

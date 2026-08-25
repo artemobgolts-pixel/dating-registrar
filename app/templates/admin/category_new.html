@@ -1,9 +1,9 @@
 {% extends "admin/base.html" %}
-{% block title %}Новая категория{% endblock %}
+{% block title %}Новая подборка{% endblock %}
 {% block content %}
 <a class="btn editor-back category-new-back" href="/admin/categories">← Назад</a>
 <div class="bar">
-  <h1 class="serif" style="margin:0">Новая категория</h1>
+  <h1 class="serif" style="margin:0">Новая подборка</h1>
 </div>
 
 <div class="card category-new-card">
@@ -33,10 +33,10 @@
         <button type="button" class="deadline-preset" data-deadline-hours="168" aria-pressed="false">Через неделю</button>
       </div>
       <small class="deadline-readable" data-deadline-readable aria-live="polite"></small>
-      <small class="muted">Его всегда можно изменить в редакторе категории.</small>
+      <small class="muted">Его всегда можно изменить в редакторе подборки.</small>
     </div>
     <div class="category-new-actions">
-      <button class="btn primary" type="submit">Создать категорию</button>
+      <button class="btn primary" type="submit">Создать подборку</button>
       <a class="btn ghost" href="/admin/categories">Отмена</a>
     </div>
   </form>

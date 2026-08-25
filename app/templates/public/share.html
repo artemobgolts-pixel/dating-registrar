@@ -92,7 +92,26 @@
   <button type="button" class="promo-btn theme-toggle icon-only" data-theme-toggle aria-label="Включить тёмную тему">
     <span class="promo-ic theme-moon-icon" data-theme-icon aria-hidden="true"></span>
   </button>
-  {% if not me %}<button type="button" class="login-corner" id="loginOpen">Войти</button>{% endif %}
+  {% if not me %}<button type="button" class="login-corner" id="loginOpen">Войти</button>
+  {% else %}
+  {% if is_mine %}<a class="login-corner owner-edit-link" href="/admin/dates/{{ d.id }}/edit?return_to={{ request.url.path | urlencode }}"
+     aria-label="Редактировать событие «{{ d.name }}»">Редактировать</a>{% endif %}
+  <details class="public-account-menu">
+    <summary aria-label="Меню аккаунта — {{ me['display_name'] or me['tg_username'] or 'Аккаунт' }}">
+      {% if me['avatar_path'] %}<img src="/u/{{ me['id'] }}/avatar?w=64" alt="" width="32" height="32">
+      {% else %}<span aria-hidden="true">{{ icon('user') }}</span>{% endif %}
+    </summary>
+    <div class="public-account-popover">
+      <strong>{{ me['display_name'] or me['tg_username'] or 'Аккаунт' }}</strong>
+      <a href="/admin/">Кабинет</a>
+      <a href="/admin/profile">Профиль</a>
+      <form method="post" action="/admin/logout">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button type="submit">Выйти</button>
+      </form>
+    </div>
+  </details>
+  {% endif %}
 </div>
 
 <div class="wrap">
@@ -103,29 +122,20 @@
     <p class="share-from">поделился:
       {% if owner %}<a href="/u/{{ owner['id'] }}?skin={{ active_skin }}">{{ owner_name }}</a>{% else %}{{ owner_name }}{% endif %}
     </p>
+    {% if active_category %}
+    <a class="collection-context" href="/c/{{ active_category.link_token }}">
+      <span>Подборка «{{ active_category.name }}»</span>
+      <strong>Посмотреть все {{ active_category_event_count }} {{ active_category_event_count | plural('вариант', 'варианта', 'вариантов') }} →</strong>
+    </a>
+    {% endif %}
   </header>
-
-  {% if bot and (not me or not me['bot_linked']) %}
-  <section class="notify-cta tg-connect" data-return-to="/d/{{ token }}"
-           aria-label="Уведомления в Telegram">
-    <div class="notify-cta-icon" aria-hidden="true">{{ icon('bell') }}</div>
-    <div class="notify-cta-copy">
-      <b>Подключите уведомления в Telegram</b>
-      <span>Пришлём результат голосования, важные изменения и напоминания.</span>
-      <span data-tg-hint hidden>Нажмите <b>Start</b>, затем <b>Подтвердить</b> в боте и вернитесь сюда.</span>
-      <span data-tg-error class="err" hidden></span>
-    </div>
-    <button type="button" class="btn book" data-tg-connect>Подключить</button>
-    <a data-tg-link href="#" target="_blank" rel="noopener" hidden></a>
-  </section>
-  {% endif %}
 
   {% if vote_state and vote_state.status != 'unconfigured' %}
   <section class="vote-summary vote-{{ vote_state.status }}">
-    {% if vote_state.status == 'open' %}<div class="vote-countdown" role="timer"><span class="vote-countdown-label" data-countdown-label>До конца голосования</span><b data-vote-countdown data-deadline="{{ vote_state.voting_deadline }}+03:00">считаем…</b></div>
+    {% if vote_state.status == 'open' %}<div class="vote-countdown" role="timer"><span class="vote-countdown-label" data-countdown-label>До конца голосования</span><b data-vote-countdown data-deadline="{{ vote_state.voting_deadline }}+03:00">считаем…</b></div><span class="vote-rule">{% if vote_state.choice_mode == 'multiple' %}Можно выбрать несколько вариантов; каждый выбор можно снять до дедлайна.{% else %}Можно выбрать один вариант; новый выбор заменит предыдущий.{% endif %}</span>
     {% elif vote_state.status == 'tie' %}<b>Ничья</b><span>Организатор вручную выбирает победителя среди лидеров.</span>
     {% elif vote_state.status == 'no_winner' %}<b>Никто не выбрал</b><span>Голосование завершено без победителя.</span>
-    {% else %}<b>Голосование завершено</b><span>{% if d.is_winner %}{{ 'Это общий выбор участников.' if active_skin == 'friends' else 'Это победившее событие ♥' }}{% else %}Победил другой вариант категории.{% endif %}</span>{% endif %}
+    {% else %}<b>Голосование завершено</b><span>{% if d.is_winner %}{{ 'Это общий выбор участников.' if active_skin == 'friends' else 'Это победившее событие ♥' }}{% else %}Победил другой вариант подборки.{% endif %}</span>{% endif %}
   </section>
   {% endif %}
 
@@ -145,6 +155,9 @@
                        /d/{{ token }}/image/{{ im['filename'] }}?w=1600 1600w"
                sizes="(max-width: 899px) calc(100vw - 32px), 680px"
                data-full="/d/{{ token }}/image/{{ im['filename'] }}" alt=""
+               role="button" tabindex="0" draggable="false"
+               aria-label="Открыть фото {{ loop.index }} из {{ d.images | length }}: {{ d.name }}"
+               aria-haspopup="dialog" aria-controls="lightbox"
                loading="{{ 'eager' if loop.first else 'lazy' }}"
                fetchpriority="{{ 'high' if loop.first else 'low' }}" decoding="async"
                {% if im['focus'] %}style="object-position:{{ im['focus'] }}"{% endif %}>
@@ -163,7 +176,7 @@
         {% endif %}
         <div class="title-row">
           <h2 class="title">{{ d.name }}</h2>
-          {% if me and not is_mine %}
+          {% if not is_mine %}
           <button type="button" class="report-link" data-id="{{ d.id }}" data-name="{{ d.name }}">пожаловаться</button>
           {% endif %}
         </div>
@@ -197,22 +210,23 @@
         {% endif %}
 
         {% if vote_state %}
-        {% set show_roster = vote_state.status in ('unconfigured', 'open')
-                             or (vote_state.status == 'resolved' and d.is_winner) %}
+        {% set show_roster = show_participants and
+                             (vote_state.status in ('unconfigured', 'open')
+                              or (vote_state.status == 'resolved' and d.is_winner)) %}
         {% set hide_empty_single_counter = d.capacity == 1 and d.vote_count == 0 %}
         <div class="vote-progress{% if d.is_full %} full{% endif %}">
           <div class="vote-progress-head"{% if hide_empty_single_counter %} hidden{% endif %}><b>{{ d.vote_count }}/{{ d.capacity }}</b><span>{{ 'участников' if show_roster else 'голосов' }}</span></div>
           <div class="vote-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="{{ d.capacity }}" aria-valuenow="{{ d.vote_count }}"{% if hide_empty_single_counter %} hidden{% endif %}>
             <i style="--vote-width:{{ [100, (d.vote_count * 100 / d.capacity)] | min }}%"></i>
           </div>
-          {% if show_roster and d.participants %}<div class="participants">
+          {% if show_roster and d.participants %}<div class="participants" aria-label="Участники">
             {% for person in d.participants %}<span class="participant{% if person['participation_withdrawn_at'] %} withdrawn{% endif %}">
               {% if person['avatar_path'] and person['user_id'] %}<img src="/d/{{ token }}/participant-avatar/{{ person['user_id'] }}?w=64"
                    srcset="/d/{{ token }}/participant-avatar/{{ person['user_id'] }}?w=64 64w,
                            /d/{{ token }}/participant-avatar/{{ person['user_id'] }}?w=96 96w,
                            /d/{{ token }}/participant-avatar/{{ person['user_id'] }}?w=128 128w"
                    sizes="26px" alt="" width="26" height="26" loading="lazy" decoding="async">
-              {% else %}<span class="participant-ph">{{ person['name'][:1] | upper }}</span>{% endif %}
+              {% else %}<span class="participant-ph" aria-hidden="true">{{ person['name'][:1] | upper }}</span>{% endif %}
               <span>{{ person['name'] }}{% if person['is_me'] %} · ты{% endif %}</span>
             </span>{% endfor %}
             {% if d.participant_hidden_count %}<span class="participants-more">ещё {{ d.participant_hidden_count }}</span>{% endif %}
@@ -255,17 +269,33 @@
     {% elif me %}
     {% if want_action_available %}
     <div class="share-choice-block" id="plans">
-      <p>Отметка появится в отдельной вкладке профиля и не создаст копию события.</p>
-      <form method="post" action="/d/{{ token }}/want">
+      <p>Добавь событие в планы. По умолчанию отметку видишь только ты; публичность можно выбрать явно.</p>
+      <form method="post" action="/d/{{ token }}/want" class="want-form">
         <input type="hidden" name="csrf" value="{{ csrf }}">
+        <fieldset class="want-visibility">
+          <legend>Кто увидит отметку</legend>
+          <label><input type="radio" name="visibility" value="private"
+                        {% if want_visibility != 'public' or not can_publish_want %}checked{% endif %}>
+            <span><b>Только я</b><small>Приватно в твоём профиле</small></span></label>
+          <label{% if not can_publish_want %} class="disabled"{% endif %}><input type="radio" name="visibility" value="public"
+                        {% if want_visibility == 'public' and can_publish_want %}checked{% endif %}
+                        {% if not can_publish_want %}disabled{% endif %}>
+            <span><b>В публичном профиле</b><small>{% if can_publish_want %}Другие увидят название события{% else %}Недоступно для приватного события{% endif %}</small></span></label>
+        </fieldset>
         <button type="submit" class="btn {{ 'ghost want-on' if wanted_by_me else 'book' }}">
-          {{ icon('heart') }} {{ 'Убрать из «Хочу сходить»' if wanted_by_me else 'Хочу сходить' }}
+          {{ icon('heart') }} {{ 'Сохранить видимость' if wanted_by_me else 'Хочу сходить' }}
         </button>
       </form>
+      {% if wanted_by_me %}
+      <form method="post" action="/d/{{ token }}/want" class="want-remove-form">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button type="submit" class="btn ghost">Убрать из «Хочу сходить»</button>
+      </form>
+      {% endif %}
     </div>
     <div class="share-choice-sep" aria-hidden="true"></div>
     {% endif %}
-    <p>Нравится? Сохрани это событие к себе — потом добавишь в свои категории.</p>
+    <p>Нравится? Сохрани это событие к себе — потом добавишь в свои подборки.</p>
     <form method="post" action="/d/{{ token }}/add">
       <input type="hidden" name="csrf" value="{{ csrf }}">
       <button type="submit" class="btn book">{{ icon('plus') }} Сохранить к себе</button>
@@ -275,6 +305,23 @@
     <button type="button" class="btn book" data-login-open>Войти</button>
     {% endif %}
   </div>
+
+  {% set voting_finished = vote_state and vote_state.status in ('tie', 'resolved', 'no_winner') %}
+  {% if bot and not is_mine and (not me or not me['bot_linked']) %}
+  <section class="notify-cta tg-connect" data-return-to="/d/{{ token }}"
+           aria-label="Уведомления в Telegram"
+           {% if not (wanted_by_me or d.booked_by_me or voting_finished) %}hidden data-deferred-notify{% endif %}>
+    <div class="notify-cta-icon" aria-hidden="true">{{ icon('bell') }}</div>
+    <div class="notify-cta-copy">
+      <b>Не пропусти продолжение</b>
+      <span>Telegram сообщит о результате, важных изменениях и напомнит о событии.</span>
+      <span data-tg-hint hidden>Нажми <b>Start</b>, затем <b>Подтвердить</b> в боте и вернись сюда.</span>
+      <span data-tg-error class="err" hidden></span>
+    </div>
+    <button type="button" class="btn book" data-tg-connect>Подключить</button>
+    <a data-tg-link href="#" target="_blank" rel="noopener" hidden></a>
+  </section>
+  {% endif %}
 
   {% if me and not is_mine and (has_want or can_review or my_review) %}
   <section class="review-cta" id="review" aria-labelledby="review-title">
@@ -322,18 +369,19 @@
     сделано с любовью
     {% endif %}
     <div class="foot-legal">
-      <a href="/about">О проекте</a> · <a href="/terms">Соглашение</a> · <a href="/privacy">Конфиденциальность</a>
+      <a href="/about?return_to={{ request.url.path | urlencode }}">О проекте</a> · <a href="/terms?return_to={{ request.url.path | urlencode }}">Соглашение</a> · <a href="/privacy?return_to={{ request.url.path | urlencode }}">Конфиденциальность</a>
     </div>
   </footer>
 </div>
 
 <!-- Вход прямо со страницы события (модалка с Telegram Login Widget) -->
-<dialog id="loginDlg" class="login-dlg">
+<dialog id="loginDlg" class="login-dlg"
+        aria-labelledby="loginDlgTitle" aria-describedby="loginDlgDescription">
   <button type="button" class="dlg-x" id="loginClose" aria-label="Закрыть">✕</button>
   <div class="login-dlg-head">
     <div class="ld-heart" aria-hidden="true">{% if active_skin == 'friends' %}{{ icon('gather') }}{% else %}♥{% endif %}</div>
-    <h3 class="dlg-head">Войти, чтобы выбрать событие</h3>
-    <p class="dlg-sub">Вход через Telegram — быстро и без пароля{% if active_skin == 'romantic' %}&nbsp;♥{% endif %}</p>
+    <h2 class="dlg-head" id="loginDlgTitle">Войти, чтобы выбрать или сохранить событие</h2>
+    <p class="dlg-sub" id="loginDlgDescription">Вход через Telegram — быстро и без пароля{% if active_skin == 'romantic' %}&nbsp;♥{% endif %}</p>
   </div>
   {% set next_url = "/d/" ~ token %}
   {% if bot or oauth %}
@@ -344,12 +392,13 @@
 </dialog>
 
 <!-- Вопрос -->
-<dialog id="askDlg">
-  <h3 class="dlg-head">Спросить про «<span id="askTitle"></span>»</h3>
-  <p class="dlg-sub">Увидит только организатор — ответ появится прямо здесь{% if active_skin == 'romantic' %}&nbsp;♥{% endif %}</p>
+<dialog id="askDlg" aria-labelledby="askDlgTitle" aria-describedby="askDlgDescription">
+  <h2 class="dlg-head" id="askDlgTitle">Спросить про «<span id="askTitle"></span>»</h2>
+  <p class="dlg-sub" id="askDlgDescription">Увидит только организатор — ответ появится прямо здесь{% if active_skin == 'romantic' %}&nbsp;♥{% endif %}</p>
   <form id="askForm">
     <input type="hidden" name="date_id" id="askDateId">
     <div class="field">
+      <label class="sr-only" for="askText">Ваш вопрос организатору</label>
       <textarea name="text" id="askText" maxlength="2000" required
                 placeholder="Например: а можно прийти с пледом?"></textarea>
     </div>
@@ -361,13 +410,14 @@
 </dialog>
 
 <!-- Пожаловаться на контент -->
-<dialog id="reportDlg">
-  <h3 class="dlg-head">Пожаловаться на «<span id="reportTitle"></span>»</h3>
-  <p class="dlg-sub">Сообщите, если контент нарушает правила — модератор проверит.</p>
+<dialog id="reportDlg" aria-labelledby="reportDlgTitle" aria-describedby="reportDlgDescription">
+  <h2 class="dlg-head" id="reportDlgTitle">Пожаловаться на «<span id="reportTitle"></span>»</h2>
+  <p class="dlg-sub" id="reportDlgDescription">Вход не требуется. Жалобу увидит только модератор, который проверит контент.</p>
   <form id="reportForm">
     <input type="hidden" name="target_type" id="reportType">
     <input type="hidden" name="target_id" id="reportTargetId">
     <div class="field">
+      <label class="sr-only" for="reportReason">Причина жалобы</label>
       <textarea name="reason" id="reportReason" maxlength="1000"
                 placeholder="Что не так? (необязательно)"></textarea>
     </div>
@@ -379,9 +429,9 @@
 </dialog>
 
 <!-- Предложить время для события без даты -->
-<dialog id="timeDlg">
-  <h3 class="dlg-head">Когда удобно?</h3>
-  <p class="dlg-sub">Предложишь время для «<span id="timeTitle"></span>» — организатор увидит{% if active_skin == 'romantic' %}&nbsp;♥{% endif %}</p>
+<dialog id="timeDlg" aria-labelledby="timeDlgTitle" aria-describedby="timeDlgDescription">
+  <h2 class="dlg-head" id="timeDlgTitle">Когда удобно?</h2>
+  <p class="dlg-sub" id="timeDlgDescription">Предложишь время для «<span id="timeTitle"></span>» — организатор увидит{% if active_skin == 'romantic' %}&nbsp;♥{% endif %}</p>
   <form id="timeForm">
     <input type="hidden" name="date_id" id="timeDateId">
     <div class="field">
@@ -406,6 +456,7 @@
           <button type="button" class="chip" data-dur="2">+2 часа</button>
           <button type="button" class="chip" data-dur="3">+3 часа</button>
         </div>
+        <label class="sr-only" for="timeEnd">Время окончания</label>
         <input type="datetime-local" name="ends_at" id="timeEnd">
       </div>
     </details>
@@ -417,8 +468,8 @@
 </dialog>
 
 <!-- В календарь -->
-<dialog id="calDlg">
-  <h3 class="dlg-head">Добавить в календарь</h3>
+<dialog id="calDlg" aria-labelledby="calDlgTitle">
+  <h2 class="dlg-head" id="calDlgTitle">Добавить в календарь</h2>
   <div class="cal-btns">
     <a id="calGoogle" href="#" target="_blank" rel="noopener">
       <span class="ico">🗓</span>
@@ -434,14 +485,15 @@
   </div>
 </dialog>
 
-<div class="lightbox" id="lightbox">
-  <button class="lb-x" id="lbX" aria-label="Закрыть">✕</button>
-  <button class="lb-prev" id="lbPrev" aria-label="Предыдущее фото">‹</button>
-  <img alt="" decoding="async">
-  <button class="lb-next" id="lbNext" aria-label="Следующее фото">›</button>
-  <div class="lb-count" id="lbCount"></div>
-</div>
-<div class="toast" id="toast"></div>
+<dialog class="lightbox" id="lightbox" aria-labelledby="lbTitle">
+  <h2 class="lb-title sr-only" id="lbTitle">Просмотр фотографий события</h2>
+  <button type="button" class="lb-x" id="lbX" aria-label="Закрыть просмотр">✕</button>
+  <button type="button" class="lb-prev" id="lbPrev" aria-label="Предыдущее фото">‹</button>
+  <img alt="Просматриваемое фото" decoding="async" draggable="false">
+  <button type="button" class="lb-next" id="lbNext" aria-label="Следующее фото">›</button>
+  <div class="lb-count" id="lbCount" aria-live="polite" aria-atomic="true"></div>
+</dialog>
+<div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
 <script src="{{ asset('ink.js') }}" defer></script>
 <script src="{{ asset('ui.js') }}"></script>

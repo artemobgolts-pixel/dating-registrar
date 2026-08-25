@@ -89,6 +89,24 @@
       {% endif %}
       {% if not me %}
       <button type="button" class="login-corner" id="loginOpen">Войти</button>
+      {% else %}
+      {% if viewer_is_owner %}<a class="login-corner owner-edit-link" href="/admin/categories/{{ cat['id'] }}?return_to={{ request.url.path | urlencode }}"
+         aria-label="Редактировать подборку «{{ cat['name'] }}»">Редактировать</a>{% endif %}
+      <details class="public-account-menu">
+        <summary aria-label="Меню аккаунта — {{ me['display_name'] or me['tg_username'] or 'Аккаунт' }}">
+          {% if me['avatar_path'] %}<img src="/u/{{ me['id'] }}/avatar?w=64" alt="" width="32" height="32">
+          {% else %}<span aria-hidden="true">{{ icon('user') }}</span>{% endif %}
+        </summary>
+        <div class="public-account-popover">
+          <strong>{{ me['display_name'] or me['tg_username'] or 'Аккаунт' }}</strong>
+          <a href="/admin/">Кабинет</a>
+          <a href="/admin/profile">Профиль</a>
+          <form method="post" action="/admin/logout">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <button type="submit">Выйти</button>
+          </form>
+        </div>
+      </details>
       {% endif %}
     </div>
 
@@ -124,21 +142,6 @@
     {% endif %}
   </header>
 
-  {% if bot and (not me or not me['bot_linked']) %}
-  <section class="notify-cta tg-connect" data-return-to="/c/{{ token }}"
-           aria-label="Уведомления в Telegram">
-    <div class="notify-cta-icon" aria-hidden="true">{{ icon('bell') }}</div>
-    <div class="notify-cta-copy">
-      <b>Подключите уведомления в Telegram</b>
-      <span>Пришлём результат голосования, важные изменения и напоминания о победившем событии.</span>
-      <span data-tg-hint hidden>Нажмите <b>Start</b>, затем <b>Подтвердить</b> в боте и вернитесь сюда.</span>
-      <span data-tg-error class="err" hidden></span>
-    </div>
-    <button type="button" class="btn book" data-tg-connect>Подключить</button>
-    <a data-tg-link href="#" target="_blank" rel="noopener" hidden></a>
-  </section>
-  {% endif %}
-
   {% if vote_state.status != 'unconfigured' %}
   <section class="vote-summary vote-{{ vote_state.status }}">
     {% if vote_state.status == 'open' %}
@@ -146,12 +149,13 @@
         <span class="vote-countdown-label" data-countdown-label>До конца голосования</span>
         <b data-vote-countdown data-deadline="{{ vote_state.voting_deadline }}+03:00">считаем…</b>
       </div>
+      <span class="vote-rule">{% if vote_state.choice_mode == 'multiple' %}Можно выбрать несколько вариантов; каждый выбор можно снять до дедлайна.{% else %}Можно выбрать один вариант; новый выбор заменит предыдущий.{% endif %}</span>
     {% elif vote_state.status == 'tie' %}
       <b>Голосование завершено — ничья</b>
       <span>Организатор вручную выберет один из вариантов-лидеров. Голоса уже зафиксированы.</span>
     {% elif vote_state.status == 'no_winner' %}
       <b>Никто не выбрал</b>
-      <span>До дедлайна не было ни одного голоса, поэтому категория завершена без победителя.</span>
+      <span>До дедлайна не было ни одного голоса, поэтому подборка завершена без победителя.</span>
     {% elif vote_state.status == 'resolved' %}
       <b>{% if active_skin == 'friends' %}Общий вариант выбран {{ icon('spark') }}{% else %}Победитель выбран ♥{% endif %}</b>
       <span>Он выделен ниже. Участники остальных вариантов в нём не участвуют.</span>
@@ -180,6 +184,9 @@
                      /c/{{ token }}/image/{{ im['filename'] }}?w=1600 1600w"
              sizes="(max-width: 899px) calc(100vw - 32px), 520px"
              data-full="/c/{{ token }}/image/{{ im['filename'] }}" alt=""
+             role="button" tabindex="0" draggable="false"
+             aria-label="Открыть фото {{ loop.index }} из {{ d.images | length }}: {{ d.name }}"
+             aria-haspopup="dialog" aria-controls="lightbox"
              loading="{{ 'eager' if priority and loop.first else 'lazy' }}"
              fetchpriority="{{ 'high' if priority and loop.first else 'low' }}"
              decoding="async"
@@ -198,7 +205,7 @@
       {% if not d.images and not d.videos and badges | trim %}<div class="badges inflow">{{ badges }}</div>{% endif %}
       <div class="title-row">
         <h2 class="title">{{ d.name }}</h2>
-        {% if not d.past and not d.pending and not d.editable %}
+        {% if not viewer_is_owner and not d.past and not d.pending and not d.editable %}
         <button type="button" class="report-link" data-id="{{ d.id }}" data-name="{{ d.name }}">пожаловаться</button>
         {% endif %}
       </div>
@@ -234,8 +241,9 @@
       {% endif %}
 
       {% if not d.pending %}
-      {% set show_roster = vote_state.status in ('unconfigured', 'open')
-                           or (vote_state.status == 'resolved' and d.is_winner) %}
+      {% set show_roster = show_participants and
+                           (vote_state.status in ('unconfigured', 'open')
+                            or (vote_state.status == 'resolved' and d.is_winner)) %}
       {% set hide_empty_single_counter = d.capacity == 1 and d.vote_count == 0 %}
       <div class="vote-progress{% if d.is_full %} full{% endif %}">
         <div class="vote-progress-head"{% if hide_empty_single_counter %} hidden{% endif %}>
@@ -368,6 +376,30 @@
   </div>
   {% endif %}
 
+  {% if bot and not viewer_is_owner and (not me or not me['bot_linked'])
+        and vote_state.status != 'unconfigured' %}
+  <section class="notify-cta tg-connect" data-return-to="/c/{{ token }}"
+           aria-label="Уведомления в Telegram"
+           {% if vote_state.status == 'open' and not viewer_has_vote %}hidden data-deferred-notify{% endif %}>
+    <div class="notify-cta-icon" aria-hidden="true">{{ icon('bell') }}</div>
+    <div class="notify-cta-copy">
+      <b>Не пропусти результат</b>
+      <span>Telegram сообщит об итоге голосования, важных изменениях и победившем событии.</span>
+      <span data-tg-hint hidden>Нажми <b>Start</b>, затем <b>Подтвердить</b> в боте и вернись сюда.</span>
+      <span data-tg-error class="err" hidden></span>
+    </div>
+    <button type="button" class="btn book" data-tg-connect>Подключить</button>
+    <a data-tg-link href="#" target="_blank" rel="noopener" hidden></a>
+  </section>
+  {% endif %}
+
+  {% if proposals_editable %}
+  <button class="fab fab-inline" type="button" data-propose-open
+          aria-label="Предложить своё событие">
+    <span class="fab-label">Предложить своё событие</span>
+  </button>
+  {% endif %}
+
   <footer>
     {% if active_skin == 'friends' %}
     <div class="footer-mark" aria-hidden="true">{{ icon('gather') }}</div>
@@ -377,22 +409,24 @@
     сделано с любовью
     {% endif %}
     <div class="foot-legal">
-      <a href="/about">О проекте</a> · <a href="/terms">Соглашение</a> · <a href="/privacy">Конфиденциальность</a>
+      <a href="/about?return_to={{ request.url.path | urlencode }}">О проекте</a> · <a href="/terms?return_to={{ request.url.path | urlencode }}">Соглашение</a> · <a href="/privacy?return_to={{ request.url.path | urlencode }}">Конфиденциальность</a>
     </div>
   </footer>
 </div>
 
-{% if proposals_editable %}<button class="fab" id="fabPropose" aria-label="Предложить своё событие">
+{% if proposals_editable %}<button class="fab fab-floating" id="fabPropose" type="button"
+  data-propose-open aria-label="Предложить своё событие">
   <span class="fab-label">Предложить своё событие</span>
 </button>{% endif %}
 
 <!-- Вход прямо со страницы подборки (модалка с Telegram Login Widget) -->
-<dialog id="loginDlg" class="login-dlg">
+<dialog id="loginDlg" class="login-dlg"
+        aria-labelledby="loginDlgTitle" aria-describedby="loginDlgDescription">
   <button type="button" class="dlg-x" id="loginClose" aria-label="Закрыть">✕</button>
   <div class="login-dlg-head">
     <div class="ld-heart" aria-hidden="true">{% if active_skin == 'friends' %}{{ icon('gather') }}{% else %}♥{% endif %}</div>
-    <h3 class="dlg-head">Войти, чтобы выбрать событие</h3>
-    <p class="dlg-sub">Вход через Telegram — быстро и без пароля{% if active_skin == 'romantic' %}&nbsp;♥{% endif %}</p>
+    <h2 class="dlg-head" id="loginDlgTitle">Войти, чтобы выбрать событие</h2>
+    <p class="dlg-sub" id="loginDlgDescription">Вход через Telegram — быстро и без пароля{% if active_skin == 'romantic' %}&nbsp;♥{% endif %}</p>
   </div>
   {% set next_url = "/c/" ~ token %}
   {% if bot or oauth %}
@@ -403,12 +437,13 @@
 </dialog>
 
 <!-- Вопрос -->
-<dialog id="askDlg">
-  <h3 class="dlg-head">Спросить про «<span id="askTitle"></span>»</h3>
-  <p class="dlg-sub">Увидит только организатор — ответ появится прямо здесь{% if active_skin == 'romantic' %}&nbsp;♥{% endif %}</p>
+<dialog id="askDlg" aria-labelledby="askDlgTitle" aria-describedby="askDlgDescription">
+  <h2 class="dlg-head" id="askDlgTitle">Спросить про «<span id="askTitle"></span>»</h2>
+  <p class="dlg-sub" id="askDlgDescription">Увидит только организатор — ответ появится прямо здесь{% if active_skin == 'romantic' %}&nbsp;♥{% endif %}</p>
   <form id="askForm">
     <input type="hidden" name="date_id" id="askDateId">
     <div class="field">
+      <label class="sr-only" for="askText">Ваш вопрос организатору</label>
       <textarea name="text" id="askText" maxlength="2000" required
                 placeholder="Например: а можно прийти с пледом?"></textarea>
     </div>
@@ -420,13 +455,14 @@
 </dialog>
 
 <!-- Пожаловаться на контент -->
-<dialog id="reportDlg">
-  <h3 class="dlg-head">Пожаловаться на «<span id="reportTitle"></span>»</h3>
-  <p class="dlg-sub">Сообщите, если контент нарушает правила — модератор проверит.</p>
+<dialog id="reportDlg" aria-labelledby="reportDlgTitle" aria-describedby="reportDlgDescription">
+  <h2 class="dlg-head" id="reportDlgTitle">Пожаловаться на «<span id="reportTitle"></span>»</h2>
+  <p class="dlg-sub" id="reportDlgDescription">Вход не требуется. Жалобу увидит только модератор, который проверит контент.</p>
   <form id="reportForm">
     <input type="hidden" name="target_type" id="reportType">
     <input type="hidden" name="target_id" id="reportTargetId">
     <div class="field">
+      <label class="sr-only" for="reportReason">Причина жалобы</label>
       <textarea name="reason" id="reportReason" maxlength="1000"
                 placeholder="Что не так? (необязательно)"></textarea>
     </div>
@@ -438,9 +474,9 @@
 </dialog>
 
 <!-- Предложить время для события без даты -->
-<dialog id="timeDlg">
-  <h3 class="dlg-head">Когда удобно?</h3>
-  <p class="dlg-sub">Предложишь время для «<span id="timeTitle"></span>» — организатор увидит{% if active_skin == 'romantic' %}&nbsp;♥{% endif %}</p>
+<dialog id="timeDlg" aria-labelledby="timeDlgTitle" aria-describedby="timeDlgDescription">
+  <h2 class="dlg-head" id="timeDlgTitle">Когда удобно?</h2>
+  <p class="dlg-sub" id="timeDlgDescription">Предложишь время для «<span id="timeTitle"></span>» — организатор увидит{% if active_skin == 'romantic' %}&nbsp;♥{% endif %}</p>
   <form id="timeForm">
     <input type="hidden" name="date_id" id="timeDateId">
     <div class="field">
@@ -465,6 +501,7 @@
           <button type="button" class="chip" data-dur="2">+2 часа</button>
           <button type="button" class="chip" data-dur="3">+3 часа</button>
         </div>
+        <label class="sr-only" for="timeEnd">Время окончания</label>
         <input type="datetime-local" name="ends_at" id="timeEnd">
       </div>
     </details>
@@ -476,11 +513,12 @@
 </dialog>
 
 <!-- Тот же карточный редактор, что в кабинете, внутри гостевого виджета. -->
-<dialog id="propDlg" class="date-widget-dialog">
+<dialog id="propDlg" class="date-widget-dialog"
+        aria-labelledby="propHead" aria-describedby="propDlgDescription">
   <div class="date-widget-head">
     <div>
-      <h3 class="dlg-head" id="propHead">Предложить своё событие</h3>
-      <p class="dlg-sub">Кликай по карточке и меняй её прямо здесь{% if active_skin == 'romantic' %}&nbsp;♥{% endif %}</p>
+      <h2 class="dlg-head" id="propHead">Предложить своё событие</h2>
+      <p class="dlg-sub" id="propDlgDescription">Кликай по карточке и меняй её прямо здесь{% if active_skin == 'romantic' %}&nbsp;♥{% endif %}</p>
     </div>
     <button type="button" class="date-widget-x" id="propCancel" aria-label="Закрыть">✕</button>
   </div>
@@ -513,7 +551,7 @@
 
           <div class="body">
             <h3 class="ttl">
-              <span class="required-title"><span class="ed-field" id="propEdTitle" data-ph="Название события" aria-required="true"></span><sup class="required-mark" aria-hidden="true">*</sup></span>
+              <span class="required-title"><span class="ed-field" id="propEdTitle" data-ph="Название события" aria-label="Название события" aria-required="true"></span><sup class="required-mark" aria-hidden="true">*</sup></span>
               <span class="pay" id="propPayPill" hidden></span>
             </h3>
             <div class="pmeta">
@@ -522,22 +560,22 @@
                 <input type="hidden" name="starts_at" id="propStart" data-tr-start>
                 <input type="hidden" name="ends_at" id="propEnd" data-tr-end>
                 <span class="ed-date" data-tr-datewidget>
-                  <span class="ed-dd" data-tr-dd></span><span class="ed-dot">.</span><span class="ed-mo" data-tr-mo></span><span class="ed-dot">.</span><span class="ed-yy" data-tr-yy></span>
+                  <span class="ed-dd" data-tr-dd aria-label="День"></span><span class="ed-dot">.</span><span class="ed-mo" data-tr-mo aria-label="Месяц"></span><span class="ed-dot">.</span><span class="ed-yy" data-tr-yy aria-label="Год"></span>
                 </span>
                 <span class="ed-at" aria-hidden="true">в</span>
                 <span class="ed-time">
-                  <span class="ed-hh" data-tr-hh></span><span class="ed-colon">:</span><span class="ed-mm" data-tr-mm></span>
+                  <span class="ed-hh" data-tr-hh aria-label="Часы начала"></span><span class="ed-colon">:</span><span class="ed-mm" data-tr-mm aria-label="Минуты начала"></span>
                   <span class="ed-dash">–</span>
-                  <span class="ed-hh" data-tr-ehh></span><span class="ed-colon">:</span><span class="ed-mm" data-tr-emm></span>
+                  <span class="ed-hh" data-tr-ehh aria-label="Часы окончания"></span><span class="ed-colon">:</span><span class="ed-mm" data-tr-emm aria-label="Минуты окончания"></span>
                 </span>
               </div>
               <div class="ed-place-row">
                 <span aria-hidden="true">{{ icon('pin') }}</span>
-                <span class="ed-field ed-place" id="propEdPlace" data-ph="Место — адрес или ссылка на карты"></span>
+                <span class="ed-field ed-place" id="propEdPlace" data-ph="Место — адрес или ссылка на карты" aria-label="Место события"></span>
               </div>
             </div>
             <div class="ed-field ed-desc" id="propDescEditable" contenteditable="true"
-                 role="textbox" aria-multiline="true"
+                 role="textbox" aria-label="Описание события" aria-multiline="true"
                  data-ph="Детали — расскажи, чем хорошо это событие"></div>
             <div class="toolbar ed-desc-toolbar" id="propDescToolbar" hidden>
               <button type="button" class="b" data-wrap="**|**" title="Жирный">Ж</button>
@@ -548,7 +586,7 @@
             </div>
             <div class="ed-links-row">
               <span aria-hidden="true">{{ icon('link') }}</span>
-              <span class="ed-field ed-links" id="propEdLinks" data-ph="Ссылки — каждая с новой строки"></span>
+              <span class="ed-field ed-links" id="propEdLinks" data-ph="Ссылки — каждая с новой строки" aria-label="Ссылки события"></span>
             </div>
             <div class="acts">
               <button type="button" class="bk">{{ icon('check') }} Выбрать</button>
@@ -565,7 +603,7 @@
 
       <aside class="ed-side-col">
         <section class="sec">
-          <h2><span class="n">1</span> Модификаторы</h2>
+          <h2><span class="n">1</span> Условия участия</h2>
           <div class="field">
             <label>Оплата</label>
             <div class="pay-pick" role="radiogroup" aria-label="Оплата">
@@ -576,7 +614,7 @@
             </div>
           </div>
           <label class="field capacity-field">
-            <span>Количество участников<sup class="required-mark" aria-hidden="true">*</sup></span>
+            <span>Максимум участников<sup class="required-mark" aria-hidden="true">*</sup></span>
             <span class="capacity-stepper" data-number-stepper>
               <button type="button" class="capacity-step" data-step="-1"
                       aria-label="Уменьшить количество участников">−</button>
@@ -588,7 +626,7 @@
           </label>
         </section>
         <section class="sec date-widget-context">
-          <h2><span class="n">2</span> Категория</h2>
+          <h2><span class="n">2</span> Подборка</h2>
           <div class="chips-cat">
             <span class="chip-cat selected">{{ icon('link') }} {{ cat.name }}</span>
           </div>
@@ -605,8 +643,8 @@
 </dialog>
 
 <!-- В календарь -->
-<dialog id="calDlg">
-  <h3 class="dlg-head">Добавить в календарь</h3>
+<dialog id="calDlg" aria-labelledby="calDlgTitle">
+  <h2 class="dlg-head" id="calDlgTitle">Добавить в календарь</h2>
   <div class="cal-btns">
     <a id="calGoogle" href="#" target="_blank" rel="noopener">
       <span class="ico">🗓</span>
@@ -622,14 +660,15 @@
   </div>
 </dialog>
 
-<div class="lightbox" id="lightbox">
-  <button class="lb-x" id="lbX" aria-label="Закрыть">✕</button>
-  <button class="lb-prev" id="lbPrev" aria-label="Предыдущее фото">‹</button>
-  <img alt="" decoding="async">
-  <button class="lb-next" id="lbNext" aria-label="Следующее фото">›</button>
-  <div class="lb-count" id="lbCount"></div>
-</div>
-<div class="toast" id="toast"></div>
+<dialog class="lightbox" id="lightbox" aria-labelledby="lbTitle">
+  <h2 class="lb-title sr-only" id="lbTitle">Просмотр фотографий события</h2>
+  <button type="button" class="lb-x" id="lbX" aria-label="Закрыть просмотр">✕</button>
+  <button type="button" class="lb-prev" id="lbPrev" aria-label="Предыдущее фото">‹</button>
+  <img alt="Просматриваемое фото" decoding="async" draggable="false">
+  <button type="button" class="lb-next" id="lbNext" aria-label="Следующее фото">›</button>
+  <div class="lb-count" id="lbCount" aria-live="polite" aria-atomic="true"></div>
+</dialog>
+<div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
 <script src="{{ asset('ink.js') }}" defer></script>
 <script src="{{ asset('ui.js') }}"></script>
