@@ -1,4 +1,5 @@
 {% extends "admin/base.html" %}
+{% from "admin/_entity_status.html" import category_link, category_voting %}
 {% block title %}Категории{% endblock %}
 {% block head %}<meta name="turbo-cache-control" content="no-cache">{% endblock %}
 {% block content %}
@@ -18,14 +19,15 @@
   <div class="cat-body">
     <div class="bar" style="margin-bottom:0">
       <div>
-        <span class="cat-name">{{ c['name'] }}</span>
-        <span class="badge">{{ c['dcount'] }} {{ c['dcount'] | plural('событие', 'события', 'событий') }}</span>
-        {% if c['voting_status'] == 'open' %}<span class="badge rose">голосование идёт</span>
-        {% elif c['voting_status'] == 'tie' %}<span class="badge amber">ничья</span>
-        {% elif c['voting_status'] == 'resolved' %}<span class="badge rose">есть победитель</span>
-        {% elif c['voting_status'] == 'no_winner' %}<span class="badge">никто не выбрал</span>{% endif %}
-        {% if c['moderate_proposals'] %}<span class="badge amber">модерация</span>{% endif %}
-        {% if not c['link_enabled'] %}<span class="badge" style="background:#fdeeee;color:#a33">ссылка выкл.</span>{% endif %}
+        <div class="cat-heading-line">
+          <span class="cat-name">{{ c['name'] }}</span>
+          <span class="badge badge-meta">{{ c['dcount'] }} {{ c['dcount'] | plural('событие', 'события', 'событий') }}</span>
+          {% if c['moderate_proposals'] %}<span class="badge amber badge-config">модерация</span>{% endif %}
+        </div>
+        <div class="entity-status-row cat-status-row">
+          {{ category_voting(c['voting_status']) }}
+          {{ category_link(c['link_enabled']) }}
+        </div>
       </div>
       <div class="cat-tail">
         <div class="menu-wrap">

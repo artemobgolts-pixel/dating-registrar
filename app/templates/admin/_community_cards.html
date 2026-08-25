@@ -33,7 +33,7 @@
     {% if d['comment'] %}<p class="cfeed-desc">{{ d['comment'] | rich }}</p>{% endif %}
     <div class="cfeed-card-actions">
       <button type="button" class="cfeed-add" data-stop data-community-add
-              data-add="/d/{{ d['share_token'] }}/add">Добавить в коллекцию</button>
+              data-add="/d/{{ d['share_token'] }}/add">Добавить</button>
       <button type="button" class="cfeed-share" data-stop data-community-share
               data-share-url="{{ BASE_URL }}/d/{{ d['share_token'] }}"
               data-share-title="{{ d['name'] }}">Поделиться</button>

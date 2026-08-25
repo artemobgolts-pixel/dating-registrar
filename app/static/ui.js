@@ -1297,6 +1297,19 @@ window.UI = (() => {
           stop();
           return false;
         }
+        // На компактном превью главной важен порядок величины, а не секундомер:
+        // от суток показываем только округлённые вверх дни, внутри суток — часы.
+        // Публичные страницы без атрибута сохраняют подробный живой отсчёт.
+        if (el.hasAttribute("data-countdown-compact")) {
+          var compactValue = seconds >= day
+            ? Math.ceil(seconds / day) + " дн."
+            : Math.max(1, Math.ceil(seconds / 3600)) + " ч.";
+          el.textContent = compactValue;
+          if (wrapper) {
+            wrapper.setAttribute("aria-label", "До конца голосования осталось: " + compactValue);
+          }
+          return true;
+        }
         var days = Math.floor(seconds / day);
         var hours = Math.floor((seconds % day) / 3600);
         var minutes = Math.floor((seconds % 3600) / 60);

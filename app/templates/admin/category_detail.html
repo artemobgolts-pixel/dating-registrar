@@ -1,4 +1,5 @@
 {% extends "admin/base.html" %}
+{% from "admin/_entity_status.html" import category_voting, event_lifecycle, event_visibility %}
 {% block title %}{{ cat['name'] }}{% endblock %}
 {% block head %}<meta name="turbo-cache-control" content="no-cache">{% endblock %}
 {% block content %}
@@ -174,17 +175,7 @@
       <b>Голосование</b>
       <div class="muted tiny">Настройки действуют только внутри этой категории.</div>
     </div>
-    {% if voting_state.status == 'open' and can_change_composition %}
-      <span class="badge rose">Идёт голосование</span>
-    {% elif voting_state.status == 'open' %}
-      <span class="badge amber">Дедлайн наступил · считаем результат</span>
-    {% elif voting_state.status == 'tie' %}
-      <span class="badge amber">Ничья · нужен твой выбор</span>
-    {% elif voting_state.status == 'resolved' %}
-      <span class="badge rose">Победитель выбран</span>
-    {% elif voting_state.status == 'no_winner' %}
-      <span class="badge">Голосование завершено</span>
-    {% endif %}
+    {{ category_voting(voting_state.status, voting_state.status == 'open' and not can_change_composition) }}
   </div>
 
   {% if voting_state.status != 'unconfigured' %}
@@ -270,9 +261,8 @@
         <a href="/admin/dates/{{ d['id'] }}/edit?return_to={{ ('/admin/categories/' ~ cat['id']) | urlencode }}">{{ d['name'] }}</a>
         {% if cat['winner_date_id'] == d['id'] %}<span class="badge rose">Победитель</span>{% endif %}
         {% if voting_state.status == 'tie' and d['id'] in leader_ids %}<span class="badge amber">Лидер</span>{% endif %}
-        {% if d['is_draft'] %}<span class="badge amber">{{ 'на модерации' if d['origin'] == 'guest' else 'нужно исправить' }}</span>{% endif %}
         {% if d['origin'] == 'guest' %}<span class="badge">💡 предложено</span>{% endif %}
-        {% if d['archived_at'] %}<span class="badge">архив</span>{% endif %}
+        <span class="entity-status-inline">{{ event_lifecycle(d) }} {{ event_visibility(d) }}</span>
       </td>
       <td class="muted">{{ d['starts_at'] | when(d['ends_at']) or '—' }}</td>
       <td>

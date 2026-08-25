@@ -240,7 +240,8 @@ class FrontendMediaContractTests(unittest.TestCase):
         self.assertNotIn('class="cfeed-owner"', feed_card)
         self.assertIn("d['owner_display']", widget)
         self.assertIn('class="cfeed-owner"', widget)
-        self.assertIn("Добавить в коллекцию", feed_card)
+        self.assertIn(">Добавить</button>", feed_card)
+        self.assertNotIn("Добавить в коллекцию", feed_card)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,46 @@
+{# Единые текстовые статусы пользовательского кабинета. Маркер намеренно не
+   выглядит как обычный badge: цветная точка отвечает за быстрое сканирование,
+   а подпись сохраняет смысл без цвета. Все списковые варианты импортируют эти
+   макросы, чтобы карточки и строки не расходились по формулировкам. #}
+{% macro status(label, tone='neutral') -%}
+<span class="entity-status entity-status--{{ tone }}">
+  <span class="entity-status-dot" aria-hidden="true"></span>
+  <span>{{ label }}</span>
+</span>
+{%- endmacro %}
+
+{% macro event_lifecycle(event) -%}
+  {%- if event['archived_at'] -%}
+    {{ status('В архиве', 'neutral') }}
+  {%- elif event['is_draft'] -%}
+    {{ status('На модерации' if event['origin'] == 'guest' else 'Нужно исправить', 'warning') }}
+  {%- else -%}
+    {{ status('Активно', 'success') }}
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro event_visibility(event) -%}
+  {%- if not event['archived_at'] and not event['is_draft'] -%}
+    {{ status('В общей ленте' if event['is_public'] else 'Не в общей ленте', 'info' if event['is_public'] else 'neutral') }}
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro category_voting(value, counting=false) -%}
+  {%- if value == 'open' and counting -%}
+    {{ status('Считаем результат', 'warning') }}
+  {%- elif value == 'open' -%}
+    {{ status('Голосование идёт', 'info') }}
+  {%- elif value == 'tie' -%}
+    {{ status('Ничья · нужен выбор', 'warning') }}
+  {%- elif value == 'resolved' -%}
+    {{ status('Победитель выбран', 'success') }}
+  {%- elif value == 'no_winner' -%}
+    {{ status('Завершено без выбора', 'neutral') }}
+  {%- else -%}
+    {{ status('Без голосования', 'neutral') }}
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro category_link(enabled) -%}
+  {{ status('Ссылка активна' if enabled else 'Ссылка выключена', 'success' if enabled else 'danger') }}
+{%- endmacro %}

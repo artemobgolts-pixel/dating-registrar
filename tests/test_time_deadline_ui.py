@@ -133,6 +133,53 @@ class TimeAndDeadlineBrowserTests(unittest.TestCase):
         page.locator('[data-dur="2"]').click()
         self.assertEqual(page.locator("#end").input_value(), "2030-05-08T01:30")
 
+    def test_compact_countdown_uses_only_rounded_days_or_hours(self):
+        page = self.browser.new_page()
+        self.addCleanup(page.close)
+        page.set_content("""
+          <body>
+            <div role="timer">
+              <span data-countdown-label>До конца</span>
+              <b id="compact-days" data-vote-countdown data-countdown-compact
+                 data-deadline="2030-05-09T12:00:01+00:00"></b>
+            </div>
+            <div role="timer">
+              <span data-countdown-label>До конца</span>
+              <b id="compact-hours" data-vote-countdown data-countdown-compact
+                 data-deadline="2030-05-08T11:00:00+00:00"></b>
+            </div>
+            <div role="timer">
+              <span data-countdown-label>До конца</span>
+              <b id="compact-under-hour" data-vote-countdown data-countdown-compact
+                 data-deadline="2030-05-07T12:59:00+00:00"></b>
+            </div>
+            <div role="timer">
+              <span data-countdown-label>До конца голосования</span>
+              <b id="detailed" data-vote-countdown
+                 data-deadline="2030-05-09T12:00:01+00:00"></b>
+            </div>
+          </body>
+        """)
+        page.evaluate("""() => {
+          const NativeDate = Date;
+          const fixedNow = '2030-05-07T12:00:00.000Z';
+          window.Date = class extends NativeDate {
+            constructor(...args) {
+              super(...(args.length ? args : [fixedNow]));
+            }
+            static now() { return new NativeDate(fixedNow).getTime(); }
+          };
+        }""")
+        page.add_script_tag(content=(APP / "static/ui.js").read_text("utf-8"))
+
+        self.assertEqual(page.locator("#compact-days").inner_text(), "3 дн.")
+        self.assertEqual(page.locator("#compact-hours").inner_text(), "23 ч.")
+        self.assertEqual(page.locator("#compact-under-hour").inner_text(), "1 ч.")
+        self.assertEqual(
+            page.locator("#detailed").inner_text(),
+            "2 дн. 0 ч. 0 мин. 1 сек.",
+        )
+
     def test_deadline_preset_sets_value_and_keeps_manual_keyboard_input(self):
         context = self.browser.new_context(timezone_id="UTC")
         self.addCleanup(context.close)

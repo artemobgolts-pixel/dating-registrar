@@ -227,6 +227,10 @@ class NotificationUiTests(unittest.TestCase):
         self.assertIn('"До конца голосования осталось: " + value', ui)
 
         self.assertIn('data-countdown-scale="fixed"', dashboard)
+        self.assertIn("data-countdown-compact", dashboard)
+        self.assertIn('el.hasAttribute("data-countdown-compact")', ui)
+        self.assertIn("Math.ceil(seconds / day)", ui)
+        self.assertIn("Math.ceil(seconds / 3600)", ui)
         self.assertIn("share['voting_status'] == 'open'", dashboard)
         og_preview = dashboard.split('class="og-preview dashboard-og-preview"', 1)[1]
         self.assertLess(og_preview.index('class="dashboard-vote-countdown"'),

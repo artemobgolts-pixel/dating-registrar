@@ -908,7 +908,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     other_page = g2.get(f"/c/{tok}").text
     assert "Тайное место" not in other_page
     assert g2.get(f"/c/{tok}/image/{fn2}").status_code == 404
-    assert "на модерации" in c.get("/admin/dates?view=active").text
+    assert "На модерации" in c.get("/admin/dates?view=active").text
 
     r = apost(c, f"/admin/dates/{pid2}/publish", {"next": "/admin/dates?view=active"})
     assert "Тайное место" in g2.get(f"/c/{tok}").text
@@ -2942,7 +2942,8 @@ with TestClient(main.app, follow_redirects=False) as cnata, \
     assert "Пикник на закате" in feed, "публичное чужое событие в ленте"
     assert "Секретный ужин" not in feed, "приватное в ленту не попадает"
     assert "Ната-кат" not in feed, "категория в ленте не показывается"
-    assert "Добавить в коллекцию" in feed, "главное действие карточки копирует событие"
+    assert ">Добавить</button>" in feed, "главное действие карточки копирует событие"
+    assert "Добавить в коллекцию" not in feed
     assert f'data-add="/d/{pub["share_token"]}/add"' in feed
     assert 'class="cfeed-owner"' not in feed and "Автор:" not in feed
     assert f'href="/u/{pub["owner_id"]}"' not in feed
@@ -2952,9 +2953,10 @@ with TestClient(main.app, follow_redirects=False) as cnata, \
     # автор не видит своё событие в собственной ленте
     assert "Пикник на закате" not in cnata.get("/admin/community").text
 
-    # C4: мини-виджет отдаётся, есть кнопка «Добавить себе»
+    # C4: мини-виджет отдаётся, есть короткая кнопка «Добавить»
     wid = cgosha.get(f"/admin/community/date/{pub['id']}").text
-    assert "Пикник на закате" in wid and "Добавить себе" in wid
+    assert "Пикник на закате" in wid and ">Добавить</button>" in wid
+    assert "Добавить себе" not in wid and "Добавить ♥" not in wid
     assert 'class="cfeed-owner"' in wid and f'href="/u/{pub["owner_id"]}"' in wid
     assert f"/d/{pub['share_token']}/add" in wid
     assert "?w=1600 1600w" in wid and "data-full=" in wid
@@ -2979,7 +2981,7 @@ with TestClient(main.app, follow_redirects=False) as cnata, \
         (pub["id"], gosha_reporter),
     )["reason"] == "Проверить"
 
-    # C4: «Добавить себе» через fetch → JSON, копия появляется у Гоши
+    # C4: «Добавить» через fetch → JSON, копия появляется у Гоши
     add = cgosha.post(f"/d/{pub['share_token']}/add", headers={"X-Requested-With": "fetch"})
     assert add.status_code == 200 and add.json()["ok"] is True
     assert db_one("SELECT COUNT(*) FROM dates WHERE owner_id=(SELECT id FROM users "

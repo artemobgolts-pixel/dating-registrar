@@ -34,7 +34,7 @@
         {% if share['voting_status'] == 'open' and share['voting_deadline'] %}
         <div class="dashboard-vote-countdown" role="timer">
           <span data-countdown-label>До конца</span>
-          <b data-vote-countdown data-countdown-scale="fixed"
+          <b data-vote-countdown data-countdown-scale="fixed" data-countdown-compact
              data-deadline="{{ share['voting_deadline'] }}+03:00">считаем…</b>
         </div>
         {% endif %}

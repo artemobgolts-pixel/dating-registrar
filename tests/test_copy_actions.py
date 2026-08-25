@@ -67,6 +67,15 @@ def login(client: TestClient, telegram_id: int) -> str:
     return csrf
 
 
+def category_card_fragment(html: str, category_id: int) -> str:
+    """Вернуть одну карточку категории из серверного списка."""
+    marker = f'href="/admin/categories/{category_id}"'
+    for fragment in html.split('<div class="card cat-card has-thumb">')[1:]:
+        if marker in fragment:
+            return fragment
+    raise AssertionError(f"Карточка категории {category_id} не найдена")
+
+
 class CopyActionTests(unittest.TestCase):
     def setUp(self):
         main._rates.clear()
@@ -243,6 +252,34 @@ class CopyActionTests(unittest.TestCase):
                 conn, source_date, copied_category["owner_id"],
                 now=datetime(2031, 1, 1, 10, 0),
             ))
+            categories_page = owner.get("/admin/categories")
+            self.assertEqual(categories_page.status_code, 200)
+            source_card = category_card_fragment(
+                categories_page.text, source_category,
+            )
+            copied_card = category_card_fragment(
+                categories_page.text, int(copied_category["id"]),
+            )
+            status_matrix = (
+                (source_card, (
+                    ("info", "Голосование идёт"),
+                    ("success", "Ссылка активна"),
+                )),
+                (copied_card, (
+                    ("neutral", "Без голосования"),
+                    ("danger", "Ссылка выключена"),
+                )),
+            )
+            for card, expected_statuses in status_matrix:
+                self.assertEqual(
+                    card.count('class="entity-status entity-status--'), 2,
+                )
+                for tone, label in expected_statuses:
+                    self.assertRegex(
+                        card,
+                        rf'(?s)class="entity-status entity-status--{tone}"'
+                        rf'[^>]*>.*?<span>{re.escape(label)}</span>',
+                    )
             copied_files = {copied_category["og_image"]}
             conn.close()
             self.assertTrue(all((main.images.UPLOAD_DIR / name).exists()
@@ -300,6 +337,38 @@ class CopyActionTests(unittest.TestCase):
         self.assertIn(
             ".cat-editor-main-actions > .btn { padding: 13px 18px; font-size: 16px; }",
             css,
+        )
+
+    def test_public_selection_seals_use_theme_neutral_check_icon(self):
+        for relative in (
+            "templates/public/category.html",
+            "templates/public/share.html",
+        ):
+            template = (APP / relative).read_text(encoding="utf-8")
+            seals = re.findall(r'<div class="seal".*?</div>', template, re.S)
+            self.assertEqual(len(seals), 1, relative)
+            seal = seals[0]
+            self.assertIn("{{ icon('check') }}", seal, relative)
+            self.assertNotIn("active_skin", seal, relative)
+            self.assertNotIn("icon('heart')", seal, relative)
+            self.assertNotIn("♥", seal, relative)
+
+        category = (APP / "templates/public/category.html").read_text(
+            encoding="utf-8",
+        )
+        past_choice_marks = re.findall(
+            r'<span class="av me">.*?</span>', category, re.S,
+        )
+        self.assertEqual(len(past_choice_marks), 2)
+        for mark in past_choice_marks:
+            self.assertIn("{{ icon('check') }}", mark)
+            self.assertNotIn("active_skin", mark)
+            self.assertNotIn("♥", mark)
+
+        public_css = (APP / "static/public.css").read_text(encoding="utf-8")
+        self.assertNotIn(
+            'html[data-skin="friends"] .seal .ui-icon { transform: none; }',
+            public_css,
         )
 
     def test_community_widget_toggles_want_without_copying_event(self):
@@ -367,7 +436,8 @@ class CopyActionTests(unittest.TestCase):
             self.assertIn('data-community-share', feed.text)
             self.assertIn('data-share-url="https://copy.test/d/date-880301"', feed.text)
             self.assertIn('class="cfeed-card-actions"', feed.text)
-            self.assertIn("Добавить в коллекцию", feed.text)
+            self.assertIn(">Добавить</button>", feed.text)
+            self.assertNotIn("Добавить в коллекцию", feed.text)
             self.assertIn(
                 f'data-add="/d/date-880301/add"', feed.text,
             )
@@ -380,6 +450,9 @@ class CopyActionTests(unittest.TestCase):
             self.assertIn('class="cfeed-owner-name">Тест</span>', widget.text)
             self.assertIn('class="btn ghost cwid-share"', widget.text)
             self.assertIn('data-community-share', widget.text)
+            self.assertIn(">Добавить</button>", widget.text)
+            self.assertNotIn("Добавить себе", widget.text)
+            self.assertNotIn("Добавить ♥", widget.text)
 
             dates = viewer.get("/admin/dates?view=active")
             self.assertEqual(dates.status_code, 200)
@@ -470,6 +543,9 @@ class CopyActionTests(unittest.TestCase):
                 public_active.text,
             )
             self.assertIn("Сделать непубличным", public_active.text)
+            self.assertIn("Активно", public_active.text)
+            self.assertIn("В общей ленте", public_active.text)
+            self.assertIn("Нужно исправить", public_active.text)
             for old_label in ("✓ Опубликовать", "📋 Скопировать", "🗄 В архив",
                               "↩ Вернуть", "🗑 Удалить"):
                 self.assertNotIn(old_label, public_active.text)
@@ -486,12 +562,14 @@ class CopyActionTests(unittest.TestCase):
             self.assertIn("Фильтр: непубличное активное", private_active.text)
             self.assertIn("Фильтр: непубличное на модерации", private_active.text)
             self.assertNotIn("Фильтр: публичное активное", private_active.text)
+            self.assertIn("Не в общей ленте", private_active.text)
             self.assertRegex(
                 private_active.text,
                 r'<option value="private"\s+selected>Непубличные</option>',
             )
             private_archive = client.get("/admin/dates?view=archived&f=private")
             self.assertIn("Фильтр: непубличный архив", private_archive.text)
+            self.assertIn("В архиве", private_archive.text)
             self.assertNotIn("Фильтр: публичный архив", private_archive.text)
             self.assertIn(
                 'href="/admin/dates?view=active&amp;f=private"',

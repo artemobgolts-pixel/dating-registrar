@@ -134,7 +134,7 @@
              id="date-{{ d.id }}">
       {% if d.images or d.videos %}
       <div class="gal-wrap">
-        <div class="seal"{% if not d.booked_by_me %} hidden{% endif %}>{% if active_skin == 'friends' %}{{ icon('check') }}{% else %}♥{% endif %}</div>
+        <div class="seal"{% if not d.booked_by_me %} hidden{% endif %}>{{ icon('check') }}</div>
         {% if d.pay_split %}<div class="badges"><span class="badge pay">{{ d.pay_split | pay_label }}</span></div>{% endif %}
         {% if d.is_winner %}<div class="winner-ribbon">{% if active_skin == 'friends' %}{{ icon('spark') }} Общий выбор{% else %}Победитель ♥{% endif %}</div>{% endif %}
         <div class="gallery">

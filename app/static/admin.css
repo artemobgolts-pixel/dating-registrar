@@ -547,6 +547,37 @@ label.chk {
 
 .badge.amber { background: #f8efdc; color: #8a6d3b; }
 
+/* ---------- жизненные статусы сущностей ----------
+   Не ещё одна «таблетка», а спокойная точка + текст. Цвет ускоряет сканирование,
+   формулировка сохраняет смысл в монохроме и для людей с нарушением цветовосприятия. */
+.entity-status-row {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 5px 13px;
+}
+.entity-status {
+  --entity-status-color: var(--muted);
+  display: inline-flex; align-items: center; gap: 7px; min-width: 0;
+  color: var(--entity-status-color);
+  font-size: 12px; font-weight: 700; line-height: 1.35;
+  letter-spacing: .01em; white-space: nowrap;
+}
+.entity-status-dot {
+  width: 7px; height: 7px; flex: none; border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 14%, transparent);
+}
+.entity-status--success { --entity-status-color: #247a54; }
+.entity-status--info    { --entity-status-color: var(--rose-2); }
+.entity-status--warning { --entity-status-color: #8a621d; }
+.entity-status--danger  { --entity-status-color: #a63845; }
+.entity-status--neutral { --entity-status-color: #71686d; }
+.entity-status-inline { display: inline-flex; flex-wrap: wrap; gap: 5px 11px; margin-left: 7px; }
+.drow-status-row { margin-top: 4px; }
+
+@media (forced-colors: active) {
+  .entity-status { color: CanvasText; }
+  .entity-status-dot { background: CanvasText; box-shadow: none; border: 1px solid CanvasText; }
+}
+
 .thumbs { display: flex; gap: 12px; flex-wrap: wrap; }
 
 .thumb img {
@@ -1684,6 +1715,7 @@ html.ink-static .bg-smoke span {
 .pcard .pmeta { font-size: 12.5px; color: var(--muted); margin-bottom: 14px; min-height: 16px; }
 .pcard .pmeta:empty { display: none; }
 .pcard .acts { display: flex; gap: 10px; }
+.pcard.editable .acts { margin-top: 14px; }
 .pcard .acts .bk {
   flex: 1; padding: 10px; border-radius: 12px; border: none;
   font-size: 14px; font-weight: 600; color: #fff;
@@ -1869,6 +1901,7 @@ html.ink-static .bg-smoke span {
 }
 .dcard .ttl a { color: inherit; text-decoration: none; }
 .dcard .ttl a:hover { color: var(--rose); }
+.dcard-status-row { margin: 1px 0 8px; }
 .dcard .meta {
   font-size: 12px; color: var(--muted); margin-bottom: 11px;
   display: flex; flex-direction: column; gap: 3px;
@@ -2259,6 +2292,8 @@ html[data-theme="dark"][data-skin="friends"] .share-qr {
 .cat-card .cat-name {
   font-weight: 600; font-size: 16px; color: var(--ink);
 }
+.cat-card .cat-heading-line { display: flex; align-items: center; flex-wrap: wrap; gap: 5px 0; }
+.cat-card .cat-status-row { margin-top: 7px; }
 
 /* миниатюра превью ссылки в списке категорий: широкий кадр 1.91:1 слева,
    содержимое справа. На узких экранах — картинка сверху, контент под ней. */
@@ -2277,7 +2312,7 @@ html[data-theme="dark"][data-skin="friends"] .share-qr {
   /* На карточке с фотографией меню стоит в свободной нижней строке справа:
      превью сохраняет исходные размер и положение, а кнопка не перекрывает кадр. */
   .cat-card.has-thumb .bar > .cat-tail {
-    top: auto; bottom: 10px; right: 12px;
+    top: auto; bottom: 10px; right: 18px;
   }
   .cat-card.has-thumb .menu { top: auto; bottom: 42px; }
 }
@@ -2767,9 +2802,10 @@ html[data-theme="dark"][data-skin="friends"] .share-qr {
 .avatar-delete {
   position: absolute; z-index: 3; top: 2px; right: 2px;
   width: 34px; height: 34px; padding: 0; margin: 0;
-  border: 0; border-radius: 0; background: transparent; color: #dc3545;
-  cursor: pointer; filter: drop-shadow(0 1px 2px rgba(24,18,21,.72));
-  transition: transform .15s ease, color .15s ease;
+  border: 2px solid var(--card); border-radius: 50%;
+  background: linear-gradient(135deg, #c94c5a, #9f2938); color: #fff;
+  cursor: pointer; box-shadow: 0 3px 9px rgba(112, 29, 43, .32);
+  transition: transform .15s ease, background .15s ease, box-shadow .15s ease;
 }
 .avatar-delete::before,
 .avatar-delete::after {
@@ -2778,7 +2814,14 @@ html[data-theme="dark"][data-skin="friends"] .share-qr {
 }
 .avatar-delete::before { transform: translate(-50%, -50%) rotate(45deg); }
 .avatar-delete::after { transform: translate(-50%, -50%) rotate(-45deg); }
-.avatar-delete:hover { transform: scale(1.12); color: #b42332; }
+.avatar-delete:hover {
+  transform: scale(1.1); color: #fff;
+  background: linear-gradient(135deg, #d65a67, #a92335);
+  box-shadow: 0 5px 13px rgba(112, 29, 43, .4);
+}
+.avatar-delete:focus-visible {
+  outline: 3px solid var(--accent); outline-offset: 3px;
+}
 
 .profile-public-heading {
   max-width: 940px; margin: 38px 0 0; padding-top: 24px;
@@ -3378,6 +3421,10 @@ html[data-theme="dark"] .copy-code { background: #2d252b; }
 html[data-theme="dark"] .badge { background: #342c32; }
 html[data-theme="dark"] .badge.rose { background: #432c35; }
 html[data-theme="dark"] .badge.amber { background: #413724; color: #dec17c; }
+html[data-theme="dark"] .entity-status--success { --entity-status-color: #79d2a4; }
+html[data-theme="dark"] .entity-status--warning { --entity-status-color: #e0bd70; }
+html[data-theme="dark"] .entity-status--danger  { --entity-status-color: #ff9ca7; }
+html[data-theme="dark"] .entity-status--neutral { --entity-status-color: var(--muted); }
 html[data-theme="dark"] .thumb img,
 html[data-theme="dark"] .avatar-pick .avatar-ph,
 html[data-theme="dark"] .profile-avatar-ph,

@@ -1,4 +1,5 @@
 {% extends "admin/base.html" %}
+{% from "admin/_entity_status.html" import event_lifecycle, event_visibility %}
 {% block title %}Встречи{% endblock %}
 {# Список меняется после каждой правки (активные/архив). Запрещаем Turbo
    показывать устаревший кэш-снимок после мутаций. #}
@@ -96,24 +97,26 @@
                380px"
         alt="" loading="lazy" fetchpriority="low" decoding="async"
         {% if r['cover_focus'] %}style="object-position:{{ r['cover_focus'] }}"{% endif %}>
-      <div class="badges">
+      {% if r['pay_split'] or r['origin'] == 'guest' %}<div class="badges">
         {% if r['pay_split'] %}<span class="bdg pay">{{ r['pay_split'] | pay_label }}</span>{% endif %}
         {% if r['origin'] == 'guest' %}<span class="bdg guest">💡 предложено</span>{% endif %}
-        {% if r['is_draft'] %}<span class="bdg draft">{{ 'на модерации' if r['origin'] == 'guest' else 'нужно исправить' }}</span>{% endif %}
-      </div>
+      </div>{% endif %}
       {% if r['booked_names'] %}<div class="badges book-corner"><span class="bdg book">{% with icon='check' %}{% include "admin/_icon.html" %}{% endwith %} {{ r['booked_names'] }}</span></div>{% endif %}
     </div>
     {% endif %}
     <div class="b">
       {% if not r['cover'] %}
-      <div class="badges inflow">
+      {% if r['pay_split'] or r['origin'] == 'guest' or r['booked_names'] %}<div class="badges inflow">
         {% if r['pay_split'] %}<span class="bdg pay">{{ r['pay_split'] | pay_label }}</span>{% endif %}
         {% if r['origin'] == 'guest' %}<span class="bdg guest">💡 предложено</span>{% endif %}
-        {% if r['is_draft'] %}<span class="bdg draft">{{ 'на модерации' if r['origin'] == 'guest' else 'нужно исправить' }}</span>{% endif %}
         {% if r['booked_names'] %}<span class="bdg book">{% with icon='check' %}{% include "admin/_icon.html" %}{% endwith %} {{ r['booked_names'] }}</span>{% endif %}
-      </div>
+      </div>{% endif %}
       {% endif %}
       <h3 class="ttl serif"><a href="/admin/dates/{{ r['id'] }}/edit?{{ editor_return_query }}">{{ r['name'] }}</a></h3>
+      <div class="entity-status-row dcard-status-row">
+        {{ event_lifecycle(r) }}
+        {{ event_visibility(r) }}
+      </div>
       {% set when_str = r['starts_at'] | when(r['ends_at']) %}
       {# Показываем ТОЛЬКО заполненные поля — без пустых строк-подсказок
          «назначить дату»/«указать место» (по просьбе: не заполнять карточку
@@ -177,9 +180,12 @@
     <div class="drow-main">
       <div class="drow-ttl">
         <a href="/admin/dates/{{ r['id'] }}/edit?{{ editor_return_query }}" class="serif">{{ r['name'] }}</a>
-        {% if r['is_draft'] %}<span class="badge amber">{{ 'на модерации' if r['origin'] == 'guest' else 'нужно исправить' }}</span>{% endif %}
         {% if r['origin'] == 'guest' %}<span class="badge">💡 предложено</span>{% endif %}
         {% if r['pay_split'] %}<span class="badge rose">{{ r['pay_split'] | pay_label }}</span>{% endif %}
+      </div>
+      <div class="entity-status-row drow-status-row">
+        {{ event_lifecycle(r) }}
+        {{ event_visibility(r) }}
       </div>
       {% set when_str = r['starts_at'] | when(r['ends_at']) %}
       {% if when_str or r['cats'] or r['books'] %}

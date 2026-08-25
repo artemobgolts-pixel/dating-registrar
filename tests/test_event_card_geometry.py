@@ -86,6 +86,14 @@ class EventCardGeometryBrowserTests(unittest.TestCase):
             label,
         )
 
+    @staticmethod
+    def vertical_gap(page, upper: str, lower: str) -> float:
+        return page.evaluate("""selectors => {
+          const upper = document.querySelector(selectors.upper).getBoundingClientRect();
+          const lower = document.querySelector(selectors.lower).getBoundingClientRect();
+          return lower.top - upper.bottom;
+        }""", {"upper": upper, "lower": lower})
+
     def test_admin_collection_feed_and_widget_keep_media_above_content(self):
         page = self.page_with_styles(f"""
           <html data-skin="romantic"><body>
@@ -105,10 +113,29 @@ class EventCardGeometryBrowserTests(unittest.TestCase):
                   <div class="ed-gallery"><img alt="" src="{PHOTO}"></div>
                   <div class="body">
                     <h2 class="ttl">Превью редактора</h2>
+                    <div class="pmeta">
+                      <div class="ed-when">25.08.2026 в 19:00–21:00</div>
+                      <div class="ed-place-row"><span>⌖</span><span class="ed-place">Место</span></div>
+                    </div>
+                    <div class="ed-field ed-desc">Описание события</div>
+                    <div class="ed-links-row">
+                      <span>↗</span><span class="ed-field ed-links">https://example.com</span>
+                    </div>
                     <div class="acts"><button class="bk">Выбрать</button></div>
                   </div>
                 </article>
               </section>
+              <article class="card cat-card has-thumb">
+                <img class="cat-thumb" alt="" src="{PHOTO}">
+                <div class="cat-body">
+                  <div class="bar">
+                    <div><span class="cat-name">Категория</span></div>
+                    <div class="cat-tail">
+                      <div class="menu-wrap"><button class="more">⋯</button></div>
+                    </div>
+                  </div>
+                </div>
+              </article>
               <section class="dlist">
                 <article class="drow">
                   <label class="drow-select"><input class="drow-check" type="checkbox"></label>
@@ -204,15 +231,46 @@ class EventCardGeometryBrowserTests(unittest.TestCase):
             )
             self.assertIsNotNone(open_menu, skin)
 
-        page.set_viewport_size({"width": 390, "height": 844})
-        for name, outer, media, body in surfaces:
-            if name == "admin-list":
-                # Мобильный list-view сохраняет прежнюю компактную строку.
-                continue
-            self.assert_vertical(
-                self.geometry(page, outer, media, body),
-                (name, "mobile"),
+            editor_actions_gap = self.vertical_gap(
+                page, ".ed-preview-col .ed-links-row", ".ed-preview-col .acts",
             )
+            self.assertGreaterEqual(editor_actions_gap, 12, (skin, "desktop"))
+            self.assertLessEqual(editor_actions_gap, 18, (skin, "desktop"))
+
+        page.set_viewport_size({"width": 390, "height": 844})
+        for skin in ("romantic", "friends"):
+            page.locator("html").evaluate(
+                "(node, value) => node.dataset.skin = value", skin,
+            )
+            for name, outer, media, body in surfaces:
+                if name == "admin-list":
+                    # Мобильный list-view сохраняет прежнюю компактную строку.
+                    continue
+                self.assert_vertical(
+                    self.geometry(page, outer, media, body),
+                    (name, skin, "mobile"),
+                )
+            editor_actions_gap = self.vertical_gap(
+                page, ".ed-preview-col .ed-links-row", ".ed-preview-col .acts",
+            )
+            self.assertGreaterEqual(editor_actions_gap, 12, (skin, "mobile"))
+            self.assertLessEqual(editor_actions_gap, 18, (skin, "mobile"))
+
+        for skin in ("romantic", "friends"):
+            for theme in ("light", "dark"):
+                page.locator("html").evaluate("""(node, appearance) => {
+                  node.dataset.skin = appearance.skin;
+                  node.dataset.theme = appearance.theme;
+                }""", {"skin": skin, "theme": theme})
+                right_edges = page.evaluate("""() => {
+                  const thumb = document.querySelector(".cat-thumb").getBoundingClientRect();
+                  const tail = document.querySelector(".cat-tail").getBoundingClientRect();
+                  return {thumb: thumb.right, tail: tail.right};
+                }""")
+                self.assertAlmostEqual(
+                    right_edges["thumb"], right_edges["tail"], delta=1,
+                    msg=(skin, theme, "mobile category right edge"),
+                )
 
     def test_profile_cards_and_open_widget_are_vertical_in_both_themes(self):
         page = self.page_with_styles(f"""

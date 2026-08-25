@@ -592,7 +592,7 @@ span.oauth-ico { display: grid; place-items: center; font-weight: 700; font-size
 }
 .card.booked-other .bo-text { font-size: 22px; }
 
-/* восковая печать ♥ на выбранной карточке. Только на карточках с фото/видео:
+/* Печать с галочкой на выбранной карточке. Только на карточках с фото/видео:
    ложится в угол галереи, поверх оверлея, далеко от тела карточки. На карточках
    без фото печати нет — там статус показывает .status-chip, а в правом верхнем
    углу .title-row стоит кнопка «пожаловаться», которую печать бы перекрыла. */
@@ -608,6 +608,10 @@ span.oauth-ico { display: grid; place-items: center; font-weight: 700; font-size
   animation: seal-in .5s var(--ease) both;
 }
 .seal[hidden] { display: none; }
+.seal .ui-icon {
+  width: 23px; height: 23px;
+  transform: rotate(12deg); /* сама романтическая печать повёрнута на -12deg */
+}
 @keyframes seal-in {
   from { transform: scale(.2) rotate(30deg); opacity: 0; }
   to   { transform: scale(1) rotate(-12deg); opacity: 1; }
@@ -2350,7 +2354,6 @@ html[data-skin="friends"] .seal {
   color: #fff; background: linear-gradient(145deg, var(--friends-teal), #08706c);
   box-shadow: 0 8px 20px rgba(4, 91, 87, .32);
 }
-html[data-skin="friends"] .seal .ui-icon { width: 23px; height: 23px; }
 html[data-skin="friends"] .winner-ribbon {
   display: inline-flex; align-items: center; gap: 5px;
   color: #29283d;

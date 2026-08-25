@@ -169,7 +169,7 @@
            id="date-{{ d.id }}">
     {% if d.images or d.videos %}
     <div class="gal-wrap">
-      {% if not d.past %}<div class="seal"{% if not d.booked_by_me %} hidden{% endif %}>{% if active_skin == 'friends' %}{{ icon('check') }}{% else %}♥{% endif %}</div>{% endif %}
+      {% if not d.past %}<div class="seal"{% if not d.booked_by_me %} hidden{% endif %}>{{ icon('check') }}</div>{% endif %}
       {% if badges | trim %}<div class="badges">{{ badges }}</div>{% endif %}
       {% if d.is_winner %}<div class="winner-ribbon">{% if active_skin == 'friends' %}{{ icon('spark') }} Общий выбор{% else %}Победитель ♥{% endif %}</div>{% elif d.is_tie_leader %}<div class="winner-ribbon tie">Лидер при ничьей</div>{% endif %}
       <div class="gallery">
@@ -276,13 +276,13 @@
               and ((vote_state.status == 'resolved' and d.is_winner and not d.participation_withdrawn)
                    or vote_state.status in ('unconfigured', 'open')) %}
         <div class="booked">
-          <span class="avs"><span class="av me">{% if active_skin == 'friends' %}{{ icon('check') }}{% else %}♥{% endif %}</span></span>
+          <span class="avs"><span class="av me">{{ icon('check') }}</span></span>
           <span class="who">проведено с <a href="/u/{{ owner['id'] }}?skin={{ active_skin }}">{{ owner_name }}</a></span>
         </div>
         {% elif d.booked_label and vote_state.status in ('unconfigured', 'open') %}
         <div class="booked">
           <span class="avs">
-            {% if d.booked_by_me %}<span class="av me">{% if active_skin == 'friends' %}{{ icon('check') }}{% else %}♥{% endif %}</span>{% endif %}
+            {% if d.booked_by_me %}<span class="av me">{{ icon('check') }}</span>{% endif %}
             {% for nm in d.booked_others_list %}<span class="av">{{ nm[:1] | upper }}</span>{% endfor %}
           </span>
           <span class="who">было:
