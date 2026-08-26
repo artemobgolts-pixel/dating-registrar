@@ -392,24 +392,45 @@ class TimeAndDeadlineBrowserTests(unittest.TestCase):
                       <p class="comment">Описание события для проверки геометрии.</p>
                     </div>
                   </article>
+                  <article class="card">
+                    <div class="gal-wrap">
+                      <div class="gallery">
+                        <img alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1200' height='800'/%3E">
+                      </div>
+                    </div>
+                    <div class="body">
+                      <h2 class="title">Второе событие</h2>
+                      <p class="comment">Проверяет, что desktop-сетка остаётся одноколоночной.</p>
+                    </div>
+                  </article>
                 </section>
               </div>
             </body>
           </html>
         """)
         page.add_style_tag(content=(APP / "static/public.css").read_text("utf-8"))
+        page.add_style_tag(content=".card { animation: none !important; transition: none !important; }")
 
         def geometry():
             return page.evaluate("""() => {
               const wrap = document.querySelector('.wrap').getBoundingClientRect();
-              const card = document.querySelector('.card');
+              const grid = document.querySelector('.cards').getBoundingClientRect();
+              const cards = document.querySelectorAll('.card');
+              const card = cards[0];
+              const firstRect = card.getBoundingClientRect();
+              const secondRect = cards[1].getBoundingClientRect();
               const media = document.querySelector('.gal-wrap').getBoundingClientRect();
               const body = document.querySelector('.card > .body').getBoundingClientRect();
               return {
                 wrapWidth: wrap.width,
                 display: getComputedStyle(card).display,
                 direction: getComputedStyle(card).flexDirection,
-                cardWidth: card.getBoundingClientRect().width,
+                gridWidth: grid.width,
+                cardWidth: firstRect.width,
+                cardX: firstRect.x,
+                cardBottom: firstRect.bottom,
+                secondCardX: secondRect.x,
+                secondCardY: secondRect.y,
                 mediaX: media.x,
                 mediaY: media.y,
                 mediaWidth: media.width,
@@ -446,10 +467,16 @@ class TimeAndDeadlineBrowserTests(unittest.TestCase):
                     desktop["mediaY"] + desktop["mediaHeight"] - 2,
                     (surface, skin),
                 )
-                if surface == "public-category-page":
-                    self.assertLess(desktop["cardWidth"], 540, skin)
-                else:
-                    self.assertLessEqual(desktop["cardWidth"], 682, skin)
+                self.assertAlmostEqual(desktop["gridWidth"], 820, delta=1)
+                self.assertAlmostEqual(desktop["cardWidth"], 820, delta=1)
+                self.assertAlmostEqual(
+                    desktop["secondCardX"], desktop["cardX"], delta=1,
+                    msg=(surface, skin, "one card per row"),
+                )
+                self.assertGreaterEqual(
+                    desktop["secondCardY"], desktop["cardBottom"] + 24,
+                    (surface, skin, "vertical card gap"),
+                )
 
             # Промежуточная ширина ловит прежний friends split-view от 620 px.
             page.set_viewport_size({"width": 760, "height": 900})
@@ -476,6 +503,8 @@ class TimeAndDeadlineBrowserTests(unittest.TestCase):
                     mobile["bodyY"], mobile["mediaY"] + mobile["mediaHeight"] - 2,
                     (surface, skin),
                 )
+                self.assertGreaterEqual(mobile["mediaHeight"], 220, (surface, skin))
+                self.assertLessEqual(mobile["mediaHeight"], 260, (surface, skin))
             page.set_viewport_size({"width": 1280, "height": 900})
 
 

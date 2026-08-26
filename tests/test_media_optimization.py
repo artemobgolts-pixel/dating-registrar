@@ -142,11 +142,11 @@ class FrontendMediaContractTests(unittest.TestCase):
         dates = (APP / "templates/admin/dates.html").read_text("utf-8")
         css = (APP / "static/public.css").read_text("utf-8")
         self.assertIn(
-            'sizes="(max-width: 899px) calc(100vw - 32px), 520px"',
+            'sizes="(max-width: 899px) calc(100vw - 32px), 820px"',
             category,
         )
         self.assertIn(
-            'sizes="(max-width: 899px) calc(100vw - 32px), 680px"',
+            'sizes="(max-width: 899px) calc(100vw - 32px), 820px"',
             share,
         )
         self.assertIn(
@@ -159,11 +159,12 @@ class FrontendMediaContractTests(unittest.TestCase):
         self.assertIn(".public-event-page .wrap", css)
         self.assertIn("max-width: 1080px", css)
         self.assertIn(
-            "grid-template-columns: repeat(2, minmax(0, 1fr))",
+            ".public-event-page.public-category-page .cards,\n"
+            "  .public-event-page.public-share-page .cards",
             css,
         )
-        self.assertIn(".public-share-page .cards", css)
-        self.assertIn("width: min(100%, 680px)", css)
+        self.assertIn("grid-template-columns: minmax(0, 1fr)", css)
+        self.assertIn("width: min(100%, 820px)", css)
         self.assertIn("display: flex; flex-direction: column", css)
         self.assertNotIn(
             "grid-template-columns: minmax(340px, 42%) minmax(0, 1fr)",

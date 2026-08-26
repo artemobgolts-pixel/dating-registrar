@@ -145,7 +145,7 @@
       {% if d.images or d.videos %}
       <div class="gal-wrap">
         <div class="seal"{% if not d.booked_by_me %} hidden{% endif %}>{{ icon('check') }}</div>
-        {% if d.pay_split %}<div class="badges"><span class="badge pay">{{ d.pay_split | pay_label }}</span></div>{% endif %}
+        {% if d.pay_split %}<div class="badges media-badges"><span class="badge pay media-badge media-badge--pay">{{ d.pay_split | pay_label }}</span></div>{% endif %}
         {% if d.is_winner %}<div class="winner-ribbon">{% if active_skin == 'friends' %}{{ icon('spark') }} Общий выбор{% else %}Победитель ♥{% endif %}</div>{% endif %}
         <div class="gallery">
           {% for im in d.images %}
@@ -153,7 +153,7 @@
                srcset="/d/{{ token }}/image/{{ im['filename'] }}?w=480 480w,
                        /d/{{ token }}/image/{{ im['filename'] }}?w=960 960w,
                        /d/{{ token }}/image/{{ im['filename'] }}?w=1600 1600w"
-               sizes="(max-width: 899px) calc(100vw - 32px), 680px"
+               sizes="(max-width: 899px) calc(100vw - 32px), 820px"
                data-full="/d/{{ token }}/image/{{ im['filename'] }}" alt=""
                role="button" tabindex="0" draggable="false"
                aria-label="Открыть фото {{ loop.index }} из {{ d.images | length }}: {{ d.name }}"
@@ -172,7 +172,7 @@
       {% endif %}
       <div class="body">
         {% if not d.images and not d.videos and d.pay_split %}
-        <div class="badges inflow"><span class="badge pay">{{ d.pay_split | pay_label }}</span></div>
+        <div class="badges media-badges media-badges--inflow inflow"><span class="badge pay media-badge media-badge--pay">{{ d.pay_split | pay_label }}</span></div>
         {% endif %}
         <div class="title-row">
           <h2 class="title">{{ d.name }}</h2>
@@ -436,14 +436,14 @@
     <input type="hidden" name="date_id" id="timeDateId">
     <div class="field">
       <div class="chips">
-        <button type="button" class="chip" data-day="today">Сегодня</button>
-        <button type="button" class="chip" data-day="tomorrow">Завтра</button>
+        <button type="button" class="chip choice-chip" data-day="today">Сегодня</button>
+        <button type="button" class="chip choice-chip" data-day="tomorrow">Завтра</button>
       </div>
       <div class="chips">
-        <button type="button" class="chip" data-time="12:00">12:00</button>
-        <button type="button" class="chip" data-time="15:00">15:00</button>
-        <button type="button" class="chip" data-time="19:00">19:00</button>
-        <button type="button" class="chip" data-time="21:00">21:00</button>
+        <button type="button" class="chip choice-chip" data-time="12:00">12:00</button>
+        <button type="button" class="chip choice-chip" data-time="15:00">15:00</button>
+        <button type="button" class="chip choice-chip" data-time="19:00">19:00</button>
+        <button type="button" class="chip choice-chip" data-time="21:00">21:00</button>
       </div>
       <label class="alt-time" for="timeStart">или выбери другое время</label>
       <input type="datetime-local" name="starts_at" id="timeStart" required>
@@ -452,9 +452,9 @@
       <summary>и время окончания</summary>
       <div class="field">
         <div class="chips">
-          <button type="button" class="chip" data-dur="1">+1 час</button>
-          <button type="button" class="chip" data-dur="2">+2 часа</button>
-          <button type="button" class="chip" data-dur="3">+3 часа</button>
+          <button type="button" class="chip choice-chip" data-dur="1">+1 час</button>
+          <button type="button" class="chip choice-chip" data-dur="2">+2 часа</button>
+          <button type="button" class="chip choice-chip" data-dur="3">+3 часа</button>
         </div>
         <label class="sr-only" for="timeEnd">Время окончания</label>
         <input type="datetime-local" name="ends_at" id="timeEnd">
@@ -491,7 +491,7 @@
   <button type="button" class="lb-prev" id="lbPrev" aria-label="Предыдущее фото">‹</button>
   <img alt="Просматриваемое фото" decoding="async" draggable="false">
   <button type="button" class="lb-next" id="lbNext" aria-label="Следующее фото">›</button>
-  <div class="lb-count" id="lbCount" aria-live="polite" aria-atomic="true"></div>
+  <div class="lb-count count-badge count-badge--overlay" id="lbCount" aria-live="polite" aria-atomic="true"></div>
 </dialog>
 <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 

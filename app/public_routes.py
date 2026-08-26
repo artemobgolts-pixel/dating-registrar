@@ -984,7 +984,7 @@ def public_category(token: str, request: Request, conn=Depends(get_db)):
                   if show_participants else [])
         d["booked_others_list"] = others         # инициалы-аватарки в карточке
         d["booked_others"] = ", ".join(others)   # для обновления DOM без reload
-        parts = (["ты ♥"] if d["booked_by_me"] else []) + others
+        parts = (["ты"] if d["booked_by_me"] else []) + others
         d["booked_label"] = ", ".join(parts)
         if show_participants:
             participant_rows = [dict(e) for e in entries]

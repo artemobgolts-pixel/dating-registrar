@@ -1,5 +1,5 @@
 {% extends "admin/base.html" %}
-{% from "admin/_entity_status.html" import category_voting, event_lifecycle, event_visibility %}
+{% from "admin/_entity_status.html" import category_voting, event_lifecycle, event_tone, event_visibility, status %}
 {% block title %}{{ cat['name'] }}{% endblock %}
 {% block head %}<meta name="turbo-cache-control" content="no-cache">{% endblock %}
 {% block content %}
@@ -216,12 +216,12 @@
     <div class="field" style="margin:0">
       <label class="field-label">Сколько вариантов может выбрать один человек<sup class="required-mark" aria-hidden="true">*</sup></label>
       <div class="choice-pick">
-        <label class="choice-opt">
+        <label class="choice-opt choice-card">
           <input type="radio" name="choice_mode" value="single"
                  {% if voting_state.choice_mode != 'multiple' %}checked{% endif %}>
           <span><b>Один</b><small>Новый выбор заменит предыдущий</small></span>
         </label>
-        <label class="choice-opt">
+        <label class="choice-opt choice-card">
           <input type="radio" name="choice_mode" value="multiple"
                  {% if voting_state.choice_mode == 'multiple' %}checked{% endif %}>
           <span><b>Несколько</b><small>Можно отметить сколько угодно событий</small></span>
@@ -236,10 +236,10 @@
              value="{{ voting_state.voting_deadline[:16] if voting_state.voting_deadline else '' }}">
       <div class="deadline-presets" aria-label="Быстрое продление дедлайна">
         <span>Продлить:</span>
-        <button type="button" class="deadline-preset" data-deadline-hours="3" aria-pressed="false">+3 часа</button>
-        <button type="button" class="deadline-preset" data-deadline-hours="24" aria-pressed="false">+1 день</button>
-        <button type="button" class="deadline-preset" data-deadline-hours="72" aria-pressed="false">+3 дня</button>
-        <button type="button" class="deadline-preset" data-deadline-hours="168" aria-pressed="false">+1 неделя</button>
+        <button type="button" class="deadline-preset choice-chip" data-deadline-hours="3" aria-pressed="false">+3 часа</button>
+        <button type="button" class="deadline-preset choice-chip" data-deadline-hours="24" aria-pressed="false">+1 день</button>
+        <button type="button" class="deadline-preset choice-chip" data-deadline-hours="72" aria-pressed="false">+3 дня</button>
+        <button type="button" class="deadline-preset choice-chip" data-deadline-hours="168" aria-pressed="false">+1 неделя</button>
       </div>
       <small class="deadline-readable" data-deadline-readable aria-live="polite"></small>
       <small class="muted">Вручную можно поставить любой будущий срок по Москве. Быстрые кнопки прибавляют время к выбранному дедлайну; новый срок должен быть раньше начала всех событий.</small>
@@ -285,7 +285,7 @@
       <a class="btn small primary"
          href="/admin/dates/new?category={{ cat['id'] }}&amp;return_to={{ (editor_self_url ~ '#categoryDates') | urlencode }}">+ Новое событие</a>
     {% else %}
-      <span class="badge">Состав зафиксирован</span>
+      {{ status('Состав зафиксирован', 'neutral') }}
     {% endif %}
   </div>
 
@@ -296,6 +296,7 @@
     <tbody {% if can_change_composition %}id="catRows" data-cid="{{ cat['id'] }}"{% endif %}>
     {% for d in dates %}
     <tr class="{% if can_change_composition %}drag-row{% endif %}{% if cat['winner_date_id'] == d['id'] %} voting-winner{% endif %}"
+        data-status-tone="{{ event_tone(d) }}"
         {% if can_change_composition %}data-sort="1" data-sort-label="{{ d['name'] }}"{% endif %} data-did="{{ d['id'] }}">
       <td class="drag-h" data-label="Порядок">
         {% if can_change_composition %}<button type="button" class="drag-handle" data-sort-handle
@@ -305,9 +306,9 @@
       </td>
       <td data-label="Событие">
         <a href="/admin/dates/{{ d['id'] }}/edit?return_to={{ (editor_self_url ~ '#categoryDates') | urlencode }}">{{ d['name'] }}</a>
-        {% if cat['winner_date_id'] == d['id'] %}<span class="badge rose">Победитель</span>{% endif %}
-        {% if voting_state.status == 'tie' and d['id'] in leader_ids %}<span class="badge amber">Лидер</span>{% endif %}
-        {% if d['origin'] == 'guest' %}<span class="badge">💡 предложено</span>{% endif %}
+        {% if cat['winner_date_id'] == d['id'] %}{{ status('Победитель', 'success') }}{% endif %}
+        {% if voting_state.status == 'tie' and d['id'] in leader_ids %}{{ status('Лидер', 'warning') }}{% endif %}
+        {% if d['origin'] == 'guest' %}<span class="badge badge-meta media-badge media-badge--guest media-badge--inflow">💡 предложено</span>{% endif %}
         <span class="entity-status-inline">{{ event_lifecycle(d) }} {{ event_visibility(d) }}</span>
       </td>
       <td class="muted" data-label="Когда">{{ d['starts_at'] | when(d['ends_at']) or '—' }}</td>

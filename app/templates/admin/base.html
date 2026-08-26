@@ -115,7 +115,7 @@
     <a class="bell {{ 'on' if active == 'q' else '' }}" href="/admin/questions"
        aria-label="Уведомления{% if unread %} ({{ unread }} непрочитанных){% endif %}">
       <span class="bell-ic">{% with icon='bell' %}{% include "admin/_icon.html" %}{% endwith %}</span>
-      {% if unread %}<span class="bell-count" aria-hidden="true">{{ '99+' if unread > 99 else unread }}</span>{% endif %}
+      {% if unread %}<span class="bell-count count-badge count-badge--overlay" aria-hidden="true">{{ '99+' if unread > 99 else unread }}</span>{% endif %}
     </a>
     <form class="logout-top secondary-top-control" method="post" action="/admin/logout">
       <input type="hidden" name="csrf" value="{{ csrf }}">

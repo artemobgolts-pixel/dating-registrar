@@ -197,6 +197,64 @@ class NotificationUiTests(unittest.TestCase):
         self.assertIn("images.og_default_path(preview_skin)", public_routes)
         self.assertIn('media_type="image/png"', public_routes)
 
+    def test_event_and_category_versions_share_surface_status_tones(self):
+        dates = (APP / "templates/admin/dates.html").read_text(encoding="utf-8")
+        categories = (APP / "templates/admin/categories.html").read_text(
+            encoding="utf-8",
+        )
+        detail = (APP / "templates/admin/category_detail.html").read_text(
+            encoding="utf-8",
+        )
+        css = (APP / "static/admin.css").read_text(encoding="utf-8")
+
+        self.assertEqual(
+            dates.count('data-status-tone="{{ event_tone(r) }}"'), 2,
+            "карточки и строки событий должны получать тон из одного макроса",
+        )
+        self.assertIn(
+            'data-status-tone="{{ category_tone(c[\'voting_status\'], c[\'link_enabled\']) }}"',
+            categories,
+        )
+        self.assertIn('data-status-tone="{{ event_tone(d) }}"', detail)
+        self.assertIn(
+            ":is(.dcard.dcard, .drow.drow, .cat-card.cat-card)[data-status-tone]",
+            css,
+        )
+        self.assertIn(".category-events-card tr[data-status-tone] > td", css)
+        self.assertIn('border-inline-start: 4px solid var(--entity-surface-tone)', css)
+        self.assertIn('--entity-surface-wash: color-mix(', css)
+
+        env = Environment(loader=FileSystemLoader(APP / "templates"))
+        template = env.from_string(
+            "{% from 'admin/_entity_status.html' import event_tone, category_tone %}"
+            "{{ event_tone(event) }}|"
+            "{{ category_tone(category_status, link_enabled, counting) }}"
+        )
+        active = {"archived_at": None, "is_draft": 0}
+        draft = {"archived_at": None, "is_draft": 1}
+        archived = {"archived_at": "2030-01-01", "is_draft": 0}
+        self.assertEqual(
+            template.render(
+                event=active, category_status="resolved",
+                link_enabled=True, counting=False,
+            ),
+            "success|success",
+        )
+        self.assertEqual(
+            template.render(
+                event=draft, category_status="open",
+                link_enabled=True, counting=True,
+            ),
+            "warning|warning",
+        )
+        self.assertEqual(
+            template.render(
+                event=archived, category_status="open",
+                link_enabled=False, counting=False,
+            ),
+            "neutral|danger",
+        )
+
     def test_countdown_is_continuous_turbo_safe_and_reused_on_dashboard(self):
         category = (APP / "templates/public/category.html").read_text(encoding="utf-8")
         share = (APP / "templates/public/share.html").read_text(encoding="utf-8")

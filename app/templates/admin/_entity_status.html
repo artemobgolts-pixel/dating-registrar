@@ -25,6 +25,16 @@
   {%- endif -%}
 {%- endmacro %}
 
+{# Основной тон поверхности задаётся отдельно от текстовых статусов. Так все
+   представления одной сущности (карточка, список и таблица) используют один
+   приоритет, а вторичный признак видимости не перекрашивает всю карточку. #}
+{% macro event_tone(event) -%}
+  {%- if event['archived_at'] -%}neutral
+  {%- elif event['is_draft'] -%}warning
+  {%- else -%}success
+  {%- endif -%}
+{%- endmacro %}
+
 {% macro category_voting(value, counting=false) -%}
   {%- if value == 'open' and counting -%}
     {{ status('Считаем результат', 'warning') }}
@@ -43,4 +53,14 @@
 
 {% macro category_link(enabled) -%}
   {{ status('Ссылка активна' if enabled else 'Ссылка выключена', 'success' if enabled else 'danger') }}
+{%- endmacro %}
+
+{% macro category_tone(value, link_enabled, counting=false) -%}
+  {%- if not link_enabled -%}danger
+  {%- elif value == 'open' and counting -%}warning
+  {%- elif value == 'open' -%}info
+  {%- elif value == 'tie' -%}warning
+  {%- elif value == 'resolved' -%}success
+  {%- else -%}neutral
+  {%- endif -%}
 {%- endmacro %}

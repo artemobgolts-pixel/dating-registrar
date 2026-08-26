@@ -240,7 +240,7 @@
     const seal = card.querySelector(".seal");
     if (seal) seal.hidden = !mine;                 // знак выбора (только карточки с фото)
     const who = card.querySelector(".bo-who");     // подпись на оверлее
-    if (who) who.textContent = mine ? (MYNAME || (FRIENDS ? "ты" : "ты ♥")) : "";
+    if (who) who.textContent = mine ? (MYNAME || "ты") : "";
   }
 
   function renderParticipants(progress, update) {
@@ -395,7 +395,7 @@
       card.classList.add("glow");
       toast(notifyRevealed
         ? "Голос учтён. Теперь можно подключить уведомления в Telegram"
-        : (FRIENDS ? "Голос учтён" : "Голос учтён ♥"));
+        : "Голос учтён");
     } else {
       toast("Голос снят");
     }
@@ -1070,7 +1070,7 @@
     dots.setAttribute("aria-hidden", "true");
     for (let k = 0; k < n; k++) dots.appendChild(document.createElement("i"));
     const cnt = document.createElement("div");
-    cnt.className = "gal-count";
+    cnt.className = "gal-count count-badge count-badge--overlay";
     cnt.setAttribute("aria-live", "polite");
     cnt.setAttribute("aria-atomic", "true");
     const prev = document.createElement("button");

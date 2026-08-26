@@ -1,5 +1,5 @@
 {% extends "admin/base.html" %}
-{% from "admin/_entity_status.html" import category_link, category_voting %}
+{% from "admin/_entity_status.html" import category_link, category_tone, category_voting, status %}
 {% block title %}Подборки{% endblock %}
 {% block head %}<meta name="turbo-cache-control" content="no-cache">{% endblock %}
 {% block content %}
@@ -11,7 +11,8 @@
 
 <div data-tour="categories-collection">
 {% for c in cats %}
-<div class="card cat-card has-thumb">
+<div class="card cat-card has-thumb"
+     data-status-tone="{{ category_tone(c['voting_status'], c['link_enabled']) }}">
   <a class="cat-link" href="/admin/categories/{{ c['id'] }}" data-tour-category-link aria-label="Открыть «{{ c['name'] }}»"></a>
   <img class="cat-thumb"
        src="/admin/categories/{{ c['id'] }}/og-preview?skin={{ c['category_skin'] }}&amp;v={{ c['preview_revision'] }}"
@@ -21,12 +22,12 @@
       <div>
         <div class="cat-heading-line">
           <span class="cat-name">{{ c['name'] }}</span>
-          <span class="badge badge-meta">{{ c['dcount'] }} {{ c['dcount'] | plural('событие', 'события', 'событий') }}</span>
-          {% if c['moderate_proposals'] %}<span class="badge amber badge-config">модерация</span>{% endif %}
+          <span class="badge badge-meta count-badge count-badge--label">{{ c['dcount'] }} {{ c['dcount'] | plural('событие', 'события', 'событий') }}</span>
         </div>
         <div class="entity-status-row cat-status-row">
           {{ category_voting(c['voting_status']) }}
           {{ category_link(c['link_enabled']) }}
+          {% if c['moderate_proposals'] %}{{ status('Модерация предложений', 'warning') }}{% endif %}
         </div>
       </div>
       <div class="cat-tail">

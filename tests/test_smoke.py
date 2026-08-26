@@ -661,7 +661,7 @@ with TestClient(main.app, follow_redirects=False) as c:
               {"text": "Конечно, жду тебя!", "next": "/admin/questions"})
     assert r.status_code == 303
     assert "Конечно, жду тебя!" in ga.get(f"/c/{tok}").text
-    assert "отвечено" in c.get("/admin/questions?f=all").text
+    assert "Отвечено" in c.get("/admin/questions?f=all").text
     r = apost(c, f"/admin/questions/{qid}/answer", {"text": "", "next": "/admin/questions"})
     assert "пока без ответа" in ga.get(f"/c/{tok}").text
     apost(c, f"/admin/questions/{qid}/answer",
@@ -2513,7 +2513,7 @@ with TestClient(main.app, follow_redirects=False) as cown, \
     )
     _badge_db.commit(); _badge_db.close()
     badge_page = cown.get("/admin/questions").text
-    assert re.search(r'class="bell-count"[^>]*>99\+</span>', badge_page), \
+    assert re.search(r'class="bell-count count-badge count-badge--overlay"[^>]*>99\+</span>', badge_page), \
         "счётчик в шапке должен оставаться компактным при трёхзначном числе"
     _badge_db = dbm.connect()
     _badge_db.execute("DELETE FROM questions WHERE text LIKE 'badge-test-%'")
@@ -2911,7 +2911,11 @@ with TestClient(main.app, follow_redirects=False) as cown:
                                         "categories": str(uic["id"])})
     # #2: в админ-списке у карточки без фото нет блока-плейсхолдера .ph
     lp = cown.get("/admin/dates").text
-    nocard = re.search(r'<div class="dcard[^"]*nocover[^"]*">.*?Без картинок', lp, re.S)
+    nocard = re.search(
+        r'<div class="dcard[^"]*nocover[^"]*"[^>]*>.*?Без картинок',
+        lp,
+        re.S,
+    )
     assert nocard and 'class="ph' not in nocard.group(0), "карточка без фото не должна иметь .ph-плейсхолдер"
     # #2: на гостевой у карточки без фото нет градиентной «крышки» (.booked-overlay.flat / .accent)
     gp = cown.get(f"/c/{uic['link_token']}").text
@@ -3387,7 +3391,7 @@ with TestClient(main.app, follow_redirects=False) as cui2:
     # Счётчики событий живут в двух статусах: Активные/Архив.
     cui2.post("/admin/dates/new", data={"csrf": uc2, "name": "Акт", "categories": str(cc["id"])})
     dpage = cui2.get("/admin/dates?view=active").text
-    assert re.search(r'view=active[^>]*>Активные\s*<span class="pill">1</span>', dpage)
+    assert re.search(r'view=active[^>]*>Активные\s*<span class="pill count-badge count-badge--tab">1</span>', dpage)
     assert ">Неактивные<" not in dpage
     # #4: под тумблером публичности больше нет пояснительного текста
     nf = cui2.get("/admin/dates/new").text

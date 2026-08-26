@@ -1,4 +1,5 @@
 {% extends "admin/base.html" %}
+{% from "admin/_entity_status.html" import status %}
 {% block title %}Уведомления{% endblock %}
 {% block content %}
 <div class="notif-page-head">
@@ -7,7 +8,7 @@
     <p>Вопросы, предложения времени и события, которые ждут твоего отзыва.</p>
   </div>
   {% if unread %}
-  <span class="notif-new-count">{{ '99+' if unread > 99 else unread }} новых</span>
+  <span class="notif-new-count count-badge count-badge--label">{{ '99+' if unread > 99 else unread }} новых</span>
   {% endif %}
 </div>
 
@@ -63,13 +64,13 @@
 <div class="controls notif-controls">
   <div class="tabs" data-glass-key="notification-filters" aria-label="Фильтр уведомлений">
     <a href="/admin/questions" class="{{ 'on' if f == 'unread' else '' }}">
-      Непрочитанные <span class="notif-tab-count">{{ question_unread }}</span>
+      Непрочитанные <span class="notif-tab-count count-badge count-badge--tab">{{ question_unread }}</span>
     </a>
     <a href="/admin/questions?f=all" class="{{ 'on' if f == 'all' else '' }}">
-      Все <span class="notif-tab-count">{{ total_notifications }}</span>
+      Все <span class="notif-tab-count count-badge count-badge--tab">{{ total_notifications }}</span>
     </a>
     <a href="/admin/questions?f=reviews" class="{{ 'on' if f == 'reviews' else '' }}">
-      Ждут отзыва <span class="notif-tab-count">{{ review_waiting }}</span>
+      Ждут отзыва <span class="notif-tab-count count-badge count-badge--tab">{{ review_waiting }}</span>
     </a>
   </div>
 </div>
@@ -81,7 +82,7 @@
   <div class="notif-head">
     <span class="notif-ic notif-review-ic" aria-hidden="true">★</span>
     <div class="notif-meta">
-      <div class="notif-who"><b>{{ review['date_name'] }}</b><span class="badge amber">ждёт отзыва</span></div>
+      <div class="notif-who"><b>{{ review['date_name'] }}</b>{{ status('Ждёт отзыва', 'warning') }}</div>
       <div class="notif-sub">
         {{ review['starts_at'] | when(review['ends_at']) or 'Дата события не указана' }}
         · напоминание от {{ review['updated_at'] | ts }}
@@ -126,7 +127,7 @@
       {% else %}?{% endif %}
     </span>
     <div class="notif-meta">
-      <div class="notif-who"><b>{{ q['gname'] }}</b>{% if q['answer'] %}<span class="badge rose">отвечено</span>{% elif not q['is_read'] %}<span class="badge amber">новое</span>{% endif %}</div>
+      <div class="notif-who"><b>{{ q['gname'] }}</b>{% if q['answer'] %}{{ status('Отвечено', 'success') }}{% elif not q['is_read'] %}{{ status('Новое', 'info') }}{% endif %}</div>
       <div class="notif-sub">к событию «<a href="/admin/dates/{{ q['did'] }}/edit">{{ q['date_name'] }}</a>»{% if q['cat_name'] %} · {{ q['cat_name'] }}{% endif %} · {{ q['created_at'] | ts }}</div>
     </div>
   </div>

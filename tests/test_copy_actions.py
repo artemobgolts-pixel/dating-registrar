@@ -70,7 +70,8 @@ def login(client: TestClient, telegram_id: int) -> str:
 def category_card_fragment(html: str, category_id: int) -> str:
     """Вернуть одну карточку категории из серверного списка."""
     marker = f'href="/admin/categories/{category_id}"'
-    for fragment in html.split('<div class="card cat-card has-thumb">')[1:]:
+    opening = r'<div class="card cat-card has-thumb"[^>]*>'
+    for fragment in re.split(opening, html)[1:]:
         if marker in fragment:
             return fragment
     raise AssertionError(f"Карточка категории {category_id} не найдена")
@@ -373,6 +374,11 @@ class CopyActionTests(unittest.TestCase):
             public_css,
         )
 
+        guest_js = (APP / "static/guest.js").read_text(encoding="utf-8")
+        public_routes = (APP / "public_routes.py").read_text(encoding="utf-8")
+        self.assertNotIn("ты ♥", guest_js)
+        self.assertNotIn("Голос учтён ♥", guest_js)
+        self.assertNotIn("ты ♥", public_routes)
     def test_community_widget_toggles_want_without_copying_event(self):
         with TestClient(main.app, follow_redirects=False) as owner:
             login(owner, 880201)

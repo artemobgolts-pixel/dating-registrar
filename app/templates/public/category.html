@@ -165,16 +165,16 @@
 
   {% macro datecard(d, priority=false) -%}
   {% set badges %}
-    {%- if d.pending %}<span class="badge wait">⏳ ждёт проверки</span>
-    {%- elif d.origin == 'guest' and not d.past %}<span class="badge guest">💡 идея гостя</span>{% endif -%}
-    {%- if d.pay_split %}<span class="badge pay">{{ d.pay_split | pay_label }}</span>{% endif -%}
+    {%- if d.pending %}<span class="badge wait media-badge media-badge--pending">⏳ ждёт проверки</span>
+    {%- elif d.origin == 'guest' and not d.past %}<span class="badge guest media-badge media-badge--guest">💡 идея гостя</span>{% endif -%}
+    {%- if d.pay_split %}<span class="badge pay media-badge media-badge--pay">{{ d.pay_split | pay_label }}</span>{% endif -%}
   {% endset %}
   <article class="card{% if d.past %} past{% endif %}{% if d.booked_by_me and not d.past %} booked-me{% endif %}{% if d.is_winner %} vote-winner{% elif d.is_loser %} vote-loser{% elif d.is_tie_leader %} vote-tie-leader{% endif %}{% if not d.images and not d.videos %} nophoto{% endif %}"
            id="date-{{ d.id }}">
     {% if d.images or d.videos %}
     <div class="gal-wrap">
       {% if not d.past %}<div class="seal"{% if not d.booked_by_me %} hidden{% endif %}>{{ icon('check') }}</div>{% endif %}
-      {% if badges | trim %}<div class="badges">{{ badges }}</div>{% endif %}
+      {% if badges | trim %}<div class="badges media-badges">{{ badges }}</div>{% endif %}
       {% if d.is_winner %}<div class="winner-ribbon">{% if active_skin == 'friends' %}{{ icon('spark') }} Общий выбор{% else %}Победитель ♥{% endif %}</div>{% elif d.is_tie_leader %}<div class="winner-ribbon tie">Лидер при ничьей</div>{% endif %}
       <div class="gallery">
         {% for im in d.images %}
@@ -182,7 +182,7 @@
              srcset="/c/{{ token }}/image/{{ im['filename'] }}?w=480 480w,
                      /c/{{ token }}/image/{{ im['filename'] }}?w=960 960w,
                      /c/{{ token }}/image/{{ im['filename'] }}?w=1600 1600w"
-             sizes="(max-width: 899px) calc(100vw - 32px), 520px"
+             sizes="(max-width: 899px) calc(100vw - 32px), 820px"
              data-full="/c/{{ token }}/image/{{ im['filename'] }}" alt=""
              role="button" tabindex="0" draggable="false"
              aria-label="Открыть фото {{ loop.index }} из {{ d.images | length }}: {{ d.name }}"
@@ -202,7 +202,7 @@
     {% endif %}
     <div class="body">
       {# карточка без фото/видео — без заглушки: только бейджи, заголовок и параметры #}
-      {% if not d.images and not d.videos and badges | trim %}<div class="badges inflow">{{ badges }}</div>{% endif %}
+      {% if not d.images and not d.videos and badges | trim %}<div class="badges media-badges media-badges--inflow inflow">{{ badges }}</div>{% endif %}
       <div class="title-row">
         <h2 class="title">{{ d.name }}</h2>
         {% if not viewer_is_owner and not d.past and not d.pending and not d.editable %}
@@ -481,14 +481,14 @@
     <input type="hidden" name="date_id" id="timeDateId">
     <div class="field">
       <div class="chips">
-        <button type="button" class="chip" data-day="today">Сегодня</button>
-        <button type="button" class="chip" data-day="tomorrow">Завтра</button>
+        <button type="button" class="chip choice-chip" data-day="today">Сегодня</button>
+        <button type="button" class="chip choice-chip" data-day="tomorrow">Завтра</button>
       </div>
       <div class="chips">
-        <button type="button" class="chip" data-time="12:00">12:00</button>
-        <button type="button" class="chip" data-time="15:00">15:00</button>
-        <button type="button" class="chip" data-time="19:00">19:00</button>
-        <button type="button" class="chip" data-time="21:00">21:00</button>
+        <button type="button" class="chip choice-chip" data-time="12:00">12:00</button>
+        <button type="button" class="chip choice-chip" data-time="15:00">15:00</button>
+        <button type="button" class="chip choice-chip" data-time="19:00">19:00</button>
+        <button type="button" class="chip choice-chip" data-time="21:00">21:00</button>
       </div>
       <label class="alt-time" for="timeStart">или выбери другое время</label>
       <input type="datetime-local" name="starts_at" id="timeStart" required>
@@ -497,9 +497,9 @@
       <summary>и время окончания</summary>
       <div class="field">
         <div class="chips">
-          <button type="button" class="chip" data-dur="1">+1 час</button>
-          <button type="button" class="chip" data-dur="2">+2 часа</button>
-          <button type="button" class="chip" data-dur="3">+3 часа</button>
+          <button type="button" class="chip choice-chip" data-dur="1">+1 час</button>
+          <button type="button" class="chip choice-chip" data-dur="2">+2 часа</button>
+          <button type="button" class="chip choice-chip" data-dur="3">+3 часа</button>
         </div>
         <label class="sr-only" for="timeEnd">Время окончания</label>
         <input type="datetime-local" name="ends_at" id="timeEnd">
@@ -536,7 +536,7 @@
         <div class="preview-cap">Твоя карточка <span>— кликай и меняй прямо здесь</span></div>
         <div class="pcard editable" id="propEdCard">
           <div class="ed-gallery" id="propZone">
-            <span class="ed-gallery-pay pay" id="propPayPhoto" hidden></span>
+            <span class="ed-gallery-pay pay media-badge media-badge--pay" id="propPayPhoto" hidden></span>
             <div class="ed-slides" id="propSlides"></div>
             <div class="ed-empty" id="propEmpty">
               <img class="ed-empty-logo" src="{{ asset('date-default-friends.jpg' if active_skin == 'friends' else 'date-default.jpg') }}" alt="" draggable="false">
@@ -552,7 +552,7 @@
           <div class="body">
             <h3 class="ttl">
               <span class="required-title"><span class="ed-field" id="propEdTitle" data-ph="Название события" aria-label="Название события" aria-required="true"></span><sup class="required-mark" aria-hidden="true">*</sup></span>
-              <span class="pay" id="propPayPill" hidden></span>
+              <span class="pay media-badge media-badge--pay media-badge--inflow" id="propPayPill" hidden></span>
             </h3>
             <div class="pmeta">
               <div class="ed-when" id="propEdWhen">
@@ -607,10 +607,10 @@
           <div class="field">
             <label>Оплата</label>
             <div class="pay-pick" role="radiogroup" aria-label="Оплата">
-              <label class="pay-opt pay-any"><input type="radio" name="pay" value="0" checked> Не важно</label>
-              <label class="pay-opt"><input type="radio" name="pay" value="1">💸 50/50</label>
-              <label class="pay-opt"><input type="radio" name="pay" value="2">👌 Я плачу</label>
-              <label class="pay-opt"><input type="radio" name="pay" value="3">🫵 Ты платишь</label>
+              <label class="pay-opt pay-any choice-chip"><input type="radio" name="pay" value="0" checked> Не важно</label>
+              <label class="pay-opt choice-chip"><input type="radio" name="pay" value="1">💸 50/50</label>
+              <label class="pay-opt choice-chip"><input type="radio" name="pay" value="2">👌 Я плачу</label>
+              <label class="pay-opt choice-chip"><input type="radio" name="pay" value="3">🫵 Ты платишь</label>
             </div>
           </div>
           <label class="field capacity-field">
@@ -628,7 +628,7 @@
         <section class="sec date-widget-context">
           <h2><span class="n">2</span> Подборка</h2>
           <div class="chips-cat">
-            <span class="chip-cat selected">{{ icon('link') }} {{ cat.name }}</span>
+            <span class="chip-cat choice-chip selected">{{ icon('link') }} {{ cat.name }}</span>
           </div>
           <p>Событие добавится в эту подборку. Если включена модерация, сначала его увидит организатор.</p>
         </section>
@@ -666,7 +666,7 @@
   <button type="button" class="lb-prev" id="lbPrev" aria-label="Предыдущее фото">‹</button>
   <img alt="Просматриваемое фото" decoding="async" draggable="false">
   <button type="button" class="lb-next" id="lbNext" aria-label="Следующее фото">›</button>
-  <div class="lb-count" id="lbCount" aria-live="polite" aria-atomic="true"></div>
+  <div class="lb-count count-badge count-badge--overlay" id="lbCount" aria-live="polite" aria-atomic="true"></div>
 </dialog>
 <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 

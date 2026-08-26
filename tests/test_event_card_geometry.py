@@ -99,7 +99,7 @@ class EventCardGeometryBrowserTests(unittest.TestCase):
           <html data-skin="romantic"><body>
             <main class="wrap">
               <section class="grid">
-                <article class="dcard">
+                <article class="dcard" data-status-tone="warning">
                   <div class="ph"><img alt="" src="{PHOTO}"></div>
                   <div class="b">
                     <h2 class="ttl">Моё событие</h2>
@@ -125,7 +125,7 @@ class EventCardGeometryBrowserTests(unittest.TestCase):
                   </div>
                 </article>
               </section>
-              <article class="card cat-card has-thumb">
+              <article class="card cat-card has-thumb" data-status-tone="danger">
                 <img class="cat-thumb" alt="" src="{PHOTO}">
                 <div class="cat-body">
                   <div class="bar">
@@ -137,7 +137,7 @@ class EventCardGeometryBrowserTests(unittest.TestCase):
                 </div>
               </article>
               <section class="dlist">
-                <article class="drow">
+                <article class="drow" data-status-tone="neutral">
                   <label class="drow-select"><input class="drow-check" type="checkbox"></label>
                   <a class="drow-cover"><img alt="" src="{PHOTO}"></a>
                   <div class="drow-main"><h2 class="drow-ttl">Событие списка</h2></div>
@@ -149,11 +149,22 @@ class EventCardGeometryBrowserTests(unittest.TestCase):
                     </div>
                   </div>
                 </article>
-                <article class="drow drow-without-cover">
+                <article class="drow drow-without-cover" data-status-tone="success">
                   <label class="drow-select"><input class="drow-check" type="checkbox"></label>
                   <div class="drow-main"><h2 class="drow-ttl">Событие без фото</h2></div>
                   <div class="drow-act"><button class="btn">Редактировать</button></div>
                 </article>
+              </section>
+              <section class="card category-events-card">
+                <div class="table-wrap"><table><tbody>
+                  <tr data-status-tone="warning">
+                    <td data-label="Порядок">⋮⋮</td>
+                    <td data-label="Событие">Событие внутри подборки</td>
+                    <td data-label="Когда">25.08.2026</td>
+                    <td data-label="Голоса / мест">2 / 4</td>
+                    <td data-label="Действия"><button>Открыть</button></td>
+                  </tr>
+                </tbody></table></div>
               </section>
               <section class="cfeed">
                 <article class="cfeed-card">
@@ -231,6 +242,50 @@ class EventCardGeometryBrowserTests(unittest.TestCase):
             )
             self.assertIsNotNone(open_menu, skin)
 
+            status_surfaces = page.evaluate("""() => {
+              const read = selector => {
+                const style = getComputedStyle(document.querySelector(selector));
+                return {
+                  edgeWidth: style.borderInlineStartWidth,
+                  edgeColor: style.borderInlineStartColor,
+                  wash: style.backgroundColor,
+                };
+              };
+              return {
+                warning: read('.dcard[data-status-tone="warning"]'),
+                danger: read('.cat-card[data-status-tone="danger"]'),
+                neutral: read('.drow[data-status-tone="neutral"]'),
+                success: read('.drow[data-status-tone="success"]'),
+              };
+            }""")
+            for tone in ("warning", "danger", "neutral", "success"):
+                self.assertEqual(status_surfaces[tone]["edgeWidth"], "4px", (skin, tone))
+            for tone in ("warning", "danger", "neutral"):
+                self.assertNotIn(
+                    status_surfaces[tone]["wash"], ("transparent", "rgba(0, 0, 0, 0)"),
+                    (skin, tone),
+                )
+            self.assertIn(
+                status_surfaces["success"]["wash"],
+                ("transparent", "rgba(0, 0, 0, 0)"),
+                skin,
+            )
+            self.assertNotEqual(
+                status_surfaces["warning"]["edgeColor"],
+                status_surfaces["danger"]["edgeColor"],
+                skin,
+            )
+            table_status = page.locator(
+                '.category-events-card tr[data-status-tone="warning"] > td:first-child',
+            ).evaluate("""node => {
+              const style = getComputedStyle(node);
+              return {edgeWidth: style.borderInlineStartWidth, wash: style.backgroundColor};
+            }""")
+            self.assertEqual(table_status["edgeWidth"], "4px", skin)
+            self.assertNotIn(
+                table_status["wash"], ("transparent", "rgba(0, 0, 0, 0)"), skin,
+            )
+
             editor_actions_gap = self.vertical_gap(
                 page, ".ed-preview-col .ed-links-row", ".ed-preview-col .acts",
             )
@@ -255,6 +310,24 @@ class EventCardGeometryBrowserTests(unittest.TestCase):
             )
             self.assertGreaterEqual(editor_actions_gap, 12, (skin, "mobile"))
             self.assertLessEqual(editor_actions_gap, 18, (skin, "mobile"))
+            mobile_table_status = page.locator(
+                '.category-events-card tr[data-status-tone="warning"]',
+            ).evaluate("""node => {
+              const style = getComputedStyle(node);
+              const first = getComputedStyle(node.querySelector('td:first-child'));
+              return {
+                edgeWidth: style.borderInlineStartWidth,
+                wash: style.backgroundColor,
+                cellEdgeWidth: first.borderInlineStartWidth,
+              };
+            }""")
+            self.assertEqual(mobile_table_status["edgeWidth"], "4px", skin)
+            self.assertEqual(mobile_table_status["cellEdgeWidth"], "0px", skin)
+            self.assertNotIn(
+                mobile_table_status["wash"],
+                ("transparent", "rgba(0, 0, 0, 0)"),
+                skin,
+            )
 
         for skin in ("romantic", "friends"):
             for theme in ("light", "dark"):
@@ -271,6 +344,18 @@ class EventCardGeometryBrowserTests(unittest.TestCase):
                     right_edges["thumb"], right_edges["tail"], delta=1,
                     msg=(skin, theme, "mobile category right edge"),
                 )
+                for selector in (
+                    '.dcard[data-status-tone="warning"]',
+                    '.cat-card[data-status-tone="danger"]',
+                    '.drow[data-status-tone="neutral"]',
+                ):
+                    self.assertEqual(
+                        page.locator(selector).evaluate(
+                            "node => getComputedStyle(node).borderInlineStartWidth",
+                        ),
+                        "4px",
+                        (skin, theme, selector),
+                    )
 
     def test_profile_cards_and_open_widget_are_vertical_in_both_themes(self):
         page = self.page_with_styles(f"""
@@ -342,6 +427,168 @@ class EventCardGeometryBrowserTests(unittest.TestCase):
                 self.geometry(page, outer, media, body),
                 (name, "mobile"),
             )
+
+    def test_semantic_badges_keep_distinct_shapes_and_editor_positioning(self):
+        guest_js = (APP / "static/guest.js").read_text("utf-8")
+        self.assertIn(
+            'cnt.className = "gal-count count-badge count-badge--overlay"',
+            guest_js,
+        )
+        for template_name in ("category.html", "share.html"):
+            template = (APP / "templates/public" / template_name).read_text("utf-8")
+            self.assertIn(
+                'class="lb-count count-badge count-badge--overlay"', template,
+            )
+        dates_template = (APP / "templates/admin/dates.html").read_text("utf-8")
+        self.assertIn(
+            "badge badge-meta media-badge media-badge--guest media-badge--inflow",
+            dates_template,
+        )
+        self.assertIn(
+            "badge badge-split media-badge media-badge--pay media-badge--inflow",
+            dates_template,
+        )
+
+        admin = self.page_with_styles(f"""
+          <html data-skin="romantic" data-theme="light"><body>
+            <span id="count" class="badge count-badge count-badge--label">4 события</span>
+            <a class="bell"><span id="overlay-count" class="bell-count count-badge count-badge--overlay">99+</span></a>
+            <div class="tabs"><a class="on">Активные <span id="tab-count" class="pill count-badge count-badge--tab">999</span></a></div>
+            <button id="choice" class="deadline-preset choice-chip" aria-pressed="true">Завтра</button>
+            <label id="pay-choice" class="pay-opt choice-chip"><input type="radio" checked>50/50</label>
+            <article class="dcard">
+              <div class="ph">
+                <img alt="" src="{PHOTO}">
+                <span id="photo" class="bdg guest media-badge media-badge--guest">Идея гостя</span>
+              </div>
+              <div class="badges media-badges media-badges--inflow inflow">
+                <span id="inflow" class="bdg guest media-badge media-badge--guest">Предложено</span>
+              </div>
+            </article>
+            <article class="pcard">
+              <div class="ed-gallery">
+                <span id="editor-photo" class="ed-gallery-pay bdg pay media-badge media-badge--pay">50/50</span>
+              </div>
+              <div class="body"><h3 class="ttl">
+                Событие
+                <span id="editor-flow" class="pay media-badge media-badge--pay media-badge--inflow">50/50</span>
+              </h3></div>
+            </article>
+          </body></html>
+        """, "static/admin.css")
+
+        public = self.page_with_styles(f"""
+          <html data-skin="romantic" data-theme="light"><body>
+            <article class="card"><div class="gal-wrap">
+              <div class="gallery"><img alt="" src="{PHOTO}"></div>
+              <div class="badges"><span id="photo" class="badge guest media-badge media-badge--guest">Идея гостя</span></div>
+            </div></article>
+            <div class="badges media-badges media-badges--inflow inflow">
+              <span id="inflow" class="badge wait media-badge media-badge--pending">Ждёт проверки</span>
+            </div>
+            <div class="date-widget-dialog">
+              <button id="choice" class="chip choice-chip">Завтра</button>
+              <label id="pay-choice" class="pay-opt choice-chip"><input type="radio" checked>50/50</label>
+              <article class="pcard"><div class="ed-gallery">
+                <span id="editor-photo" class="ed-gallery-pay pay media-badge media-badge--pay">50/50</span>
+              </div><div class="body"><h3 class="ttl">
+                Событие
+                <span id="editor-flow" class="pay media-badge media-badge--pay media-badge--inflow">50/50</span>
+              </h3></div></article>
+            </div>
+            <div id="gal-count" class="gal-count count-badge count-badge--overlay">3 / 12</div>
+            <div id="lb-count" class="lb-count count-badge count-badge--overlay">3 / 12</div>
+          </body></html>
+        """, "static/public.css")
+
+        def badge_styles(page, selector):
+            return page.locator(selector).evaluate("""node => {
+              const style = getComputedStyle(node);
+              const mark = getComputedStyle(node, '::before');
+              return {
+                radius: style.borderRadius,
+                background: style.backgroundColor,
+                color: style.color,
+                position: style.position,
+                shadow: style.boxShadow,
+                markWidth: mark.width,
+                markHeight: mark.height,
+              };
+            }""")
+
+        def contrast_ratio(page, selector):
+            return page.locator(selector).evaluate("""node => {
+              const parse = value => {
+                const parts = value.match(/[\\d.]+/g).map(Number);
+                return [parts[0], parts[1], parts[2], parts.length > 3 ? parts[3] : 1];
+              };
+              const compositeOnWhite = rgba => rgba.slice(0, 3).map(
+                channel => channel * rgba[3] + 255 * (1 - rgba[3])
+              );
+              const luminance = rgb => {
+                const linear = rgb.map(value => {
+                  const channel = value / 255;
+                  return channel <= .04045
+                    ? channel / 12.92
+                    : Math.pow((channel + .055) / 1.055, 2.4);
+                });
+                return .2126 * linear[0] + .7152 * linear[1] + .0722 * linear[2];
+              };
+              const style = getComputedStyle(node);
+              const foreground = compositeOnWhite(parse(style.color));
+              const background = compositeOnWhite(parse(style.backgroundColor));
+              const a = luminance(foreground);
+              const b = luminance(background);
+              return (Math.max(a, b) + .05) / (Math.min(a, b) + .05);
+            }""")
+
+        self.assertEqual(badge_styles(admin, "#count")["radius"], "7px")
+        self.assertEqual(badge_styles(admin, "#choice")["radius"], "11px")
+
+        for page, label in ((admin, "admin"), (public, "public")):
+            for skin in ("romantic", "friends"):
+                for theme in ("light", "dark"):
+                    page.locator("html").evaluate("""(node, appearance) => {
+                      node.dataset.skin = appearance.skin;
+                      node.dataset.theme = appearance.theme;
+                    }""", {"skin": skin, "theme": theme})
+                    context = (label, skin, theme)
+                    photo = badge_styles(page, "#photo")
+                    inflow = badge_styles(page, "#inflow")
+                    editor_photo = badge_styles(page, "#editor-photo")
+                    editor_flow = badge_styles(page, "#editor-flow")
+                    self.assertEqual(photo["radius"], "8px", context)
+                    self.assertEqual(
+                        photo["background"], "rgba(31, 27, 30, 0.84)", context,
+                    )
+                    self.assertEqual(photo["color"], "rgb(255, 255, 255)", context)
+                    self.assertEqual(photo["markWidth"], "3px", context)
+                    self.assertEqual(photo["markHeight"], "14px", context)
+                    self.assertNotEqual(inflow["background"], photo["background"], context)
+                    self.assertEqual(inflow["shadow"], "none", context)
+                    self.assertEqual(editor_photo["position"], "absolute", context)
+                    self.assertEqual(editor_photo["radius"], "8px", context)
+                    self.assertNotEqual(editor_flow["background"], photo["background"], context)
+                    self.assertEqual(editor_flow["shadow"], "none", context)
+
+                    choice_selectors = ["#pay-choice"]
+                    count_selectors = ["#gal-count", "#lb-count"] if label == "public" else [
+                        "#overlay-count", "#tab-count",
+                    ]
+                    if label == "admin":
+                        choice_selectors.append("#choice")
+                    for selector in choice_selectors + count_selectors:
+                        self.assertGreaterEqual(
+                            contrast_ratio(page, selector), 4.5,
+                            (context, selector, "contrast"),
+                        )
+                    for selector in count_selectors:
+                        fits = page.locator(selector).evaluate(
+                            "node => node.scrollWidth <= node.clientWidth",
+                        )
+                        self.assertTrue(fits, (context, selector, "count clipping"))
+
+        self.assertEqual(badge_styles(public, "#choice")["radius"], "11px")
 
 
 if __name__ == "__main__":

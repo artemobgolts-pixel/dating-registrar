@@ -13,6 +13,15 @@
   --peach: #e2b08a;
   --rose-soft: #f7e9e7;
   --line: #f0e4e1;
+  --status-success: #247a54;
+  --status-info: #8f4a58;
+  --status-warning: #8a621d;
+  --status-danger: #a63845;
+  --status-neutral: #71686d;
+  --choice-selected-bg: #8f4a58;
+  --choice-selected-fg: #ffffff;
+  --choice-pay-bg: #15734a;
+  --choice-pay-fg: #ffffff;
   --r: 14px;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --serif: "Cormorant Garamond", Georgia, "Times New Roman", serif;
@@ -556,19 +565,34 @@ label.chk {
 /* ---------- бейджи, фото, ссылки ---------- */
 
 .badge {
-  display: inline-block;
-  font-size: 11.5px;
-  padding: 2px 9px;
-  border-radius: 999px;
-  background: #f1edf2;
-  color: var(--muted);
+  display: inline-flex; align-items: center; min-height: 22px;
+  font-size: 11.5px; font-weight: 650; line-height: 1.25;
+  padding: 2px 8px;
+  border: 1px solid color-mix(in srgb, var(--ink) 10%, var(--line));
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--card) 90%, var(--ink) 4%);
+  color: #71686d;
   margin-left: 6px;
   white-space: nowrap;
 }
 
-.badge.rose { background: #f6e8eb; color: var(--accent); }
+.badge.rose {
+  border-color: color-mix(in srgb, var(--status-info) 24%, var(--line));
+  border-left: 3px solid var(--status-info);
+  background: color-mix(in srgb, var(--card) 88%, var(--status-info) 8%);
+  color: var(--status-info);
+}
 
-.badge.amber { background: #f8efdc; color: #8a6d3b; }
+.badge.amber {
+  border-color: color-mix(in srgb, var(--status-warning) 24%, var(--line));
+  border-left: 3px solid var(--status-warning);
+  background: color-mix(in srgb, var(--card) 88%, var(--status-warning) 8%);
+  color: var(--status-warning);
+}
+.badge-split {
+  border-left: 3px solid var(--status-success);
+  color: var(--status-success);
+}
 
 /* ---------- жизненные статусы сущностей ----------
    Не ещё одна «таблетка», а спокойная точка + текст. Цвет ускоряет сканирование,
@@ -588,11 +612,11 @@ label.chk {
   background: currentColor;
   box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 14%, transparent);
 }
-.entity-status--success { --entity-status-color: #247a54; }
-.entity-status--info    { --entity-status-color: var(--rose-2); }
-.entity-status--warning { --entity-status-color: #8a621d; }
-.entity-status--danger  { --entity-status-color: #a63845; }
-.entity-status--neutral { --entity-status-color: #71686d; }
+.entity-status--success { --entity-status-color: var(--status-success); }
+.entity-status--info    { --entity-status-color: var(--status-info); }
+.entity-status--warning { --entity-status-color: var(--status-warning); }
+.entity-status--danger  { --entity-status-color: var(--status-danger); }
+.entity-status--neutral { --entity-status-color: var(--status-neutral); }
 .entity-status-inline { display: inline-flex; flex-wrap: wrap; gap: 5px 11px; margin-left: 7px; }
 .drow-status-row { margin-top: 4px; }
 
@@ -3357,6 +3381,12 @@ html[data-theme="dark"] {
   --peach: #c99170;
   --rose-soft: #3a2931;
   --line: #493942;
+  --status-success: #79d2a4;
+  --status-info: #e7a2b1;
+  --status-warning: #e0bd70;
+  --status-danger: #ff9ca7;
+  --status-neutral: #b2a4ab;
+  --choice-selected-bg: #70404d;
 }
 
 html[data-theme="dark"] body {
@@ -3464,13 +3494,10 @@ html[data-theme="dark"] .err { background: #42272b; border-color: #6d3b42; color
 html[data-theme="dark"] .feed blockquote,
 html[data-theme="dark"] .linkbox code,
 html[data-theme="dark"] .copy-code { background: #2d252b; }
-html[data-theme="dark"] .badge { background: #342c32; }
-html[data-theme="dark"] .badge.rose { background: #432c35; }
-html[data-theme="dark"] .badge.amber { background: #413724; color: #dec17c; }
-html[data-theme="dark"] .entity-status--success { --entity-status-color: #79d2a4; }
-html[data-theme="dark"] .entity-status--warning { --entity-status-color: #e0bd70; }
-html[data-theme="dark"] .entity-status--danger  { --entity-status-color: #ff9ca7; }
-html[data-theme="dark"] .entity-status--neutral { --entity-status-color: var(--muted); }
+html[data-theme="dark"] .badge {
+  background: color-mix(in srgb, var(--card) 88%, var(--ink) 5%);
+  color: var(--status-neutral);
+}
 html[data-theme="dark"] .thumb img,
 html[data-theme="dark"] .avatar-pick .avatar-ph,
 html[data-theme="dark"] .profile-avatar-ph,
@@ -3947,6 +3974,12 @@ html[data-skin="friends"] {
   --line: #dfe3ed;
   --friends-teal: #238e89;
   --friends-amber: #d79a2f;
+  --status-success: #176b67;
+  --status-info: #34417f;
+  --status-warning: #7a5617;
+  --status-danger: #9d3744;
+  --status-neutral: #626879;
+  --choice-selected-bg: #34417f;
 }
 html[data-theme="dark"][data-skin="friends"] {
   --bg: #151923;
@@ -3961,6 +3994,12 @@ html[data-theme="dark"][data-skin="friends"] {
   --line: #3c455f;
   --friends-teal: #59c9c1;
   --friends-amber: #efbd63;
+  --status-success: #67d0c8;
+  --status-info: #bdc6ff;
+  --status-warning: #efbd63;
+  --status-danger: #ff9ca7;
+  --status-neutral: #a9b0c3;
+  --choice-selected-bg: #3f4b86;
 }
 
 html[data-skin="friends"] body {
@@ -4199,20 +4238,20 @@ html[data-theme="dark"][data-skin="friends"] .dcard .foot .open-date {
 }
 
 html[data-skin="friends"] .badge.rose {
-  background: #e8ebfa;
-  color: #43529d;
+  border-color: color-mix(in srgb, var(--status-info) 24%, var(--line));
+  background: color-mix(in srgb, var(--card) 88%, var(--status-info) 8%);
+  color: var(--status-info);
 }
 html[data-skin="friends"] .badge.amber {
-  background: #f7edd7;
-  color: #896322;
+  border-color: color-mix(in srgb, var(--status-warning) 24%, var(--line));
+  background: color-mix(in srgb, var(--card) 88%, var(--status-warning) 8%);
+  color: var(--status-warning);
 }
 html[data-theme="dark"][data-skin="friends"] .badge.rose {
-  background: #30395c;
-  color: #b8c1ff;
+  color: var(--status-info);
 }
 html[data-theme="dark"][data-skin="friends"] .badge.amber {
-  background: #443923;
-  color: #efc675;
+  color: var(--status-warning);
 }
 html[data-skin="friends"] .notif-settings-card {
   background: linear-gradient(145deg, rgba(255,255,252,.72), rgba(241,247,246,.58));
@@ -5030,4 +5069,205 @@ dialog:is(.is-closing, [data-closing="true"]) {
 
 @media (prefers-reduced-motion: reduce) {
   .ed-gallery.is-swiping .ed-slide { will-change: auto; }
+}
+
+/* ===========================================================================
+   Единый язык компактных маркеров.
+   status = точка + текст выше; count = небольшой squircle; choice = действие;
+   media = контрастный scrim поверх изображения или спокойный tag в потоке.
+   Старые классы оставлены рядом как поведенческие hooks, а внешний вид задают
+   эти семантические примитивы. */
+.count-badge {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  border-radius: 6px;
+}
+.badge.count-badge {
+  min-height: 22px; padding: 2px 7px;
+  border-color: color-mix(in srgb, var(--ink) 9%, var(--line));
+  background: color-mix(in srgb, var(--card) 92%, var(--ink) 3%);
+  color: var(--status-neutral); box-shadow: none;
+}
+.count-badge--label { border-radius: 7px; }
+.bell-count.count-badge,
+.notif-tab-count.count-badge,
+.pill.count-badge { border-radius: 6px; }
+.tabs a .pill.count-badge,
+.dates-status-tabs a .pill.count-badge,
+.notif-tab-count.count-badge {
+  border: 1px solid color-mix(in srgb, var(--ink) 10%, var(--line));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--card) 90%, var(--ink) 5%);
+  color: var(--status-neutral); box-shadow: none;
+}
+.tabs a.on .pill.count-badge,
+.dates-status-tabs a.on .pill.count-badge,
+.notif-controls .tabs a.on .notif-tab-count.count-badge {
+  border-color: color-mix(in srgb, var(--card) 65%, transparent);
+  background: var(--ink); color: var(--card); box-shadow: none;
+}
+.bell-count.count-badge,
+.bell.on .bell-count.count-badge {
+  border-color: var(--card);
+  background: var(--ink); color: var(--card);
+  box-shadow: 0 2px 7px color-mix(in srgb, var(--ink) 28%, transparent);
+}
+.badge.badge-split,
+html[data-theme] .badge.badge-split {
+  border-left: 3px solid var(--status-success);
+  color: var(--status-success);
+}
+
+.choice-chip { border-radius: 11px; }
+.choice-card { border-radius: 14px; }
+html .chip-cat.choice-chip:has(input:checked),
+html .gender-opt.choice-chip:has(input:checked),
+html .deadline-preset.choice-chip[aria-pressed="true"] {
+  border-color: var(--choice-selected-bg);
+  background: var(--choice-selected-bg);
+  color: var(--choice-selected-fg);
+  box-shadow: 0 4px 11px color-mix(in srgb, var(--choice-selected-bg) 28%, transparent);
+}
+html .pay-opt.choice-chip:has(input:checked) {
+  border-color: var(--choice-pay-bg);
+  background: var(--choice-pay-bg);
+  color: var(--choice-pay-fg);
+  box-shadow: 0 4px 11px color-mix(in srgb, var(--choice-pay-bg) 28%, transparent);
+}
+
+.media-badge,
+.bdg.media-badge,
+html[data-skin] .bdg.media-badge,
+.badge.media-badge,
+html[data-theme] .badge.media-badge,
+.pcard .pay.media-badge,
+.ed-gallery-pay.media-badge {
+  --media-badge-mark: #d7c8ce;
+  display: inline-flex; align-items: center; gap: 5px;
+  min-height: 24px; max-width: 100%;
+  padding: 3px 9px 3px 8px;
+  border: 1px solid rgba(255, 255, 255, .42);
+  border-radius: 8px;
+  background: rgba(31, 27, 30, .84); color: #fff;
+  -webkit-backdrop-filter: blur(8px) saturate(1.15);
+  backdrop-filter: blur(8px) saturate(1.15);
+  box-shadow: 0 2px 8px rgba(20, 16, 19, .22);
+  font-size: 11px; font-weight: 700; line-height: 1.25;
+  letter-spacing: .015em; text-shadow: none;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.media-badge::before {
+  content: ""; width: 3px; height: 14px; flex: none;
+  border-radius: 3px; background: var(--media-badge-mark);
+}
+.media-badge--pay { --media-badge-mark: #63d297; }
+.media-badge--guest { --media-badge-mark: #f0aa74; }
+.media-badge--pending { --media-badge-mark: #e5bd62; }
+.media-badge--booking { --media-badge-mark: #ee91a7; }
+.media-badge .admin-icon { width: 13px; height: 13px; flex: none; }
+.media-badges--inflow .media-badge,
+html[data-skin] .media-badges--inflow .bdg.media-badge,
+.pcard .pay.media-badge--inflow,
+.badge.media-badge.media-badge--inflow,
+html[data-theme] .badge.media-badge.media-badge--inflow,
+.media-badge.media-badge--inflow {
+  background: color-mix(in srgb, var(--card) 92%, var(--ink) 4%);
+  color: var(--ink); border-color: color-mix(in srgb, var(--ink) 11%, var(--line));
+  -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: none;
+}
+html[data-skin="friends"] .media-badge--guest { --media-badge-mark: var(--friends-teal); }
+html[data-skin="friends"] .media-badge--pending { --media-badge-mark: var(--friends-amber); }
+html[data-skin="friends"] .media-badge--booking { --media-badge-mark: var(--accent); }
+
+@media (forced-colors: active) {
+  .count-badge, .media-badge {
+    color: CanvasText; background: Canvas; border: 1px solid CanvasText;
+    -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: none;
+  }
+  .media-badge::before { background: CanvasText; }
+}
+
+/* Полное состояние сущности: цветная кромка остаётся заметной при быстром
+   просмотре списка, а слабая заливка используется только для состояний,
+   требующих внимания или уже завершённых. Текстовый статус выше сохраняется —
+   смысл никогда не передаётся одним цветом. */
+[data-status-tone] {
+  --entity-surface-tone: var(--status-neutral);
+  --entity-surface-wash: transparent;
+}
+[data-status-tone="success"] { --entity-surface-tone: var(--status-success); }
+[data-status-tone="info"] { --entity-surface-tone: var(--status-info); }
+[data-status-tone="warning"] {
+  --entity-surface-tone: var(--status-warning);
+  --entity-surface-wash: color-mix(in srgb, var(--status-warning) 6%, transparent);
+}
+[data-status-tone="danger"] {
+  --entity-surface-tone: var(--status-danger);
+  --entity-surface-wash: color-mix(in srgb, var(--status-danger) 7%, transparent);
+}
+[data-status-tone="neutral"] {
+  --entity-surface-tone: var(--status-neutral);
+  --entity-surface-wash: color-mix(in srgb, var(--status-neutral) 4%, transparent);
+}
+
+/* Повтор класса намеренно поднимает специфичность до уровня комбинации
+   theme + skin: поздняя status-кромка не должна теряться под их border shorthand. */
+html :is(.dcard.dcard, .drow.drow, .cat-card.cat-card)[data-status-tone] {
+  border-inline-start: 4px solid var(--entity-surface-tone);
+  background-color: var(--entity-surface-wash);
+}
+html :is(.dcard, .drow).archived[data-status-tone="neutral"] {
+  box-shadow: var(--shadow-soft);
+}
+html :is(.dcard, .drow).archived[data-status-tone="neutral"]:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-soft);
+}
+
+/* Таблица в подборке — ещё одна версия того же списка событий. На ПК тон
+   проходит через ячейки, на телефоне применяется ко всей карточке-строке. */
+.category-events-card tr[data-status-tone] > td {
+  background-color: var(--entity-surface-wash);
+}
+.category-events-card tr[data-status-tone] > td:first-child {
+  border-inline-start: 4px solid var(--entity-surface-tone);
+}
+
+@media (max-width: 760px) {
+  .category-events-card tbody tr[data-status-tone] {
+    border-inline-start: 4px solid var(--entity-surface-tone);
+    background-color: var(--entity-surface-wash);
+  }
+  .category-events-card tr[data-status-tone] > td {
+    background-color: transparent;
+  }
+  .category-events-card tr[data-status-tone] > td:first-child {
+    border-inline-start: 0;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  html :is(.dcard.dcard, .drow.drow, .cat-card.cat-card)[data-status-tone="warning"],
+  html :is(.dcard.dcard, .drow.drow, .cat-card.cat-card)[data-status-tone="danger"],
+  html :is(.dcard.dcard, .drow.drow, .cat-card.cat-card)[data-status-tone="neutral"] {
+    background-color: color-mix(in srgb, var(--card) 94%, var(--entity-surface-tone) 6%);
+  }
+}
+
+@media (prefers-contrast: more) {
+  html :is(.dcard.dcard, .drow.drow, .cat-card.cat-card)[data-status-tone],
+  .category-events-card tbody tr[data-status-tone] {
+    border-inline-start-width: 5px;
+  }
+}
+
+@media (forced-colors: active) {
+  html :is(.dcard.dcard, .drow.drow, .cat-card.cat-card)[data-status-tone],
+  .category-events-card tbody tr[data-status-tone] {
+    border-inline-start-color: CanvasText;
+    background: Canvas;
+  }
+  .category-events-card tr[data-status-tone] > td {
+    background: Canvas;
+  }
 }
