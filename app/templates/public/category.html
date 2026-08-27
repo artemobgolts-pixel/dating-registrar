@@ -173,9 +173,9 @@
            id="date-{{ d.id }}">
     {% if d.images or d.videos %}
     <div class="gal-wrap">
-      {% if not d.past %}<div class="seal"{% if not d.booked_by_me %} hidden{% endif %}>{{ icon('check') }}</div>{% endif %}
+      {% if not d.past and not d.is_winner %}<div class="seal"{% if not d.booked_by_me %} hidden{% endif %}>{{ icon('check') }}</div>{% endif %}
       {% if badges | trim %}<div class="badges media-badges">{{ badges }}</div>{% endif %}
-      {% if d.is_winner %}<div class="winner-ribbon">{% if active_skin == 'friends' %}{{ icon('spark') }} Общий выбор{% else %}Победитель ♥{% endif %}</div>{% elif d.is_tie_leader %}<div class="winner-ribbon tie">Лидер при ничьей</div>{% endif %}
+      {% if d.is_winner %}<div class="winner-ribbon">{% if d.booked_by_me %}{{ icon('check', 'winner-check') }}{% elif active_skin == 'friends' %}{{ icon('spark') }}{% endif %}<span>{{ 'Общий выбор' if active_skin == 'friends' else 'Победитель ♥' }}</span></div>{% elif d.is_tie_leader %}<div class="winner-ribbon tie">Лидер при ничьей</div>{% endif %}
       <div class="gallery">
         {% for im in d.images %}
         <img src="/c/{{ token }}/image/{{ im['filename'] }}?w=960"
@@ -211,7 +211,7 @@
       </div>
       {# компактная плашка статуса для карточек без фото (большого оверлея нет):
          архив всегда помечаем «Было», активные — только когда есть голос #}
-      {% if not d.images and not d.videos and d.is_winner %}<div class="winner-ribbon inflow">{% if active_skin == 'friends' %}{{ icon('spark') }} Общий выбор{% else %}Победитель ♥{% endif %}</div>{% endif %}
+      {% if not d.images and not d.videos and d.is_winner %}<div class="winner-ribbon inflow">{% if d.booked_by_me %}{{ icon('check', 'winner-check') }}{% elif active_skin == 'friends' %}{{ icon('spark') }}{% endif %}<span>{{ 'Общий выбор' if active_skin == 'friends' else 'Победитель ♥' }}</span></div>{% endif %}
       <div class="meta">
         {% if d.starts_at %}
         <div class="when"><span class="meta-icon" aria-hidden="true">{{ icon('clock') }}</span>
@@ -313,7 +313,7 @@
           <p class="note-pending">⏳ Предложение видно только тебе, пока его не проверили.</p>
         {% else %}
         <div class="actions">
-          {% if vote_state.status == 'open' and not viewer_is_owner %}
+          {% if voting_accepts_votes and not viewer_is_owner %}
             {% if d.booked_by_me %}
             <button class="btn book on" data-id="{{ d.id }}">{{ icon('check') }} Выбрано</button>
             {% elif d.is_full %}
@@ -321,6 +321,8 @@
             {% else %}
             <button class="btn book" data-id="{{ d.id }}">{{ icon('check') }} Выбрать</button>
             {% endif %}
+          {% elif vote_state.status != 'unconfigured' and not viewer_is_owner %}
+            <button class="btn book vote-ended" type="button" disabled>Голосование завершено</button>
           {% elif vote_state.status == 'unconfigured' and d.booked_by_me and not viewer_is_owner %}
             <button class="btn book on" data-id="{{ d.id }}">Снять старый выбор</button>
           {% endif %}

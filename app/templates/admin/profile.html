@@ -137,32 +137,6 @@
 </div>
 {% endif %}
 
-<div class="card" style="max-width:540px">
-  <b>Архив данных аккаунта</b>
-  <p class="muted" style="margin:8px 0 14px;font-size:13.5px">
-    Переносимый ZIP содержит export.json с твоими подборками, событиями,
-    вопросами и связанными гостевыми данными, а также только исходные медиа
-    этого аккаунта: аватар, свои превью, фото и видео событий. Общей базы
-    SQLite, чужих файлов и производных кешей в нём нет.
-  </p>
-  <a class="btn primary" href="/admin/export/account-archive">
-    Скачать архив аккаунта
-  </a>
-
-  {% if user['is_operator'] %}
-  <div style="height:1px;background:var(--line);margin:20px 0" aria-hidden="true"></div>
-  <b>Резервная копия всей платформы</b>
-  <p class="muted" style="margin:8px 0 14px;font-size:13.5px">
-    Только для оператора. ZIP содержит консистентный снимок всей SQLite-базы
-    app.db и все исходные медиафайлы из uploads для всех аккаунтов. export.json,
-    responsive-копии и кеши OG-превью не включаются: они создаются заново.
-  </p>
-  <a class="btn ghost" href="/admin/export/platform-backup">
-    Скачать резервную копию платформы
-  </a>
-  {% endif %}
-</div>
-
 <div class="card profile-support-card" style="max-width:540px">
   <b>Помощь</b>
   <div class="tour-course-actions">
@@ -195,8 +169,10 @@
             action="/admin/profile/oauth/{{ p['slug'] }}/unlink"
             data-confirm="Отвязать {{ p['label'] }} от аккаунта?">
         <input type="hidden" name="csrf" value="{{ csrf }}">
-        <button class="social-state social-state-remove" type="submit"
-                aria-label="Отвязать {{ p['label'] }}" title="Отвязать {{ p['label'] }}"></button>
+        <button class="social-state-control" type="submit"
+                aria-label="Отвязать {{ p['label'] }}" title="Отвязать {{ p['label'] }}">
+          <span class="social-state social-state-remove" aria-hidden="true"></span>
+        </button>
       </form>
     </div>
     {% elif p['enabled'] %}

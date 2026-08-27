@@ -32,6 +32,8 @@ class TimeAndDeadlineContractTests(unittest.TestCase):
         self.assertNotIn('data-deadline-mode="extend"', new_source)
         self.assertIn('data-deadline-mode="extend"', detail_source)
         self.assertIn("Продлить:", detail_source)
+        self.assertNotIn("Вручную можно поставить любой будущий срок", detail_source)
+        self.assertNotIn("Быстрые кнопки прибавляют время", detail_source)
         self.assertIn("Изменить дедлайн и настройки", detail_source)
         self.assertIn("Возобновить голосование", detail_source)
         self.assertIn("'tie', 'resolved', 'no_winner'", detail_source)
@@ -442,6 +444,9 @@ class TimeAndDeadlineBrowserTests(unittest.TestCase):
             }""")
 
         for surface in ("public-category-page", "public-share-page"):
+            expected_desktop_width = (
+                820 if surface == "public-category-page" else 680
+            )
             page.locator("body").evaluate(
                 "(node, value) => node.className = 'public-event-page ' + value",
                 surface,
@@ -467,8 +472,12 @@ class TimeAndDeadlineBrowserTests(unittest.TestCase):
                     desktop["mediaY"] + desktop["mediaHeight"] - 2,
                     (surface, skin),
                 )
-                self.assertAlmostEqual(desktop["gridWidth"], 820, delta=1)
-                self.assertAlmostEqual(desktop["cardWidth"], 820, delta=1)
+                self.assertAlmostEqual(
+                    desktop["gridWidth"], expected_desktop_width, delta=1,
+                )
+                self.assertAlmostEqual(
+                    desktop["cardWidth"], expected_desktop_width, delta=1,
+                )
                 self.assertAlmostEqual(
                     desktop["secondCardX"], desktop["cardX"], delta=1,
                     msg=(surface, skin, "one card per row"),

@@ -14,6 +14,7 @@ APP = ROOT / "app"
 class GuestProposalWidgetContractTests(unittest.TestCase):
     def test_guest_copy_and_accessibility_are_consistent(self):
         template = (APP / "templates/public/category.html").read_text("utf-8")
+        share_template = (APP / "templates/public/share.html").read_text("utf-8")
         guest_js = (APP / "static/guest.js").read_text("utf-8")
         public_css = (APP / "static/public.css").read_text("utf-8")
 
@@ -37,6 +38,16 @@ class GuestProposalWidgetContractTests(unittest.TestCase):
         self.assertIn('if (propRequest && propRequest.abort) propRequest.abort()', guest_js)
         self.assertIn('.date-widget-dialog .ed-dd:empty::before', public_css)
         self.assertIn('content: "ГГГГ"', public_css)
+        for source in (template, share_template):
+            self.assertIn('class="btn book vote-ended"', source)
+            self.assertIn("vote_state.status != 'unconfigured'", source)
+            self.assertIn("voting_accepts_votes", source)
+        self.assertIn("function markVotingEnded()", guest_js)
+        self.assertIn('button.classList.add("vote-ended")', guest_js)
+        self.assertIn("[data-countdown-ended='1']", guest_js)
+        self.assertIn('code === "voting_deadline_passed"', guest_js)
+        self.assertIn('code === "voting_closed"', guest_js)
+        self.assertIn('.btn.book.vote-ended:disabled', public_css)
 
     def test_empty_gallery_has_only_the_central_add_action(self):
         guest_js = (APP / "static/guest.js").read_text("utf-8")
@@ -252,6 +263,9 @@ class GuestProposalMediaBrowserTests(unittest.TestCase):
             <button id="timeCancel" type="button"></button>
 
             <button id="fabPropose" type="button">Предложить</button>
+            <article class="card"><div class="actions">
+              <button id="voteCta" class="btn book on" data-id="9" type="button">Выбрано</button>
+            </div></article>
             <span data-proposal-empty-cta>Предложить первое событие</span>
             <div class="mine-actions"><button class="edit" id="editProposal"
                  type="button">Изменить</button></div>
@@ -503,6 +517,12 @@ class GuestProposalMediaBrowserTests(unittest.TestCase):
         self.assertTrue(
             page.locator("[data-proposal-empty-cta]").evaluate("el => el.hidden")
         )
+        vote_cta = page.locator("#voteCta")
+        self.assertTrue(vote_cta.is_disabled())
+        self.assertEqual(vote_cta.inner_text(), "Голосование завершено")
+        self.assertTrue(vote_cta.evaluate("el => el.classList.contains('vote-ended')"))
+        self.assertFalse(vote_cta.evaluate("el => el.classList.contains('on')"))
+        self.assertIsNone(vote_cta.get_attribute("data-id"))
         self.assertEqual(page_errors, [])
 
 

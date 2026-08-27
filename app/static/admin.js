@@ -15,9 +15,37 @@
     window.__adminGlobalInit = true;
     window.copyText = function (t, btn) {
       navigator.clipboard.writeText(t).then(function () {
-        var o = btn.textContent;
-        btn.textContent = "Скопировано ✓";
-        setTimeout(function () { btn.textContent = o; }, 1500);
+        var state = btn._copyFeedbackState;
+        if (!state) {
+          var responsiveLabels = Array.from(
+            btn.querySelectorAll(".lbl-full, .lbl-short")
+          );
+          state = responsiveLabels.length ? {
+            labels: responsiveLabels.map(function (label) {
+              return { node: label, text: label.textContent };
+            })
+          } : { html: btn.innerHTML };
+          btn._copyFeedbackState = state;
+        }
+        if (state.labels) {
+          state.labels.forEach(function (label) {
+            label.node.textContent = label.node.classList.contains("lbl-short")
+              ? "Готово ✓" : "Скопировано ✓";
+          });
+        } else {
+          btn.textContent = "Скопировано ✓";
+        }
+        clearTimeout(state.timer);
+        state.timer = setTimeout(function () {
+          if (state.labels) {
+            state.labels.forEach(function (label) {
+              label.node.textContent = label.text;
+            });
+          } else {
+            btn.innerHTML = state.html;
+          }
+          delete btn._copyFeedbackState;
+        }, 1500);
       });
     };
     document.addEventListener("click", function (e) {
@@ -685,6 +713,65 @@
   // --- редактор категории: превью-картинка, предупреждение, порядок событий --
   function initCategory() {
     if (!window.UI) return;
+
+    if (window.__categoryFlowCleanup) {
+      window.__categoryFlowCleanup();
+      window.__categoryFlowCleanup = null;
+    }
+    var flowNav = document.querySelector(".category-flow-nav");
+    if (flowNav) {
+      var flowLinks = Array.from(flowNav.querySelectorAll('a[href^="#"]'));
+      var flowItems = flowLinks.map(function (link) {
+        return {
+          link: link,
+          section: document.getElementById(link.hash.slice(1))
+        };
+      }).filter(function (item) { return item.section; });
+      var flowFrame = 0;
+
+      function selectFlowItem(selected) {
+        flowItems.forEach(function (item) {
+          var active = item === selected;
+          item.link.classList.toggle("is-active", active);
+          if (active) item.link.setAttribute("aria-current", "location");
+          else item.link.removeAttribute("aria-current");
+        });
+      }
+
+      function syncFlowItem() {
+        flowFrame = 0;
+        if (!flowItems.length) return;
+        // Секции имеют scroll-margin-top: 150px. Небольшой запас после нижней
+        // кромки sticky-навигации не даёт scrollspy вернуть предыдущий пункт
+        // сразу после перехода по якорю на типичном desktop-вьюпорте.
+        var threshold = flowNav.getBoundingClientRect().bottom + 32;
+        var selected = flowItems[0];
+        flowItems.forEach(function (item) {
+          if (item.section.getBoundingClientRect().top <= threshold) selected = item;
+        });
+        if (window.scrollY > 0 && window.scrollY + window.innerHeight >=
+            document.documentElement.scrollHeight - 4) {
+          selected = flowItems[flowItems.length - 1];
+        }
+        selectFlowItem(selected);
+      }
+
+      function queueFlowSync() {
+        if (!flowFrame) flowFrame = requestAnimationFrame(syncFlowItem);
+      }
+
+      flowItems.forEach(function (item) {
+        item.link.addEventListener("click", function () { selectFlowItem(item); });
+      });
+      window.addEventListener("scroll", queueFlowSync, { passive: true });
+      window.addEventListener("resize", queueFlowSync);
+      window.__categoryFlowCleanup = function () {
+        window.removeEventListener("scroll", queueFlowSync);
+        window.removeEventListener("resize", queueFlowSync);
+        if (flowFrame) cancelAnimationFrame(flowFrame);
+      };
+      syncFlowItem();
+    }
 
     // WYSIWYG-редактор описания категории — тот же, что у комментария события
     var catEditable = document.getElementById("catDescEditable");

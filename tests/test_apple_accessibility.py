@@ -82,6 +82,25 @@ class FluidInteractionContractTests(unittest.TestCase):
         self.assertIn("openModal(lb, img", source)
         self.assertIn('lb.addEventListener("close"', source)
 
+    def test_vote_confirmation_and_winner_status_are_restrained_and_accessible(self):
+        script = (APP / "static/guest.js").read_text("utf-8")
+        css = (APP / "static/public.css").read_text("utf-8")
+        self.assertIn('replayFeedback(card, "vote-confirmed"', script)
+        self.assertIn('replayFeedback(btn, "vote-label-confirmed"', script)
+        self.assertIn('replayFeedback(countLabel, "vote-count-updated"', script)
+        self.assertIn("@keyframes vote-confirm-ring", css)
+        self.assertIn("@keyframes vote-count-confirm", css)
+        self.assertIn("@keyframes vote-check-draw", css)
+        self.assertIn("@keyframes winner-status-in", css)
+        self.assertIn("--winner-accent: #4f815b", css)
+        self.assertIn("--winner-accent: #27856a", css)
+        self.assertIn("--winner-accent: #72c89f", css)
+        self.assertRegex(
+            css,
+            r"@media \(prefers-reduced-motion: reduce\) \{\s*"
+            r"\.card\.vote-winner \.winner-ribbon \{ animation: none !important; \}",
+        )
+
     def test_operator_drawer_is_modal_focus_safe_and_draggable(self):
         script = (APP / "static/operator.js").read_text("utf-8")
         template = (APP / "templates/operator/base.html").read_text("utf-8")
@@ -139,10 +158,10 @@ class PublicPrivacyNavigationContractTests(unittest.TestCase):
         )
         self.assertNotIn("показан участникам этой подборки", self.script)
 
-    def test_share_want_visibility_remove_and_category_context_are_explicit(self):
-        self.assertIn('class="collection-context" href="/c/{{ active_category.link_token }}"',
-                      self.share)
-        self.assertIn("active_category_event_count | plural", self.share)
+    def test_share_want_visibility_is_explicit_without_collection_navigation(self):
+        self.assertNotIn('class="collection-context"', self.share)
+        self.assertNotIn("active_category_event_count", self.share)
+        self.assertNotIn("Посмотреть все", self.share)
         save_form = re.search(
             r'<form method="post" action="/d/\{\{ token \}\}/want" class="want-form">'
             r'(.*?)</form>',
@@ -161,6 +180,13 @@ class PublicPrivacyNavigationContractTests(unittest.TestCase):
         self.assertIn('name="visibility" value="public"', save_form.group(1))
         self.assertNotIn('name="visibility"', remove_form.group(1))
         self.assertIn("Убрать из «Хочу сходить»", remove_form.group(1))
+
+    def test_winner_ribbon_owns_the_selected_check_without_a_second_seal(self):
+        for name, source in (("category", self.category), ("share", self.share)):
+            with self.subTest(template=name):
+                self.assertIn("not d.is_winner", source)
+                self.assertIn("icon('check', 'winner-check')", source)
+                self.assertIn('class="winner-ribbon"', source)
 
     def test_telegram_prompt_is_deferred_then_revealed_without_focus_theft(self):
         self.assertIn("not viewer_has_vote %}hidden data-deferred-notify", self.category)
@@ -265,6 +291,112 @@ class FluidInteractionBrowserTests(unittest.TestCase):
             "document.querySelector('#lbCount').textContent === '2/2'", timeout=5000)
         page.wait_for_function(
             "!document.querySelector('#lightbox img').style.transform", timeout=5000)
+        self.assertEqual(errors, [])
+
+    def test_successful_vote_plays_one_shot_feedback_and_updates_the_counter(self):
+        page = self.browser.new_page(viewport={"width": 760, "height": 900})
+        self.addCleanup(page.close)
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        page.set_content("""
+          <body data-token="test" data-auth="1" data-csrf="csrf" data-skin="friends">
+            <div id="toast"></div>
+            <section class="cards">
+              <article class="card" id="date-9">
+                <div class="gal-wrap">
+                  <div class="seal" hidden>
+                    <svg class="ui-icon ui-icon-check" viewBox="0 0 24 24">
+                      <circle cx="12" cy="12" r="9"></circle>
+                      <path d="m8 12 2.7 2.8L16.6 9"></path>
+                    </svg>
+                  </div>
+                  <div class="gallery"></div>
+                </div>
+                <div class="body">
+                  <div class="vote-progress">
+                    <div class="vote-progress-head"><b>0/3</b><span>голосов</span></div>
+                    <div class="vote-progress-track" role="progressbar"
+                         aria-valuemin="0" aria-valuemax="3" aria-valuenow="0">
+                      <i style="--vote-width:0%"></i>
+                    </div>
+                  </div>
+                  <div class="actions">
+                    <button id="vote" class="btn book" data-id="9" type="button">
+                      Выбрать
+                    </button>
+                  </div>
+                </div>
+              </article>
+            </section>
+
+            <dialog id="askDlg"><form id="askForm"><button type="submit">ok</button></form></dialog>
+            <button id="askCancel" type="button"></button>
+            <dialog id="reportDlg"><form id="reportForm"><button type="submit">ok</button></form></dialog>
+            <button id="reportCancel" type="button"></button>
+            <dialog id="timeDlg"><form id="timeForm">
+              <input id="timeStart" type="datetime-local"><input id="timeEnd" type="datetime-local">
+              <button type="submit">ok</button></form></dialog>
+            <button id="timeCancel" type="button"></button>
+            <dialog id="calDlg"></dialog><button id="calCancel" type="button"></button>
+            <a id="calGoogle"></a><a id="calIcs"></a>
+            <dialog class="lightbox" id="lightbox"><button id="lbX"></button>
+              <button id="lbPrev"></button><img><button id="lbNext"></button>
+              <div id="lbCount"></div>
+            </dialog>
+          </body>
+        """)
+        page.add_style_tag(content=(APP / "static/public.css").read_text("utf-8"))
+        page.add_script_tag(content=(APP / "static/ui.js").read_text("utf-8"))
+        page.evaluate("""() => {
+          window.__bursts = 0;
+          UI.burst = () => { window.__bursts += 1; };
+          window.fetch = async () => ({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              name: 'Гость',
+              booked: true,
+              voting_status: 'open',
+              updates: [{
+                date_id: 9, mine: true, vote_count: 1, capacity: 3,
+                is_full: false, show_participants: false,
+                participants: [], hidden_count: 0,
+              }],
+            }),
+          });
+        }""")
+        page.add_script_tag(content=(APP / "static/guest.js").read_text("utf-8"))
+
+        page.locator("#vote").click()
+        page.wait_for_function(
+            "document.querySelector('#date-9').classList.contains('vote-confirmed')"
+        )
+        feedback = page.evaluate("""() => {
+          const card = document.querySelector('#date-9');
+          const count = document.querySelector('.vote-progress-head b');
+          const track = document.querySelector('.vote-progress-track');
+          return {
+            selected: card.classList.contains('booked-me'),
+            label: document.querySelector('#vote').textContent.trim(),
+            count: count.textContent,
+            now: track.getAttribute('aria-valuenow'),
+            counterCue: count.classList.contains('vote-count-updated'),
+            ringAnimation: getComputedStyle(card, '::after').animationName,
+            sealVisible: !document.querySelector('.seal').hidden,
+            bursts: window.__bursts,
+          };
+        }""")
+        self.assertTrue(feedback["selected"])
+        self.assertEqual(feedback["label"], "Выбрано")
+        self.assertEqual(feedback["count"], "1/3")
+        self.assertEqual(feedback["now"], "1")
+        self.assertTrue(feedback["counterCue"])
+        self.assertIn("vote-confirm-ring", feedback["ringAnimation"])
+        self.assertTrue(feedback["sealVisible"])
+        self.assertEqual(feedback["bursts"], 1)
+        page.wait_for_function(
+            "!document.querySelector('#date-9').classList.contains('vote-confirmed')"
+        )
         self.assertEqual(errors, [])
 
     def test_operator_drawer_traps_and_restores_focus_and_accepts_edge_drag(self):

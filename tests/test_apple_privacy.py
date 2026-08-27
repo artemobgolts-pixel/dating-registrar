@@ -318,7 +318,7 @@ class WantsAndRosterPrivacyTests(unittest.TestCase):
         )
         self.assertEqual(updates[0]["participants"][0]["name"], "Гость")
 
-    def test_shared_date_exposes_only_safe_active_category_context(self):
+    def test_shared_date_keeps_category_context_internal_to_voting(self):
         self.conn.executemany(
             "INSERT INTO dates(id,owner_id,name,share_token,is_draft,archived_at,created_at) "
             "VALUES(?,?,?,?,?,?,?)",
@@ -345,12 +345,10 @@ class WantsAndRosterPrivacyTests(unittest.TestCase):
             )
         context = response.context
 
-        self.assertEqual(context["active_category"], {
-            "id": 1,
-            "name": "Планы",
-            "link_token": "category-token",
-        })
-        self.assertEqual(context["active_category_event_count"], 2)
+        self.assertNotIn("active_category", context)
+        self.assertNotIn("active_category_event_count", context)
+        self.assertTrue(context["can_act"])
+        self.assertIsNotNone(context["vote_state"])
 
 
 if __name__ == "__main__":

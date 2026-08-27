@@ -122,12 +122,6 @@
     <p class="share-from">поделился:
       {% if owner %}<a href="/u/{{ owner['id'] }}?skin={{ active_skin }}">{{ owner_name }}</a>{% else %}{{ owner_name }}{% endif %}
     </p>
-    {% if active_category %}
-    <a class="collection-context" href="/c/{{ active_category.link_token }}">
-      <span>Подборка «{{ active_category.name }}»</span>
-      <strong>Посмотреть все {{ active_category_event_count }} {{ active_category_event_count | plural('вариант', 'варианта', 'вариантов') }} →</strong>
-    </a>
-    {% endif %}
   </header>
 
   {% if vote_state and vote_state.status != 'unconfigured' %}
@@ -144,16 +138,16 @@
              id="date-{{ d.id }}">
       {% if d.images or d.videos %}
       <div class="gal-wrap">
-        <div class="seal"{% if not d.booked_by_me %} hidden{% endif %}>{{ icon('check') }}</div>
+        {% if not d.is_winner %}<div class="seal"{% if not d.booked_by_me %} hidden{% endif %}>{{ icon('check') }}</div>{% endif %}
         {% if d.pay_split %}<div class="badges media-badges"><span class="badge pay media-badge media-badge--pay">{{ d.pay_split | pay_label }}</span></div>{% endif %}
-        {% if d.is_winner %}<div class="winner-ribbon">{% if active_skin == 'friends' %}{{ icon('spark') }} Общий выбор{% else %}Победитель ♥{% endif %}</div>{% endif %}
+        {% if d.is_winner %}<div class="winner-ribbon">{% if d.booked_by_me %}{{ icon('check', 'winner-check') }}{% elif active_skin == 'friends' %}{{ icon('spark') }}{% endif %}<span>{{ 'Общий выбор' if active_skin == 'friends' else 'Победитель ♥' }}</span></div>{% endif %}
         <div class="gallery">
           {% for im in d.images %}
           <img src="/d/{{ token }}/image/{{ im['filename'] }}?w=960"
                srcset="/d/{{ token }}/image/{{ im['filename'] }}?w=480 480w,
                        /d/{{ token }}/image/{{ im['filename'] }}?w=960 960w,
                        /d/{{ token }}/image/{{ im['filename'] }}?w=1600 1600w"
-               sizes="(max-width: 899px) calc(100vw - 32px), 820px"
+               sizes="(max-width: 899px) calc(100vw - 32px), 680px"
                data-full="/d/{{ token }}/image/{{ im['filename'] }}" alt=""
                role="button" tabindex="0" draggable="false"
                aria-label="Открыть фото {{ loop.index }} из {{ d.images | length }}: {{ d.name }}"
@@ -180,7 +174,7 @@
           <button type="button" class="report-link" data-id="{{ d.id }}" data-name="{{ d.name }}">пожаловаться</button>
           {% endif %}
         </div>
-        {% if not d.images and not d.videos and d.is_winner %}<div class="winner-ribbon inflow">{% if active_skin == 'friends' %}{{ icon('spark') }} Общий выбор{% else %}Победитель ♥{% endif %}</div>{% endif %}
+        {% if not d.images and not d.videos and d.is_winner %}<div class="winner-ribbon inflow">{% if d.booked_by_me %}{{ icon('check', 'winner-check') }}{% elif active_skin == 'friends' %}{{ icon('spark') }}{% endif %}<span>{{ 'Общий выбор' if active_skin == 'friends' else 'Победитель ♥' }}</span></div>{% endif %}
         <div class="meta">
           {% if d.starts_at %}
           <div class="when"><span class="meta-icon" aria-hidden="true">{{ icon('clock') }}</span>
@@ -236,10 +230,12 @@
 
         {% if not is_mine and can_question %}
         <div class="actions">
-          {% if can_vote and vote_state and vote_state.status == 'open' %}
+          {% if can_vote and voting_accepts_votes %}
             {% if d.booked_by_me %}<button class="btn book on" data-id="{{ d.id }}">{{ icon('check') }} Выбрано</button>
             {% elif can_cast_vote and d.is_full %}<button class="btn book" data-id="{{ d.id }}" disabled>Набрано {{ d.vote_count }}/{{ d.capacity }}</button>
             {% elif can_cast_vote %}<button class="btn book" data-id="{{ d.id }}">{{ icon('check') }} Выбрать</button>{% endif %}
+          {% elif can_vote and can_cast_vote and vote_state and vote_state.status != 'unconfigured' %}
+            <button class="btn book vote-ended" type="button" disabled>Голосование завершено</button>
           {% elif can_vote and vote_state and vote_state.status == 'unconfigured' and d.booked_by_me %}
             <button class="btn book on" data-id="{{ d.id }}">Снять старый выбор</button>
           {% endif %}

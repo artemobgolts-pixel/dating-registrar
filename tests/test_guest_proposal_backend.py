@@ -95,6 +95,10 @@ class GuestProposalBackendContractTests(unittest.TestCase):
         self.assertIn("len(remaining_vids) + len(new_video_files) > images.MAX_VIDEOS", source)
         self.assertIn("images.save_videos_batch(new_video_files)", source)
         self.assertIn("proposals_editable = proposal_changes_open(vote_state)", source)
+        self.assertGreaterEqual(source.count("voting_accepts_votes ="), 2)
+        self.assertGreaterEqual(
+            source.count('"voting_accepts_votes": voting_accepts_votes'), 2,
+        )
         self.assertIn('d["editable"] = (proposals_editable', source)
 
         # Недоверенный order-протокол разбирается до любых записей upload-файлов:

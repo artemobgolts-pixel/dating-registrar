@@ -177,14 +177,12 @@ class ExportArchiveTests(unittest.TestCase):
         finally:
             self.cleanup_response(response)
 
-    def test_profile_explains_both_archives_without_conflating_scope(self):
+    def test_profile_does_not_advertise_archive_downloads(self):
         template = (APP / "templates/admin/profile.html").read_text("utf-8")
-        self.assertIn('href="/admin/export/account-archive"', template)
-        self.assertIn("Общей базы\n    SQLite, чужих файлов", template)
-        self.assertIn("{% if user['is_operator'] %}", template)
-        self.assertIn('href="/admin/export/platform-backup"', template)
-        self.assertIn("консистентный снимок всей SQLite-базы", template)
-        self.assertIn("responsive-копии и кеши OG-превью не включаются", template)
+        self.assertNotIn('href="/admin/export/account-archive"', template)
+        self.assertNotIn('href="/admin/export/platform-backup"', template)
+        self.assertNotIn("Архив данных аккаунта", template)
+        self.assertNotIn("Резервная копия всей платформы", template)
 
 
 if __name__ == "__main__":

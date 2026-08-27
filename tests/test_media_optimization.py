@@ -146,7 +146,7 @@ class FrontendMediaContractTests(unittest.TestCase):
             category,
         )
         self.assertIn(
-            'sizes="(max-width: 899px) calc(100vw - 32px), 820px"',
+            'sizes="(max-width: 899px) calc(100vw - 32px), 680px"',
             share,
         )
         self.assertIn(
@@ -158,13 +158,17 @@ class FrontendMediaContractTests(unittest.TestCase):
         self.assertIn("@media (min-width: 900px)", css)
         self.assertIn(".public-event-page .wrap", css)
         self.assertIn("max-width: 1080px", css)
+        self.assertIn(".public-event-page.public-category-page .cards", css)
+        self.assertIn(".public-event-page.public-share-page .cards", css)
+        self.assertIn("grid-template-columns: minmax(0, 1fr)", css)
         self.assertIn(
-            ".public-event-page.public-category-page .cards,\n"
-            "  .public-event-page.public-share-page .cards",
+            ".public-event-page.public-category-page .cards { width: min(100%, 820px); }",
             css,
         )
-        self.assertIn("grid-template-columns: minmax(0, 1fr)", css)
-        self.assertIn("width: min(100%, 820px)", css)
+        self.assertIn(
+            ".public-event-page.public-share-page .cards { width: min(100%, 680px); }",
+            css,
+        )
         self.assertIn("display: flex; flex-direction: column", css)
         self.assertNotIn(
             "grid-template-columns: minmax(340px, 42%) minmax(0, 1fr)",
@@ -188,6 +192,12 @@ class FrontendMediaContractTests(unittest.TestCase):
         )
         self.assertIn("head.hidden = hideEmptySingleCounter", guest)
         self.assertIn("track.hidden = hideEmptySingleCounter", guest)
+        self.assertIn('replayFeedback(card, "vote-confirmed"', guest)
+        self.assertIn('replayFeedback(btn, "vote-label-confirmed"', guest)
+        self.assertIn('replayFeedback(countLabel, "vote-count-updated"', guest)
+        self.assertIn('replayFeedback(fill, "vote-progress-updated"', guest)
+        self.assertEqual(vote_block.count("UI.burst("), 1)
+        self.assertNotIn('card.classList.add("glow")', vote_block)
         self.assertNotIn("location.reload", vote_block)
 
         for filename in ("category.html", "share.html"):

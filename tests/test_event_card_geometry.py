@@ -357,6 +357,72 @@ class EventCardGeometryBrowserTests(unittest.TestCase):
                         (skin, theme, selector),
                     )
 
+    def test_public_winner_keeps_a_green_semantic_status_in_every_theme(self):
+        page = self.page_with_styles("""
+          <html data-skin="romantic" data-theme="light"><body>
+            <article id="winner" class="card booked-me vote-winner">
+              <div class="gal-wrap">
+                <div class="winner-ribbon">
+                  <svg class="ui-icon ui-icon-check winner-check" viewBox="0 0 24 24">
+                    <circle cx="12" cy="12" r="9"></circle>
+                    <path d="m8 12 2.7 2.8L16.6 9"></path>
+                  </svg>
+                  <span>Победитель</span>
+                </div>
+                <div class="gallery"></div>
+              </div>
+              <div class="body"><h2 class="title">Общий выбор</h2></div>
+            </article>
+          </body></html>
+        """, "static/public.css")
+
+        for skin in ("romantic", "friends"):
+            for theme in ("light", "dark"):
+                page.locator("html").evaluate(
+                    """(node, appearance) => {
+                      node.dataset.skin = appearance.skin;
+                      node.dataset.theme = appearance.theme;
+                    }""",
+                    {"skin": skin, "theme": theme},
+                )
+                status = page.evaluate("""() => {
+                  const card = getComputedStyle(document.querySelector('#winner'));
+                  const winnerEdge = getComputedStyle(
+                    document.querySelector('#winner'), '::before'
+                  );
+                  const ribbon = getComputedStyle(document.querySelector('.winner-ribbon'));
+                  const body = getComputedStyle(document.querySelector('#winner > .body'));
+                  const icon = document.querySelector('.winner-check').getBoundingClientRect();
+                  const channels = card.borderTopColor.match(/[\\d.]+/g).map(Number);
+                  return {
+                    topWidth: card.borderTopWidth,
+                    leftWidth: card.borderLeftWidth,
+                    border: channels.slice(0, 3),
+                    shadow: card.boxShadow,
+                    selectedEdge: winnerEdge.backgroundImage,
+                    ribbonColor: ribbon.color,
+                    ribbonBackground: ribbon.backgroundImage,
+                    bodyTint: body.backgroundColor,
+                    icon: [icon.width, icon.height],
+                  };
+                }""")
+                context = (skin, theme)
+                self.assertEqual(status["topWidth"], "2px", context)
+                self.assertEqual(
+                    status["leftWidth"], "5px" if skin == "friends" else "2px",
+                    context,
+                )
+                red, green, blue = status["border"]
+                self.assertGreater(green, red, context)
+                self.assertGreater(green, blue, context)
+                self.assertNotEqual(status["shadow"], "none", context)
+                self.assertIn("linear-gradient", status["selectedEdge"], context)
+                self.assertNotIn("rgb(182, 95, 111)", status["selectedEdge"], context)
+                self.assertEqual(status["ribbonColor"], "rgb(255, 255, 255)", context)
+                self.assertIn("linear-gradient", status["ribbonBackground"], context)
+                self.assertNotEqual(status["bodyTint"], "rgba(0, 0, 0, 0)", context)
+                self.assertEqual(status["icon"], [14, 14], context)
+
     def test_profile_cards_and_open_widget_are_vertical_in_both_themes(self):
         page = self.page_with_styles(f"""
           <html data-skin="romantic"><body class="profile-public-page">
@@ -589,6 +655,151 @@ class EventCardGeometryBrowserTests(unittest.TestCase):
                         self.assertTrue(fits, (context, selector, "count clipping"))
 
         self.assertEqual(badge_styles(public, "#choice")["radius"], "11px")
+
+    def test_admin_buttons_center_labels_and_social_remove_keeps_a_44px_hit_area(self):
+        page = self.page_with_styles("""
+          <html data-skin="friends" data-theme="light"><body>
+            <a id="back" class="btn editor-back" href="#"><span>← Назад</span></a>
+            <button id="action" class="btn primary" type="button">
+              <svg class="admin-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h16"/></svg>
+              <span>Добавить</span>
+            </button>
+            <div class="social-links">
+              <a class="social-service" href="#">
+                <span class="social-state social-state-add" id="socialAdd"></span>
+              </a>
+              <div class="social-service is-linked">
+                <form class="social-service-action">
+                  <button class="social-state-control" id="socialRemoveAction" type="button">
+                    <span class="social-state social-state-remove" id="socialRemove"></span>
+                  </button>
+                </form>
+              </div>
+            </div>
+          </body></html>
+        """, "static/admin.css")
+
+        for selector, expected_display in (("#back", "flex"), ("#action", "inline-flex")):
+            geometry = page.locator(selector).evaluate("""node => {
+              const outer = node.getBoundingClientRect();
+              const label = node.querySelector('span').getBoundingClientRect();
+              const style = getComputedStyle(node);
+              return {
+                display: style.display,
+                align: style.alignItems,
+                justify: style.justifyContent,
+                centerDelta: Math.abs(
+                  (outer.top + outer.height / 2) - (label.top + label.height / 2)
+                ),
+              };
+            }""")
+            self.assertEqual(geometry["display"], expected_display, selector)
+            self.assertEqual(geometry["align"], "center", selector)
+            self.assertEqual(geometry["justify"], "center", selector)
+            self.assertLessEqual(geometry["centerDelta"], 1, selector)
+
+        sizes = page.evaluate("""() => {
+          const size = selector => {
+            const rect = document.querySelector(selector).getBoundingClientRect();
+            return [rect.width, rect.height];
+          };
+          return {
+            add: size('#socialAdd'),
+            remove: size('#socialRemove'),
+            action: size('#socialRemoveAction'),
+          };
+        }""")
+        self.assertEqual(sizes["add"], [24, 24])
+        self.assertEqual(sizes["remove"], [24, 24])
+        self.assertEqual(sizes["action"], [44, 44])
+
+    def test_dashboard_copy_feedback_preserves_responsive_labels_and_icon(self):
+        page = self.page_with_styles("""
+          <html data-skin="friends" data-theme="light"><body>
+            <div class="quick">
+              <button id="copy" type="button" class="btn ghost" data-copy="https://example.test">
+                <svg id="copyIcon" class="admin-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h16"/></svg>
+                <span class="lbl-full">Скопировать ссылку</span><span class="lbl-short">Ссылка</span>
+              </button>
+            </div>
+          </body></html>
+        """, "static/admin.css")
+        page.evaluate("""() => {
+          Object.defineProperty(navigator, 'clipboard', {
+            configurable: true,
+            value: { writeText: () => Promise.resolve() },
+          });
+          window.UI = {};
+        }""")
+        page.add_script_tag(content=(APP / "static/admin.js").read_text("utf-8"))
+
+        copy = page.locator("#copy")
+        copy.click()
+        page.wait_for_function(
+            "document.querySelector('.lbl-full').textContent === 'Скопировано ✓'",
+        )
+        self.assertEqual(copy.locator("#copyIcon").count(), 1)
+        self.assertEqual(copy.locator(".lbl-full, .lbl-short").count(), 2)
+
+        # Повторный быстрый клик должен продлить feedback, но исходное содержимое
+        # по-прежнему восстанавливается один раз и без склеивания подписей.
+        copy.click()
+        page.wait_for_timeout(1600)
+        self.assertEqual(copy.locator("#copyIcon").count(), 1)
+        self.assertEqual(copy.locator(".lbl-full").inner_text(), "Скопировать ссылку")
+        self.assertEqual(copy.locator(".lbl-short").inner_text(), "Ссылка")
+        self.assertEqual(copy.locator(".lbl-full, .lbl-short").count(), 2)
+
+        page.set_viewport_size({"width": 390, "height": 844})
+        self.assertTrue(copy.locator(".lbl-short").is_visible())
+        self.assertFalse(copy.locator(".lbl-full").is_visible())
+
+    def test_category_flow_nav_tracks_clicked_and_scrolled_desktop_section(self):
+        page = self.page_with_styles("""
+          <html data-skin="friends" data-theme="light"><body>
+            <main class="wrap">
+              <nav class="category-flow-nav" aria-label="Этапы настройки подборки">
+                <a class="is-active" href="#categoryDates" aria-current="location"><span>1</span> События</a>
+                <a href="#categoryVoting"><span>2</span> Правила</a>
+                <a href="#categoryShare"><span>3</span> Публикация</a>
+                <a href="#categoryAppearance"><span>4</span> Оформление</a>
+              </nav>
+              <div class="category-editor-sections">
+                <section class="card" id="categoryDates" style="height:720px">События</section>
+                <section class="card" id="categoryVoting" style="height:720px">Правила</section>
+                <section class="card" id="categoryShare" style="height:720px">Публикация</section>
+                <section class="card" id="categoryAppearance" style="height:720px">Оформление</section>
+              </div>
+            </main>
+          </body></html>
+        """, "static/admin.css")
+        page.evaluate("window.UI = {}")
+        page.add_script_tag(content=(APP / "static/admin.js").read_text("utf-8"))
+
+        links = page.locator(".category-flow-nav a")
+        selected = page.locator('.category-flow-nav a[aria-current="location"]')
+        self.assertEqual(selected.get_attribute("href"), "#categoryDates")
+        links.nth(1).click()
+        self.assertEqual(selected.get_attribute("href"), "#categoryVoting")
+
+        page.locator("#categoryShare").evaluate("node => node.scrollIntoView()")
+        page.wait_for_function("""() =>
+          document.querySelector('.category-flow-nav a[aria-current="location"]')
+            ?.getAttribute('href') === '#categoryShare'
+        """)
+        selected_style = links.nth(2).evaluate(
+            "node => getComputedStyle(node).backgroundImage",
+        )
+        self.assertNotEqual(selected_style, "none")
+
+        # Если весь редактор помещается на очень высоком экране, начальное
+        # положение страницы не является «низом прокрутки»: выбран первый шаг.
+        page.set_viewport_size({"width": 1280, "height": 4000})
+        page.evaluate("window.scrollTo(0, 0)")
+        page.wait_for_function("""() =>
+          document.querySelector('.category-flow-nav a[aria-current="location"]')
+            ?.getAttribute('href') === '#categoryDates'
+        """)
 
 
 if __name__ == "__main__":

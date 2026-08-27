@@ -927,6 +927,11 @@ def public_category(token: str, request: Request, conn=Depends(get_db)):
     # остаётся read-only и не захватывает writer-lock SQLite.
     vote_state = voting.get_category_state(conn, cat["id"])
     proposals_editable = proposal_changes_open(vote_state)
+    voting_accepts_votes = (
+        vote_state.status == voting.STATUS_OPEN
+        and vote_state.closed_at is None
+        and proposals_editable
+    )
 
     # Залогиненный посетитель опознаётся стабильным токеном "u<id>"; аноним
     # может смотреть и отправить неперсональную жалобу, остальные действия в
@@ -1058,6 +1063,7 @@ def public_category(token: str, request: Request, conn=Depends(get_db)):
         "viewer_has_vote": any(bool(d["booked_by_me"]) for d in dates),
         "show_participants": show_participants,
         "vote_state": vote_state,
+        "voting_accepts_votes": voting_accepts_votes,
         "proposals_editable": proposals_editable,
         "max_photos": images.MAX_IMAGES,
         "max_videos": images.MAX_VIDEOS,
@@ -1332,26 +1338,10 @@ def shared_date(token: str, request: Request, conn=Depends(get_db)):
 
     payload = date_payload(conn, d)
     # Гостю (не автору) показываем полноценную карточку с действиями. Контекст
-    # выбора существует только при ровно одной активной категории события.
+    # выбора существует только при ровно одной активной категории события, но
+    # остаётся внутренней деталью голосования: отдельная ссылка /d/ не ведёт в
+    # закрытую подборку целиком.
     act_cat = share_action_cat(conn, d)
-    active_category = None
-    active_category_event_count = 0
-    if act_cat:
-        # Передаём шаблону только данные уже доступной секретной ссылки, не всю
-        # строку категории. Счётчик повторяет универсально видимый состав /c/:
-        # чужие draft и архив не раскрываются даже косвенно.
-        active_category = {
-            "id": int(act_cat["id"]),
-            "name": act_cat["name"],
-            "link_token": act_cat["link_token"],
-        }
-        active_category_event_count = int(conn.execute(
-            "SELECT COUNT(*) FROM date_categories dc "
-            "JOIN dates candidate ON candidate.id=dc.date_id "
-            "WHERE dc.category_id=? AND candidate.is_draft=0 "
-            "AND candidate.archived_at IS NULL",
-            (act_cat["id"],),
-        ).fetchone()[0])
     show_participants = bool(act_cat and act_cat["show_participants"])
     category_skin = appearance.normalize_skin(
         act_cat["category_skin"] if act_cat else None)
@@ -1363,6 +1353,12 @@ def shared_date(token: str, request: Request, conn=Depends(get_db)):
         use_default=not first_og_image,
     )
     vote_state = voting.get_category_state(conn, act_cat["id"]) if act_cat else None
+    voting_accepts_votes = bool(
+        vote_state
+        and vote_state.status == voting.STATUS_OPEN
+        and vote_state.closed_at is None
+        and proposal_changes_open(vote_state)
+    )
     guest = guest_name = None
     if me and not is_mine:
         guest, guest_name = guest_identity(me)
@@ -1442,8 +1438,7 @@ def shared_date(token: str, request: Request, conn=Depends(get_db)):
                           and not payload["past"] and not bool(d["is_draft"])),
         "can_question": not is_mine,
         "vote_state": vote_state,
-        "active_category": active_category,
-        "active_category_event_count": active_category_event_count,
+        "voting_accepts_votes": voting_accepts_votes,
         "show_participants": show_participants,
         "category_skin": category_skin,
         "bot": auth_routes.BOT_USERNAME,

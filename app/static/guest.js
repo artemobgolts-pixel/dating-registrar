@@ -130,7 +130,37 @@
       button.textContent = fullLabel;
       return;
     }
-    button.innerHTML = CHECK_ICON + (mine ? " Выбрано" : " Выбрать");
+    button.innerHTML = CHECK_ICON + " " +
+      `<span class="vote-button-label">${mine ? "Выбрано" : "Выбрать"}</span>`;
+  }
+
+  const feedbackTimers = new WeakMap();
+  function replayFeedback(element, className, holdMs = 520) {
+    if (!element) return;
+    const timers = feedbackTimers.get(element) || {};
+    clearTimeout(timers[className]);
+    element.classList.remove(className);
+    // Reflow is intentional: a repeated choice must restart from the currently
+    // visible state instead of being swallowed by the previous one-shot cue.
+    void element.offsetWidth;
+    element.classList.add(className);
+    timers[className] = setTimeout(() => {
+      element.classList.remove(className);
+      delete timers[className];
+    }, holdMs);
+    feedbackTimers.set(element, timers);
+  }
+
+  function markVotingEnded() {
+    document.querySelectorAll(".btn.book[data-id]").forEach((button) => {
+      button.disabled = true;
+      button.classList.remove("on");
+      button.classList.add("vote-ended");
+      button.removeAttribute("data-id");
+      button.removeAttribute("aria-busy");
+      delete button.dataset.busy;
+      button.textContent = "Голосование завершено";
+    });
   }
 
   /* Вход обязателен для персональных действий. Жалоба остаётся доступна без
@@ -217,12 +247,12 @@
       } else {
         goLogin();
       }
-      return { ok: false };
+      return { ok: false, status: r.status, j };
     }
     if (!r.ok) {
       const d = j.detail;
       toast(typeof d === "string" ? d : (d && d.msg) || "Что-то пошло не так");
-      return { ok: false };
+      return { ok: false, status: r.status, j };
     }
     return { ok: true, j };
   }
@@ -320,6 +350,9 @@
     }
     const progress = card.querySelector(".vote-progress");
     if (progress) {
+      const currentTrack = progress.querySelector(".vote-progress-track");
+      const previousCount = currentTrack
+        ? Number(currentTrack.getAttribute("aria-valuenow")) : NaN;
       const rosterLabel = progress.querySelector(".vote-progress-head span");
       if (rosterLabel && typeof update.show_participants === "boolean") {
         rosterLabel.textContent = update.show_participants ? "участников" : "голосов";
@@ -328,15 +361,25 @@
       const head = progress.querySelector(".vote-progress-head");
       if (head) head.hidden = hideEmptySingleCounter;
       const countLabel = head && head.querySelector("b");
-      if (countLabel) countLabel.textContent = `${count}/${capacity}`;
-      const track = progress.querySelector(".vote-progress-track");
+      if (countLabel) {
+        countLabel.textContent = `${count}/${capacity}`;
+        if (Number.isFinite(previousCount) && previousCount !== count) {
+          replayFeedback(countLabel, "vote-count-updated", 430);
+        }
+      }
+      const track = currentTrack;
       if (track) {
         track.hidden = hideEmptySingleCounter;
         track.setAttribute("aria-valuemax", String(capacity));
         track.setAttribute("aria-valuenow", String(count));
         const fill = track.querySelector("i");
-        if (fill) fill.style.setProperty(
-          "--vote-width", `${Math.min(100, count * 100 / capacity)}%`);
+        if (fill) {
+          fill.style.setProperty(
+            "--vote-width", `${Math.min(100, count * 100 / capacity)}%`);
+          if (Number.isFinite(previousCount) && previousCount !== count) {
+            replayFeedback(fill, "vote-progress-updated", 430);
+          }
+        }
       }
       renderParticipants(progress, update);
     }
@@ -369,9 +412,15 @@
     fd.append("date_id", btn.dataset.id);
     const res = await post(`${ACT}/book`, fd);
     if (!res.ok) {
-      delete btn.dataset.busy;
-      btn.removeAttribute("aria-busy");
-      btn.disabled = wasDisabled;
+      const detail = res.j && res.j.detail;
+      const code = detail && typeof detail === "object" ? detail.code : "";
+      if (code === "voting_deadline_passed" || code === "voting_closed") {
+        markVotingEnded();
+      } else {
+        delete btn.dataset.busy;
+        btn.removeAttribute("aria-busy");
+        btn.disabled = wasDisabled;
+      }
       voteBusy = false;
       return;
     }
@@ -386,13 +435,12 @@
         box.hidden = false;
         box.classList.add("is-revealed");
       });
+      replayFeedback(card, "vote-confirmed", 520);
+      replayFeedback(btn, "vote-label-confirmed", 430);
       const r = btn.getBoundingClientRect();
-      UI.burst(r.left + r.width / 2, r.top + 6);
-      const cr = card.getBoundingClientRect();     // второй залп — из центра карточки
-      setTimeout(() => UI.burst(cr.left + cr.width / 2,
-                                Math.max(70, cr.top + cr.height / 2)), 140);
-      card.classList.remove("glow"); void card.offsetWidth;   // перезапуск анимации
-      card.classList.add("glow");
+      // Один короткий акцент из причины действия; второй залп по карточке
+      // создавал визуальный шум и разрывал причинно-следственную связь.
+      UI.burst(r.left + r.width / 2, r.top + r.height / 2);
       toast(notifyRevealed
         ? "Голос учтён. Теперь можно подключить уведомления в Telegram"
         : "Голос учтён");
@@ -406,6 +454,13 @@
   document.querySelectorAll(".btn.book[data-id]").forEach((b) => {
     b.addEventListener("click", () => requireAuth(() => doBook(b), "vote", b));
   });
+  // ui.js инициализирует таймер раньше guest.js. Если дедлайн успел наступить
+  // между серверным рендером и загрузкой этого файла, событие уже прошло, но
+  // data-countdown-ended сохраняет конечное состояние для синхронизации.
+  document.addEventListener("d4y:voting-ended", markVotingEnded);
+  if (document.querySelector("[data-vote-countdown][data-countdown-ended='1']")) {
+    markVotingEnded();
+  }
 
   document.querySelectorAll(".withdraw-vote").forEach((b) => {
     b.addEventListener("click", () => requireAuth(async () => {
@@ -858,7 +913,7 @@
     trigger.onclick = () => requireAuth(
       () => openPropose(null), "propose", trigger);
   });
-  document.addEventListener("d4y:voting-ended", () => {
+  function closeProposalActionsAtDeadline() {
     proposeTriggers.forEach((trigger) => { trigger.hidden = true; });
     document.querySelectorAll(".mine-actions").forEach((actions) => { actions.hidden = true; });
     document.querySelectorAll("[data-proposal-empty-cta]").forEach((hint) => {
@@ -868,7 +923,11 @@
       propDlg.close();
       toast("Голосование завершено — варианты уже зафиксированы");
     }
-  });
+  }
+  document.addEventListener("d4y:voting-ended", closeProposalActionsAtDeadline);
+  if (document.querySelector("[data-vote-countdown][data-countdown-ended='1']")) {
+    closeProposalActionsAtDeadline();
+  }
   document.querySelectorAll(".mine-actions .edit").forEach((b) => {
     b.addEventListener("click", () => requireAuth(
       () => openPropose(JSON.parse(b.dataset.meta)), "manage", b));

@@ -16,7 +16,7 @@
 </div>
 
 <nav class="category-flow-nav" aria-label="Этапы настройки подборки">
-  <a href="#categoryDates"><span>1</span> События</a>
+  <a class="is-active" href="#categoryDates" aria-current="location"><span>1</span> События</a>
   <a href="#categoryVoting"><span>2</span> Правила</a>
   <a href="#categoryShare"><span>3</span> Публикация</a>
   <a href="#categoryAppearance"><span>4</span> Оформление</a>
@@ -242,7 +242,6 @@
         <button type="button" class="deadline-preset choice-chip" data-deadline-hours="168" aria-pressed="false">+1 неделя</button>
       </div>
       <small class="deadline-readable" data-deadline-readable aria-live="polite"></small>
-      <small class="muted">Вручную можно поставить любой будущий срок по Москве. Быстрые кнопки прибавляют время к выбранному дедлайну; новый срок должен быть раньше начала всех событий.</small>
       {% if voting_state.status in ('tie', 'resolved', 'no_winner') %}
       <small class="muted">Новый будущий дедлайн снова откроет голосование: отданные голоса сохранятся, а прежний итог будет сброшен.</small>
       {% endif %}
