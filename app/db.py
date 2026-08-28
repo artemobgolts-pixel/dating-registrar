@@ -84,6 +84,8 @@
         создаются скрытыми; дата рождения, пол и состав участников получают
         отдельные настройки видимости. Уже опубликованные данные сохраняют
         прежнюю видимость.
+  v32 — адресные индексы для due-autoarchive, открытых жалоб на события,
+        просроченного outbox и сортировки wants в профиле владельца.
 
 Свежая база создаётся сразу по последней схеме. Существующая —
 докатывается миграциями при старте приложения.
@@ -97,7 +99,7 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "app.db"
 
-LATEST_VERSION = 31
+LATEST_VERSION = 32
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -147,6 +149,9 @@ CREATE TABLE IF NOT EXISTS notification_outbox (
 );
 CREATE INDEX IF NOT EXISTS idx_notification_outbox_due
     ON notification_outbox(sent_at, cancelled_at, send_at);
+CREATE INDEX IF NOT EXISTS idx_notification_outbox_expiry
+    ON notification_outbox(expires_at)
+    WHERE sent_at IS NULL AND cancelled_at IS NULL AND expires_at IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_notification_outbox_user
     ON notification_outbox(user_id, kind);
 
@@ -254,6 +259,8 @@ CREATE TABLE IF NOT EXISTS date_wants (
 );
 CREATE INDEX IF NOT EXISTS idx_date_wants_profile
     ON date_wants(user_id, is_public, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_date_wants_user_updated
+    ON date_wants(user_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_date_wants_date
     ON date_wants(date_id, user_id);
 
@@ -398,13 +405,22 @@ CREATE INDEX IF NOT EXISTS idx_dates_owner ON dates(owner_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_dates_share ON dates(share_token);
 -- лента комьюнити на главной: свежие публичные активные события
 CREATE INDEX IF NOT EXISTS idx_dates_public ON dates(is_public, is_draft, archived_at, id);
--- Частичный покрывающий индекс: глобальный проход сканирует только активные
--- события с датой, а с owner_id тот же индекс обслуживает адресный проход.
-CREATE INDEX IF NOT EXISTS idx_dates_autoarchive_active
-    ON dates(owner_id, ends_at, starts_at, archived_at)
-    WHERE archived_at IS NULL
-      AND (starts_at IS NOT NULL OR ends_at IS NOT NULL);
+-- Минутный auto-archive делает адресные range-seek по явному концу и началу;
+-- отдельный start-index сохраняет fallback для невалидного legacy ends_at.
+-- Архивные/недатированные строки вообще не занимают эти индексы.
+CREATE INDEX IF NOT EXISTS idx_dates_autoarchive_ends_due
+    ON dates(ends_at)
+    WHERE archived_at IS NULL AND ends_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_dates_autoarchive_starts_due
+    ON dates(starts_at)
+    WHERE archived_at IS NULL AND ends_at IS NULL AND starts_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_dates_autoarchive_end_fallback_start
+    ON dates(starts_at)
+    WHERE archived_at IS NULL AND ends_at IS NOT NULL AND starts_at IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_reports_status ON reports(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_reports_open_date_target
+    ON reports(target_id)
+    WHERE target_type='date' AND status='open';
 
 -- Даже прямые записи в bookings не могут переполнить событие. SQLite
 -- сериализует пишущие транзакции, поэтому проверка COUNT и INSERT атомарны
@@ -1350,6 +1366,35 @@ MIGRATIONS: dict[int, str] = {
         FROM date_wants;
         DROP TABLE date_wants;
         ALTER TABLE date_wants_private_default RENAME TO date_wants;
+    """,
+    32: """
+        -- Старый индекс начинался с owner_id и потому при глобальном минутном
+        -- запуске всё равно сканировал каждое активное датированное событие.
+        DROP INDEX IF EXISTS idx_dates_autoarchive_active;
+        CREATE INDEX IF NOT EXISTS idx_dates_autoarchive_ends_due
+            ON dates(ends_at)
+            WHERE archived_at IS NULL AND ends_at IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_dates_autoarchive_starts_due
+            ON dates(starts_at)
+            WHERE archived_at IS NULL AND ends_at IS NULL AND starts_at IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_dates_autoarchive_end_fallback_start
+            ON dates(starts_at)
+            WHERE archived_at IS NULL AND ends_at IS NOT NULL AND starts_at IS NOT NULL;
+
+        -- Публичный профиль владельца сортирует wants без is_public-фильтра.
+        CREATE INDEX IF NOT EXISTS idx_date_wants_user_updated
+            ON date_wants(user_id, updated_at DESC);
+
+        -- Адресный partial-index обслуживает и reported-фильтр, и COUNT на
+        -- странице оператора, не смешивая остальные типы/статусы жалоб.
+        CREATE INDEX IF NOT EXISTS idx_reports_open_date_target
+            ON reports(target_id)
+            WHERE target_type='date' AND status='open';
+
+        -- Просроченные outbox-строки выбираются отдельно от очереди send_at.
+        CREATE INDEX IF NOT EXISTS idx_notification_outbox_expiry
+            ON notification_outbox(expires_at)
+            WHERE sent_at IS NULL AND cancelled_at IS NULL AND expires_at IS NOT NULL;
     """,
 }
 

@@ -121,6 +121,46 @@ class NotificationOutboxTests(unittest.TestCase):
         self.assertEqual(row["text"], "Исходный")
         self.assertEqual(row["sent_at"], NOW)
 
+    def test_enqueue_many_is_atomic_and_preserves_sent_dedupe(self):
+        outbox.enqueue(
+            self.conn, user_id=1, kind="result", event_key="event:sent-batch",
+            text="Исходный", now=NOW,
+        )
+        self.conn.execute(
+            "UPDATE notification_outbox SET sent_at=? WHERE event_key=?",
+            (NOW, "event:sent-batch"),
+        )
+        traced: list[str] = []
+        self.conn.set_trace_callback(traced.append)
+        self.assertEqual(outbox.enqueue_many(self.conn, [
+            {"user_id": 1, "kind": "result", "event_key": "event:sent-batch",
+             "text": "Не заменять", "now": NOW},
+            {"user_id": 1, "kind": "result", "event_key": "event:new-batch",
+             "text": "Новая", "now": NOW},
+        ]), 2)
+        self.conn.set_trace_callback(None)
+        self.assertEqual(
+            sum(sql.lstrip().upper().startswith(
+                "INSERT INTO NOTIFICATION_OUTBOX") for sql in traced),
+            1,
+        )
+        self.assertEqual(self.row("event:sent-batch")["text"], "Исходный")
+        self.assertEqual(self.row("event:new-batch")["text"], "Новая")
+
+        before = self.conn.execute(
+            "SELECT COUNT(*) FROM notification_outbox",
+        ).fetchone()[0]
+        with self.assertRaises(ValueError):
+            outbox.enqueue_many(self.conn, [
+                {"user_id": 1, "kind": "result", "event_key": "event:valid",
+                 "text": "Валидная", "now": NOW},
+                {"user_id": 1, "kind": "", "event_key": "event:invalid",
+                 "text": "Ошибка", "now": NOW},
+            ])
+        self.assertEqual(self.conn.execute(
+            "SELECT COUNT(*) FROM notification_outbox",
+        ).fetchone()[0], before)
+
     def test_unlinked_user_is_deferred_then_resolved_at_delivery_time(self):
         outbox.enqueue(
             self.conn, user_id=1, kind="winner", event_key="event:late-link",

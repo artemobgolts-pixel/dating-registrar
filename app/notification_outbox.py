@@ -20,7 +20,7 @@ import sqlite3
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Callable
+from typing import Callable, Mapping
 
 import db
 import notify
@@ -32,6 +32,28 @@ log = logging.getLogger("notification_outbox")
 Sender = Callable[..., bool]
 CLAIM_LEASE = timedelta(minutes=5)
 MAX_ERROR_LENGTH = 500
+WRITE_BATCH_SIZE = 80  # 10 bind-параметров на строку, ниже legacy SQLite 999
+
+_ENQUEUE_COLUMNS = (
+    "user_id, kind, event_key, text, action_url, action_label, "
+    "send_at, expires_at, created_at, updated_at"
+)
+_ENQUEUE_UPSERT = """
+    ON CONFLICT(event_key) DO UPDATE SET
+        user_id=excluded.user_id,
+        kind=excluded.kind,
+        text=excluded.text,
+        action_url=excluded.action_url,
+        action_label=excluded.action_label,
+        send_at=excluded.send_at,
+        expires_at=excluded.expires_at,
+        cancelled_at=NULL,
+        claimed_at=NULL,
+        attempts=0,
+        last_error=NULL,
+        updated_at=excluded.updated_at
+    WHERE notification_outbox.sent_at IS NULL
+"""
 
 
 @dataclass(frozen=True)
@@ -66,6 +88,40 @@ def _iso(value: datetime | str | None, *, default: datetime | None = None) -> st
     return _dt(value, default=default).isoformat(sep="T")
 
 
+def _enqueue_params(
+    *,
+    user_id: int,
+    kind: str,
+    event_key: str,
+    text: str,
+    action_url: str | None = None,
+    action_label: str | None = None,
+    send_at: datetime | str | None = None,
+    expires_at: datetime | str | None = None,
+    now: datetime | str | None = None,
+) -> tuple[object, ...]:
+    """Валидирует enqueue и возвращает готовую строку bind-параметров."""
+    kind = (kind or "").strip()
+    event_key = (event_key or "").strip()
+    text = (text or "").strip()
+    action_url = (action_url or "").strip() or None
+    action_label = (action_label or "").strip() or None
+    if not kind:
+        raise ValueError("kind is required")
+    if not event_key:
+        raise ValueError("event_key is required")
+    if not text:
+        raise ValueError("text is required")
+    notify.action_markup(action_label, action_url)
+
+    now_dt = _dt(now, default=now_naive())
+    created = _iso(now_dt)
+    due = _iso(send_at, default=now_dt)
+    expiry = _iso(expires_at) if expires_at is not None else None
+    return (user_id, kind, event_key, text, action_url, action_label,
+            due, expiry, created, created)
+
+
 def enqueue(
     conn: sqlite3.Connection,
     *,
@@ -86,54 +142,43 @@ def enqueue(
     дедуплицирует повторный вызов. Функция не делает commit: вызывающий может
     атомарно сохранить событие и его уведомление одной транзакцией.
     """
-    kind = (kind or "").strip()
-    event_key = (event_key or "").strip()
-    text = (text or "").strip()
-    action_url = (action_url or "").strip() or None
-    action_label = (action_label or "").strip() or None
-    if not kind:
-        raise ValueError("kind is required")
-    if not event_key:
-        raise ValueError("event_key is required")
-    if not text:
-        raise ValueError("text is required")
-    # Единая валидация и для немедленной, и для отложенной rich-карточки.
-    notify.action_markup(action_label, action_url)
-
-    now_dt = _dt(now, default=now_naive())
-    created = _iso(now_dt)
-    due = _iso(send_at, default=now_dt)
-    expiry = _iso(expires_at) if expires_at is not None else None
+    params = _enqueue_params(
+        user_id=user_id, kind=kind, event_key=event_key, text=text,
+        action_url=action_url, action_label=action_label, send_at=send_at,
+        expires_at=expires_at, now=now,
+    )
     conn.execute(
-        """
-        INSERT INTO notification_outbox(
-            user_id, kind, event_key, text, action_url, action_label,
-            send_at, expires_at, created_at, updated_at
-        ) VALUES(?,?,?,?,?,?,?,?,?,?)
-        ON CONFLICT(event_key) DO UPDATE SET
-            user_id=excluded.user_id,
-            kind=excluded.kind,
-            text=excluded.text,
-            action_url=excluded.action_url,
-            action_label=excluded.action_label,
-            send_at=excluded.send_at,
-            expires_at=excluded.expires_at,
-            cancelled_at=NULL,
-            claimed_at=NULL,
-            attempts=0,
-            last_error=NULL,
-            updated_at=excluded.updated_at
-        WHERE notification_outbox.sent_at IS NULL
-        """,
-        (user_id, kind, event_key, text, action_url, action_label,
-         due, expiry, created, created),
+        f"INSERT INTO notification_outbox({_ENQUEUE_COLUMNS}) "
+        f"VALUES(?,?,?,?,?,?,?,?,?,?){_ENQUEUE_UPSERT}",
+        params,
     )
     row = conn.execute(
-        "SELECT id FROM notification_outbox WHERE event_key=?", (event_key,)
+        "SELECT id FROM notification_outbox WHERE event_key=?", (params[2],)
     ).fetchone()
     if row is None:  # pragma: no cover — INSERT/UNIQUE гарантируют строку
         raise RuntimeError("notification was not queued")
     return int(row["id"] if isinstance(row, sqlite3.Row) else row[0])
+
+
+def enqueue_many(conn: sqlite3.Connection,
+                 notifications: list[Mapping[str, object]]) -> int:
+    """Ставит fan-out пачками, сохраняя семантику :func:`enqueue`.
+
+    Все элементы сначала валидируются, поэтому ошибка rich-кнопки/времени не
+    оставит частично записанный Python-batch. Уже отправленные event_key, как и
+    в одиночном API, остаются неизменными; ожидающие строки пересчитываются.
+    Возвращается число логически поставленных элементов (включая дедуп-вызовы).
+    """
+    prepared = [_enqueue_params(**item) for item in notifications]
+    for start in range(0, len(prepared), WRITE_BATCH_SIZE):
+        batch = prepared[start:start + WRITE_BATCH_SIZE]
+        placeholders = ",".join("(?,?,?,?,?,?,?,?,?,?)" for _ in batch)
+        conn.execute(
+            f"INSERT INTO notification_outbox({_ENQUEUE_COLUMNS}) "
+            f"VALUES {placeholders}{_ENQUEUE_UPSERT}",
+            tuple(value for row in batch for value in row),
+        )
+    return len(prepared)
 
 
 def cancel(
@@ -175,6 +220,81 @@ def cancel(
         (stamp, (reason or "cancelled")[:MAX_ERROR_LENGTH], stamp, *args),
     )
     return max(cur.rowcount, 0)
+
+
+def cancel_event_keys(
+    conn: sqlite3.Connection,
+    event_keys,
+    *,
+    kind: str | None = None,
+    reason: str = "cancelled",
+    now: datetime | str | None = None,
+) -> int:
+    """Отменяет набор точных ключей без UPDATE на каждого получателя."""
+    keys = list(dict.fromkeys(
+        key for raw in event_keys if (key := str(raw or "").strip())
+    ))
+    if not keys:
+        return 0
+    stamp = _iso(now, default=now_naive())
+    total = 0
+    for start in range(0, len(keys), 400):
+        batch = keys[start:start + 400]
+        placeholders = ",".join("?" for _ in batch)
+        kind_sql = " AND kind=?" if kind is not None else ""
+        args: tuple[object, ...] = (
+            stamp, (reason or "cancelled")[:MAX_ERROR_LENGTH], stamp,
+            *batch, *((kind,) if kind is not None else ()),
+        )
+        cur = conn.execute(
+            "UPDATE notification_outbox SET cancelled_at=?, claimed_at=NULL, "
+            "last_error=?, updated_at=? WHERE sent_at IS NULL "
+            "AND cancelled_at IS NULL "
+            f"AND event_key IN ({placeholders}){kind_sql}",
+            args,
+        )
+        total += max(cur.rowcount, 0)
+    return total
+
+
+def cancel_user_prefixes(
+    conn: sqlite3.Connection,
+    prefixes: Mapping[int, str],
+    *,
+    kind: str | None = None,
+    reason: str = "cancelled",
+    now: datetime | str | None = None,
+) -> int:
+    """Пакетно сохраняет семантику пары ``user_id + event_prefix``."""
+    selectors = [
+        (int(user_id), str(prefix or ""))
+        for user_id, prefix in prefixes.items() if str(prefix or "")
+    ]
+    if not selectors:
+        return 0
+    stamp = _iso(now, default=now_naive())
+    total = 0
+    for start in range(0, len(selectors), 150):
+        batch = selectors[start:start + 150]
+        clauses = []
+        selector_args: list[object] = []
+        for user_id, prefix in batch:
+            escaped = prefix.replace("\\", "\\\\").replace("%", "\\%").replace(
+                "_", "\\_"
+            )
+            clauses.append("(user_id=? AND event_key LIKE ? ESCAPE '\\')")
+            selector_args.extend((user_id, escaped + "%"))
+        kind_sql = " AND kind=?" if kind is not None else ""
+        cur = conn.execute(
+            "UPDATE notification_outbox SET cancelled_at=?, claimed_at=NULL, "
+            "last_error=?, updated_at=? WHERE sent_at IS NULL "
+            "AND cancelled_at IS NULL AND (" + " OR ".join(clauses) + ")" +
+            kind_sql,
+            (stamp, (reason or "cancelled")[:MAX_ERROR_LENGTH], stamp,
+             *selector_args, *((kind,) if kind is not None else ())),
+        )
+        total += max(cur.rowcount, 0)
+    return total
 
 
 def _retry_at(now: datetime, attempts_after_failure: int) -> str:
@@ -241,7 +361,7 @@ def process_due(
     try:
         cur = conn.execute(
             """
-            UPDATE notification_outbox
+            UPDATE notification_outbox INDEXED BY idx_notification_outbox_expiry
             SET cancelled_at=?, claimed_at=NULL, last_error='expired', updated_at=?
             WHERE sent_at IS NULL AND cancelled_at IS NULL
               AND expires_at IS NOT NULL AND expires_at<=?

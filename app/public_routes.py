@@ -300,42 +300,73 @@ def category_og_sources(
     большой галереей не вытесняет остальные. По умолчанию сохраняем прежний
     удобный ``list[str]`` API; генераторы запрашивают пары с точкой фокуса.
     """
-    rows = conn.execute(
-        "SELECT d.id AS date_id, di.filename, di.focus FROM date_categories dc "
-        "JOIN dates d ON d.id=dc.date_id "
-        "JOIN date_images di ON di.date_id=d.id "
-        "WHERE dc.category_id=? AND d.archived_at IS NULL AND d.is_draft=0 "
-        "ORDER BY dc.position ASC, d.id ASC, di.position ASC, di.id ASC",
-        (category_id,),
-    ).fetchall()
-    galleries: list[list[tuple[str, str | None]]] = []
-    by_date: dict[int, list[tuple[str, str | None]]] = {}
-    for row in rows:
-        filename = str(row["filename"] or "")
-        if existing_only and not images.upload_image_exists(filename):
-            continue
-        date_id = int(row["date_id"])
-        if date_id not in by_date:
-            by_date[date_id] = []
-            galleries.append(by_date[date_id])
-        by_date[date_id].append((filename, row["focus"]))
+    return category_og_sources_batch(
+        conn, [category_id], include_focus=include_focus,
+        existing_only=existing_only,
+    ).get(int(category_id), [])
 
-    selected: list[tuple[str, str | None]] = []
-    level = 0
-    while len(selected) < 8:
-        added = False
-        for gallery in galleries:
-            if level < len(gallery):
-                selected.append(gallery[level])
-                added = True
-                if len(selected) == 8:
-                    break
-        if not added:
-            break
-        level += 1
-    if include_focus:
-        return selected
-    return [filename for filename, _focus in selected]
+
+def category_og_sources_batch(
+        conn, category_ids, *, include_focus: bool = False,
+        existing_only: bool = False,
+) -> dict[int, list[str] | list[tuple[str, str | None]]]:
+    """Batch-версия round-robin источников для списка категорий."""
+    ids = list(dict.fromkeys(int(category_id) for category_id in category_ids))
+    if not ids:
+        return {}
+    galleries: dict[int, list[list[tuple[str, str | None]]]] = {
+        category_id: [] for category_id in ids
+    }
+    by_date: dict[tuple[int, int], list[tuple[str, str | None]]] = {}
+    exists_cache: dict[str, bool] = {}
+    for start in range(0, len(ids), 400):
+        batch = ids[start:start + 400]
+        placeholders = ",".join("?" for _ in batch)
+        rows = conn.execute(
+            "SELECT dc.category_id, d.id AS date_id, di.filename, di.focus "
+            "FROM date_categories dc JOIN dates d ON d.id=dc.date_id "
+            "JOIN date_images di ON di.date_id=d.id "
+            f"WHERE dc.category_id IN ({placeholders}) "
+            "AND d.archived_at IS NULL AND d.is_draft=0 "
+            "ORDER BY dc.category_id ASC, dc.position ASC, d.id ASC, "
+            "di.position ASC, di.id ASC",
+            tuple(batch),
+        ).fetchall()
+        for row in rows:
+            filename = str(row["filename"] or "")
+            if existing_only:
+                if filename not in exists_cache:
+                    exists_cache[filename] = images.upload_image_exists(filename)
+                if not exists_cache[filename]:
+                    continue
+            category_id = int(row["category_id"])
+            date_id = int(row["date_id"])
+            key = (category_id, date_id)
+            if key not in by_date:
+                by_date[key] = []
+                galleries[category_id].append(by_date[key])
+            by_date[key].append((filename, row["focus"]))
+
+    result: dict[int, list] = {}
+    for category_id, category_galleries in galleries.items():
+        selected: list[tuple[str, str | None]] = []
+        level = 0
+        while len(selected) < 8:
+            added = False
+            for gallery in category_galleries:
+                if level < len(gallery):
+                    selected.append(gallery[level])
+                    added = True
+                    if len(selected) == 8:
+                        break
+            if not added:
+                break
+            level += 1
+        result[category_id] = (
+            selected if include_focus
+            else [filename for filename, _focus in selected]
+        )
+    return result
 
 
 def active_cat_or_410(conn, token: str):

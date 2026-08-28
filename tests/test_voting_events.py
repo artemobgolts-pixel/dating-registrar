@@ -162,6 +162,46 @@ class VotingEventTests(unittest.TestCase):
         self.assertIn("reminder:2h", rows[0]["event_key"])
         self.assertEqual(datetime.fromisoformat(rows[0]["send_at"]), boundary)
 
+    def test_outcome_fanout_batches_voters_and_reminders(self):
+        category_id = self.category("Массовая")
+        date_id = self.date([category_id], "Большая встреча")
+        self.conn.execute("UPDATE dates SET capacity=100 WHERE id=?", (date_id,))
+        self.conn.executemany(
+            "INSERT INTO users(id,telegram_id,display_name,created_at) "
+            "VALUES(?,?,?,?)",
+            ((user_id, 1000 + user_id, f"Участник {user_id}", NOW.isoformat())
+             for user_id in range(4, 102)),
+        )
+        voting.configure_category(
+            self.conn, category_id, 1, voting.CHOICE_SINGLE, DEADLINE, now=NOW,
+        )
+        self.conn.executemany(
+            "INSERT INTO bookings(date_id,category_id,guest_token,user_id,created_at) "
+            "VALUES(?,?,?,?,?)",
+            ((date_id, category_id, f"u{user_id}", user_id, NOW.isoformat())
+             for user_id in range(2, 102)),
+        )
+        state = voting.close_category(self.conn, category_id, now=AFTER)
+
+        traced: list[str] = []
+        self.conn.set_trace_callback(traced.append)
+        voting_events.queue_category_outcome(self.conn, state, now=AFTER)
+        self.conn.set_trace_callback(None)
+
+        # owner + 100 outcomes + 2 reminders for every winner participant.
+        self.assertEqual(
+            self.conn.execute("SELECT COUNT(*) FROM notification_outbox").fetchone()[0],
+            301,
+        )
+        self.assertEqual(
+            sum(sql.lstrip().upper().startswith("SELECT") for sql in traced), 3,
+        )
+        self.assertEqual(
+            sum(sql.lstrip().upper().startswith(
+                "INSERT INTO NOTIFICATION_OUTBOX") for sql in traced),
+            4,  # 80 + 80 + 80 + 61 rows
+        )
+
     def test_close_due_uses_the_new_deadline_after_an_expired_open_extension(self):
         category_id = self.category("Продлённая")
         self.date([category_id], "Встреча")

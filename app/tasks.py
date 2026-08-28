@@ -76,17 +76,50 @@ def autoarchive_once(conn: sqlite3.Connection | None = None, *,
         conn = db.connect()
     n = now_naive()
     archive_ids: set[int] = set()
-    where = "d.archived_at IS NULL AND (d.starts_at IS NOT NULL OR d.ends_at IS NOT NULL)"
-    params: list = []
+    scope = ""
+    scope_params: list = []
     if category_id is not None:
-        where += (" AND d.id IN (SELECT date_id FROM date_categories "
-                  "WHERE category_id=?)")
-        params.append(category_id)
+        scope += (" AND EXISTS (SELECT 1 FROM date_categories scoped_dc "
+                  "WHERE scoped_dc.date_id=d.id AND scoped_dc.category_id=?)")
+        scope_params.append(category_id)
     if owner_id is not None:
-        where += " AND d.owner_id=?"
-        params.append(owner_id)
+        scope += " AND d.owner_id=?"
+        scope_params.append(owner_id)
+
+    # Отдельные partial indexes превращают глобальный минутный проход из
+    # сканирования всех активных событий в адресные range-seek только по уже
+    # наступившим границам. Повторная проверка через _parse ниже намеренно
+    # остаётся: легаси-строки с некорректным ISO-временем не архивируются.
+    start_cutoff = min(
+        n.replace(hour=0, minute=0, second=0, microsecond=0),
+        n - social_events.DEFAULT_EVENT_DURATION,
+    )
     rows = conn.execute(
-        f"SELECT d.id, d.starts_at, d.ends_at FROM dates d WHERE {where}", params
+        "SELECT d.id, d.starts_at, d.ends_at FROM dates d "
+        "INDEXED BY idx_dates_autoarchive_ends_due "
+        "WHERE d.archived_at IS NULL AND d.ends_at IS NOT NULL "
+        f"AND d.ends_at<?{scope}",
+        (n.isoformat(sep="T"), *scope_params),
+    ).fetchall()
+    rows += conn.execute(
+        "SELECT d.id, d.starts_at, d.ends_at FROM dates d "
+        "INDEXED BY idx_dates_autoarchive_starts_due "
+        "WHERE d.archived_at IS NULL AND d.ends_at IS NULL "
+        "AND d.starts_at IS NOT NULL "
+        f"AND d.starts_at<?{scope}",
+        (start_cutoff.isoformat(sep="T"), *scope_params),
+    ).fetchall()
+    # Невалидный legacy ends_at раньше (и по-прежнему) означает fallback к
+    # starts_at. Строки, лексически меньшие now, уже попали в первый seek;
+    # оставшуюся половину берём по due-start partial index, а _parse отличает
+    # реальный будущий конец от невалидного значения без полного скана.
+    rows += conn.execute(
+        "SELECT d.id, d.starts_at, d.ends_at FROM dates d "
+        "INDEXED BY idx_dates_autoarchive_end_fallback_start "
+        "WHERE d.archived_at IS NULL AND d.ends_at IS NOT NULL "
+        "AND d.starts_at IS NOT NULL AND d.starts_at<? AND d.ends_at>=?"
+        f"{scope}",
+        (start_cutoff.isoformat(sep="T"), n.isoformat(sep="T"), *scope_params),
     ).fetchall()
     for r in rows:
         end = _parse(r["ends_at"])
@@ -110,11 +143,14 @@ def autoarchive_once(conn: sqlite3.Connection | None = None, *,
     # любой человек с прямой /d-ссылкой и отметкой want мог бы заархивировать
     # чужое событие своим обзором.
     completed_where = (
-        "d.archived_at IS NULL "
-        "AND c.voting_status='resolved' AND c.winner_date_id=d.id "
-        "AND b.date_id=d.id AND b.category_id=c.id "
-        "AND b.user_id IS NOT NULL AND b.participation_withdrawn_at IS NULL "
-        "AND r.date_id=d.id AND r.user_id=b.user_id "
+        "c.voting_status='resolved' AND c.winner_date_id IS NOT NULL "
+        "AND d.archived_at IS NULL "
+        "AND EXISTS ("
+        " SELECT 1 FROM bookings b "
+        " JOIN date_reviews r ON r.date_id=b.date_id AND r.user_id=b.user_id "
+        " WHERE b.category_id=c.id AND b.date_id=c.winner_date_id "
+        " AND b.user_id IS NOT NULL AND b.participation_withdrawn_at IS NULL"
+        ") "
         # Одна строка dates может участвовать сразу в нескольких категориях.
         # Не прячем победителя глобально, пока где-то ещё идёт голосование или
         # владелец не разрешил ничью: иначе вариант исчезнет из второго опроса.
@@ -133,10 +169,8 @@ def autoarchive_once(conn: sqlite3.Connection | None = None, *,
         completed_where += " AND d.owner_id=?"
         completed_params.append(owner_id)
     archive_ids.update(int(row["id"]) for row in conn.execute(
-        "SELECT DISTINCT d.id FROM dates d "
-        "JOIN categories c ON c.winner_date_id=d.id "
-        "JOIN bookings b ON b.category_id=c.id AND b.date_id=d.id "
-        "JOIN date_reviews r ON r.date_id=d.id AND r.user_id=b.user_id "
+        "SELECT DISTINCT d.id FROM categories c "
+        "JOIN dates d ON d.id=c.winner_date_id "
         f"WHERE {completed_where}",
         completed_params,
     ).fetchall())
@@ -156,13 +190,7 @@ def autoarchive_once(conn: sqlite3.Connection | None = None, *,
             # Переход в архив — надёжная точка для вопроса «Удалось сходить?».
             # Outbox дедуплицирован по user/date, а review_queue имеет составной
             # PK, поэтому повторный минутный цикл не создаст дублей.
-            for user_id in social_events.review_user_ids(conn, date_id):
-                social_events.queue_archive_review_prompt(
-                    conn, date_id, user_id, now=n,
-                )
-                social_events.mark_review_waiting(
-                    conn, date_id, user_id, "due", now=n,
-                )
+            social_events.queue_archive_review_fanout(conn, date_id, now=n)
     if archived:
         conn.commit()
     if own:
@@ -172,8 +200,8 @@ def autoarchive_once(conn: sqlite3.Connection | None = None, *,
 
 async def autoarchive_loop() -> None:
     while True:
-        # GET-страницы больше не пишут в SQLite. Частичный индекс v25 делает
-        # короткий минутный проход дешёвым и оставляет статус почти мгновенным.
+        # GET-страницы больше не пишут в SQLite. Due-индексы v32 делают
+        # короткий минутный проход адресным и оставляют статус почти мгновенным.
         await asyncio.sleep(60)
         try:
             n = autoarchive_once()

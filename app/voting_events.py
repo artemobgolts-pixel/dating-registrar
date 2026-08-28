@@ -151,16 +151,17 @@ def cancel_pending_round_notifications(conn: sqlite3.Connection,
     )
     # Уведомление об отказе адресовано владельцу и исторически имеет booking:-
     # ключ. После повторного открытия фраза «итог не изменился» уже неверна.
-    for row in conn.execute(
+    booking_ids = [int(row["id"]) for row in conn.execute(
         "SELECT id FROM bookings WHERE category_id=?",
         (int(category_id),),
-    ).fetchall():
-        total += outbox.cancel(
-            conn,
-            event_key=f"booking:{int(row['id'])}:participant_withdrawal",
-            kind="participant_withdrawal",
-            reason="voting_reopened",
-        )
+    ).fetchall()]
+    total += outbox.cancel_event_keys(
+        conn,
+        (f"booking:{booking_id}:participant_withdrawal"
+         for booking_id in booking_ids),
+        kind="participant_withdrawal",
+        reason="voting_reopened",
+    )
     return total
 
 
@@ -181,14 +182,28 @@ def queue_category_outcome(conn: sqlite3.Connection, state: voting.CategoryState
     # отправленной строкой предыдущего раунда.
     round_key = state.closed_at or "legacy"
 
-    winner = _date(conn, state.winner_date_id)
+    wanted_date_ids = set(state.leader_date_ids)
+    if state.winner_date_id is not None:
+        wanted_date_ids.add(int(state.winner_date_id))
+    dates_by_id = {}
+    if wanted_date_ids:
+        placeholders = ",".join("?" for _ in wanted_date_ids)
+        dates_by_id = {
+            int(row["id"]): row
+            for row in conn.execute(
+                f"SELECT * FROM dates WHERE id IN ({placeholders})",
+                tuple(sorted(wanted_date_ids)),
+            ).fetchall()
+        }
+    winner = dates_by_id.get(int(state.winner_date_id)) \
+        if state.winner_date_id is not None else None
     if state.status == voting.STATUS_NO_WINNER:
         owner_text = notify.card(
             "🤍 Никто не выбрал",
             f"«{notify.esc(cat['name'])}»",
             "Категория завершена без победителя.")
     elif state.status == voting.STATUS_TIE:
-        leaders = [_date(conn, did) for did in state.leader_date_ids]
+        leaders = [dates_by_id.get(int(did)) for did in state.leader_date_ids]
         names = ", ".join(f"«{notify.esc(d['name'])}»" for d in leaders if d)
         owner_text = notify.card(
             "⚖️ В голосовании ничья",
@@ -202,14 +217,18 @@ def queue_category_outcome(conn: sqlite3.Connection, state: voting.CategoryState
             f"«{notify.esc(cat['name'])}»",
             f"«{winner_name}» · {count} голос(а)")
 
-    outbox.enqueue(
-        conn, user_id=owner_id, kind=f"voting_{state.status}",
-        event_key=(f"category:{state.category_id}:status:{state.status}:"
-                   f"round:{round_key}:owner:{owner_id}"),
-        text=owner_text, expires_at=expiry, action_url=admin_url,
-        action_label=("Выбрать победителя" if state.status == voting.STATUS_TIE
-                      else "Открыть категорию"),
-    )
+    notifications = [{
+        "user_id": owner_id,
+        "kind": f"voting_{state.status}",
+        "event_key": (f"category:{state.category_id}:status:{state.status}:"
+                      f"round:{round_key}:owner:{owner_id}"),
+        "text": owner_text,
+        "expires_at": expiry,
+        "action_url": admin_url,
+        "action_label": ("Выбрать победителя"
+                         if state.status == voting.STATUS_TIE
+                         else "Открыть категорию"),
+    }]
 
     voter_rows = _voters(conn, state.category_id)
     by_user: dict[int, list] = {}
@@ -239,13 +258,16 @@ def queue_category_outcome(conn: sqlite3.Connection, state: voting.CategoryState
             title = "Голосование завершено"
             detail = "До дедлайна никто не сделал выбор."
         text = notify.card(title, f"«{notify.esc(cat['name'])}»", detail)
-        outbox.enqueue(
-            conn, user_id=user_id, kind=f"voting_{state.status}",
-            event_key=(f"category:{state.category_id}:status:{state.status}:"
-                       f"round:{round_key}:user:{user_id}"),
-            text=text, expires_at=expiry,
-            action_url=public_url, action_label="Посмотреть результат",
-        )
+        notifications.append({
+            "user_id": user_id,
+            "kind": f"voting_{state.status}",
+            "event_key": (f"category:{state.category_id}:status:{state.status}:"
+                          f"round:{round_key}:user:{user_id}"),
+            "text": text,
+            "expires_at": expiry,
+            "action_url": public_url,
+            "action_label": "Посмотреть результат",
+        })
 
     # Напоминания получают только участники победившего варианта. Количество
     # может быть меньше capacity — это не меняет победителя.
@@ -271,14 +293,21 @@ def queue_category_outcome(conn: sqlite3.Connection, state: voting.CategoryState
                         f"Когда: {fmt_when(winner['starts_at'], winner['ends_at'])} (мск)",
                         f"📍 {notify.esc(winner['place'])}" if winner["place"] else "",
                     )
-                    outbox.enqueue(
-                        conn, user_id=user_id, kind="winner_reminder",
-                        event_key=(f"category:{state.category_id}:date:{winner['id']}:"
-                                   f"reminder:{hours}h:at:{starts.isoformat()}:"
-                                   f"round:{round_key}:user:{user_id}"),
-                        text=text, send_at=send_at, expires_at=expires_at,
-                        action_url=public_url, action_label="Открыть событие",
-                    )
+                    notifications.append({
+                        "user_id": user_id,
+                        "kind": "winner_reminder",
+                        "event_key": (
+                            f"category:{state.category_id}:date:{winner['id']}:"
+                            f"reminder:{hours}h:at:{starts.isoformat()}:"
+                            f"round:{round_key}:user:{user_id}"
+                        ),
+                        "text": text,
+                        "send_at": send_at,
+                        "expires_at": expires_at,
+                        "action_url": public_url,
+                        "action_label": "Открыть событие",
+                    })
+    outbox.enqueue_many(conn, notifications)
 
 
 def close_due_once(conn: sqlite3.Connection | None = None, *,
@@ -363,7 +392,7 @@ def queue_date_changed(conn: sqlite3.Connection, date_id: int,
         "WHERE b.date_id=? AND b.user_id IS NOT NULL",
         (date_id,),
     ).fetchall()
-    queued = 0
+    notifications = []
     stamp_key = current.strftime("%Y%m%dT%H%M%S")
     resolved_categories: set[int] = set()
     for row in rows:
@@ -380,15 +409,18 @@ def queue_date_changed(conn: sqlite3.Connection, date_id: int,
             f"Когда: {fmt_when(d['starts_at'], d['ends_at'])} (мск)" if d["starts_at"] else "",
             f"📍 {notify.esc(d['place'])}" if d["place"] else "",
         )
-        outbox.enqueue(
-            conn, user_id=int(row["user_id"]), kind="date_changed",
-            event_key=(f"date:{date_id}:changed:{stamp_key}:category:"
-                       f"{row['category_id']}:user:{row['user_id']}"),
-            text=text, expires_at=current + RESULT_TTL,
-            action_url=f"{BASE_URL}/c/{row['link_token']}",
-            action_label="Посмотреть изменения",
-        )
-        queued += 1
+        notifications.append({
+            "user_id": int(row["user_id"]),
+            "kind": "date_changed",
+            "event_key": (f"date:{date_id}:changed:{stamp_key}:category:"
+                          f"{row['category_id']}:user:{row['user_id']}"),
+            "text": text,
+            "expires_at": current + RESULT_TTL,
+            "action_url": f"{BASE_URL}/c/{row['link_token']}",
+            "action_label": "Посмотреть изменения",
+        })
+
+    queued = outbox.enqueue_many(conn, notifications)
 
     cancel_date_reminders(conn, date_id, reason="date_changed")
     for category_id in resolved_categories:
@@ -406,6 +438,7 @@ def queue_date_removed(conn: sqlite3.Connection, date_id: int, date_name: str,
         "SELECT id, user_id FROM bookings WHERE date_id=? AND category_id=? "
         "AND user_id IS NOT NULL", (date_id, category_id)
     ).fetchall()
+    notifications = []
     for booking in bookings:
         user_id = int(booking["user_id"])
         text = notify.card(
@@ -413,13 +446,18 @@ def queue_date_removed(conn: sqlite3.Connection, date_id: int, date_name: str,
             f"«{notify.esc(date_name)}» · {notify.esc(category_name)}",
             "Ваш голос за этот вариант снят. Можно выбрать другой.",
         )
-        outbox.enqueue(
-            conn, user_id=user_id, kind="date_removed",
-            event_key=(f"booking:{int(booking['id'])}:date_removed:user:{user_id}"),
-            text=text, expires_at=current + RESULT_TTL,
-            action_url=f"{BASE_URL}/c/{category_token}" if category_token else None,
-            action_label="Выбрать другой вариант" if category_token else None,
-        )
+        notifications.append({
+            "user_id": user_id,
+            "kind": "date_removed",
+            "event_key": f"booking:{int(booking['id'])}:date_removed:user:{user_id}",
+            "text": text,
+            "expires_at": current + RESULT_TTL,
+            "action_url": (f"{BASE_URL}/c/{category_token}"
+                           if category_token else None),
+            "action_label": ("Выбрать другой вариант"
+                             if category_token else None),
+        })
+    outbox.enqueue_many(conn, notifications)
     cancel_date_reminders(conn, date_id, reason="date_removed",
                           category_id=category_id)
     return len(bookings)

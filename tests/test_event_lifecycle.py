@@ -304,6 +304,41 @@ class EventLifecycleTests(unittest.TestCase):
         conn.close()
         self.conn = None
 
+    def test_autoarchive_parses_only_due_range_candidates(self):
+        conn = db.connect()
+        self.conn = conn
+        owner_id = self._user(conn, 86001, "Владелец")
+        conn.executemany(
+            "INSERT INTO dates(owner_id,name,starts_at,ends_at,created_at) "
+            "VALUES(?,?,?,?,?)",
+            [
+                (owner_id, f"future-end-{i}", "2030-01-02T09:00:00",
+                 "2030-01-02T12:00:00", STAMP)
+                for i in range(500)
+            ] + [
+                (owner_id, f"future-start-{i}", "2030-01-02T09:00:00",
+                 None, STAMP)
+                for i in range(500)
+            ] + [
+                (owner_id, "due-end", "2029-12-31T09:00:00",
+                 "2030-01-01T10:00:00", STAMP),
+                (owner_id, "due-start", "2029-12-31T20:00:00", None, STAMP),
+                (owner_id, "due-invalid-end", "2029-12-31T20:00:00",
+                 "not-an-iso-time", STAMP),
+            ],
+        )
+        real_parse = tasks._parse
+        with patch.object(
+                tasks, "now_naive", return_value=datetime(2030, 1, 1, 12, 0)), \
+                patch.object(tasks, "_parse", wraps=real_parse) as parse_spy:
+            self.assertEqual(tasks.autoarchive_once(conn), 3)
+        self.assertEqual(parse_spy.call_count, 5)
+        self.assertEqual(conn.execute(
+            "SELECT COUNT(*) FROM dates WHERE archived_at IS NOT NULL",
+        ).fetchone()[0], 3)
+        conn.close()
+        self.conn = None
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

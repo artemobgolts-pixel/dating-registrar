@@ -166,6 +166,61 @@ class SocialEventsTests(unittest.TestCase):
         self.assertIsNotNone(cancelled["cancelled_at"])
         self.assertEqual(cancelled["last_error"], "review_exists")
 
+    def test_review_fanout_query_count_scales_by_chunks_not_users(self):
+        self._date(10, starts="2030-01-03T18:00:00",
+                   ends="2030-01-03T20:00:00")
+        self._date(11, starts="2030-01-03T18:00:00",
+                   ends="2030-01-03T20:00:00")
+        self.conn.executemany(
+            "INSERT INTO users(id,telegram_id,display_name,created_at) "
+            "VALUES(?,?,?,?)",
+            ((user_id, 1000 + user_id, f"Участник {user_id}",
+              "2030-01-01T00:00:00") for user_id in range(3, 102)),
+        )
+        user_ids = list(range(2, 102))
+        self.conn.executemany(
+            "INSERT INTO date_wants(user_id,date_id,created_at,updated_at) "
+            "VALUES(?,?,?,?)",
+            ((user_id, date_id, "2030-01-01T00:00:00",
+              "2030-01-01T00:00:00")
+             for date_id in (10, 11) for user_id in user_ids),
+        )
+
+        traced: list[str] = []
+        self.conn.set_trace_callback(traced.append)
+        self.assertEqual(
+            social_events.queue_review_prompts_for_date(self.conn, 10), 100,
+        )
+        self.conn.set_trace_callback(None)
+        selects = sum(sql.lstrip().upper().startswith("SELECT") for sql in traced)
+        outbox_inserts = sum(
+            sql.lstrip().upper().startswith("INSERT INTO NOTIFICATION_OUTBOX")
+            for sql in traced
+        )
+        self.assertEqual(selects, 3)
+        self.assertEqual(outbox_inserts, 2)  # 80 + 20 rows
+
+        traced.clear()
+        self.conn.set_trace_callback(traced.append)
+        queued, waiting = social_events.queue_archive_review_fanout(
+            self.conn, 11, now=datetime(2030, 1, 4, 12, 0),
+        )
+        self.conn.set_trace_callback(None)
+        self.assertEqual((queued, waiting), (100, 100))
+        self.assertEqual(
+            sum(sql.lstrip().upper().startswith("SELECT") for sql in traced), 4,
+        )
+        self.assertEqual(
+            sum(sql.lstrip().upper().startswith(
+                "INSERT INTO NOTIFICATION_OUTBOX") for sql in traced),
+            2,
+        )
+        self.assertEqual(
+            sum(sql.lstrip().upper().startswith(
+                "INSERT INTO REVIEW_QUEUE") for sql in traced),
+            1,
+        )
+
     def test_rating_constraint_and_delete_cascade(self):
         self._date(1, starts=None, ends=None)
         self._want(1)

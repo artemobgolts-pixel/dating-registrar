@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Миграции v25–v26 и планы запросов для горячих SQLite-путей."""
+"""Миграции и планы запросов для горячих SQLite-путей."""
 
 from __future__ import annotations
 
@@ -29,6 +29,15 @@ V25_INDEXES = {
     "idx_categories_open_deadline",
     "idx_dates_autoarchive_active",
     "idx_q_date_read",
+}
+
+V32_INDEXES = {
+    "idx_dates_autoarchive_ends_due",
+    "idx_dates_autoarchive_starts_due",
+    "idx_dates_autoarchive_end_fallback_start",
+    "idx_date_wants_user_updated",
+    "idx_reports_open_date_target",
+    "idx_notification_outbox_expiry",
 }
 
 
@@ -103,8 +112,8 @@ class DatabasePerformanceMigrationTests(unittest.TestCase):
                     "INSERT INTO date_categories(date_id, category_id) VALUES(?,?)",
                     (ids["deadline-conflict"], open_category_id),
                 )
-                for index in V25_INDEXES:
-                    conn.execute(f"DROP INDEX {index}")
+                for index in V25_INDEXES | V32_INDEXES:
+                    conn.execute(f"DROP INDEX IF EXISTS {index}")
                 # init_db выше создал свежую схему. Для честной эмуляции старой
                 # v24 базы убираем объекты следующих миграций, иначе их ALTER
                 # TABLE при повторном прогоне закономерно увидит дубль.
@@ -157,12 +166,14 @@ class DatabasePerformanceMigrationTests(unittest.TestCase):
                         "SELECT name FROM sqlite_master WHERE type='index'"
                     )
                 }
-                self.assertTrue(V25_INDEXES <= indexes)
+                self.assertTrue((V25_INDEXES - {"idx_dates_autoarchive_active"})
+                                | V32_INDEXES <= indexes)
+                self.assertNotIn("idx_dates_autoarchive_active", indexes)
                 self.assertFalse(conn.execute("PRAGMA foreign_key_check").fetchall())
             finally:
                 conn.close()
 
-    def test_hot_queries_use_v25_indexes(self):
+    def test_hot_queries_use_expected_indexes(self):
         conn = sqlite3.connect(":memory:")
         try:
             conn.executescript(db.SCHEMA)
@@ -198,19 +209,50 @@ class DatabasePerformanceMigrationTests(unittest.TestCase):
                     ("2030-01-01T00:00:00",),
                 ),
                 (
-                    "idx_dates_autoarchive_active",
+                    "idx_dates_autoarchive_ends_due",
                     "SELECT id, starts_at, ends_at FROM dates "
-                    "WHERE archived_at IS NULL "
-                    "AND (starts_at IS NOT NULL OR ends_at IS NOT NULL)",
+                    "INDEXED BY idx_dates_autoarchive_ends_due "
+                    "WHERE archived_at IS NULL AND ends_at IS NOT NULL "
+                    "AND ends_at<?",
+                    ("2030-01-01T00:00:00",),
+                ),
+                (
+                    "idx_dates_autoarchive_starts_due",
+                    "SELECT id, starts_at, ends_at FROM dates "
+                    "INDEXED BY idx_dates_autoarchive_starts_due "
+                    "WHERE archived_at IS NULL AND ends_at IS NULL "
+                    "AND starts_at IS NOT NULL AND starts_at<? "
+                    "AND owner_id=?",
+                    ("2030-01-01T00:00:00", 1),
+                ),
+                (
+                    "idx_dates_autoarchive_end_fallback_start",
+                    "SELECT id,starts_at,ends_at FROM dates "
+                    "INDEXED BY idx_dates_autoarchive_end_fallback_start "
+                    "WHERE archived_at IS NULL AND ends_at IS NOT NULL "
+                    "AND starts_at IS NOT NULL AND starts_at<? AND ends_at>=?",
+                    ("2030-01-01T00:00:00", "2030-01-01T12:00:00"),
+                ),
+                (
+                    "idx_date_wants_user_updated",
+                    "SELECT date_id FROM date_wants WHERE user_id=? "
+                    "ORDER BY updated_at DESC",
+                    (1,),
+                ),
+                (
+                    "idx_reports_open_date_target",
+                    "SELECT target_id, COUNT(*) FROM reports "
+                    "INDEXED BY idx_reports_open_date_target "
+                    "WHERE target_type='date' AND status='open' GROUP BY target_id",
                     (),
                 ),
                 (
-                    "idx_dates_autoarchive_active",
-                    "SELECT id, starts_at, ends_at FROM dates "
-                    "WHERE archived_at IS NULL "
-                    "AND (starts_at IS NOT NULL OR ends_at IS NOT NULL) "
-                    "AND owner_id=?",
-                    (1,),
+                    "idx_notification_outbox_expiry",
+                    "UPDATE notification_outbox "
+                    "INDEXED BY idx_notification_outbox_expiry SET cancelled_at=? "
+                    "WHERE sent_at IS NULL AND cancelled_at IS NULL "
+                    "AND expires_at IS NOT NULL AND expires_at<=?",
+                    ("2030-01-01T00:00:00", "2030-01-01T00:00:00"),
                 ),
                 (
                     "idx_q_date_read",
@@ -222,9 +264,28 @@ class DatabasePerformanceMigrationTests(unittest.TestCase):
             for index, sql, params in cases:
                 with self.subTest(index=index, sql=sql):
                     self.assertIn(index, plan(conn, sql, params))
+
+            completed = plan(
+                conn,
+                "SELECT DISTINCT d.id FROM categories c "
+                "JOIN dates d ON d.id=c.winner_date_id "
+                "WHERE c.voting_status='resolved' AND c.winner_date_id IS NOT NULL "
+                "AND d.archived_at IS NULL AND EXISTS ("
+                " SELECT 1 FROM bookings b JOIN date_reviews r "
+                " ON r.date_id=b.date_id AND r.user_id=b.user_id "
+                " WHERE b.category_id=c.id AND b.date_id=c.winner_date_id "
+                " AND b.user_id IS NOT NULL "
+                " AND b.participation_withdrawn_at IS NULL) "
+                "AND NOT EXISTS (SELECT 1 FROM date_categories pending_dc "
+                " JOIN categories pending_c ON pending_c.id=pending_dc.category_id "
+                " WHERE pending_dc.date_id=d.id "
+                " AND pending_c.voting_status IN ('open','tie'))",
+            )
+            self.assertIn("idx_categories_winner_date", completed)
+            self.assertIn("idx_book_cat_user", completed)
+            self.assertNotIn("SCAN b", completed)
         finally:
             conn.close()
-
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

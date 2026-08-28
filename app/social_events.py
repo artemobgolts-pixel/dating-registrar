@@ -77,22 +77,28 @@ def review_due(conn: sqlite3.Connection, date_id: int) -> datetime | None:
     дедлайном всех категорий. Если времени у события нет, обязательный дедлайн
     всё равно гарантирует prompt — через 24 часа после самого позднего.
     """
-    date = conn.execute(
-        "SELECT starts_at, ends_at, created_at FROM dates WHERE id=?", (date_id,)
-    ).fetchone()
-    if not date:
+    context = _review_event_context(conn, date_id)
+    return context[1] if context else None
+
+
+def _review_event_context(conn: sqlite3.Connection, date_id: int):
+    """Загружает инварианты события и вычисляет due одним SQL-запросом."""
+    rows = conn.execute(
+        "SELECT d.name, d.share_token, d.starts_at, d.ends_at, d.created_at, "
+        "c.voting_deadline FROM dates d "
+        "LEFT JOIN date_categories dc ON dc.date_id=d.id "
+        "LEFT JOIN categories c ON c.id=dc.category_id "
+        "WHERE d.id=?",
+        (date_id,),
+    ).fetchall()
+    if not rows:
         return None
-    deadline_values = [
-        row["voting_deadline"] for row in conn.execute(
-            "SELECT c.voting_deadline FROM categories c "
-            "JOIN date_categories dc ON dc.category_id=c.id "
-            "WHERE dc.date_id=? AND c.voting_deadline IS NOT NULL",
-            (date_id,),
-        )
-    ]
-    return _review_due_from_values(
-        date["starts_at"], date["ends_at"], date["created_at"], deadline_values,
+    event = rows[0]
+    due = _review_due_from_values(
+        event["starts_at"], event["ends_at"], event["created_at"],
+        (row["voting_deadline"] for row in rows if row["voting_deadline"]),
     )
+    return event, due
 
 
 def prompt_key(date_id: int, user_id: int) -> str:
@@ -256,13 +262,87 @@ def queue_archive_review_prompt(conn: sqlite3.Connection, date_id: int,
     )
 
 
+def _cancel_prompt_users(conn: sqlite3.Connection, date_id: int, user_ids,
+                         reason: str, *, now: datetime | None = None) -> int:
+    return notification_outbox.cancel_user_prefixes(
+        conn,
+        {
+            int(user_id): f"review:date:{int(date_id)}:user:{int(user_id)}:"
+            for user_id in user_ids
+        },
+        kind="review_prompt", reason=reason, now=now,
+    )
+
+
+def _queue_review_prompt_fanout(conn: sqlite3.Connection, date_id: int,
+                                entitlement: dict[int, bool]) -> int:
+    """Общий batch-path queue/reconcile без запросов на каждого пользователя."""
+    if not entitlement:
+        return 0
+    current = now_naive().replace(tzinfo=None, microsecond=0)
+    entitled = {user_id for user_id, value in entitlement.items() if value}
+    unavailable = set(entitlement) - entitled
+    if unavailable:
+        _cancel_prompt_users(
+            conn, date_id, unavailable, "review_not_available", now=current,
+        )
+    if not entitled:
+        return 0
+
+    context = _review_event_context(conn, date_id)
+    if context is None:
+        _cancel_prompt_users(conn, date_id, entitled, "event_removed", now=current)
+        return 0
+    event, due = context
+    reviewed = {
+        int(row["user_id"])
+        for row in conn.execute(
+            "SELECT user_id FROM date_reviews WHERE date_id=?",
+            (date_id,),
+        ).fetchall()
+        if int(row["user_id"]) in entitled
+    }
+    if reviewed:
+        _cancel_prompt_users(conn, date_id, reviewed, "review_exists", now=current)
+    recipients = entitled - reviewed
+    if due is None or not event["share_token"]:
+        _cancel_prompt_users(
+            conn, date_id, recipients, "event_has_no_review_due", now=current,
+        )
+        return 0
+
+    # Старые due не создают сразу просроченные строки — то же правило, что у
+    # одиночного queue_review_prompt, но вычисленное один раз на весь fan-out.
+    if due + REVIEW_PROMPT_TTL <= current:
+        due = current
+    text = notify.card(
+        "⭐ Удалось сходить?",
+        f"«{notify.esc(event['name'])}»",
+        "Поставь оценку — текст можно добавить по желанию.",
+    )
+    notifications = [
+        {
+            "user_id": user_id,
+            "kind": "review_prompt",
+            "event_key": prompt_key(date_id, user_id),
+            "text": text,
+            "action_url": f"{BASE_URL}/d/{event['share_token']}#review",
+            "action_label": "Оставить обзор",
+            "send_at": due,
+            "expires_at": due + REVIEW_PROMPT_TTL,
+            "now": current,
+        }
+        for user_id in sorted(recipients)
+    ]
+    return notification_outbox.enqueue_many(conn, notifications)
+
+
 def queue_review_prompts_for_date(conn: sqlite3.Connection, date_id: int) -> int:
     """Пересчитывает prompt желающих и участников победившего варианта."""
-    queued = 0
-    for user_id in review_user_ids(conn, date_id):
-        if queue_review_prompt(conn, date_id, user_id) is not None:
-            queued += 1
-    return queued
+    return _queue_review_prompt_fanout(
+        conn, date_id,
+        {user_id: True for user_id in review_user_ids(conn, date_id)},
+    )
 
 
 def reconcile_review_prompts_for_date(conn: sqlite3.Connection, date_id: int) -> int:
@@ -275,17 +355,98 @@ def reconcile_review_prompts_for_date(conn: sqlite3.Connection, date_id: int) ->
     всех бюллетеней события: ``queue_review_prompt`` либо перенесёт актуальную
     запись, либо отменит её, если других оснований для обзора больше нет.
     """
-    user_ids = [int(row["user_id"]) for row in conn.execute(
-        "SELECT user_id FROM date_wants WHERE date_id=? "
-        "UNION "
-        "SELECT user_id FROM bookings WHERE date_id=? AND user_id IS NOT NULL",
-        (date_id, date_id),
-    ).fetchall()]
-    queued = 0
-    for user_id in user_ids:
-        if queue_review_prompt(conn, date_id, user_id) is not None:
-            queued += 1
-    return queued
+    entitlement = {
+        int(row["user_id"]): bool(row["entitled"])
+        for row in conn.execute(
+            "SELECT candidates.user_id, MAX(candidates.entitled) AS entitled FROM ("
+            " SELECT user_id, 1 AS entitled FROM date_wants WHERE date_id=? "
+            " UNION ALL "
+            " SELECT b.user_id, CASE WHEN b.participation_withdrawn_at IS NULL "
+            "  AND c.voting_status='resolved' AND c.winner_date_id=b.date_id "
+            "  THEN 1 ELSE 0 END AS entitled "
+            " FROM bookings b JOIN categories c ON c.id=b.category_id "
+            " WHERE b.date_id=? AND b.user_id IS NOT NULL"
+            ") candidates GROUP BY candidates.user_id",
+            (date_id, date_id),
+        ).fetchall()
+    }
+    return _queue_review_prompt_fanout(conn, date_id, entitlement)
+
+
+def queue_archive_review_fanout(conn: sqlite3.Connection, date_id: int, *,
+                                now: datetime | None = None) -> tuple[int, int]:
+    """Пакетно ставит archive-prompts и строки «Ждут отзыва».
+
+    Возвращает ``(notifications, waiting_rows)``. Внутренние SELECT-инварианты
+    выполняются один раз на событие, а обе записи fan-out пишутся пачками.
+    """
+    current = (now or now_naive()).replace(tzinfo=None, microsecond=0)
+    user_ids = review_user_ids(conn, date_id)
+    if not user_ids:
+        return 0, 0
+    context = _review_event_context(conn, date_id)
+    if context is None:
+        return 0, 0
+    event, due = context
+    reviewed = {
+        int(row["user_id"])
+        for row in conn.execute(
+            "SELECT user_id FROM date_reviews WHERE date_id=?",
+            (date_id,),
+        ).fetchall()
+    }
+    already_waiting = {
+        int(row["user_id"])
+        for row in conn.execute(
+            "SELECT user_id FROM review_queue WHERE date_id=?",
+            (date_id,),
+        ).fetchall()
+    }
+    eligible = [
+        user_id for user_id in user_ids
+        if user_id not in reviewed
+        and (user_id in already_waiting or (due is not None and current >= due))
+    ]
+    if not eligible:
+        return 0, 0
+
+    stamp = current.isoformat(sep="T")
+    for start in range(0, len(eligible), 150):
+        batch = eligible[start:start + 150]
+        placeholders = ",".join("(?,?,?,?,?)" for _ in batch)
+        conn.execute(
+            "INSERT INTO review_queue(user_id,date_id,reason,created_at,updated_at) "
+            f"VALUES {placeholders} ON CONFLICT(user_id,date_id) DO UPDATE SET "
+            "reason=excluded.reason, updated_at=excluded.updated_at",
+            tuple(
+                value
+                for user_id in batch
+                for value in (user_id, date_id, "due", stamp, stamp)
+            ),
+        )
+
+    notifications = []
+    if event["share_token"]:
+        text = notify.card(
+            "⭐ Событие завершилось",
+            f"«{notify.esc(event['name'])}»",
+            "Удалось сходить? Если да — оставь обзор.",
+        )
+        notifications = [
+            {
+                "user_id": user_id,
+                "kind": "review_prompt",
+                "event_key": archive_prompt_key(date_id, user_id),
+                "text": text,
+                "action_url": f"{BASE_URL}/d/{event['share_token']}#review",
+                "action_label": "Оставить обзор",
+                "send_at": current,
+                "expires_at": current + REVIEW_PROMPT_TTL,
+                "now": current,
+            }
+            for user_id in eligible
+        ]
+    return notification_outbox.enqueue_many(conn, notifications), len(eligible)
 
 
 def cancel_review_prompts_for_date(conn: sqlite3.Connection, date_id: int,

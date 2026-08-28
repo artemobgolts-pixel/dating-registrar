@@ -351,31 +351,39 @@ def user_delete(uid: int, request: Request, conn=Depends(get_db)):
 
 # ---------- жалобы (очередь модерации) ----------
 
-def _report_target(conn, r) -> dict:
-    """Подтягивает объект жалобы (событие/категория) + владельца, если ещё жив."""
-    if r["target_type"] == "category":
-        row = conn.execute(
-            "SELECT c.name, c.owner_id, u.display_name AS owner, c.link_token "
-            "FROM categories c LEFT JOIN users u ON u.id=c.owner_id "
-            "WHERE c.id=?", (r["target_id"],)).fetchone()
-    else:
-        row = conn.execute(
-            "SELECT d.name, d.owner_id, u.display_name AS owner FROM dates d "
-            "LEFT JOIN users u ON u.id=d.owner_id WHERE d.id=?",
-            (r["target_id"],)).fetchone()
-    return dict(row) if row else {}
-
-
 @router.get("/reports", response_class=HTMLResponse)
 def reports_list(request: Request, status: str = "open", conn=Depends(get_db)):
     if status not in ("open", "resolved", "dismissed", "all"):
         status = "open"
-    where = "" if status == "all" else "WHERE status=?"
+    where = "" if status == "all" else "WHERE r.status=?"
     args = () if status == "all" else (status,)
     rows = conn.execute(
-        f"SELECT * FROM reports {where} ORDER BY created_at DESC LIMIT 200",
+        "SELECT r.*, "
+        "CASE WHEN r.target_type='category' THEN c.name ELSE d.name END AS target_name, "
+        "CASE WHEN r.target_type='category' THEN c.owner_id ELSE d.owner_id END "
+        " AS target_owner_id, "
+        "CASE WHEN r.target_type='category' THEN cu.display_name ELSE du.display_name END "
+        " AS target_owner, c.link_token AS target_link_token "
+        "FROM reports r "
+        "LEFT JOIN categories c ON r.target_type='category' AND c.id=r.target_id "
+        "LEFT JOIN users cu ON cu.id=c.owner_id "
+        "LEFT JOIN dates d ON r.target_type<>'category' AND d.id=r.target_id "
+        "LEFT JOIN users du ON du.id=d.owner_id "
+        f"{where} "
+        "ORDER BY r.created_at DESC LIMIT 200",
         args).fetchall()
-    items = [{"r": r, "t": _report_target(conn, r)} for r in rows]
+    items = []
+    for row in rows:
+        target = {}
+        if row["target_name"] is not None:
+            target = {
+                "name": row["target_name"],
+                "owner_id": row["target_owner_id"],
+                "owner": row["target_owner"],
+            }
+            if row["target_type"] == "category":
+                target["link_token"] = row["target_link_token"]
+        items.append({"r": row, "t": target})
     return templates.TemplateResponse(
         request, "operator/reports.html",
         octx(request, active="reports", items=items, status=status))
@@ -526,6 +534,12 @@ def dates_list(request: Request, q: str = "", flt: str = "", page: int = 1,
     q = (q or "").strip()
     page = max(1, page)
     conds, args = [], []
+    reported_join = ""
+    report_count_sql = (
+        "(SELECT COUNT(*) FROM reports r "
+        "INDEXED BY idx_reports_open_date_target "
+        "WHERE r.target_type='date' AND r.target_id=d.id AND r.status='open')"
+    )
     if q:
         conds.append("(d.name LIKE ? OR u.display_name LIKE ? OR u.tg_username LIKE ?)")
         like = f"%{q}%"
@@ -535,21 +549,26 @@ def dates_list(request: Request, q: str = "", flt: str = "", page: int = 1,
     elif flt == "booked":
         conds.append("EXISTS(SELECT 1 FROM bookings b WHERE b.date_id=d.id)")
     elif flt == "reported":
-        conds.append("EXISTS(SELECT 1 FROM reports r WHERE r.target_type='date' "
-                     "AND r.target_id=d.id AND r.status='open')")
+        reported_join = (
+            " JOIN (SELECT target_id, COUNT(*) AS reports FROM reports "
+            " INDEXED BY idx_reports_open_date_target "
+            " WHERE target_type='date' AND status='open' GROUP BY target_id) rr "
+            " ON rr.target_id=d.id"
+        )
+        report_count_sql = "rr.reports"
     elif flt == "archived":
         conds.append("d.archived_at IS NOT NULL")
     where = ("WHERE " + " AND ".join(conds)) if conds else ""
     total = conn.execute(
-        f"SELECT COUNT(*) FROM dates d JOIN users u ON u.id=d.owner_id {where}",
+        f"SELECT COUNT(*) FROM dates d JOIN users u ON u.id=d.owner_id"
+        f"{reported_join} {where}",
         args).fetchone()[0]
     rows = conn.execute(
         f"SELECT d.id, d.name, d.is_draft, d.origin, d.archived_at, d.owner_id, "
         f"u.display_name AS owner, "
         f"(SELECT COUNT(*) FROM bookings b WHERE b.date_id=d.id) AS books, "
-        f"(SELECT COUNT(*) FROM reports r WHERE r.target_type='date' "
-        f" AND r.target_id=d.id AND r.status='open') AS reports "
-        f"FROM dates d JOIN users u ON u.id=d.owner_id {where} "
+        f"{report_count_sql} AS reports "
+        f"FROM dates d JOIN users u ON u.id=d.owner_id{reported_join} {where} "
         f"ORDER BY d.created_at DESC LIMIT ? OFFSET ?",
         args + [PAGE, (page - 1) * PAGE]).fetchall()
     pages = max(1, (total + PAGE - 1) // PAGE)

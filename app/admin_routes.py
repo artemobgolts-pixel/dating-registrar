@@ -803,26 +803,47 @@ async def import_json(request: Request, file: UploadFile = File(...),
 
 @router.get("/categories", response_class=HTMLResponse)
 def categories_list(request: Request, conn=Depends(get_db)):
+    cats = _categories_list_data(conn, int(request.state.user["id"]))
+    return templates.TemplateResponse(
+        request, "admin/categories.html",
+        actx(request, conn, active="cats", cats=cats))
+
+
+def _categories_list_data(conn, owner_id: int) -> list[dict]:
+    """Готовит карточки категорий двумя SELECT независимо от их количества."""
     rows = conn.execute(
         "SELECT c.*, "
-        "(SELECT COUNT(*) FROM date_categories dc WHERE dc.category_id=c.id) AS dcount, "
-        # есть ли превью ссылки: своя картинка ИЛИ хотя бы одно фото активного
-        # события категории (тогда соберётся коллаж). Для миниатюры в списке.
-        "(c.use_default_preview=1 OR c.og_image IS NOT NULL OR EXISTS("
-        "  SELECT 1 FROM date_categories dc JOIN dates d ON d.id=dc.date_id "
-        "  JOIN date_images di ON di.date_id=d.id "
-        "  WHERE dc.category_id=c.id AND d.archived_at IS NULL AND d.is_draft=0)) AS has_og "
+        "(SELECT COUNT(*) FROM date_categories dc WHERE dc.category_id=c.id) AS dcount "
         "FROM categories c WHERE c.owner_id=? ORDER BY c.created_at DESC",
-        (request.state.user["id"],)
+        (owner_id,)
     ).fetchall()
+
+    # Default и живая custom-картинка полностью определяют revision/has_og:
+    # для них не нужны ни gallery SELECT, ни stat каждого фото события.
+    custom_exists: dict[str, bool] = {}
+    custom_images: dict[int, str | None] = {}
+    auto_ids = []
+    for row in rows:
+        custom_image = None
+        if not row["use_default_preview"] and row["og_image"]:
+            filename = str(row["og_image"])
+            if filename not in custom_exists:
+                custom_exists[filename] = images.upload_image_exists(filename)
+            if custom_exists[filename]:
+                custom_image = filename
+        custom_images[int(row["id"])] = custom_image
+        if not row["use_default_preview"] and custom_image is None:
+            auto_ids.append(int(row["id"]))
+    batched_sources = public_routes.category_og_sources_batch(
+        conn, auto_ids, include_focus=True, existing_only=True,
+    )
+
     cats = []
     for row in rows:
         category = dict(row)
-        sources = _category_collage_sources(conn, int(row["id"]))
-        custom_image = row["og_image"] \
-            if images.upload_image_exists(row["og_image"]) else None
-        # SQL-флаг выше дешёвый, но только общий helper знает фактический набор
-        # (round-robin и отсутствие файла на диске).
+        category_id = int(row["id"])
+        sources = batched_sources.get(category_id, [])
+        custom_image = custom_images[category_id]
         category["has_og"] = bool(
             row["use_default_preview"] or custom_image or sources
         )
@@ -834,9 +855,7 @@ def categories_list(request: Request, conn=Depends(get_db)):
             use_default=bool(row["use_default_preview"]),
         )
         cats.append(category)
-    return templates.TemplateResponse(
-        request, "admin/categories.html",
-        actx(request, conn, active="cats", cats=cats))
+    return cats
 
 
 @router.get("/categories/new", response_class=HTMLResponse)
@@ -2831,6 +2850,49 @@ def _profile_viewer(request: Request, conn):
     return me
 
 
+def _profile_current_wants(conn, user_id: int, *, is_me: bool,
+                           now, limit: int | None = None,
+                           offset: int = 0):
+    """Считает либо возвращает одну страницу актуальных wants целиком в SQL.
+
+    ``COALESCE`` повторяет доменный приоритет: последний валидный дедлайн
+    категории, затем ends_at, затем starts_at + 3 часа. Некорректные legacy
+    timestamps дают NULL и переходят к следующему fallback, как ``_moment``.
+    """
+    visibility = ("" if is_me else
+                  " AND w.is_public=1 AND d.is_public=1 AND d.is_draft=0")
+    current = now.replace(tzinfo=None, microsecond=0).isoformat(sep="T")
+    cte = (
+        "WITH wants_with_expiry AS ("
+        " SELECT d.id, d.owner_id, d.name, d.share_token, d.starts_at, "
+        " d.ends_at, d.place, w.is_public AS want_public, "
+        " w.updated_at AS marked_at, COALESCE("
+        "  (SELECT MAX(strftime('%Y-%m-%dT%H:%M:%S', c.voting_deadline)) "
+        "   FROM date_categories dc JOIN categories c ON c.id=dc.category_id "
+        "   WHERE dc.date_id=d.id), "
+        "  strftime('%Y-%m-%dT%H:%M:%S', d.ends_at), "
+        "  strftime('%Y-%m-%dT%H:%M:%S', d.starts_at, '+3 hours')"
+        " ) AS expires_at "
+        " FROM date_wants w JOIN dates d ON d.id=w.date_id "
+        " WHERE w.user_id=? AND d.archived_at IS NULL "
+        " AND NOT EXISTS (SELECT 1 FROM date_reviews r "
+        "                 WHERE r.user_id=w.user_id AND r.date_id=w.date_id)"
+        + visibility + ") "
+    )
+    current_filter = "WHERE expires_at IS NULL OR expires_at>?"
+    if limit is None:
+        return int(conn.execute(
+            cte + "SELECT COUNT(*) FROM wants_with_expiry " + current_filter,
+            (user_id, current),
+        ).fetchone()[0])
+    return conn.execute(
+        cte + "SELECT id,owner_id,name,share_token,starts_at,ends_at,place,"
+        "want_public,marked_at FROM wants_with_expiry " + current_filter +
+        " ORDER BY marked_at DESC LIMIT ? OFFSET ?",
+        (user_id, current, limit, offset),
+    ).fetchall()
+
+
 def _profile_sections_context(conn, user_id: int, viewer_id: int | None,
                               query_params) -> dict:
     """Данные трёх социальных вкладок профиля.
@@ -2851,26 +2913,12 @@ def _profile_sections_context(conn, user_id: int, viewer_id: int | None,
         "SELECT COUNT(*) FROM dates "
         "WHERE owner_id=? AND is_public=1 AND is_draft=0 AND archived_at IS NULL",
         (user_id,)).fetchone()[0]
-    want_visibility = "" if is_me else " AND w.is_public=1 AND d.is_public=1 AND d.is_draft=0"
     # После явного дедлайна план исчезает из профиля; уже опубликованный обзор
     # остаётся только в Reviews. Строку wants сохраняем как право на сам обзор.
-    all_want_rows = conn.execute(
-        "SELECT d.id, d.owner_id, d.name, d.share_token, d.starts_at, d.ends_at, d.place, "
-        "w.is_public AS want_public, w.updated_at AS marked_at FROM date_wants w "
-        "JOIN dates d ON d.id=w.date_id "
-        "WHERE w.user_id=?" + want_visibility +
-        " ORDER BY w.updated_at DESC",
-        (user_id,),
-    ).fetchall()
     want_now = now_naive()
-    current_want_ids = social_events.current_want_date_ids(
-        conn, user_id, (row["id"] for row in all_want_rows), now=want_now,
+    want_total = _profile_current_wants(
+        conn, user_id, is_me=is_me, now=want_now,
     )
-    all_want_rows = [
-        row for row in all_want_rows
-        if int(row["id"]) in current_want_ids
-    ]
-    want_total = len(all_want_rows)
     review_visibility = ("" if is_me else
                          " AND r.is_public=1 AND d.is_public=1 AND d.is_draft=0")
     review_total = conn.execute(
@@ -2899,7 +2947,10 @@ def _profile_sections_context(conn, user_id: int, viewer_id: int | None,
         media = public_routes._batch_media(conn, [r["id"] for r in date_rows])
         dates = [public_routes.date_payload_from(r, media) for r in date_rows]
     elif tab == "want":
-        rows = all_want_rows[offset:offset + PUBLIC_PROFILE_PAGE]
+        rows = _profile_current_wants(
+            conn, user_id, is_me=is_me, now=want_now,
+            limit=PUBLIC_PROFILE_PAGE, offset=offset,
+        )
         media = public_routes._batch_media(conn, [r["id"] for r in rows])
         want_dates = [public_routes.date_payload_from(r, media) for r in rows]
     else:

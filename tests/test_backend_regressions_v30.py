@@ -38,6 +38,7 @@ os.environ.update({
 import admin_routes  # noqa: E402
 import db  # noqa: E402
 import images  # noqa: E402
+import operator_routes  # noqa: E402
 import public_routes  # noqa: E402
 import social_events  # noqa: E402
 import tasks  # noqa: E402
@@ -529,6 +530,113 @@ class BackendV30RegressionTests(unittest.TestCase):
             public_routes.category_og_sources(self.conn, category_id),
             [filename for filename, _focus in expected],
         )
+
+    def test_category_list_batches_sources_and_skips_irrelevant_file_checks(self):
+        for index in range(10):
+            self.conn.execute(
+                "INSERT INTO categories(owner_id,name,og_image,use_default_preview,"
+                "created_at) VALUES(?,?,?,1,?)",
+                (self.owner_id, f"Default {index}", "default-unused.webp", STAMP),
+            )
+        for index in range(10):
+            self.conn.execute(
+                "INSERT INTO categories(owner_id,name,og_image,created_at) "
+                "VALUES(?,?,?,?)",
+                (self.owner_id, f"Custom {index}", "custom-shared.webp", STAMP),
+            )
+        for index in range(10):
+            category_id = int(self.conn.execute(
+                "INSERT INTO categories(owner_id,name,created_at) VALUES(?,?,?)",
+                (self.owner_id, f"Auto {index}", STAMP),
+            ).lastrowid)
+            date_id = self._date(self.owner_id, f"Фото {index}")
+            self.conn.execute(
+                "INSERT INTO date_categories(date_id,category_id,position) "
+                "VALUES(?,?,0)",
+                (date_id, category_id),
+            )
+            self.conn.execute(
+                "INSERT INTO date_images(date_id,filename,position) VALUES(?,?,0)",
+                (date_id, "live-shared.webp"),
+            )
+
+        traced: list[str] = []
+        with patch.object(
+                images, "upload_image_exists",
+                side_effect=lambda filename: filename in {
+                    "custom-shared.webp", "live-shared.webp",
+                }) as exists:
+            self.conn.set_trace_callback(traced.append)
+            cats = admin_routes._categories_list_data(self.conn, self.owner_id)
+            self.conn.set_trace_callback(None)
+
+        self.assertEqual(len(cats), 30)
+        self.assertTrue(all(category["has_og"] for category in cats))
+        self.assertEqual(
+            sum(sql.lstrip().upper().startswith("SELECT") for sql in traced), 2,
+        )
+        self.assertEqual(exists.call_count, 2)
+        self.assertEqual(
+            {call.args[0] for call in exists.call_args_list},
+            {"custom-shared.webp", "live-shared.webp"},
+        )
+
+    def test_operator_report_lists_use_constant_joined_queries(self):
+        reported_date = self._date(self.owner_id, "С жалобами")
+        clean_date = self._date(self.owner_id, "Без открытых жалоб")
+        self.conn.executemany(
+            "INSERT INTO reports(target_type,target_id,reporter,reason,status,created_at) "
+            "VALUES('date',?,?,?,?,?)",
+            (
+                (reported_date, "u2", "Первая", "open", STAMP),
+                (reported_date, "u3", "Вторая", "open", STAMP),
+                (clean_date, "u2", "Закрытая", "resolved", STAMP),
+            ),
+        )
+        user = self.conn.execute(
+            "SELECT * FROM users WHERE id=?", (self.owner_id,),
+        ).fetchone()
+        request = SimpleNamespace(
+            state=SimpleNamespace(user=user), session={"csrf": "test"},
+        )
+
+        with patch.object(
+                operator_routes.templates, "TemplateResponse",
+                side_effect=lambda _request, _name, context: context):
+            traced: list[str] = []
+            self.conn.set_trace_callback(traced.append)
+            dates_context = operator_routes.dates_list(
+                request, flt="reported", conn=self.conn,
+            )
+            self.conn.set_trace_callback(None)
+            reported_plan = "\n".join(
+                row[3]
+                for sql in traced if sql.lstrip().upper().startswith("SELECT")
+                for row in self.conn.execute("EXPLAIN QUERY PLAN " + sql)
+            )
+            self.assertEqual(
+                sum(sql.lstrip().upper().startswith("SELECT") for sql in traced), 2,
+            )
+            self.assertIn("idx_reports_open_date_target", reported_plan)
+            self.assertEqual(dates_context["total"], 1)
+            self.assertEqual(len(dates_context["rows"]), 1)
+            self.assertEqual(dates_context["rows"][0]["id"], reported_date)
+            self.assertEqual(dates_context["rows"][0]["reports"], 2)
+
+            traced.clear()
+            self.conn.set_trace_callback(traced.append)
+            reports_context = operator_routes.reports_list(
+                request, status="open", conn=self.conn,
+            )
+            self.conn.set_trace_callback(None)
+            self.assertEqual(
+                sum(sql.lstrip().upper().startswith("SELECT") for sql in traced), 1,
+            )
+            self.assertEqual(len(reports_context["items"]), 2)
+            self.assertTrue(all(
+                item["t"]["name"] == "С жалобами"
+                for item in reports_context["items"]
+            ))
 
     def test_missing_custom_preview_falls_back_to_live_collage(self):
         category_id = int(self.conn.execute(

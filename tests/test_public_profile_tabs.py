@@ -5,10 +5,13 @@ from __future__ import annotations
 
 import os
 import re
+import sqlite3
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta
 from pathlib import Path
+from unittest import mock
 from urllib.parse import unquote
 
 from starlette.testclient import TestClient
@@ -30,6 +33,7 @@ os.environ.update({
 })
 
 import db  # noqa: E402
+import admin_routes  # noqa: E402
 import images  # noqa: E402
 import main  # noqa: E402
 
@@ -548,6 +552,113 @@ class PublicProfileTabsTests(unittest.TestCase):
             self.assertIn("keepalive: true", admin_js)
             self.assertIn("window.d4yProfileSave = pending", admin_js)
             self.assertIn('(pointer: coarse) and (max-width: 900px)', profile_js)
+
+    def test_wants_are_filtered_counted_and_paginated_in_sql(self):
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.executescript(db.SCHEMA)
+        profile_user = int(conn.execute(
+            "INSERT INTO users(telegram_id,display_name,created_at) VALUES(?,?,?)",
+            (991020, "Профиль", STAMP),
+        ).lastrowid)
+        event_owner = int(conn.execute(
+            "INSERT INTO users(telegram_id,display_name,created_at) VALUES(?,?,?)",
+            (991021, "Автор встреч", STAMP),
+        ).lastrowid)
+        base = datetime(2030, 1, 1, 0, 0)
+        date_ids = []
+        for index in range(1, 37):
+            starts_at = "2030-02-01T10:00:00"
+            ends_at = None
+            archived_at = None
+            if index == 31:
+                starts_at, ends_at = "2029-12-31T10:00:00", "2029-12-31T12:00:00"
+            elif index == 33:
+                archived_at = "2030-01-01T00:00:00"
+            elif index == 34:
+                ends_at = "invalid-legacy-value"
+            date_id = int(conn.execute(
+                "INSERT INTO dates(owner_id,name,share_token,starts_at,ends_at,"
+                "is_public,is_draft,archived_at,created_at) "
+                "VALUES(?,?,?,?,?,1,0,?,?)",
+                (event_owner, f"План {index}", f"sql-want-{index}", starts_at,
+                 ends_at, archived_at, STAMP),
+            ).lastrowid)
+            date_ids.append(date_id)
+            marked = (base + timedelta(seconds=index)).isoformat(sep="T")
+            conn.execute(
+                "INSERT INTO date_wants(user_id,date_id,is_public,created_at,updated_at) "
+                "VALUES(?,?,1,?,?)",
+                (profile_user, date_id, STAMP, marked),
+            )
+        conn.execute(
+            "INSERT INTO date_reviews(user_id,date_id,rating,created_at,updated_at) "
+            "VALUES(?,?,5,?,?)",
+            (profile_user, date_ids[31], STAMP, STAMP),  # index 32
+        )
+        expired_category = int(conn.execute(
+            "INSERT INTO categories(owner_id,name,voting_deadline,created_at) "
+            "VALUES(?,?,?,?)",
+            (event_owner, "Истёкшая", "2029-12-31T12:00:00", STAMP),
+        ).lastrowid)
+        invalid_category = int(conn.execute(
+            "INSERT INTO categories(owner_id,name,voting_deadline,created_at) "
+            "VALUES(?,?,?,?)",
+            (event_owner, "Legacy", "not-a-date", STAMP),
+        ).lastrowid)
+        conn.execute(
+            "INSERT INTO date_categories(date_id,category_id) VALUES(?,?)",
+            (date_ids[34], expired_category),  # index 35
+        )
+        conn.execute(
+            "INSERT INTO date_categories(date_id,category_id) VALUES(?,?)",
+            (date_ids[35], invalid_category),  # index 36 falls back to event time
+        )
+        conn.commit()
+
+        traced: list[str] = []
+        conn.set_trace_callback(traced.append)
+        with mock.patch.object(
+                admin_routes, "now_naive",
+                return_value=datetime(2030, 1, 1, 12, 0)), mock.patch.object(
+                    admin_routes.social_events, "current_want_date_ids",
+                    side_effect=AssertionError("profile must not materialize wants")):
+            context = admin_routes._profile_sections_context(
+                conn, profile_user, profile_user, {"tab": "want", "page": "2"},
+            )
+        conn.set_trace_callback(None)
+        page_queries = [
+            sql for sql in traced
+            if "WITH WANTS_WITH_EXPIRY" in sql.upper()
+            and "ORDER BY MARKED_AT" in sql.upper()
+        ]
+        self.assertEqual(len(page_queries), 1)
+        query_plan = "\n".join(
+            row[3] for row in conn.execute(
+                "EXPLAIN QUERY PLAN " + page_queries[0],
+            )
+        )
+        conn.close()
+
+        expected = [
+            date_ids[index - 1]
+            for index in range(36, 0, -1)
+            if index not in {31, 32, 33, 35}
+        ]
+        self.assertEqual(context["want_total"], 32)
+        self.assertEqual(context["pages"], 3)
+        self.assertEqual(
+            [row["id"] for row in context["want_dates"]], expected[12:24],
+        )
+        self.assertEqual(
+            sum(sql.lstrip().upper().startswith(("SELECT", "WITH"))
+                for sql in traced),
+            7,
+        )
+        self.assertIn("LIMIT 12 OFFSET 12", page_queries[0].upper())
+        self.assertIn("idx_date_wants_user_updated", query_plan)
+        self.assertIn("sqlite_autoindex_date_reviews_1", query_plan)
 
     def test_profile_icons_and_notification_hover_contract(self):
         profile = (APP / "templates/admin/profile.html").read_text(encoding="utf-8")
