@@ -439,10 +439,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     # модерация предложений по умолчанию ВЫКЛючена — оператор включает её осознанно;
     # иначе бейдж «модерация» висел на каждой новой категории (баг)
     assert db_one("SELECT moderate_proposals FROM categories WHERE id=?", (cid,))[0] == 0
-    # v31: новая секретная ссылка не раскрывает имена и аватары участников,
-    # пока владелец явно не включит ростер.
-    assert db_one("SELECT show_participants FROM categories WHERE id=?", (cid,))[0] == 0
-    step("категория создана, секретная ссылка получена; ростер приватный")
+    step("категория создана, секретная ссылка получена; ростер всегда открыт")
 
     r = c.get(f"/c/{tok}")
     assert r.status_code == 200 and "пусто" in r.text
@@ -614,8 +611,11 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert vote_json["updates"] == [{
         "date_id": did, "mine": True, "vote_count": 1, "capacity": 1,
         "is_full": True,
-        "show_participants": False,
-        "participants": [],
+        "participants": [{
+            "name": "Аня", "user_id": db_one(
+                "SELECT id FROM users WHERE telegram_id=700101"
+            )["id"], "has_avatar": False, "is_me": True, "withdrawn": False,
+        }],
         "hidden_count": 0,
     }]
     r = ga.post(f"/c/{tok}/book", data={"date_id": did})
@@ -631,20 +631,10 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert "booked-me" in mycard                        # карточка помечена выбором
     assert "vote-progress" in mycard and "1/1" in mycard
     assert '<div class="seal">' in mycard and "ui-icon-check" in mycard
-    assert "Аня" not in mycard and "· ты" not in mycard  # приватный ростер не утекает
-    # Остальная часть smoke проверяет открытый ростер: владелец включает его
-    # осознанно через ту же настройку, что доступна в редакторе подборки.
-    r = apost(c, f"/admin/categories/{cid}/participants", {"enabled": "1"})
-    assert r.status_code == 303
-    assert db_one("SELECT show_participants FROM categories WHERE id=?", (cid,))[0] == 1
-    mycard = re.search(
-        r'<article[^>]*id="date-%d".*?</article>' % did,
-        ga.get(f"/c/{tok}").text,
-        re.S,
-    ).group(0)
     assert "Аня" in mycard and "· ты" in mycard
+    assert "participant-ph" in mycard  # без фото всё равно есть аватар-инициал
     assert ga.post(f"/c/{tok}/vote", data={"date_id": did}).status_code == 404
-    step("голос переключается; приватный ростер включается только явно; /vote удалён")
+    step("голос переключается; имена и аватары видны всегда; /vote удалён")
 
     # ---------- вопрос и ответ ----------
     r = ga.post(f"/c/{tok}/question", data={"date_id": did, "text": "Можно прийти позже?"})
@@ -2654,34 +2644,20 @@ with TestClient(main.app, follow_redirects=False) as cu1, \
     pc = re.search(r'name="csrf" value="([^"]+)"', cu1.get("/admin/profile").text).group(1)
     cu1.post("/admin/profile", data={"csrf": pc, "display_name": "Алиса",
                                      "birth_date": "1995-06-15", "gender": "f"})
-    # v31: заполненные чувствительные поля нового профиля сначала приватны.
-    profile_visibility = db_one(
-        "SELECT birth_date_public,gender_public FROM users WHERE id=?", (uid1,),
-    )
-    assert tuple(profile_visibility) == (0, 0)
     assert tg_login(cu2, 991402, username="bob").json()["status"] == "ok"
     pg = cu2.get(f"/u/{uid1}")
     assert pg.status_code == 200, pg.status_code
-    assert "Алиса" in pg.text and "Женский" not in pg.text and "1995-06-15" not in pg.text
-    # Незалогиненный также не получает приватные поля и действия владельца.
+    assert "Алиса" in pg.text and "Женский" in pg.text and "1995-06-15" in pg.text
+    # Незалогиненный также видит заполненные ДР и пол, но не действия владельца.
     r = anon.get(f"/u/{uid1}")
     assert r.status_code == 200, r.status_code
-    assert "Алиса" in r.text and "Женский" not in r.text and "1995-06-15" not in r.text
+    assert "Алиса" in r.text and "Женский" in r.text and "1995-06-15" in r.text
     assert ">Войти</a>" in r.text and "Редактировать профиль" not in r.text
-    # Владелец публикует каждое поле отдельным осознанным opt-in.
-    cu1.post("/admin/profile", data={
-        "csrf": pc, "display_name": "Алиса", "birth_date": "1995-06-15",
-        "gender": "f", "birth_date_public": "1", "gender_public": "1",
-    })
-    pg = cu2.get(f"/u/{uid1}")
-    assert "Женский" in pg.text and "1995-06-15" in pg.text
-    r = anon.get(f"/u/{uid1}")
-    assert "Женский" in r.text and "1995-06-15" in r.text
     # несуществующий/неактивный профиль → 404 для залогиненного
     assert cu2.get("/u/999999").status_code == 404
     # свой профиль помечается (кнопка «Редактировать»)
     assert "Редактировать профиль" in cu1.get(f"/u/{uid1}").text
-step("1.9: /u/<id> публичен; ДР и пол раскрываются только отдельным opt-in")
+step("1.9: /u/<id> публичен; заполненные ДР и пол видны всегда")
 
 
 # ---------- перф: Cache-Control на статике ----------
@@ -2948,7 +2924,11 @@ with TestClient(main.app, follow_redirects=False) as cnata, \
 
     # C2: тумблер публичности есть в редакторе; по умолчанию публичное (checked)
     newform = cnata.get("/admin/dates/new").text
-    assert 'name="is_public"' in newform and "общей ленте событий" in newform
+    assert re.search(
+        r'<input[^>]*type="checkbox"[^>]*name="is_public"[^>]*\bchecked\b',
+        newform,
+    )
+    assert "общей ленте событий" in newform
 
     # создаём ПУБЛИЧНОЕ событие (чекбокс отправлен)
     cnata.post("/admin/dates/new", data={
@@ -2958,7 +2938,7 @@ with TestClient(main.app, follow_redirects=False) as cnata, \
     pub = db_one("SELECT id, is_public, share_token, owner_id FROM dates WHERE name='Пикник на закате'")
     assert pub["is_public"] == 1, "по умолчанию событие публичное"
 
-    # создаём ПРИВАТНОЕ событие (чекбокс НЕ отправлен) — в ленту не попадёт
+    # создаём ПРИВАТНОЕ событие (чекбокс снят и не отправлен) — в ленту не попадёт
     cnata.post("/admin/dates/new", data={
         "csrf": nc, "name": "Секретный ужин", "categories": str(ncat["id"])})
     priv = db_one("SELECT id, is_public FROM dates WHERE name='Секретный ужин'")

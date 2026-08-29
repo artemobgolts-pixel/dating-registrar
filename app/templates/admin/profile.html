@@ -49,15 +49,6 @@
     <div class="field">
       <label>Дата рождения</label>
       <input type="date" name="birth_date" value="{{ user['birth_date'] or '' }}">
-      <label class="toggle" style="margin-top:10px">
-        <input type="checkbox" name="birth_date_public" value="1"
-               {% if user['birth_date_public'] %}checked{% endif %}>
-        <span class="sw" aria-hidden="true"></span>
-        <span class="tcol">
-          <span class="t">Показывать дату рождения в публичном профиле</span>
-          <span class="muted">По умолчанию её видишь только ты.</span>
-        </span>
-      </label>
     </div>
 
     <div class="field" style="margin-bottom:0">
@@ -67,15 +58,6 @@
         <label class="gender-opt choice-chip"><input type="radio" name="gender" value="f" {{ 'checked' if user['gender'] == 'f' else '' }}> Ж</label>
         <label class="gender-opt choice-chip"><input type="radio" name="gender" value="" {{ 'checked' if not user['gender'] else '' }}> Не указан</label>
       </div>
-      <label class="toggle" style="margin-top:10px">
-        <input type="checkbox" name="gender_public" value="1"
-               {% if user['gender_public'] %}checked{% endif %}>
-        <span class="sw" aria-hidden="true"></span>
-        <span class="tcol">
-          <span class="t">Показывать пол в публичном профиле</span>
-          <span class="muted">По умолчанию его видишь только ты.</span>
-        </span>
-      </label>
     </div>
 
     {% set profile_skin = user['admin_skin'] or 'friends' %}
@@ -190,6 +172,7 @@
     </span>
     {% endif %}
     {% endfor %}
+    {% include "admin/_telegram_service.html" %}
   </div>
 </div>
 

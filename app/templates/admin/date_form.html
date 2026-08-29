@@ -227,7 +227,7 @@
         {% endfor %}
       </div>
       <label class="toggle" style="margin:14px 0 0">
-        <input type="checkbox" name="is_public" value="1" {% if date and date['is_public'] %}checked{% endif %}>
+        <input type="checkbox" name="is_public" value="1" {% if not date or date['is_public'] %}checked{% endif %}>
         <span class="sw" aria-hidden="true"></span>
         <span class="tcol">
           <span class="t">Показывать в общей ленте событий</span>

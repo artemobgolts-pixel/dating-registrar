@@ -128,11 +128,8 @@ class DatabasePerformanceMigrationTests(unittest.TestCase):
                 conn.execute("DROP TABLE notification_preferences")
                 conn.execute("DROP TABLE review_queue")
                 conn.execute("ALTER TABLE categories DROP COLUMN use_default_preview")
-                conn.execute("ALTER TABLE users DROP COLUMN birth_date_public")
-                conn.execute("ALTER TABLE users DROP COLUMN gender_public")
-                conn.execute("ALTER TABLE categories DROP COLUMN show_participants")
                 # В реальной v24 колонка is_public имела DEFAULT 1. Свежая
-                # v31-фикстура уже использует приватный default, поэтому
+                # фикстура уже использует приватный default, поэтому
                 # восстанавливаем историческое состояние до миграции.
                 conn.execute("UPDATE dates SET is_public=1")
                 conn.execute("PRAGMA user_version=24")
@@ -175,6 +172,15 @@ class DatabasePerformanceMigrationTests(unittest.TestCase):
                     row[1] for row in conn.execute("PRAGMA table_info(review_queue)")
                 }
                 self.assertIn("dismissed_at", review_queue_columns)
+                self.assertNotIn("birth_date_public", {
+                    row[1] for row in conn.execute("PRAGMA table_info(users)")
+                })
+                self.assertNotIn("gender_public", {
+                    row[1] for row in conn.execute("PRAGMA table_info(users)")
+                })
+                self.assertNotIn("show_participants", {
+                    row[1] for row in conn.execute("PRAGMA table_info(categories)")
+                })
                 self.assertFalse(conn.execute("PRAGMA foreign_key_check").fetchall())
             finally:
                 conn.close()

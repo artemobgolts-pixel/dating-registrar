@@ -113,19 +113,32 @@
 
   // --- 2. Подключение бота в кабинете (deep-link + поллинг) --------------------
   function wire(box) {
-    var btn = box.querySelector("[data-tg-connect]");
+    var btn = box.matches("[data-tg-connect]")
+      ? box : box.querySelector("[data-tg-connect]");
     if (!btn) return;
     var hint = box.querySelector("[data-tg-hint]");
     var link = box.querySelector("[data-tg-link]");
     var errBox = box.querySelector("[data-tg-error]");
-    var label = btn.textContent;
+    var compact = btn.hasAttribute("data-tg-compact");
+    var label = compact ? btn.getAttribute("aria-label") : btn.textContent;
     var returnTo = box.getAttribute("data-return-to") || "";
     var timer = null;
+
+    function setConnectLabel(value) {
+      if (!compact) {
+        btn.textContent = value;
+        return;
+      }
+      btn.setAttribute("aria-label", value);
+      btn.title = value;
+      var stateLabel = btn.querySelector("[data-tg-state-label]");
+      if (stateLabel) stateLabel.textContent = value;
+    }
 
     function showError(msg) {
       if (errBox) { errBox.textContent = msg; errBox.hidden = false; }
       btn.disabled = false;
-      btn.textContent = label;
+      setConnectLabel(label);
       delete btn.dataset.tgDirect;
     }
 
@@ -155,7 +168,7 @@
       }
       if (errBox) errBox.hidden = true;
       btn.disabled = true;
-      btn.textContent = "Открываю Telegram…";
+      setConnectLabel("Открываю Telegram…");
       // Popup создаём до async fetch: Safari и строгие блокировщики считают
       // window.open после Promise уже не связанным с исходным click.
       var telegramWindow = window.open("about:blank", "_blank");
@@ -180,7 +193,7 @@
           // мог случайно закрыть Telegram до нажатия Start/Подтвердить.
           btn.dataset.tgDirect = d.url;
           btn.disabled = false;
-          btn.textContent = "Открыть Telegram";
+          setConnectLabel("Открыть Telegram");
           if (link) {
             link.href = d.url;
             link.textContent = "Открыть Telegram";

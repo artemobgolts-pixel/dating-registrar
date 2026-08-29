@@ -187,8 +187,6 @@ def profile_save(request: Request,
                  display_name: str = Form(""),
                  birth_date: str = Form(""),
                  gender: str = Form(""),
-                 birth_date_public: Annotated[str | None, Form()] = None,
-                 gender_public: Annotated[str | None, Form()] = None,
                  cursor_effects: str | None = Form(None),
                  admin_skin: str | None = Form(None),
                  avatar: UploadFile | None = File(None),
@@ -199,8 +197,6 @@ def profile_save(request: Request,
     name = clean_text(display_name, 80, "Имя", required=True)
     bdate = parse_birth_date(birth_date)
     g = gender if gender in ("m", "f") else None
-    birth_public = 1 if bdate and birth_date_public == "1" else 0
-    gender_visible = 1 if g and gender_public == "1" else 0
 
     new_avatar = None
     if avatar is not None and (avatar.filename or "").strip():
@@ -217,15 +213,13 @@ def profile_save(request: Request,
     if new_avatar:
         conn.execute(
             "UPDATE users SET display_name=?, birth_date=?, gender=?, avatar_path=?, "
-            "birth_date_public=?, gender_public=?, cursor_effects=?, admin_skin=? WHERE id=?",
-            (name, bdate, g, new_avatar, birth_public, gender_visible,
-             effects, skin, uid))
+            "cursor_effects=?, admin_skin=? WHERE id=?",
+            (name, bdate, g, new_avatar, effects, skin, uid))
     else:
         conn.execute(
             "UPDATE users SET display_name=?, birth_date=?, gender=?, "
-            "birth_date_public=?, gender_public=?, cursor_effects=?, "
-            "admin_skin=? WHERE id=?",
-            (name, bdate, g, birth_public, gender_visible, effects, skin, uid))
+            "cursor_effects=?, admin_skin=? WHERE id=?",
+            (name, bdate, g, effects, skin, uid))
     conn.commit()
     if new_avatar and old_avatar:        # старый аватар — только после коммита
         images.delete_file(old_avatar)
@@ -249,6 +243,38 @@ def profile_oauth_unlink(provider: str, request: Request, conn=Depends(get_db)):
                  (uid, provider))
     conn.commit()
     return redir("/admin/profile", f"{OAUTH_LABELS[provider]} отвязан")
+
+
+@router.post("/profile/telegram/unlink")
+def profile_telegram_unlink(request: Request, conn=Depends(get_db)):
+    """Отвязывает Telegram-способ входа, не оставляя пользователя без доступа.
+
+    bot_linked описывает разрешение уведомлений, а плитка в профиле — способ
+    входа. Поэтому очищаем оба состояния, только если остаётся OAuth-привязка.
+    """
+    uid = int(request.state.user["id"])
+    if request.state.user["telegram_id"] is None:
+        return redir("/admin/profile", "Telegram уже отвязан")
+    oauth_links = conn.execute(
+        "SELECT COUNT(*) FROM oauth_accounts WHERE user_id=?", (uid,),
+    ).fetchone()[0]
+    if not oauth_links:
+        return redir(
+            "/admin/profile",
+            "Нельзя отвязать единственный способ входа — сначала привяжи другой.",
+        )
+    # Незавершённый purpose-bound код не должен тут же молча вернуть Telegram,
+    # который пользователь явно отвязал.
+    conn.execute(
+        "DELETE FROM login_codes WHERE user_id=? AND purpose='link'", (uid,),
+    )
+    conn.execute(
+        "UPDATE users SET telegram_id=NULL, tg_username=NULL, bot_linked=0 "
+        "WHERE id=?",
+        (uid,),
+    )
+    conn.commit()
+    return redir("/admin/profile", "Telegram отвязан")
 
 
 @router.post("/profile/avatar/delete")
@@ -738,13 +764,12 @@ async def import_json(request: Request, file: UploadFile = File(...),
         token = new_link_token()
         cur = conn.execute(
             "INSERT INTO categories(owner_id, name, category_skin, description, link_token, "
-            "link_enabled, moderate_proposals, show_participants, choice_mode, "
-            "voting_deadline, created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+            "link_enabled, moderate_proposals, choice_mode, "
+            "voting_deadline, created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
             (uid, name, category_skin,
              clean_text(str(c.get("description") or ""), 1000, "Описание"),
              token, 1 if c.get("link_enabled", 1) else 0,
              1 if c.get("moderate_proposals") else 0,
-             1 if c.get("show_participants") else 0,
              choice_mode, voting_deadline, now_iso()))
         if c.get("id") is not None:
             cat_map[c["id"]] = cur.lastrowid
@@ -982,15 +1007,13 @@ def category_clone(cid: int, request: Request, conn=Depends(get_db)):
             "owner_id, name, category_skin, link_token, link_enabled, "
             "moderate_proposals, is_reviewed, description, og_title, og_desc, "
             "og_image, og_focus, use_default_preview, choice_mode, "
-            "show_participants, voting_deadline, voting_status, created_at"
-            ") VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "voting_deadline, voting_status, created_at"
+            ") VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (owner_id, name, src["category_skin"], new_link_token(),
              0, src["moderate_proposals"], reviewed,
              src["description"], src["og_title"], src["og_desc"], og_image,
              src["og_focus"] if og_image else None, src["use_default_preview"],
-             # Копия получает новую секретную ссылку, поэтому публикацию её
-             # ростера владелец подтверждает заново.
-             src["choice_mode"], 0,
+             src["choice_mode"],
              copied_deadline, voting.STATUS_UNCONFIGURED,
              now_iso()),
         )
@@ -1484,26 +1507,6 @@ def category_moderation(cid: int, request: Request, conn=Depends(get_db)):
         request, cid, int(cat["owner_id"]),
         "Предложения гостей теперь попадают на модерацию в списке событий"
         if new_val else "Предложения гостей теперь публикуются сразу",
-    )
-
-
-@router.post("/categories/{cid}/participants")
-def category_participants_visibility(cid: int, request: Request,
-                                     enabled: Annotated[str, Form()] = "0",
-                                     conn=Depends(get_db)):
-    """Явно управляет публикацией имён и аватаров по секретной ссылке."""
-    cat = _cat_or_404(conn, cid, request.state.user)
-    if enabled not in {"0", "1"}:
-        raise HTTPException(400, "Некорректная настройка видимости участников")
-    value = int(enabled)
-    conn.execute(
-        "UPDATE categories SET show_participants=? WHERE id=?", (value, cid),
-    )
-    conn.commit()
-    return _category_editor_redir(
-        request, cid, int(cat["owner_id"]),
-        ("Имена и аватары участников видны по секретной ссылке"
-         if value else "Состав участников скрыт; виден только счётчик"),
     )
 
 
@@ -2966,8 +2969,7 @@ def _profile_sections_context(conn, user_id: int, viewer_id: int | None,
 @user_router.get("/{user_id}", response_class=HTMLResponse)
 def public_profile(user_id: int, request: Request, conn=Depends(get_db)):
     u = conn.execute(
-        "SELECT id, display_name, avatar_path, birth_date, gender, tg_username, "
-        "birth_date_public, gender_public "
+        "SELECT id, display_name, avatar_path, birth_date, gender, tg_username "
         "FROM users WHERE id=? AND is_active=1", (user_id,)).fetchone()
     if not u:
         raise HTTPException(404, "Профиль не найден")

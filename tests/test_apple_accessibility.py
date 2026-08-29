@@ -145,17 +145,15 @@ class PublicPrivacyNavigationContractTests(unittest.TestCase):
                       self.category)
         self.assertIn('aria-label="Редактировать событие «{{ d.name }}»"', self.share)
 
-    def test_roster_visibility_is_gated_in_markup_and_live_updates(self):
+    def test_roster_is_always_visible_in_markup_and_live_updates(self):
         for name, source in (("category", self.category), ("share", self.share)):
             with self.subTest(template=name):
-                self.assertRegex(source, r"set show_roster = show_participants and\s*\(")
-                self.assertIn("if show_roster and d.participants", source)
-                self.assertIn("'участников' if show_roster else 'голосов'", source)
-        self.assertIn("if (update.show_participants === false) return;", self.script)
-        self.assertIn(
-            'rosterLabel.textContent = update.show_participants ? "участников" : "голосов";',
-            self.script,
-        )
+                self.assertNotIn("show_roster", source)
+                self.assertNotIn("show_participants", source)
+                self.assertIn("if d.participants", source)
+                self.assertIn("<span>участников</span>", source)
+        self.assertNotIn("show_participants", self.script)
+        self.assertIn('rosterLabel.textContent = "участников";', self.script)
         self.assertNotIn("показан участникам этой подборки", self.script)
 
     def test_share_want_visibility_is_explicit_without_collection_navigation(self):
@@ -359,8 +357,12 @@ class FluidInteractionBrowserTests(unittest.TestCase):
               voting_status: 'open',
               updates: [{
                 date_id: 9, mine: true, vote_count: 1, capacity: 3,
-                is_full: false, show_participants: false,
-                participants: [], hidden_count: 0,
+                is_full: false,
+                participants: [{
+                  user_id: null, name: 'Гость', is_me: true,
+                  has_avatar: false, withdrawn: false,
+                }],
+                hidden_count: 0,
               }],
             }),
           });
@@ -383,6 +385,8 @@ class FluidInteractionBrowserTests(unittest.TestCase):
             counterCue: count.classList.contains('vote-count-updated'),
             ringAnimation: getComputedStyle(card, '::after').animationName,
             sealVisible: !document.querySelector('.seal').hidden,
+            roster: document.querySelector('.participant > span:last-child')
+              ?.textContent.trim(),
             bursts: window.__bursts,
           };
         }""")
@@ -393,6 +397,7 @@ class FluidInteractionBrowserTests(unittest.TestCase):
         self.assertTrue(feedback["counterCue"])
         self.assertIn("vote-confirm-ring", feedback["ringAnimation"])
         self.assertTrue(feedback["sealVisible"])
+        self.assertEqual(feedback["roster"], "Гость · ты")
         self.assertEqual(feedback["bursts"], 1)
         page.wait_for_function(
             "!document.querySelector('#date-9').classList.contains('vote-confirmed')"

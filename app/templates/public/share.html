@@ -204,16 +204,13 @@
         {% endif %}
 
         {% if vote_state %}
-        {% set show_roster = show_participants and
-                             (vote_state.status in ('unconfigured', 'open')
-                              or (vote_state.status == 'resolved' and d.is_winner)) %}
         {% set hide_empty_single_counter = d.capacity == 1 and d.vote_count == 0 %}
         <div class="vote-progress{% if d.is_full %} full{% endif %}">
-          <div class="vote-progress-head"{% if hide_empty_single_counter %} hidden{% endif %}><b>{{ d.vote_count }}/{{ d.capacity }}</b><span>{{ 'участников' if show_roster else 'голосов' }}</span></div>
+          <div class="vote-progress-head"{% if hide_empty_single_counter %} hidden{% endif %}><b>{{ d.vote_count }}/{{ d.capacity }}</b><span>участников</span></div>
           <div class="vote-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="{{ d.capacity }}" aria-valuenow="{{ d.vote_count }}"{% if hide_empty_single_counter %} hidden{% endif %}>
             <i style="--vote-width:{{ [100, (d.vote_count * 100 / d.capacity)] | min }}%"></i>
           </div>
-          {% if show_roster and d.participants %}<div class="participants" aria-label="Участники">
+          {% if d.participants %}<div class="participants" aria-label="Участники">
             {% for person in d.participants %}<span class="participant{% if person['participation_withdrawn_at'] %} withdrawn{% endif %}">
               {% if person['avatar_path'] and person['user_id'] %}<img src="/d/{{ token }}/participant-avatar/{{ person['user_id'] }}?w=64"
                    srcset="/d/{{ token }}/participant-avatar/{{ person['user_id'] }}?w=64 64w,
@@ -224,7 +221,7 @@
               <span>{{ person['name'] }}{% if person['is_me'] %} · ты{% endif %}</span>
             </span>{% endfor %}
             {% if d.participant_hidden_count %}<span class="participants-more">ещё {{ d.participant_hidden_count }}</span>{% endif %}
-          </div>{% elif show_roster %}<p class="vote-empty">Пока без голосов.</p>{% endif %}
+          </div>{% else %}<p class="vote-empty">Пока без голосов.</p>{% endif %}
         </div>
         {% endif %}
 

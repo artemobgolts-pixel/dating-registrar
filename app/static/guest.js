@@ -275,7 +275,6 @@
 
   function renderParticipants(progress, update) {
     progress.querySelectorAll(".participants, .vote-empty").forEach((el) => el.remove());
-    if (update.show_participants === false) return;
     const people = Array.isArray(update.participants) ? update.participants : [];
     if (!people.length) {
       const empty = document.createElement("p");
@@ -354,9 +353,7 @@
       const previousCount = currentTrack
         ? Number(currentTrack.getAttribute("aria-valuenow")) : NaN;
       const rosterLabel = progress.querySelector(".vote-progress-head span");
-      if (rosterLabel && typeof update.show_participants === "boolean") {
-        rosterLabel.textContent = update.show_participants ? "участников" : "голосов";
-      }
+      if (rosterLabel) rosterLabel.textContent = "участников";
       progress.classList.toggle("full", full);
       const head = progress.querySelector(".vote-progress-head");
       if (head) head.hidden = hideEmptySingleCounter;

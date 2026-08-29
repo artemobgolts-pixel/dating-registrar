@@ -91,9 +91,6 @@ class EventLifecycleTests(unittest.TestCase):
         # 28 честно прогнала все последующие миграции.
         conn.execute("DROP TABLE review_queue")
         conn.execute("ALTER TABLE categories DROP COLUMN use_default_preview")
-        conn.execute("ALTER TABLE users DROP COLUMN birth_date_public")
-        conn.execute("ALTER TABLE users DROP COLUMN gender_public")
-        conn.execute("ALTER TABLE categories DROP COLUMN show_participants")
         conn.execute("PRAGMA user_version=28")
         conn.commit()
         conn.close()
@@ -124,6 +121,15 @@ class EventLifecycleTests(unittest.TestCase):
                 "SELECT 1 FROM sqlite_master WHERE type='index' "
                 "AND name='idx_categories_winner_date'",
             ).fetchone())
+            self.assertNotIn("birth_date_public", {
+                row["name"] for row in conn.execute("PRAGMA table_info(users)")
+            })
+            self.assertNotIn("gender_public", {
+                row["name"] for row in conn.execute("PRAGMA table_info(users)")
+            })
+            self.assertNotIn("show_participants", {
+                row["name"] for row in conn.execute("PRAGMA table_info(categories)")
+            })
         finally:
             conn.close()
             self.conn = None

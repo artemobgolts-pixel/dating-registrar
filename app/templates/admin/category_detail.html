@@ -15,13 +15,6 @@
   <h1 style="margin:0">{{ cat['name'] }}</h1>
 </div>
 
-<nav class="category-flow-nav" aria-label="Этапы настройки подборки">
-  <a class="is-active" href="#categoryDates" aria-current="location"><span>1</span> События</a>
-  <a href="#categoryVoting"><span>2</span> Правила</a>
-  <a href="#categoryShare"><span>3</span> Публикация</a>
-  <a href="#categoryAppearance"><span>4</span> Оформление</a>
-</nav>
-
 <div class="category-editor-sections">
 {% set category_appearance %}
 <details class="card category-appearance-card" id="categoryAppearance">
@@ -253,22 +246,6 @@
     </button>
   </form>
   {% endif %}
-  <div class="participant-privacy-setting">
-    <div>
-      <b>Кто участвовал</b>
-      <p class="muted tiny">По умолчанию состав приватный: гости видят только числа. Публикация откроет всем с секретной ссылкой имена и аватары участников.</p>
-    </div>
-    <form class="participant-visibility-form" method="post"
-          action="/admin/categories/{{ cat['id'] }}/participants?return_to={{ editor_return_url | urlencode }}">
-      <input type="hidden" name="csrf" value="{{ csrf }}">
-      <button class="btn small{% if not cat['show_participants'] %} active{% endif %}"
-              type="submit" name="enabled" value="0"
-              aria-pressed="{{ 'true' if not cat['show_participants'] else 'false' }}">Только числа</button>
-      <button class="btn small{% if cat['show_participants'] %} active{% endif %}"
-              type="submit" name="enabled" value="1"
-              aria-pressed="{{ 'true' if cat['show_participants'] else 'false' }}">Имена и аватары</button>
-    </form>
-  </div>
   {% if voting_state.status == 'tie' %}
   <div class="voting-tie-note">
     У лидеров одинаковое число голосов. Выбери победителя кнопкой в таблице ниже — доступны только лидеры.
@@ -303,20 +280,22 @@
           aria-describedby="categorySortHelp" aria-pressed="false"
           aria-keyshortcuts="Space ArrowUp ArrowDown">⋮⋮</button>{% else %}<span aria-hidden="true">·</span>{% endif %}
       </td>
-      <td data-label="Событие">
+      <td class="category-event-summary" data-label="Событие">
         <a href="/admin/dates/{{ d['id'] }}/edit?return_to={{ (editor_self_url ~ '#categoryDates') | urlencode }}">{{ d['name'] }}</a>
-        {% if cat['winner_date_id'] == d['id'] %}{{ status('Победитель', 'success') }}{% endif %}
-        {% if voting_state.status == 'tie' and d['id'] in leader_ids %}{{ status('Лидер', 'warning') }}{% endif %}
-        {% if d['origin'] == 'guest' %}<span class="badge badge-meta media-badge media-badge--guest media-badge--inflow">💡 предложено</span>{% endif %}
-        <span class="entity-status-inline">{{ event_lifecycle(d) }} {{ event_visibility(d) }}</span>
+        <span class="category-event-statuses">
+          {% if cat['winner_date_id'] == d['id'] %}{{ status('Победитель', 'success') }}{% endif %}
+          {% if voting_state.status == 'tie' and d['id'] in leader_ids %}{{ status('Лидер', 'warning') }}{% endif %}
+          {% if d['origin'] == 'guest' %}<span class="badge badge-meta media-badge media-badge--guest media-badge--inflow">💡 предложено</span>{% endif %}
+          <span class="entity-status-inline">{{ event_lifecycle(d) }} {{ event_visibility(d) }}</span>
+        </span>
       </td>
-      <td class="muted" data-label="Когда">{{ d['starts_at'] | when(d['ends_at']) or '—' }}</td>
-      <td data-label="Голоса / мест">
+      <td class="category-event-time muted" data-label="Когда">{{ d['starts_at'] | when(d['ends_at']) or '—' }}</td>
+      <td class="category-event-capacity" data-label="Голоса / мест">
         <b>{{ d['books'] }}/{{ d['capacity'] }}</b>
         <progress class="vote-progress" value="{{ d['books'] }}" max="{{ d['capacity'] }}">{{ d['books'] }}/{{ d['capacity'] }}</progress>
         {% if d['booked_names'] %}<div class="muted tiny">{{ d['booked_names'] }}</div>{% endif %}
       </td>
-      <td data-label="Действия">
+      <td class="category-event-action{% if voting_state.status == 'tie' and d['id'] in leader_ids %} category-event-action--winner{% endif %}" data-label="Действия">
         {% if voting_state.status == 'tie' and d['id'] in leader_ids %}
         <form class="inline" method="post" action="/admin/categories/{{ cat['id'] }}/voting/resolve?return_to={{ editor_return_url | urlencode }}"
               data-confirm="Выбрать «{{ d['name'] }}» победителем? Результат нельзя будет изменить.">
@@ -361,7 +340,7 @@
   <div>
     <span class="category-share-eyebrow">Последний шаг</span>
     <h2 id="categoryShareTitle">Проверь и поделись</h2>
-    <p class="muted">Перед отправкой открой страницу гостя и убедись, что варианты, правила и видимость участников настроены верно.</p>
+    <p class="muted">Перед отправкой открой страницу гостя и убедись, что варианты, правила и список участников отображаются верно.</p>
   </div>
   <div class="category-share-actions">
     {% if cat['link_enabled'] %}

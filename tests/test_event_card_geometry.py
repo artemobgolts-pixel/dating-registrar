@@ -790,146 +790,82 @@ class EventCardGeometryBrowserTests(unittest.TestCase):
         self.assertTrue(copy.locator(".lbl-short").is_visible())
         self.assertFalse(copy.locator(".lbl-full").is_visible())
 
-    def test_category_flow_nav_tracks_clicked_and_scrolled_desktop_section(self):
+    def test_category_editor_has_no_redundant_section_navigation(self):
+        template = (APP / "templates/admin/category_detail.html").read_text("utf-8")
+        script = (APP / "static/admin.js").read_text("utf-8")
+
+        self.assertNotIn('class="category-flow-nav"', template)
+        self.assertNotIn('querySelector(".category-flow-nav")', script)
+        for anchor in (
+            'id="categoryDates"',
+            'id="categoryVoting"',
+            'id="categoryShare"',
+            'id="categoryAppearance"',
+        ):
+            self.assertIn(anchor, template)
+
+    def test_category_events_are_compact_but_touchable_on_mobile(self):
         page = self.page_with_styles("""
           <html data-skin="friends" data-theme="light"><body>
             <main class="wrap">
-              <nav class="category-flow-nav" aria-label="Этапы настройки подборки">
-                <a class="is-active" href="#categoryDates" aria-current="location"><span>1</span> События</a>
-                <a href="#categoryVoting"><span>2</span> Правила</a>
-                <a href="#categoryShare"><span>3</span> Публикация</a>
-                <a href="#categoryAppearance"><span>4</span> Оформление</a>
-              </nav>
-              <div class="category-editor-sections">
-                <section class="card" id="categoryDates" style="height:720px">События</section>
-                <section class="card" id="categoryVoting" style="height:720px">Правила</section>
-                <section class="card" id="categoryShare" style="height:720px">Публикация</section>
-                <section class="card" id="categoryAppearance" style="height:720px">Оформление</section>
-              </div>
+              <section class="card category-events-card">
+                <div class="table-wrap"><table><tbody>
+                  <tr class="drag-row" data-status-tone="warning">
+                    <td class="drag-h" data-label="Порядок">
+                      <button class="drag-handle" type="button">⋮⋮</button>
+                    </td>
+                    <td class="category-event-summary" data-label="Событие">
+                      <a href="#">Очень интересное событие</a>
+                      <span class="bdg">Идёт голосование</span>
+                    </td>
+                    <td class="category-event-time muted" data-label="Когда">
+                      25.08.2026 в 19:00
+                    </td>
+                    <td class="category-event-capacity" data-label="Голоса / мест">
+                      <b>2 / 4</b><progress class="vote-progress" value="2" max="4"></progress>
+                      <span class="tiny muted">Алина, Борис</span>
+                    </td>
+                    <td class="category-event-action" data-label="Действия">
+                      <form><button class="btn small" type="button">Убрать</button></form>
+                    </td>
+                  </tr>
+                </tbody></table></div>
+              </section>
             </main>
           </body></html>
         """, "static/admin.css")
-        page.evaluate("window.UI = {}")
-        page.add_script_tag(content=(APP / "static/admin.js").read_text("utf-8"))
+        page.set_viewport_size({"width": 390, "height": 844})
 
-        links = page.locator(".category-flow-nav a")
-        selected = page.locator('.category-flow-nav a[aria-current="location"]')
-        self.assertEqual(selected.get_attribute("href"), "#categoryDates")
-        links.nth(1).click()
-        self.assertEqual(selected.get_attribute("href"), "#categoryVoting")
+        geometry = page.evaluate("""() => {
+          const row = document.querySelector('.category-events-card tr').getBoundingClientRect();
+          const card = document.querySelector('.category-events-card');
+          const action = document.querySelector('.category-event-action .btn').getBoundingClientRect();
+          const drag = document.querySelector('.drag-handle').getBoundingClientRect();
+          const progress = document.querySelector('.category-event-capacity progress');
+          const label = getComputedStyle(
+            document.querySelector('.category-event-time'), '::before'
+          );
+          return {
+            rowHeight: row.height,
+            rowWidth: row.width,
+            actionWidth: action.width,
+            actionHeight: action.height,
+            dragWidth: drag.width,
+            dragHeight: drag.height,
+            labelContent: label.content,
+            overflow: card.scrollWidth - card.clientWidth,
+            progressDisplay: getComputedStyle(progress).display,
+          };
+        }""")
 
-        page.locator("#categoryShare").evaluate("node => node.scrollIntoView()")
-        page.wait_for_function("""() =>
-          document.querySelector('.category-flow-nav a[aria-current="location"]')
-            ?.getAttribute('href') === '#categoryShare'
-        """)
-        selected_style = links.nth(2).evaluate(
-            "node => getComputedStyle(node).backgroundImage",
-        )
-        self.assertNotEqual(selected_style, "none")
-
-        # Если весь редактор помещается на очень высоком экране, начальное
-        # положение страницы не является «низом прокрутки»: выбран первый шаг.
-        page.set_viewport_size({"width": 1280, "height": 4000})
-        page.evaluate("window.scrollTo(0, 0)")
-        page.wait_for_function("""() =>
-          document.querySelector('.category-flow-nav a[aria-current="location"]')
-            ?.getAttribute('href') === '#categoryDates'
-        """)
-
-    def test_category_flow_nav_keeps_clamped_anchor_active(self):
-        # У короткой подборки браузер не может довести средний якорь до его
-        # scroll-margin: прокрутка упирается в низ страницы. Нижняя эвристика
-        # scrollspy не должна из-за этого заменять выбранный шаг «Оформлением».
-        markup = """
-          <html data-skin="friends" data-theme="light"><body>
-            <header style="height:110px">Шапка кабинета</header>
-            <main class="wrap">
-              <nav class="category-flow-nav" aria-label="Этапы настройки подборки">
-                <a class="is-active" href="#categoryDates" aria-current="location"><span>1</span> События</a>
-                <a href="#categoryVoting"><span>2</span> Правила</a>
-                <a href="#categoryShare"><span>3</span> Публикация</a>
-                <a href="#categoryAppearance"><span>4</span> Оформление</a>
-              </nav>
-              <div class="category-editor-sections">
-                <section class="card category-events-card" id="categoryDates" style="height:260px">События</section>
-                <section class="card voting-settings" id="categoryVoting" style="height:220px">Правила</section>
-                <section class="card category-share-card" id="categoryShare" style="height:110px">Публикация</section>
-                <details class="card category-appearance-card" id="categoryAppearance">
-                  <summary class="category-appearance-summary">Оформление</summary>
-                </details>
-              </div>
-            </main>
-          </body></html>
-        """
-        cases = (
-            ({"width": 1280, "height": 700}, "#categoryVoting"),
-            ({"width": 390, "height": 700}, "#categoryShare"),
-        )
-        for viewport, target in cases:
-            with self.subTest(viewport=viewport, target=target):
-                page = self.page_with_styles(markup, "static/admin.css")
-                page.set_viewport_size(viewport)
-                page.evaluate("window.UI = {}")
-                page.add_script_tag(content=(APP / "static/admin.js").read_text("utf-8"))
-
-                page.locator(f'a[href="{target}"]').click()
-                page.evaluate("""() => new Promise(resolve =>
-                  requestAnimationFrame(() => requestAnimationFrame(resolve)))
-                """)
-
-                self.assertEqual(page.evaluate("location.hash"), target)
-                self.assertEqual(
-                    page.locator(
-                        '.category-flow-nav a[aria-current="location"]'
-                    ).get_attribute("href"),
-                    target,
-                )
-
-                # Deep-link/Turbo restore и hash-history могут не менять
-                # scrollY: несколько нижних секций делят один clamped maxY.
-                # Активным всё равно остаётся пункт из URL, а не последний.
-                restored = "#categoryShare" if target == "#categoryVoting" else "#categoryVoting"
-                page.evaluate("hash => { location.hash = hash; }", restored)
-                page.wait_for_function(
-                    "hash => document.querySelector("
-                    "'.category-flow-nav a[aria-current=\"location\"]'"
-                    ")?.getAttribute('href') === hash",
-                    arg=restored,
-                )
-                page.evaluate("hash => { location.hash = hash; }", target)
-                page.wait_for_function(
-                    "hash => document.querySelector("
-                    "'.category-flow-nav a[aria-current=\"location\"]'"
-                    ")?.getAttribute('href') === hash",
-                    arg=target,
-                )
-
-                # Повторная Turbo-инициализация обязана снять старый
-                # hashchange-listener и восстановить тот же активный пункт.
-                page.locator(".category-flow-nav a").evaluate_all("""links => {
-                  links.forEach(link => {
-                    link.classList.remove('is-active');
-                    link.removeAttribute('aria-current');
-                  });
-                  const last = links[links.length - 1];
-                  last.classList.add('is-active');
-                  last.setAttribute('aria-current', 'location');
-                }""")
-                page.evaluate("document.dispatchEvent(new Event('turbo:load'))")
-                self.assertEqual(
-                    page.locator(
-                        '.category-flow-nav a[aria-current="location"]'
-                    ).get_attribute("href"),
-                    target,
-                )
-                page.evaluate("hash => { location.hash = hash; }", restored)
-                page.wait_for_function(
-                    "hash => document.querySelector("
-                    "'.category-flow-nav a[aria-current=\"location\"]'"
-                    ")?.getAttribute('href') === hash",
-                    arg=restored,
-                )
+        self.assertLessEqual(geometry["rowHeight"], 96)
+        self.assertLessEqual(geometry["overflow"], 1)
+        self.assertLess(geometry["actionWidth"], geometry["rowWidth"] * .45)
+        self.assertGreaterEqual(geometry["actionHeight"], 44)
+        self.assertGreaterEqual(geometry["dragWidth"], 44)
+        self.assertGreaterEqual(geometry["dragHeight"], 44)
+        self.assertIn(geometry["labelContent"], ('none', 'normal', '""'))
+        self.assertEqual(geometry["progressDisplay"], "none")
 
 
 if __name__ == "__main__":

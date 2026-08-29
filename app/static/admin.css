@@ -1002,7 +1002,8 @@ span.oauth-ico { display: grid; place-items: center; font-weight: 700; font-size
   text-decoration: none; box-shadow: 0 6px 16px rgba(91,54,62,.06);
   transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease;
 }
-a.social-service:hover {
+a.social-service:hover,
+button.social-service:hover {
   transform: translateY(-2px); border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
   box-shadow: 0 9px 20px rgba(91,54,62,.11);
 }
@@ -1013,6 +1014,18 @@ a.social-service:hover {
 .social-service.is-disabled { opacity: .48; filter: grayscale(.45); }
 .social-service .social-ico { display: grid; place-items: center; }
 .social-service .social-ico .oauth-ico { width: 31px; height: 31px; display: block; }
+.social-service-telegram {
+  margin: 0; padding: 0; font: inherit;
+}
+button.social-service-telegram { cursor: pointer; }
+.social-service-telegram .social-ico-telegram { color: #229ed9; }
+.social-service-telegram .social-ico-telegram .admin-icon {
+  display: block; width: 31px; height: 31px;
+}
+.social-service-telegram:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent) 52%, transparent);
+  outline-offset: 2px;
+}
 .social-service-action { display: contents; }
 .social-state-control {
   position: absolute; top: -5px; right: -5px; z-index: 2;
@@ -1198,6 +1211,24 @@ a.social-service:hover {
   flex: none; min-height: 32px; margin-left: auto; padding: 6px 11px;
   border-radius: 999px; font-size: 12px; line-height: 1.2; white-space: nowrap;
 }
+.telegram-connect-banner-inner .telegram-connect-main,
+.telegram-connect-profile .telegram-connect-main {
+  align-items: center; flex-wrap: wrap; row-gap: 10px;
+}
+.telegram-connect-banner-inner .telegram-connect-heading,
+.telegram-connect-profile .telegram-connect-heading {
+  flex: 1 1 100%;
+}
+.telegram-connect-banner-inner .telegram-connect-button,
+.telegram-connect-profile .telegram-connect-button {
+  flex: 1 1 100%; width: 100%; min-height: 44px; margin-left: 0;
+  padding: 10px 16px; border-radius: 12px;
+  font-size: 14px; font-weight: 700;
+}
+.telegram-connect-banner-inner :is(.telegram-connect-description, .telegram-connect-hint, .telegram-connect-error),
+.telegram-connect-profile :is(.telegram-connect-description, .telegram-connect-hint, .telegram-connect-error) {
+  margin-left: 0;
+}
 .notif-settings-chevron {
   width: 10px; height: 10px; flex: none; margin: 0 3px 4px auto;
   border-right: 2px solid currentColor; border-bottom: 2px solid currentColor;
@@ -1205,7 +1236,13 @@ a.social-service:hover {
 }
 @media (max-width: 560px) {
   .telegram-connect-main { align-items: stretch; flex-wrap: wrap; }
-  .telegram-connect-button { margin-left: 54px; width: calc(100% - 54px); }
+  .telegram-connect-button {
+    flex: 1 1 100%; width: 100%; min-height: 44px; margin-left: 0;
+    font-size: 14px;
+  }
+  .telegram-connect-description,
+  .telegram-connect-hint,
+  .telegram-connect-error { margin-left: 0; }
 }
 .notif-settings-card[open] .notif-settings-chevron {
   margin-bottom: -3px; transform: rotate(225deg);
@@ -4812,63 +4849,7 @@ dialog:is(.is-closing, [data-closing="true"]) {
 }
 
 /* Category editor follows the task sequence even though appearance stays last
-   in source-independent visual order. The compact map never requires sideways
-   scrolling and remains useful with touch or keyboard. */
-.category-flow-nav {
-  position: sticky;
-  top: 76px;
-  z-index: 6;
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 4px;
-  margin: 0 0 14px;
-  padding: 5px;
-  border: 1px solid var(--material-border);
-  border-radius: 16px;
-  background: var(--material-chrome);
-  -webkit-backdrop-filter: var(--material-blur-chrome);
-  backdrop-filter: var(--material-blur-chrome);
-  box-shadow: var(--shadow-soft);
-}
-.category-flow-nav a {
-  min-width: 0;
-  min-height: 44px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  padding: 7px 9px;
-  border-radius: 11px;
-  color: var(--ink);
-  font-size: .8125rem;
-  font-weight: 650;
-  line-height: 1.2;
-  text-align: center;
-  text-decoration: none;
-}
-.category-flow-nav a:hover { color: var(--rose-2); background: var(--rose-soft); }
-.category-flow-nav a:active { transform: scale(.98); }
-.category-flow-nav a span {
-  width: 24px;
-  height: 24px;
-  display: grid;
-  place-items: center;
-  flex: none;
-  border-radius: 50%;
-  color: #fff;
-  background: var(--accent);
-  font-size: .6875rem;
-  font-variant-numeric: tabular-nums;
-}
-.category-flow-nav a:is(.is-active, [aria-current="location"]) {
-  color: #fff;
-  background: linear-gradient(135deg, var(--accent), var(--rose-2));
-  box-shadow: 0 5px 14px color-mix(in srgb, var(--accent) 28%, transparent);
-}
-.category-flow-nav a:is(.is-active, [aria-current="location"]) span {
-  color: var(--rose-2);
-  background: rgba(255, 255, 255, .92);
-}
+   in source-independent visual order. */
 .category-editor-sections {
   display: flex;
   flex-direction: column;
@@ -4878,7 +4859,7 @@ dialog:is(.is-closing, [data-closing="true"]) {
 .category-editor-sections > .voting-settings { order: 2; }
 .category-share-card { order: 3; }
 .category-appearance-card { order: 4; }
-:where(#categoryDates, #categoryVoting, #categoryShare, #categoryAppearance) { scroll-margin-top: 150px; }
+:where(#categoryDates, #categoryVoting, #categoryShare, #categoryAppearance) { scroll-margin-top: 96px; }
 
 .category-appearance-card { padding: 0; overflow: clip; }
 .category-appearance-summary {
@@ -4935,12 +4916,6 @@ dialog:is(.is-closing, [data-closing="true"]) {
 .category-events-card td { overflow-wrap: anywhere; }
 
 @media (max-width: 760px) {
-  .category-flow-nav {
-    top: calc(62px + env(safe-area-inset-top, 0px));
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    border-radius: 15px;
-  }
-  .category-flow-nav a { justify-content: flex-start; text-align: left; }
   .category-share-card { grid-template-columns: minmax(0, 1fr); gap: 15px; }
   .category-share-actions { justify-content: stretch; }
   .category-share-actions :where(.btn, a, button) { flex: 1 1 10rem; justify-content: center; }
@@ -4964,83 +4939,111 @@ dialog:is(.is-closing, [data-closing="true"]) {
   .category-events-card tbody tr {
     position: relative;
     display: grid;
-    grid-template-columns: 48px minmax(0, 1fr);
-    padding: 10px 10px 10px 6px;
+    grid-template-columns: 44px minmax(0, 1fr) auto auto;
+    grid-template-rows: auto auto;
+    align-items: center;
+    column-gap: 8px;
+    row-gap: 2px;
+    padding: 8px 8px 8px 4px;
     border: 1px solid var(--line);
-    border-radius: 14px;
+    border-radius: 12px;
     background: var(--material-control);
   }
-  .category-events-card td { grid-column: 2; padding: 7px 8px; border: 0; }
+  .category-events-card td { width: auto; min-width: 0; padding: 0; border: 0; }
   .category-events-card td:first-child {
     grid-column: 1;
-    grid-row: 1 / span 4;
+    grid-row: 1 / 3;
     display: grid;
-    place-items: start center;
-    padding: 10px 0;
+    place-items: center;
+    width: 44px;
   }
   .category-events-card td:not(:first-child)::before {
-    content: attr(data-label);
-    display: block;
-    margin-bottom: 3px;
-    color: var(--muted);
-    font-size: .6875rem;
-    font-weight: 700;
-    letter-spacing: .05em;
-    text-transform: uppercase;
+    content: none;
+    display: none;
   }
-  .category-events-card td:nth-child(5) :where(form, .btn) { width: 100%; }
-  .category-events-card progress { width: 100%; }
+  .category-events-card .category-event-summary {
+    position: relative;
+    grid-column: 2 / 4;
+    grid-row: 1;
+    min-height: 44px;
+    display: grid;
+    align-content: center;
+    gap: 2px;
+    overflow: hidden;
+  }
+  .category-event-summary > a {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--ink);
+    font-size: .9375rem;
+    font-weight: 650;
+    line-height: 1.25;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .category-event-summary > a::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+  }
+  .category-event-statuses {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+  .category-event-statuses > * { flex: none; }
+  .category-events-card .category-event-time {
+    grid-column: 2;
+    grid-row: 2;
+    overflow: hidden;
+    font-size: .78125rem;
+    line-height: 1.25;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .category-events-card .category-event-capacity {
+    grid-column: 3;
+    grid-row: 2;
+    font-size: .78125rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .category-event-capacity :is(.vote-progress, .tiny) { display: none; }
+  .category-events-card .category-event-action {
+    grid-column: 4;
+    grid-row: 1 / 3;
+    position: relative;
+    z-index: 1;
+  }
+  .category-event-action :where(form, .btn) { width: auto; }
+  .category-event-action .btn {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 8px 10px;
+    border-radius: 10px;
+  }
+  .category-event-action .btn:active,
+  .category-events-card .drag-handle:active {
+    transform: scale(.97);
+    transition: transform 100ms ease-out;
+  }
+  .category-events-card .category-event-action--winner {
+    grid-column: 2 / 5;
+    grid-row: 3;
+  }
+  .category-event-action--winner :where(form, .btn) { width: 100%; }
 }
 
-@media (prefers-reduced-transparency: reduce) {
-  .category-flow-nav { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--card); }
-}
 @media (prefers-contrast: more) {
-  .category-flow-nav, .category-events-card tbody tr { border-color: var(--material-border); }
+  .category-events-card tbody tr { border-color: var(--material-border); }
 }
 @media (prefers-reduced-motion: reduce) {
   .category-appearance-chevron { transition: none; }
-}
-
-/* Privacy is an explicit segmented choice inside voting, not another modal. */
-.participant-privacy-setting {
-  margin-top: 16px;
-  padding: 13px 14px;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 14px;
-  border: 1px solid var(--material-border);
-  border-radius: 15px;
-  background: color-mix(in srgb, var(--material-control) 78%, transparent);
-}
-.participant-privacy-setting p { max-width: 62ch; margin: 3px 0 0; line-height: 1.4; }
-.participant-visibility-form {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(0, 1fr);
-  gap: 3px;
-  padding: 4px;
-  border: 1px solid var(--material-border);
-  border-radius: 13px;
-  background: var(--material-control);
-}
-.participant-privacy-setting .participant-visibility-form .btn {
-  min-width: 8rem;
-  min-height: 44px;
-  padding: 8px 11px;
-  border: 0;
-  border-radius: 9px;
-  color: var(--muted);
-  background: transparent;
-  box-shadow: none;
-  line-height: 1.2;
-  white-space: normal;
-}
-.participant-privacy-setting .participant-visibility-form .btn:is(.active, [aria-pressed="true"]) {
-  color: #fff;
-  background: linear-gradient(135deg, var(--rose), var(--rose-2));
-  box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 24%, transparent);
+  .category-event-action .btn:active,
+  .category-events-card .drag-handle:active { transform: none; transition: none; }
 }
 
 /* The gallery owns horizontal swipes. Cropping opts into direct manipulation
@@ -5087,15 +5090,7 @@ dialog:is(.is-closing, [data-closing="true"]) {
 .ed-crop-toggle:is(:hover, [aria-pressed="true"]) { background: rgba(30, 20, 24, .9); }
 .ed-crop-toggle:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
 
-@media (max-width: 720px) {
-  .participant-privacy-setting { grid-template-columns: minmax(0, 1fr); }
-  .participant-visibility-form { width: 100%; grid-auto-columns: minmax(0, 1fr); }
-  .participant-privacy-setting .participant-visibility-form .btn { min-width: 0; }
-}
-
 @media (prefers-contrast: more) {
-  .participant-privacy-setting,
-  .participant-visibility-form { border-color: var(--material-border); }
   .ed-crop-toggle { border-color: #fff; background: #21171b; }
 }
 

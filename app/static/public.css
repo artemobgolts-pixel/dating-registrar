@@ -2712,7 +2712,7 @@ html[data-skin="friends"][data-theme="dark"] .card.vote-winner > .body {
   }
 }
 
-/* --- планы и обзоры отдельного события ---------------------------------- */
+/* --- планы и отзывы отдельного события ---------------------------------- */
 .share-choice-block { display: grid; justify-items: center; gap: 10px; }
 .share-choice-block p { margin-bottom: 0; }
 .share-choice-sep {

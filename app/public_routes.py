@@ -771,8 +771,7 @@ def _booking_rows(conn, category_id: int):
     ).fetchall()
 
 
-def _vote_card_updates(conn, category_id: int, date_ids, guest: str,
-                       *, show_participants: bool | None = None) -> list[dict]:
+def _vote_card_updates(conn, category_id: int, date_ids, guest: str) -> list[dict]:
     """Компактный снимок изменившихся карточек для обновления без reload.
 
     Возвращаем только затронутые варианты и не более ``PUBLIC_ROSTER_LIMIT``
@@ -781,11 +780,6 @@ def _vote_card_updates(conn, category_id: int, date_ids, guest: str,
     ids = sorted({int(date_id) for date_id in date_ids})
     if not ids:
         return []
-    if show_participants is None:
-        visibility = conn.execute(
-            "SELECT show_participants FROM categories WHERE id=?", (category_id,),
-        ).fetchone()
-        show_participants = bool(visibility and visibility["show_participants"])
     ph = ",".join("?" * len(ids))
     capacities = {
         int(row["id"]): int(row["capacity"] or 1)
@@ -821,10 +815,7 @@ def _vote_card_updates(conn, category_id: int, date_ids, guest: str,
     updates = []
     for date_id in ids:
         capacity = capacities.get(date_id, 1)
-        if show_participants:
-            people, hidden_count = _visible_participants(participants[date_id])
-        else:
-            people, hidden_count = [], 0
+        people, hidden_count = _visible_participants(participants[date_id])
         total = totals[date_id]
         updates.append({
             "date_id": date_id,
@@ -832,7 +823,6 @@ def _vote_card_updates(conn, category_id: int, date_ids, guest: str,
             "vote_count": total,
             "capacity": capacity,
             "is_full": total >= capacity,
-            "show_participants": bool(show_participants),
             "participants": people,
             "hidden_count": hidden_count,
         })
@@ -974,8 +964,6 @@ def public_category(token: str, request: Request, conn=Depends(get_db)):
         guest = None
         guest_name = None
     owner = users.get_user(conn, cat["owner_id"])
-    show_participants = bool(cat["show_participants"])
-
     bookings: dict[int, list] = {}
     visible_bookings = view_booking_rows(
         _booking_rows(conn, cat["id"]), request, me, cat)
@@ -1016,18 +1004,14 @@ def public_category(token: str, request: Request, conn=Depends(get_db)):
         d["past"] = past
         entries = bookings.get(d["id"], [])
         d["booked_by_me"] = any(e["is_me"] for e in entries)
-        others = ([e["name"] for e in entries if not e["is_me"]]
-                  if show_participants else [])
+        others = [e["name"] for e in entries if not e["is_me"]]
         d["booked_others_list"] = others         # инициалы-аватарки в карточке
         d["booked_others"] = ", ".join(others)   # для обновления DOM без reload
         parts = (["ты"] if d["booked_by_me"] else []) + others
         d["booked_label"] = ", ".join(parts)
-        if show_participants:
-            participant_rows = [dict(e) for e in entries]
-            d["participants"], d["participant_hidden_count"] = \
-                _visible_participants(participant_rows)
-        else:
-            d["participants"], d["participant_hidden_count"] = [], 0
+        participant_rows = [dict(e) for e in entries]
+        d["participants"], d["participant_hidden_count"] = \
+            _visible_participants(participant_rows)
         d["vote_count"] = len(entries)
         d["capacity"] = int(d.get("capacity") or 1)
         d["is_full"] = d["vote_count"] >= d["capacity"]
@@ -1092,7 +1076,6 @@ def public_category(token: str, request: Request, conn=Depends(get_db)):
         "owner_name": owner_name,
         "viewer_is_owner": viewer_is_owner,
         "viewer_has_vote": any(bool(d["booked_by_me"]) for d in dates),
-        "show_participants": show_participants,
         "vote_state": vote_state,
         "voting_accepts_votes": voting_accepts_votes,
         "proposals_editable": proposals_editable,
@@ -1148,11 +1131,8 @@ def public_participant_avatar(token: str, user_id: int, w: int | None = None,
         "JOIN bookings b ON b.category_id=c.id "
         "JOIN users u ON u.id=b.user_id AND u.is_active=1 "
         "WHERE c.link_token=? AND c.link_enabled=1 AND u.id=? "
-        "AND c.show_participants=1 "
-        "AND (c.voting_status IN (?,?) "
-        "     OR (c.voting_status=? AND b.date_id=c.winner_date_id)) LIMIT 1",
-        (token, user_id, voting.STATUS_UNCONFIGURED, voting.STATUS_OPEN,
-         voting.STATUS_RESOLVED),
+        "LIMIT 1",
+        (token, user_id),
     ).fetchone()
     fn = row["avatar_path"] if row else None
     if not fn or not images.SAFE_FILENAME.match(fn):
@@ -1373,7 +1353,6 @@ def shared_date(token: str, request: Request, conn=Depends(get_db)):
     # остаётся внутренней деталью голосования: отдельная ссылка /d/ не ведёт в
     # закрытую подборку целиком.
     act_cat = share_action_cat(conn, d)
-    show_participants = bool(act_cat and act_cat["show_participants"])
     category_skin = appearance.normalize_skin(
         act_cat["category_skin"] if act_cat else None)
     first_og_image = first_existing_og_image(payload["images"])
@@ -1417,15 +1396,13 @@ def shared_date(token: str, request: Request, conn=Depends(get_db)):
             if e["date_id"] == d["id"] and e["is_me"]
         ]
         date_entries = [e for e in entries if e["date_id"] == d["id"]]
-        others = ([e["name"] for e in date_entries if not e["is_me"]]
-                  if show_participants else [])
+        others = [e["name"] for e in date_entries if not e["is_me"]]
         payload["booked_by_me"] = bool(mine)
         payload["booked_others_list"] = others
         payload["booked_others"] = ", ".join(others)
-        if show_participants:
-            participant_rows = [dict(e) for e in date_entries]
-            payload["participants"], payload["participant_hidden_count"] = \
-                _visible_participants(participant_rows)
+        participant_rows = [dict(e) for e in date_entries]
+        payload["participants"], payload["participant_hidden_count"] = \
+            _visible_participants(participant_rows)
         payload["vote_count"] = len(date_entries)
         payload["is_full"] = payload["vote_count"] >= payload["capacity"]
         payload["is_winner"] = bool(
@@ -1470,7 +1447,6 @@ def shared_date(token: str, request: Request, conn=Depends(get_db)):
         "can_question": not is_mine,
         "vote_state": vote_state,
         "voting_accepts_votes": voting_accepts_votes,
-        "show_participants": show_participants,
         "category_skin": category_skin,
         "bot": auth_routes.BOT_USERNAME,
         "oauth": auth_routes._oauth_buttons(),
@@ -1751,12 +1727,7 @@ def _share_act_or_410(conn, token: str):
 def shared_participant_avatar(token: str, user_id: int, w: int | None = None,
                               conn=Depends(get_db)):
     d, cat = _share_act_or_410(conn, token)
-    if not cat or not cat["show_participants"]:
-        raise HTTPException(404)
-    if not (cat["voting_status"] in {
-                voting.STATUS_UNCONFIGURED, voting.STATUS_OPEN}
-            or (cat["voting_status"] == voting.STATUS_RESOLVED
-                and cat["winner_date_id"] == d["id"])):
+    if not cat:
         raise HTTPException(404)
     row = conn.execute(
         "SELECT u.avatar_path FROM users u JOIN bookings b ON b.user_id=u.id "
@@ -1816,10 +1787,7 @@ def shared_date_book(token: str, request: Request, bg: BackgroundTasks,
                  action_url=action_url, action_label="Открыть категорию")
     notify_admin(bg, conn, d["owner_id"], card, action_url=action_url,
                  action_label="Открыть категорию")
-    updates = _vote_card_updates(
-        conn, cat["id"], (d["id"],), guest,
-        show_participants=bool(cat["show_participants"]),
-    )
+    updates = _vote_card_updates(conn, cat["id"], (d["id"],), guest)
     conn.commit()
     return JSONResponse({"ok": True, "booked": booked, "name": name,
                          "choices": list(result.current_date_ids),
@@ -2138,10 +2106,7 @@ def public_book(token: str, request: Request, bg: BackgroundTasks,
     affected.update(legacy_date_ids)
     if legacy_date_ids:
         affected.update(result.current_date_ids)
-    updates = _vote_card_updates(
-        conn, cat["id"], affected, guest,
-        show_participants=bool(cat["show_participants"]),
-    )
+    updates = _vote_card_updates(conn, cat["id"], affected, guest)
     conn.commit()
     return JSONResponse({"ok": True, "booked": booked, "name": name,
                          "choices": list(result.current_date_ids),

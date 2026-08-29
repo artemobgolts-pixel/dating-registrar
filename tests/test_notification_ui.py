@@ -90,7 +90,7 @@ class NotificationUiTests(unittest.TestCase):
         self.assertIn("event.stopPropagation();", auth)
         self.assertIn('window.open("about:blank", "_blank")', auth)
         self.assertIn('btn.dataset.tgDirect = d.url', auth)
-        self.assertIn('btn.textContent = "Открыть Telegram"', auth)
+        self.assertIn('setConnectLabel("Открыть Telegram")', auth)
         self.assertIn('window.location.assign(btn.dataset.tgDirect)', auth)
 
         env = Environment(loader=FileSystemLoader(APP / "templates"))

@@ -70,16 +70,16 @@
         сохраняют романтическое оформление, новые по умолчанию дружеские.
   v27 — настройки типов Telegram-уведомлений и действия rich-карточек:
         inline-кнопка хранится вместе с отложенным сообщением outbox.
-  v28 — социальные отметки событий и обзоры: независимое «Хочу сходить»,
+  v28 — социальные отметки событий и отзывы: независимое «Хочу сходить»,
         публичные отзывы с рейтингом и отдельная настройка уведомлений об
-        обзорах.
+        отзывах.
   v29 — пользовательские события без категории больше не считаются
         «неактивными». Старые черновики владельцев становятся активными, но
         приватными, чтобы миграция сама не опубликовала ранее скрытый контент;
         гостевые предложения на модерации не затрагиваются.
   v30 — фиксированное стандартное превью категории и пользовательская очередь
-        событий, которые ждут обзора после завершения, отказа или удаления
-        ранее созданного обзора.
+        событий, которые ждут отзыва после завершения, отказа или удаления
+        ранее созданного отзыва.
   v31 — приватность по умолчанию: новые события и отметки «Хочу сходить»
         создаются скрытыми; дата рождения, пол и состав участников получают
         отдельные настройки видимости. Уже опубликованные данные сохраняют
@@ -89,6 +89,9 @@
   v33 — tombstone скрытого напоминания об отзыве, чтобы вычисляемая очередь
         прошедших выбранных событий не возвращала удалённое пользователем;
         адресный индекс выбранных пользователем бронирований для этой очереди.
+  v34 — дата рождения и пол показываются в публичном профиле, если заполнены;
+        имена и аватары участников всегда видны по активной секретной ссылке.
+        Устаревшие переключатели видимости удалены из схемы.
 
 Свежая база создаётся сразу по последней схеме. Существующая —
 докатывается миграциями при старте приложения.
@@ -102,7 +105,7 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "app.db"
 
-LATEST_VERSION = 33
+LATEST_VERSION = 34
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -113,10 +116,6 @@ CREATE TABLE IF NOT EXISTS users (
     avatar_path TEXT,             -- фото профиля, хранится локально (опционально)
     birth_date TEXT,              -- дата рождения (ISO yyyy-mm-dd)
     gender TEXT,                  -- 'm' | 'f'
-    birth_date_public INTEGER NOT NULL DEFAULT 0
-        CHECK(birth_date_public IN (0, 1)), -- отдельно разрешается для публичного профиля
-    gender_public INTEGER NOT NULL DEFAULT 0
-        CHECK(gender_public IN (0, 1)),     -- отдельно разрешается для публичного профиля
     is_active INTEGER NOT NULL DEFAULT 1,    -- 0 = забанен
     is_operator INTEGER NOT NULL DEFAULT 0,  -- суперадмин (модерация/баны/лимиты)
     is_reviewed INTEGER NOT NULL DEFAULT 1,  -- 0 = новый, ждёт проверки админом (мягкая очередь)
@@ -216,8 +215,6 @@ CREATE TABLE IF NOT EXISTS categories (
     og_focus TEXT,             -- точка фокуса своей картинки превью: «X% Y%» (NULL = центр)
     use_default_preview INTEGER NOT NULL DEFAULT 0
         CHECK(use_default_preview IN (0, 1)), -- 1 = не заменять дефолт авто-коллажем
-    show_participants INTEGER NOT NULL DEFAULT 0
-        CHECK(show_participants IN (0, 1)), -- имена и аватары ростера только по opt-in
     choice_mode TEXT CHECK(choice_mode IN ('single', 'multiple')),
     voting_deadline TEXT,      -- задаётся владельцем явно, время МСК
     voting_status TEXT NOT NULL DEFAULT 'unconfigured'
@@ -1417,6 +1414,15 @@ MIGRATIONS: dict[int, str] = {
         CREATE INDEX IF NOT EXISTS idx_book_user_date_active
             ON bookings(user_id, date_id, category_id)
             WHERE user_id IS NOT NULL AND participation_withdrawn_at IS NULL;
+    """,
+    34: """
+        -- Дата рождения и пол показываются, когда заполнены, а состав
+        -- голосования всегда открыт по действующей секретной ссылке. Удаляем
+        -- прежние переключатели, чтобы старое значение 0 больше не могло
+        -- скрыть данные после обновления приложения.
+        ALTER TABLE users DROP COLUMN birth_date_public;
+        ALTER TABLE users DROP COLUMN gender_public;
+        ALTER TABLE categories DROP COLUMN show_participants;
     """,
 }
 

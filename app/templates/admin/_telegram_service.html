@@ -1,0 +1,30 @@
+{# Telegram is a login identity here. bot_linked is intentionally separate:
+   a Login Widget user can have Telegram attached while bot notifications are off. #}
+{% if user['telegram_id'] is not none %}
+<div class="social-service social-service-telegram is-linked" title="Telegram привязан">
+  <span class="social-ico social-ico-telegram" aria-hidden="true">
+    {% with icon='telegram' %}{% include "admin/_icon.html" %}{% endwith %}
+  </span>
+  <span class="sr-only">Telegram: Привязан</span>
+  <form class="social-service-action" method="post"
+        action="/admin/profile/telegram/unlink"
+        data-confirm="Отвязать Telegram от аккаунта?">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button class="social-state-control" type="submit"
+            aria-label="Отвязать Telegram" title="Отвязать Telegram">
+      <span class="social-state social-state-remove" aria-hidden="true"></span>
+    </button>
+  </form>
+</div>
+{% else %}
+<button class="social-service social-service-telegram tg-connect" type="button"
+        data-tg-connect data-tg-compact data-return-to="/admin/profile"
+        aria-label="Привязать Telegram" title="Привязать Telegram">
+  <span class="social-ico social-ico-telegram" aria-hidden="true">
+    {% with icon='telegram' %}{% include "admin/_icon.html" %}{% endwith %}
+  </span>
+  <span class="social-state social-state-add" aria-hidden="true"></span>
+  <span class="sr-only" data-tg-state-label>Telegram: не привязан</span>
+  <span class="sr-only" data-tg-error hidden></span>
+</button>
+{% endif %}
