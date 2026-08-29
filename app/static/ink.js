@@ -10,8 +10,8 @@
  * Самохостинг, без зависимостей и Three.js — под нашу строгую CSP.
  * Нет WebGL2 / float-рендера → тихий выход, остаётся CSS-дым (.bg-smoke).
  * prefers-reduced-motion / Save-Data / действительно слабое устройство →
- * один статичный кадр. На остальных устройствах — 30 FPS при взаимодействии,
- * 8 FPS в покое и адаптивное разрешение по реальной стоимости кадра.
+ * один статичный кадр. На остальных устройствах — постоянные 30 FPS и
+ * адаптивное разрешение по реальной стоимости кадра.
  */
 (function () {
   "use strict";
@@ -676,8 +676,7 @@ void main(){
   }
 
   // --- цикл ----------------------------------------------------------------
-  var ACTIVE_FRAME_MS = 1000 / 30;
-  var IDLE_FRAME_MS = 1000 / 8;
+  var FRAME_MS = 1000 / 30;
   // Малый допуск не даёт мониторам с дробной частотой (например, 59.94 Гц)
   // периодически проваливаться с 30 до 20 FPS из-за долей миллисекунды.
   var FRAME_EARLY_TOLERANCE_MS = 1;
@@ -688,14 +687,13 @@ void main(){
     var relativeNow = (now - start) / 1000;
     var highActivity = pointer.moved || clickPending
       || relativeNow < activeUntil || relativeNow < decayUntil;
-    var targetFrameMs = highActivity ? ACTIVE_FRAME_MS : IDLE_FRAME_MS;
     if (nextFrameAt && now + FRAME_EARLY_TOLERANCE_MS < nextFrameAt) {
       if (!document.hidden) raf = requestAnimationFrame(render);
       return;
     }
     if (!nextFrameAt) nextFrameAt = now;
     do {
-      nextFrameAt += targetFrameMs;
+      nextFrameAt += FRAME_MS;
     } while (nextFrameAt <= now);
     var renderStarted = performance.now();
     if (!last) last = now;
