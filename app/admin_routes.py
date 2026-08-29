@@ -126,13 +126,13 @@ def _validate_start_after_open_deadlines(conn, category_ids: list[int] | set[int
 def actx(request: Request, conn, **extra) -> dict:
     user = request.state.user
     question_unread = conn.execute(
-        "SELECT COUNT(*) FROM questions q WHERE q.is_read=0 "
+        "SELECT COUNT(*) FROM questions q WHERE q.answer IS NULL "
         "AND q.date_id IN (SELECT id FROM dates WHERE owner_id=?)",
         (user["id"],),
     ).fetchone()[0]
-    review_waiting = conn.execute(
-        "SELECT COUNT(*) FROM review_queue WHERE user_id=?", (user["id"],),
-    ).fetchone()[0]
+    review_waiting = extra.pop("review_waiting", None)
+    if review_waiting is None:
+        review_waiting = social_events.review_waiting_count(conn, int(user["id"]))
     ctx = {
         "request": request,
         "user": user,
@@ -962,7 +962,7 @@ def category_clone(cid: int, request: Request, conn=Depends(get_db)):
     try:
         # События теперь общие для исходной категории и копии. Поэтому нельзя
         # молча переносить старый дедлайн на неделю вперёд: будущая дата копии
-        # делала уже завершённое общее событие временно недоступным для обзора.
+        # делала уже завершённое общее событие временно недоступным для отзыва.
         # Сохраняем исходный срок; перед открытием новой ссылки редактор всё
         # равно потребует явно настроить актуальное голосование.
         copied_deadline = datetime.fromisoformat(
@@ -2638,49 +2638,35 @@ def date_image_focus(did: int, img_id: int, request: Request, focus: str = Form(
 @router.get("/questions", response_class=HTMLResponse)
 def questions_list(request: Request, conn=Depends(get_db)):
     requested = request.query_params.get("f")
-    f = requested if requested in {"all", "reviews"} else "unread"
+    f = "reviews" if requested == "reviews" else "unread"
     rows = []
     if f != "reviews":
-        where = ("q.date_id IN (SELECT id FROM dates WHERE owner_id=?)"
-                 + ("" if f == "all" else " AND q.is_read=0"))
         rows = conn.execute(
             f"SELECT q.*, d.name AS date_name, d.id AS did, c.name AS cat_name, "
             f"{GNAME_SQL.format(t='q.guest_token')} AS gname "
             f"FROM questions q JOIN dates d ON d.id=q.date_id "
             f"LEFT JOIN categories c ON c.id=q.category_id "
             f"LEFT JOIN guests g ON g.token=q.guest_token "
-            f"WHERE {where} ORDER BY q.created_at DESC",
+            f"WHERE q.date_id IN (SELECT id FROM dates WHERE owner_id=?) "
+            f"AND q.answer IS NULL ORDER BY q.created_at DESC, q.id DESC",
             (request.state.user["id"],)
         ).fetchall()
-    review_rows = conn.execute(
-        "SELECT rq.*, d.name AS date_name, d.share_token, d.starts_at, d.ends_at, "
-        "(SELECT filename FROM date_images di WHERE di.date_id=d.id "
-        " ORDER BY di.position, di.id LIMIT 1) AS cover "
-        "FROM review_queue rq JOIN dates d ON d.id=rq.date_id "
-        "WHERE rq.user_id=? ORDER BY rq.updated_at DESC",
-        (request.state.user["id"],),
-    ).fetchall() if f == "reviews" else []
-    total_notifications = conn.execute(
-        "SELECT COUNT(*) FROM questions q "
-        "WHERE q.date_id IN (SELECT id FROM dates WHERE owner_id=?)",
-        (request.state.user["id"],),
-    ).fetchone()[0]
+    review_rows = social_events.review_waiting_rows(
+        conn, int(request.state.user["id"]),
+    ) if f == "reviews" else []
     return templates.TemplateResponse(
         request, "admin/questions.html",
         actx(request, conn, active="q", rows=rows, review_rows=review_rows, f=f,
              notif_settings=notify.get_preferences(conn, request.state.user["id"]),
-             total_notifications=total_notifications))
+             review_waiting=len(review_rows) if f == "reviews" else None))
 
 
 @router.post("/questions/reviews/{date_id}/dismiss")
 def review_waiting_dismiss(date_id: int, request: Request,
                            conn=Depends(get_db)):
-    """Удаляет только напоминание, не событие и не право написать обзор."""
-    deleted = conn.execute(
-        "DELETE FROM review_queue WHERE user_id=? AND date_id=?",
-        (request.state.user["id"], date_id),
-    ).rowcount
-    if not deleted:
+    """Удаляет только напоминание, не событие и не право написать отзыв."""
+    if not social_events.clear_review_waiting(
+            conn, date_id, int(request.state.user["id"])):
         raise HTTPException(404, "Напоминание не найдено")
     conn.commit()
     return redir("/admin/questions?f=reviews", "Упоминание удалено")
@@ -2834,7 +2820,7 @@ def question_delete(qid: int, request: Request, next: str = Form("/admin/questio
 
 # ---------------------------------------------------------------------------
 # Публичная страница профиля /u/<id> доступна без регистрации. Изменения
-# обзоров остаются защищены current_user и CSRF на конкретных POST-роутах.
+# отзывов остаются защищены current_user и CSRF на конкретных POST-роутах.
 # Решение владельца: показываем имя, фото, полную дату рождения и пол.
 # (Privacy-пометка про полную ДР — в Политике конфиденциальности.)
 # ---------------------------------------------------------------------------
@@ -2907,14 +2893,14 @@ def _profile_sections_context(conn, user_id: int, viewer_id: int | None,
         tab = "events"
 
     # Каждая вкладка пагинируется независимо. Секретные/черновые события не
-    # раскрываются через чужую отметку или обзор, даже если /d-ссылка известна
+    # раскрываются через чужую отметку или отзыв, даже если /d-ссылка известна
     # самому автору публикации.
     event_total = conn.execute(
         "SELECT COUNT(*) FROM dates "
         "WHERE owner_id=? AND is_public=1 AND is_draft=0 AND archived_at IS NULL",
         (user_id,)).fetchone()[0]
-    # После явного дедлайна план исчезает из профиля; уже опубликованный обзор
-    # остаётся только в Reviews. Строку wants сохраняем как право на сам обзор.
+    # После явного дедлайна план исчезает из профиля; уже опубликованный отзыв
+    # остаётся только в Reviews. Строку wants сохраняем как право на сам отзыв.
     want_now = now_naive()
     want_total = _profile_current_wants(
         conn, user_id, is_me=is_me, now=want_now,
@@ -3019,7 +3005,7 @@ def public_profile_date_widget(user_id: int, did: int, request: Request,
                                conn=Depends(get_db)):
     """Встроенная карточка события, которое действительно видно в профиле.
 
-    Отдельный профильный гейт нужен для обзоров старых/архивных встреч и для
+    Отдельный профильный гейт нужен для отзывов старых/архивных встреч и для
     личных записей владельца: ослаблять публичный ``/admin/community``-виджет
     означало бы раскрывать любое событие простым перебором id.
     """
@@ -3072,7 +3058,7 @@ def public_profile_date_widget(user_id: int, did: int, request: Request,
 @user_router.get("/{user_id}/reviews/{review_id}/widget", response_class=HTMLResponse)
 def public_profile_review_widget(user_id: int, review_id: int, request: Request,
                                  conn=Depends(get_db)):
-    """Отдельный виджет обзора: не смешивает его с действиями события."""
+    """Отдельный виджет отзыва: не смешивает его с действиями события."""
     row = conn.execute(
         "SELECT r.id AS review_id, r.user_id, r.rating, r.text AS review_text, "
         "r.is_public AS review_public, "
@@ -3084,13 +3070,13 @@ def public_profile_review_widget(user_id: int, review_id: int, request: Request,
         (review_id, user_id),
     ).fetchone()
     if not row:
-        raise HTTPException(404, "Обзор не найден")
+        raise HTTPException(404, "Отзыв не найден")
     me = _profile_viewer(request, conn)
     is_me = me is not None and int(user_id) == int(me["id"])
     shareable = bool(row["review_public"] and row["date_public"]
                      and not row["date_draft"])
     if not is_me and not shareable:
-        raise HTTPException(404, "Обзор не найден")
+        raise HTTPException(404, "Отзыв не найден")
     review = dict(row)
     media = public_routes._batch_media(conn, [int(row["date_id"])])
     review["images"] = media["images"].get(int(row["date_id"]), [])
@@ -3136,13 +3122,13 @@ def public_profile_review_edit(user_id: int, review_id: int, request: Request,
                                next: str = Form(""),
                                conn=Depends(get_db)):
     if user_id != int(request.state.user["id"]):
-        raise HTTPException(404, "Обзор не найден")
+        raise HTTPException(404, "Отзыв не найден")
     review = _owned_profile_review(conn, review_id, user_id)
     if not review:
-        raise HTTPException(404, "Обзор не найден")
+        raise HTTPException(404, "Отзыв не найден")
     if not 1 <= rating <= 5:
         raise HTTPException(400, "Поставь оценку от 1 до 5")
-    text = clean_text(text, 4000, "Текст обзора")
+    text = clean_text(text, 4000, "Текст отзыва")
     publish = 1 if review["date_public"] and not review["date_draft"] else 0
     conn.execute(
         "UPDATE date_reviews SET rating=?, text=?, is_public=?, updated_at=? "
@@ -3153,7 +3139,7 @@ def public_profile_review_edit(user_id: int, review_id: int, request: Request,
     if publish:
         social_events.queue_review_received(conn, review_id)
     conn.commit()
-    msg = "Обзор обновлён" if publish else "Обзор обновлён и оставлен скрытым"
+    msg = "Отзыв обновлён" if publish else "Отзыв обновлён и оставлен скрытым"
     if "application/json" in request.headers.get("accept", ""):
         return JSONResponse({
             "ok": True,
@@ -3171,10 +3157,10 @@ def public_profile_review_hide(user_id: int, review_id: int, request: Request,
                                next: str = Form(""),
                                conn=Depends(get_db)):
     if user_id != int(request.state.user["id"]):
-        raise HTTPException(404, "Обзор не найден")
+        raise HTTPException(404, "Отзыв не найден")
     review = _owned_profile_review(conn, review_id, user_id)
     if not review:
-        raise HTTPException(404, "Обзор не найден")
+        raise HTTPException(404, "Отзыв не найден")
     date_id = int(review["date_id"])
     social_events.cancel_review_received(conn, review_id, "review_deleted")
     conn.execute(
@@ -3185,7 +3171,7 @@ def public_profile_review_hide(user_id: int, review_id: int, request: Request,
     )
     conn.commit()
     return redir(_safe_profile_return(next, user_id),
-                 "Обзор удалён; событие перенесено в «Ждут отзыва»")
+                 "Отзыв удалён; событие перенесено в «Ждут отзыва»")
 
 
 @user_router.get("/{user_id}/avatar")

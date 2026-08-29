@@ -1,4 +1,4 @@
-/* Публичная страница обзора: вход для коллекции и анонимная жалоба.
+/* Публичная страница отзыва: вход для коллекции и анонимная жалоба.
    Действия гостевой карточки намеренно сюда не подключаются. */
 (function () {
   "use strict";
@@ -83,8 +83,8 @@
       && window.matchMedia("(pointer: coarse) and (max-width: 900px)").matches;
     if (mobilePointer && typeof navigator.share === "function") {
       navigator.share({
-        title: button.dataset.shareTitle || "Обзор события в date4you",
-        text: button.dataset.shareText || "Посмотри этот обзор в date4you",
+        title: button.dataset.shareTitle || "Отзыв о событии в date4you",
+        text: button.dataset.shareText || "Посмотри этот отзыв в date4you",
         url: url
       }).catch(function (error) {
         if (!error || error.name === "AbortError") return;

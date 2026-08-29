@@ -322,7 +322,7 @@
   {% if me and not is_mine and (has_want or can_review or my_review) %}
   <section class="review-cta" id="review" aria-labelledby="review-title">
     {% if can_review %}
-    <h2 id="review-title">{{ 'Изменить обзор' if my_review else 'Удалось сходить?' }}</h2>
+    <h2 id="review-title">{{ 'Изменить отзыв' if my_review else 'Удалось сходить?' }}</h2>
     <p>Поставь оценку от 1 до 5. Текст можно не писать.</p>
     <form method="post" action="/d/{{ token }}/review" class="review-form">
       <input type="hidden" name="csrf" value="{{ csrf }}">
@@ -335,10 +335,10 @@
         {% endfor %}
       </fieldset>
       <label class="review-text-field">
-        <span>Обзор <small>необязательно</small></span>
+        <span>Отзыв <small>необязательно</small></span>
         <textarea name="text" maxlength="4000" placeholder="Что понравилось? Что стоит знать другим?">{{ my_review['text'] if my_review and my_review['text'] else '' }}</textarea>
       </label>
-      <button type="submit" class="btn book">{{ 'Сохранить и опубликовать' if my_review else 'Опубликовать обзор' }}</button>
+      <button type="submit" class="btn book">{{ 'Сохранить и опубликовать' if my_review else 'Опубликовать отзыв' }}</button>
     </form>
     {% if not my_review %}
     <form method="post" action="/d/{{ token }}/review/decline" class="review-decline-form">
@@ -347,11 +347,11 @@
     </form>
     {% endif %}
     {% if not d.is_public or d.is_draft %}
-    <p class="review-private-note">Событие приватное: обзор сохранится, но не раскроет секретную ссылку в публичном профиле.</p>
+    <p class="review-private-note">Событие приватное: отзыв сохранится, но не раскроет секретную ссылку в публичном профиле.</p>
     {% endif %}
     {% else %}
     <h2 id="review-title">Событие в планах</h2>
-    <p>После встречи здесь появится форма оценки, а бот пришлёт кнопку «Оставить обзор».</p>
+    <p>После встречи здесь появится форма оценки, а бот пришлёт кнопку «Оставить отзыв».</p>
     {% endif %}
   </section>
   {% endif %}

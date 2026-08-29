@@ -3,9 +3,9 @@
   <nav class="profile-tabs" aria-label="Разделы профиля">
     <a href="{{ profile_base_url }}?tab=events{{ profile_skin_suffix }}#profileCollection" class="{{ 'on' if tab == 'events' else '' }}">{{ public_events_label }} <b>{{ event_total }}</b></a>
     <a href="{{ profile_base_url }}?tab=want{{ profile_skin_suffix }}#profileCollection" class="{{ 'on' if tab == 'want' else '' }}">Хочу сходить <b>{{ want_total }}</b></a>
-    <a href="{{ profile_base_url }}?tab=reviews{{ profile_skin_suffix }}#profileCollection" class="{{ 'on' if tab == 'reviews' else '' }}">Обзоры <b>{{ review_total }}</b></a>
+    <a href="{{ profile_base_url }}?tab=reviews{{ profile_skin_suffix }}#profileCollection" class="{{ 'on' if tab == 'reviews' else '' }}">Отзывы <b>{{ review_total }}</b></a>
   </nav>
-  <h2>{% if tab == 'want' %}Хочу сходить{% elif tab == 'reviews' %}Обзоры{% else %}{{ public_events_label }}{% endif %}{% if total %} · {{ total }}{% endif %}</h2>
+  <h2>{% if tab == 'want' %}Хочу сходить{% elif tab == 'reviews' %}Отзывы{% else %}{{ public_events_label }}{% endif %}{% if total %} · {{ total }}{% endif %}</h2>
 
   {% if tab == 'events' and dates %}
   <div class="pub-grid">
@@ -79,11 +79,11 @@
       </div>
       {% if is_me %}
       <details class="review-menu">
-        <summary aria-label="Действия с обзором"><svg class="review-menu-dots" viewBox="0 0 20 6" aria-hidden="true"><circle cx="3" cy="3" r="1.5"/><circle cx="10" cy="3" r="1.5"/><circle cx="17" cy="3" r="1.5"/></svg></summary>
+        <summary aria-label="Действия с отзывом"><svg class="review-menu-dots" viewBox="0 0 20 6" aria-hidden="true"><circle cx="3" cy="3" r="1.5"/><circle cx="10" cy="3" r="1.5"/><circle cx="17" cy="3" r="1.5"/></svg></summary>
         <div class="review-menu-pop">
           <button type="button" data-profile-widget="{{ review_widget_url }}">Изменить</button>
           <form method="post" action="/u/{{ u['id'] }}/reviews/{{ r['review_id'] }}/hide"
-                data-confirm="Удалить обзор? Событие появится во вкладке «Ждут отзыва»." >
+                data-confirm="Удалить отзыв? Событие появится во вкладке «Ждут отзыва»." >
             <input type="hidden" name="csrf" value="{{ csrf }}">
             <input type="hidden" name="next" value="{{ profile_return_url }}">
             <button type="submit" class="danger">Удалить</button>
@@ -95,7 +95,7 @@
     {% endfor %}
   </div>
   {% else %}
-  <p class="pub-empty">{% if tab == 'want' %}Пока ничего не отмечено. На странице события нажми «Хочу сходить».{% elif tab == 'reviews' %}Пока нет обзоров.{% else %}Пока нет публичных событий{% if is_me %} — создай событие и включи «показывать в ленте»{% endif %}.{% endif %}</p>
+  <p class="pub-empty">{% if tab == 'want' %}Пока ничего не отмечено. На странице события нажми «Хочу сходить».{% elif tab == 'reviews' %}Пока нет отзывов.{% else %}Пока нет публичных событий{% if is_me %} — создай событие и включи «показывать в ленте»{% endif %}.{% endif %}</p>
   {% endif %}
   {% if total and pages > 1 %}
   <nav class="pub-pager" aria-label="Страницы раздела">

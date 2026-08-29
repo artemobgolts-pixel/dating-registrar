@@ -713,6 +713,42 @@ class EventCardGeometryBrowserTests(unittest.TestCase):
         self.assertEqual(sizes["remove"], [24, 24])
         self.assertEqual(sizes["action"], [44, 44])
 
+        for viewport in ({"width": 1280, "height": 700}, {"width": 390, "height": 700}):
+            page.set_viewport_size(viewport)
+            for skin in ("friends", "romantic"):
+                for theme in ("light", "dark"):
+                    page.locator("html").evaluate(
+                        "(node, state) => { node.dataset.skin = state.skin; "
+                        "node.dataset.theme = state.theme; }",
+                        {"skin": skin, "theme": theme},
+                    )
+                    centers = page.locator("#socialRemove").evaluate("""node => {
+                      const circle = node.getBoundingClientRect();
+                      const positioned = getComputedStyle(node).position !== 'static'
+                        ? node
+                        : node.closest('.social-state-control');
+                      const owner = positioned.getBoundingClientRect();
+                      const mark = getComputedStyle(node, '::before');
+                      const resolve = (value, size) => value.endsWith('%')
+                        ? size * Number.parseFloat(value) / 100
+                        : Number.parseFloat(value);
+                      return {
+                        circleX: circle.left + circle.width / 2,
+                        circleY: circle.top + circle.height / 2,
+                        crossX: owner.left + positioned.clientLeft
+                          + resolve(mark.left, positioned.clientWidth),
+                        crossY: owner.top + positioned.clientTop
+                          + resolve(mark.top, positioned.clientHeight),
+                      };
+                    }""")
+                    context = (viewport, skin, theme, centers)
+                    self.assertLessEqual(
+                        abs(centers["circleX"] - centers["crossX"]), 0.5, context,
+                    )
+                    self.assertLessEqual(
+                        abs(centers["circleY"] - centers["crossY"]), 0.5, context,
+                    )
+
     def test_dashboard_copy_feedback_preserves_responsive_labels_and_icon(self):
         page = self.page_with_styles("""
           <html data-skin="friends" data-theme="light"><body>
@@ -800,6 +836,100 @@ class EventCardGeometryBrowserTests(unittest.TestCase):
           document.querySelector('.category-flow-nav a[aria-current="location"]')
             ?.getAttribute('href') === '#categoryDates'
         """)
+
+    def test_category_flow_nav_keeps_clamped_anchor_active(self):
+        # У короткой подборки браузер не может довести средний якорь до его
+        # scroll-margin: прокрутка упирается в низ страницы. Нижняя эвристика
+        # scrollspy не должна из-за этого заменять выбранный шаг «Оформлением».
+        markup = """
+          <html data-skin="friends" data-theme="light"><body>
+            <header style="height:110px">Шапка кабинета</header>
+            <main class="wrap">
+              <nav class="category-flow-nav" aria-label="Этапы настройки подборки">
+                <a class="is-active" href="#categoryDates" aria-current="location"><span>1</span> События</a>
+                <a href="#categoryVoting"><span>2</span> Правила</a>
+                <a href="#categoryShare"><span>3</span> Публикация</a>
+                <a href="#categoryAppearance"><span>4</span> Оформление</a>
+              </nav>
+              <div class="category-editor-sections">
+                <section class="card category-events-card" id="categoryDates" style="height:260px">События</section>
+                <section class="card voting-settings" id="categoryVoting" style="height:220px">Правила</section>
+                <section class="card category-share-card" id="categoryShare" style="height:110px">Публикация</section>
+                <details class="card category-appearance-card" id="categoryAppearance">
+                  <summary class="category-appearance-summary">Оформление</summary>
+                </details>
+              </div>
+            </main>
+          </body></html>
+        """
+        cases = (
+            ({"width": 1280, "height": 700}, "#categoryVoting"),
+            ({"width": 390, "height": 700}, "#categoryShare"),
+        )
+        for viewport, target in cases:
+            with self.subTest(viewport=viewport, target=target):
+                page = self.page_with_styles(markup, "static/admin.css")
+                page.set_viewport_size(viewport)
+                page.evaluate("window.UI = {}")
+                page.add_script_tag(content=(APP / "static/admin.js").read_text("utf-8"))
+
+                page.locator(f'a[href="{target}"]').click()
+                page.evaluate("""() => new Promise(resolve =>
+                  requestAnimationFrame(() => requestAnimationFrame(resolve)))
+                """)
+
+                self.assertEqual(page.evaluate("location.hash"), target)
+                self.assertEqual(
+                    page.locator(
+                        '.category-flow-nav a[aria-current="location"]'
+                    ).get_attribute("href"),
+                    target,
+                )
+
+                # Deep-link/Turbo restore и hash-history могут не менять
+                # scrollY: несколько нижних секций делят один clamped maxY.
+                # Активным всё равно остаётся пункт из URL, а не последний.
+                restored = "#categoryShare" if target == "#categoryVoting" else "#categoryVoting"
+                page.evaluate("hash => { location.hash = hash; }", restored)
+                page.wait_for_function(
+                    "hash => document.querySelector("
+                    "'.category-flow-nav a[aria-current=\"location\"]'"
+                    ")?.getAttribute('href') === hash",
+                    arg=restored,
+                )
+                page.evaluate("hash => { location.hash = hash; }", target)
+                page.wait_for_function(
+                    "hash => document.querySelector("
+                    "'.category-flow-nav a[aria-current=\"location\"]'"
+                    ")?.getAttribute('href') === hash",
+                    arg=target,
+                )
+
+                # Повторная Turbo-инициализация обязана снять старый
+                # hashchange-listener и восстановить тот же активный пункт.
+                page.locator(".category-flow-nav a").evaluate_all("""links => {
+                  links.forEach(link => {
+                    link.classList.remove('is-active');
+                    link.removeAttribute('aria-current');
+                  });
+                  const last = links[links.length - 1];
+                  last.classList.add('is-active');
+                  last.setAttribute('aria-current', 'location');
+                }""")
+                page.evaluate("document.dispatchEvent(new Event('turbo:load'))")
+                self.assertEqual(
+                    page.locator(
+                        '.category-flow-nav a[aria-current="location"]'
+                    ).get_attribute("href"),
+                    target,
+                )
+                page.evaluate("hash => { location.hash = hash; }", restored)
+                page.wait_for_function(
+                    "hash => document.querySelector("
+                    "'.category-flow-nav a[aria-current=\"location\"]'"
+                    ")?.getAttribute('href') === hash",
+                    arg=restored,
+                )
 
 
 if __name__ == "__main__":

@@ -155,9 +155,9 @@ class PublicProfileTabsTests(unittest.TestCase):
             self.assertNotIn("Открыть публичный профиль", own_events)
             self.assertIn("<h2>Коллекция событий</h2>", own_events)
             self.assertNotIn(
-                "Так твои события, планы и обзоры собраны в профиле.", own_events,
+                "Так твои события, планы и отзывы собраны в профиле.", own_events,
             )
-            for title in ("Публичные события", "Хочу сходить", "Обзоры"):
+            for title in ("Публичные события", "Хочу сходить", "Отзывы"):
                 self.assertIn(title, own_events)
             self.assertIn("Публичное событие Алины", own_events)
             self.assertNotIn("Личное событие Алины", own_events)
@@ -190,7 +190,7 @@ class PublicProfileTabsTests(unittest.TestCase):
             self.assertIn('class="pub-dates profile-tab-reviews', own_reviews)
             self.assertIn("Публичный обзор", own_reviews)
             self.assertIn("Личный обзор", own_reviews)
-            self.assertIn("Обзоры <b>2</b>", own_reviews)
+            self.assertIn("Отзывы <b>2</b>", own_reviews)
             self.assertIn("Изменить", own_reviews)
             self.assertIn("Удалить", own_reviews)
             self.assertNotIn("Убрать из профиля", own_reviews)
@@ -203,7 +203,7 @@ class PublicProfileTabsTests(unittest.TestCase):
                 own_reviews,
             )
             self.assertIn(
-                'data-confirm="Удалить обзор? Событие появится во вкладке «Ждут отзыва»."',
+                'data-confirm="Удалить отзыв? Событие появится во вкладке «Ждут отзыва»."',
                 own_reviews,
             )
             self.assertIn('class="review-menu-dots" viewBox="0 0 20 6"', own_reviews)
@@ -221,7 +221,7 @@ class PublicProfileTabsTests(unittest.TestCase):
                 "?next=/admin/profile%3Ftab%3Dreviews",
             )
             self.assertEqual(review_widget.status_code, 200)
-            self.assertIn("Сохранить обзор", review_widget.text)
+            self.assertIn("Сохранить отзыв", review_widget.text)
             self.assertIn('class="profile-rating-stars"', review_widget.text)
             self.assertIn('class="profile-review-actions', review_widget.text)
             self.assertIn(">Поделиться</button>", review_widget.text)
@@ -282,7 +282,7 @@ class PublicProfileTabsTests(unittest.TestCase):
             self.assertNotIn("Личный обзор", anonymous_reviews.text)
             self.assertEqual(anonymous_widget.status_code, 200)
             self.assertIn("Публичный обзор", anonymous_widget.text)
-            self.assertNotIn("Сохранить обзор", anonymous_widget.text)
+            self.assertNotIn("Сохранить отзыв", anonymous_widget.text)
             self.assertEqual(anonymous_event_widget.status_code, 200)
             self.assertIn(
                 "Войти или зарегистрироваться, чтобы добавить в коллекцию",
@@ -296,11 +296,11 @@ class PublicProfileTabsTests(unittest.TestCase):
                 self.assertEqual(response.headers["location"], "/login")
             self.assertIn("Публичный обзор", shared_review.text)  # текст самого отзыва
             self.assertNotIn(
-                '<span class="review-share-eyebrow">Публичный обзор</span>',
+                '<span class="review-share-eyebrow">Публичный отзыв</span>',
                 shared_review.text,
             )
-            self.assertIn('<span class="review-share-eyebrow">Обзор</span>', shared_review.text)
-            self.assertNotIn("Сохранить обзор", shared_review.text)
+            self.assertIn('<span class="review-share-eyebrow">Отзыв</span>', shared_review.text)
+            self.assertNotIn("Сохранить отзыв", shared_review.text)
             self.assertIn('class="review-stars"', shared_review.text)
             self.assertIn('class="profile-review-copy"', shared_review.text)
             self.assertIn('data-community-share', shared_review.text)
@@ -309,7 +309,7 @@ class PublicProfileTabsTests(unittest.TestCase):
                 shared_review.text,
             )
             self.assertIn('<html lang="ru" data-skin="friends">', shared_review.text)
-            self.assertIn("Понравился обзор?", shared_review.text)
+            self.assertIn("Понравился отзыв?", shared_review.text)
             self.assertIn("Добавить событие в коллекцию", shared_review.text)
             self.assertNotIn("Войти и добавить", shared_review.text)
             self.assertNotIn("← К событию", shared_review.text)
@@ -361,7 +361,7 @@ class PublicProfileTabsTests(unittest.TestCase):
             self.assertEqual(edited_json.status_code, 200, edited_json.text)
             self.assertEqual(edited_json.json(), {
                 "ok": True,
-                "message": "Обзор обновлён",
+                "message": "Отзыв обновлён",
                 "rating": 4,
                 "text": "Обзор без перехода",
                 "is_public": True,
@@ -419,7 +419,7 @@ class PublicProfileTabsTests(unittest.TestCase):
             self.assertNotIn("Личный обзор", foreign_reviews)
             self.assertNotIn("review-private", foreign_reviews)
             self.assertNotIn('class="review-menu"', foreign_reviews)
-            self.assertIn("Обзоры <b>1</b>", foreign_reviews)
+            self.assertIn("Отзывы <b>1</b>", foreign_reviews)
             self.assertRegex(
                 foreign_reviews,
                 rf'class="review-card"[^>]+role="link"[^>]+data-profile-widget="/u/{owner_id}/reviews/{public_review_id}/widget',
@@ -428,7 +428,7 @@ class PublicProfileTabsTests(unittest.TestCase):
                 f"/u/{owner_id}/reviews/{public_review_id}/widget",
             )
             self.assertEqual(foreign_review_widget.status_code, 200)
-            self.assertNotIn("Сохранить обзор", foreign_review_widget.text)
+            self.assertNotIn("Сохранить отзыв", foreign_review_widget.text)
             self.assertEqual(
                 other.get(
                     f"/u/{owner_id}/reviews/{private_review_id}/widget",

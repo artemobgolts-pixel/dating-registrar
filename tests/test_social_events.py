@@ -76,7 +76,7 @@ class SocialEventsTests(unittest.TestCase):
             datetime(2030, 1, 4, 21, 0),
         )
 
-    def test_undated_event_falls_back_to_latest_deadline_plus_day(self):
+    def test_undated_event_uses_latest_deadline_without_extra_day(self):
         self._category(1, "2030-01-02T10:00:00")
         self._category(2, "2030-01-05T12:30:00")
         self._date(1, starts=None, ends=None)
@@ -86,7 +86,13 @@ class SocialEventsTests(unittest.TestCase):
         )
         self.assertEqual(
             social_events.review_due(self.conn, 1),
-            datetime(2030, 1, 6, 12, 30),
+            datetime(2030, 1, 5, 12, 30),
+        )
+
+        self._date(2, starts=None, ends=None)
+        self.assertEqual(
+            social_events.review_due(self.conn, 2),
+            datetime(2030, 1, 2, 0, 0),
         )
 
     def test_current_wants_use_review_due_and_do_not_duplicate_reviews(self):
@@ -151,7 +157,7 @@ class SocialEventsTests(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["kind"], "review_prompt")
         self.assertEqual(rows[0]["send_at"], "2030-01-03T20:00:00")
-        self.assertEqual(rows[0]["action_label"], "Оставить обзор")
+        self.assertEqual(rows[0]["action_label"], "Оставить отзыв")
         self.assertEqual(notify.preference_for_kind("review_prompt"), "reviews")
 
         self.conn.execute(

@@ -86,6 +86,9 @@
         прежнюю видимость.
   v32 — адресные индексы для due-autoarchive, открытых жалоб на события,
         просроченного outbox и сортировки wants в профиле владельца.
+  v33 — tombstone скрытого напоминания об отзыве, чтобы вычисляемая очередь
+        прошедших выбранных событий не возвращала удалённое пользователем;
+        адресный индекс выбранных пользователем бронирований для этой очереди.
 
 Свежая база создаётся сразу по последней схеме. Существующая —
 докатывается миграциями при старте приложения.
@@ -99,7 +102,7 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "app.db"
 
-LATEST_VERSION = 32
+LATEST_VERSION = 33
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -292,10 +295,14 @@ CREATE TABLE IF NOT EXISTS review_queue (
         CHECK(reason IN ('due', 'declined', 'review_deleted')),
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
+    dismissed_at TEXT,
     PRIMARY KEY (user_id, date_id)
 );
 CREATE INDEX IF NOT EXISTS idx_review_queue_user
     ON review_queue(user_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_review_queue_user_active
+    ON review_queue(user_id, updated_at DESC)
+    WHERE dismissed_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS date_links (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -384,6 +391,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_book_vote
 CREATE INDEX IF NOT EXISTS idx_book_guest ON bookings(category_id, guest_token);
 CREATE INDEX IF NOT EXISTS idx_book_cat_user
     ON bookings(category_id, user_id) WHERE user_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_book_user_date_active
+    ON bookings(user_id, date_id, category_id)
+    WHERE user_id IS NOT NULL AND participation_withdrawn_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_dc_cat ON date_categories(category_id);
 CREATE INDEX IF NOT EXISTS idx_q_read ON questions(is_read);
 CREATE INDEX IF NOT EXISTS idx_q_date ON questions(date_id);
@@ -1395,6 +1405,18 @@ MIGRATIONS: dict[int, str] = {
         CREATE INDEX IF NOT EXISTS idx_notification_outbox_expiry
             ON notification_outbox(expires_at)
             WHERE sent_at IS NULL AND cancelled_at IS NULL AND expires_at IS NOT NULL;
+    """,
+    33: """
+        -- Due-события теперь вычисляются независимо от фоновой архивации.
+        -- Tombstone сохраняет явное «Удалить упоминание» и не даёт такому
+        -- событию появиться снова при следующем открытии уведомлений.
+        ALTER TABLE review_queue ADD COLUMN dismissed_at TEXT;
+        CREATE INDEX IF NOT EXISTS idx_review_queue_user_active
+            ON review_queue(user_id, updated_at DESC)
+            WHERE dismissed_at IS NULL;
+        CREATE INDEX IF NOT EXISTS idx_book_user_date_active
+            ON bookings(user_id, date_id, category_id)
+            WHERE user_id IS NOT NULL AND participation_withdrawn_at IS NULL;
     """,
 }
 

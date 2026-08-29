@@ -40,6 +40,8 @@ V32_INDEXES = {
     "idx_notification_outbox_expiry",
 }
 
+V33_INDEXES = {"idx_review_queue_user_active", "idx_book_user_date_active"}
+
 
 def plan(conn: sqlite3.Connection, sql: str, params=()) -> str:
     return "\n".join(
@@ -112,7 +114,7 @@ class DatabasePerformanceMigrationTests(unittest.TestCase):
                     "INSERT INTO date_categories(date_id, category_id) VALUES(?,?)",
                     (ids["deadline-conflict"], open_category_id),
                 )
-                for index in V25_INDEXES | V32_INDEXES:
+                for index in V25_INDEXES | V32_INDEXES | V33_INDEXES:
                     conn.execute(f"DROP INDEX IF EXISTS {index}")
                 # init_db выше создал свежую схему. Для честной эмуляции старой
                 # v24 базы убираем объекты следующих миграций, иначе их ALTER
@@ -167,8 +169,12 @@ class DatabasePerformanceMigrationTests(unittest.TestCase):
                     )
                 }
                 self.assertTrue((V25_INDEXES - {"idx_dates_autoarchive_active"})
-                                | V32_INDEXES <= indexes)
+                                | V32_INDEXES | V33_INDEXES <= indexes)
                 self.assertNotIn("idx_dates_autoarchive_active", indexes)
+                review_queue_columns = {
+                    row[1] for row in conn.execute("PRAGMA table_info(review_queue)")
+                }
+                self.assertIn("dismissed_at", review_queue_columns)
                 self.assertFalse(conn.execute("PRAGMA foreign_key_check").fetchall())
             finally:
                 conn.close()
@@ -255,6 +261,12 @@ class DatabasePerformanceMigrationTests(unittest.TestCase):
                     ("2030-01-01T00:00:00", "2030-01-01T00:00:00"),
                 ),
                 (
+                    "idx_book_user_date_active",
+                    "SELECT date_id FROM bookings WHERE user_id=? "
+                    "AND participation_withdrawn_at IS NULL",
+                    (2,),
+                ),
+                (
                     "idx_q_date_read",
                     "SELECT COUNT(*) FROM questions WHERE is_read=0 "
                     "AND date_id IN (SELECT id FROM dates WHERE owner_id=?)",
@@ -264,6 +276,28 @@ class DatabasePerformanceMigrationTests(unittest.TestCase):
             for index, sql, params in cases:
                 with self.subTest(index=index, sql=sql):
                     self.assertIn(index, plan(conn, sql, params))
+
+            review_waiting = plan(
+                conn,
+                "WITH entitled_dates(date_id) AS ("
+                " SELECT date_id FROM date_wants WHERE user_id=?"
+                " UNION SELECT b.date_id FROM bookings b "
+                " JOIN categories winner ON winner.id=b.category_id "
+                " WHERE b.user_id=? AND b.participation_withdrawn_at IS NULL "
+                " AND winner.voting_status='resolved' "
+                " AND winner.winner_date_id=b.date_id"
+                " UNION SELECT date_id FROM review_queue "
+                " WHERE user_id=? AND dismissed_at IS NULL"
+                ") SELECT d.id FROM entitled_dates e "
+                "CROSS JOIN dates d ON d.id=e.date_id "
+                "LEFT JOIN date_categories dc ON dc.date_id=d.id "
+                "LEFT JOIN categories c ON c.id=dc.category_id "
+                "GROUP BY d.id",
+                (2, 2, 2),
+            )
+            self.assertIn("idx_book_user_date_active", review_waiting)
+            self.assertNotIn("SCAN b", review_waiting)
+            self.assertNotIn("SCAN d", review_waiting)
 
             completed = plan(
                 conn,

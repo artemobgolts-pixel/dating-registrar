@@ -1364,7 +1364,7 @@ def shared_date(token: str, request: Request, conn=Depends(get_db)):
             conn, d["id"], int(me["id"]), now=now_naive(),
         )
         # Просроченная отметка больше не показывается как активная, но сама
-        # связь нужна для доступа к форме уже доступного обзора.
+        # связь нужна для доступа к форме уже доступного отзыва.
         wanted_by_me = has_want and want_action_available
 
     payload = date_payload(conn, d)
@@ -1484,7 +1484,7 @@ def shared_date(token: str, request: Request, conn=Depends(get_db)):
 @router.get("/d/{token}/og-image")
 def shared_date_og_image(token: str, skin: str | None = None,
                          v: str | None = None, conn=Depends(get_db)):
-    """Единый link preview события и его публичных обзоров.
+    """Единый link preview события и его публичных отзывов.
 
     Первый кадр сохраняет пользовательский focus и не получает накладываемых
     логотипов. Без доступного фото возвращаем единый default preview.
@@ -1519,7 +1519,7 @@ def shared_date_og_image(token: str, skin: str | None = None,
 @router.get("/d/{token}/review/{review_id}", response_class=HTMLResponse)
 def shared_profile_review(token: str, review_id: int, request: Request,
                           conn=Depends(get_db)):
-    """Публичная share-ссылка ведёт на конкретный обзор, не на событие."""
+    """Публичная share-ссылка ведёт на конкретный отзыв, не на событие."""
     row = conn.execute(
         "SELECT r.id AS review_id, r.user_id, r.rating, r.text AS review_text, "
         "r.is_public AS review_public, d.id AS date_id, d.name, d.share_token, "
@@ -1538,7 +1538,7 @@ def shared_profile_review(token: str, review_id: int, request: Request,
     media = _batch_media(conn, [int(row["date_id"])])
     review["images"] = media["images"].get(int(row["date_id"]), [])
     me = viewer(request, conn)
-    # Как и обычный публичный профиль, обзор наследует оформление посетителя,
+    # Как и обычный публичный профиль, отзыв наследует оформление посетителя,
     # а не автора публикации. Для анонима стартовое оформление — стандартное.
     viewer_skin = appearance.normalize_skin(
         me["admin_skin"] if me else appearance.FRIENDS,
@@ -1629,7 +1629,7 @@ def shared_date_want(token: str, request: Request,
     else:
         if not social_events.want_action_available(
                 conn, int(d["id"]), int(user["id"]), now=now_naive()):
-            detail = "Дедлайн события уже прошёл или обзор уже опубликован"
+            detail = "Дедлайн события уже прошёл или отзыв уже опубликован"
             if request.headers.get("x-requested-with") == "fetch":
                 raise HTTPException(409, detail)
             return redir(f"/d/{token}", detail)
@@ -1662,26 +1662,26 @@ def shared_date_want(token: str, request: Request,
 def shared_date_review(token: str, request: Request,
                        rating: int = Form(...), text: str = Form(""),
                        conn=Depends(get_db)):
-    """Оценка 1–5 + необязательный текст; сохранение сразу публикует обзор."""
+    """Оценка 1–5 + необязательный текст; сохранение сразу публикует отзыв."""
     d = date_by_share(conn, token)
     if not d:
         raise HTTPException(404, "Событие не найдено")
     user = request.state.user
     if int(user["id"]) == int(d["owner_id"]):
-        raise HTTPException(400, "Нельзя оставить обзор на своё событие")
+        raise HTTPException(400, "Нельзя оставить отзыв о своём событии")
     guest_throttle("review", viewer_token(user), request)
     if not 1 <= rating <= 5:
         raise HTTPException(400, "Поставь оценку от 1 до 5")
     if not social_events.review_available(conn, d["id"], user["id"]):
-        raise HTTPException(409, "Обзор станет доступен после события")
-    text = clean_text(text, 4000, "Текст обзора")
+        raise HTTPException(409, "Отзыв станет доступен после события")
+    text = clean_text(text, 4000, "Текст отзыва")
     existing = conn.execute(
         "SELECT id FROM date_reviews WHERE user_id=? AND date_id=?",
         (user["id"], d["id"]),
     ).fetchone()
     stamp = now_iso()
     # Секретное или черновое событие нельзя раскрыть через профиль автора
-    # обзора. Сам обзор сохраняется, но остаётся виден только владельцу.
+    # отзыва. Сам отзыв сохраняется, но остаётся виден только владельцу.
     publish = 1 if d["is_public"] and not d["is_draft"] else 0
     conn.execute(
         """
@@ -1705,17 +1705,17 @@ def shared_date_review(token: str, request: Request,
     if not existing and publish:
         social_events.queue_review_received(conn, int(review["id"]))
     conn.commit()
-    suffix = "" if publish else " Событие приватное, поэтому обзор виден только тебе."
+    suffix = "" if publish else " Событие приватное, поэтому отзыв виден только тебе."
     return redir(
         f"/u/{user['id']}?tab=reviews#profileCollection",
-        "Обзор опубликован." + suffix,
+        "Отзыв опубликован." + suffix,
     )
 
 
 @router.post("/d/{token}/review/decline", dependencies=[Depends(users.current_user)])
 def shared_date_review_decline(token: str, request: Request,
                                conn=Depends(get_db)):
-    """Откладывает обзор в центр «Ждут отзыва» без удаления события."""
+    """Откладывает отзыв в центр «Ждут отзыва» без удаления события."""
     d = date_by_share(conn, token)
     if not d:
         raise HTTPException(404, "Событие не найдено")
@@ -1727,10 +1727,10 @@ def shared_date_review_decline(token: str, request: Request,
         "SELECT 1 FROM date_reviews WHERE user_id=? AND date_id=?",
         (user["id"], d["id"]),
     ).fetchone():
-        raise HTTPException(409, "Обзор уже создан")
+        raise HTTPException(409, "Отзыв уже создан")
     if not social_events.mark_review_waiting(
             conn, d["id"], user["id"], "declined"):
-        raise HTTPException(409, "Обзор пока недоступен")
+        raise HTTPException(409, "Отзыв пока недоступен")
     social_events.cancel_review_prompt(conn, d["id"], user["id"], "review_declined")
     conn.commit()
     if request.headers.get("x-requested-with") == "fetch":
@@ -2618,9 +2618,9 @@ def shared_date_report(token: str, request: Request, bg: BackgroundTasks,
                        target_type: str = Form("date"), target_id: int = Form(0),
                        reason: str = Form(""), csrf: str = Form(""),
                        conn=Depends(get_db)):
-    """Жалоба со страницы события или его публичного обзора.
+    """Жалоба со страницы события или его публичного отзыва.
 
-    Операторская модель жалоб знает события и категории, поэтому кнопка обзора
+    Операторская модель жалоб знает события и категории, поэтому кнопка отзыва
     намеренно указывает на исходное событие и не подменяет id типом ``review``.
     """
     d = date_by_share(conn, token)
@@ -2645,7 +2645,7 @@ def shared_date_report(token: str, request: Request, bg: BackgroundTasks,
         bg.add_task(notify.notify, notify.card(
             "🚩 Жалоба",
             f"На событие: «{esc(d['name'])}»",
-            "Источник: публичная ссылка или обзор",
+            "Источник: публичная ссылка или отзыв",
             f"Причина: {esc(reason or 'без описания')}",
             f"\n{BASE_URL}/operator/reports",
         ))

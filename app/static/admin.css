@@ -1022,7 +1022,8 @@ a.social-service:hover {
   color: #fff; cursor: pointer;
 }
 .social-state-control .social-state {
-  position: static; flex: 0 0 24px; min-width: 24px; min-height: 24px;
+  position: relative; top: auto; right: auto;
+  flex: 0 0 24px; min-width: 24px; min-height: 24px;
   pointer-events: none;
 }
 .social-state-control:focus-visible {

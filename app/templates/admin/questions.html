@@ -8,7 +8,7 @@
     <p>Вопросы, предложения времени и события, которые ждут твоего отзыва.</p>
   </div>
   {% if unread %}
-  <span class="notif-new-count count-badge count-badge--label">{{ '99+' if unread > 99 else unread }} новых</span>
+  <span class="notif-new-count count-badge count-badge--label">Требуют внимания: {{ '99+' if unread > 99 else unread }}</span>
   {% endif %}
 </div>
 
@@ -51,7 +51,7 @@
       <label class="toggle notif-pref">
         <input type="checkbox" name="reviews" value="1"{{ ' checked' if notif_settings.reviews else '' }}>
         <span class="sw" aria-hidden="true"></span>
-        <span class="tcol"><span class="t">Обзоры событий</span><span class="d">Предложение оценить прошедшее событие и новые обзоры твоих событий.</span></span>
+        <span class="tcol"><span class="t">Отзывы о событиях</span><span class="d">Предложение оценить прошедшее событие и новые отзывы о твоих событиях.</span></span>
       </label>
     </div>
     <div class="notif-settings-foot">
@@ -64,10 +64,7 @@
 <div class="controls notif-controls">
   <div class="tabs" data-glass-key="notification-filters" aria-label="Фильтр уведомлений">
     <a href="/admin/questions" class="{{ 'on' if f == 'unread' else '' }}">
-      Непрочитанные <span class="notif-tab-count count-badge count-badge--tab">{{ question_unread }}</span>
-    </a>
-    <a href="/admin/questions?f=all" class="{{ 'on' if f == 'all' else '' }}">
-      Все <span class="notif-tab-count count-badge count-badge--tab">{{ total_notifications }}</span>
+      Ждут ответа <span class="notif-tab-count count-badge count-badge--tab">{{ question_unread }}</span>
     </a>
     <a href="/admin/questions?f=reviews" class="{{ 'on' if f == 'reviews' else '' }}">
       Ждут отзыва <span class="notif-tab-count count-badge count-badge--tab">{{ review_waiting }}</span>
@@ -92,7 +89,7 @@
 
   <p class="notif-review-reason">
     {% if review['reason'] == 'review_deleted' %}
-      Ты удалил обзор этого события. Можно написать новый или убрать упоминание.
+      Ты удалил отзыв об этом событии. Можно написать новый или убрать упоминание.
     {% elif review['reason'] == 'declined' %}
       Ты отложил отзыв. Вернись к нему, когда будет удобно.
     {% else %}
@@ -102,7 +99,7 @@
 
   <div class="notif-actions">
     {% if review['share_token'] %}
-    <a class="btn primary notif-action-btn" href="/d/{{ review['share_token'] }}#review">Оставить обзор</a>
+    <a class="btn primary notif-action-btn" href="/d/{{ review['share_token'] }}#review">Оставить отзыв</a>
     {% endif %}
     <form class="inline" method="post" action="/admin/questions/reviews/{{ review['date_id'] }}/dismiss"
           data-confirm="Полностью удалить это упоминание?">
@@ -141,12 +138,12 @@
     <div class="notif-inline-actions">
       <form class="inline" method="post" action="/admin/questions/{{ q['id'] }}/accept_time">
         <input type="hidden" name="csrf" value="{{ csrf }}">
-        <input type="hidden" name="next" value="/admin/questions{{ '?f=all' if f == 'all' else '' }}">
+        <input type="hidden" name="next" value="/admin/questions">
         <button type="submit" class="btn primary notif-action-btn">Принять время</button>
       </form>
       <form class="inline" method="post" action="/admin/questions/{{ q['id'] }}/decline_time">
         <input type="hidden" name="csrf" value="{{ csrf }}">
-        <input type="hidden" name="next" value="/admin/questions{{ '?f=all' if f == 'all' else '' }}">
+        <input type="hidden" name="next" value="/admin/questions">
         <button type="submit" class="btn notif-action-btn">Отказаться</button>
       </form>
     </div>
@@ -157,7 +154,7 @@
   <form id="notif-answer-{{ q['id'] }}" method="post"
         action="/admin/questions/{{ q['id'] }}/answer" class="answer-form notif-compose">
     <input type="hidden" name="csrf" value="{{ csrf }}">
-    <input type="hidden" name="next" value="/admin/questions{{ '?f=all' if f == 'all' else '' }}">
+    <input type="hidden" name="next" value="/admin/questions">
     <textarea name="text" maxlength="2000" placeholder="Напиши ответ — автор увидит его на странице события">{{ q['answer'] or '' }}</textarea>
   </form>
 
@@ -167,14 +164,14 @@
     <form class="inline" method="post" action="/admin/questions/{{ q['id'] }}/delete"
           data-confirm="Удалить вопрос?">
       <input type="hidden" name="csrf" value="{{ csrf }}">
-      <input type="hidden" name="next" value="/admin/questions{{ '?f=all' if f == 'all' else '' }}">
+      <input type="hidden" name="next" value="/admin/questions">
       <button type="submit" class="btn danger notif-action-btn">Удалить</button>
     </form>
   </div>
   {% if not q['is_read'] %}
   <form class="notif-read-action" method="post" action="/admin/questions/{{ q['id'] }}/toggle">
     <input type="hidden" name="csrf" value="{{ csrf }}">
-    <input type="hidden" name="next" value="/admin/questions{{ '?f=all' if f == 'all' else '' }}">
+    <input type="hidden" name="next" value="/admin/questions">
     <button type="submit" class="btn ghost notif-action-btn">Отметить прочитанным</button>
   </form>
   {% endif %}
@@ -182,7 +179,7 @@
 {% else %}
 <div class="empty-state notif-empty">
   <div class="big">{% with icon='bell' %}{% include "admin/_icon.html" %}{% endwith %}</div>
-  <p>{{ 'Уведомлений пока нет' if f == 'all' else 'Непрочитанных уведомлений нет' }}</p>
+  <p>Ничего не ждёт ответа</p>
 </div>
 {% endfor %}
 {% endif %}

@@ -10,11 +10,11 @@
   </div>
   {% endif %}
   <div class="profile-review-widget-body">
-    <span class="profile-review-kicker">Обзор события</span>
+    <span class="profile-review-kicker">Отзыв о событии</span>
     <h3 class="profile-review-title serif">{{ review['name'] }}</h3>
     <p class="profile-review-author">{{ reviewer_display }}</p>
     {# В редакторе те же данные уже показаны интерактивными звёздами и textarea.
-       Сохранённый preview нужен только читателю публичного обзора. #}
+       Сохранённый preview нужен только читателю публичного отзыва. #}
     {% if not is_me %}
       <div class="review-stars" aria-label="Оценка {{ review['rating'] }} из 5">
         {% for score in range(1, 6) %}<span class="{{ 'off' if score > review['rating'] else '' }}">★</span>{% endfor %}
@@ -44,26 +44,26 @@
         {% endfor %}
         </div>
       </fieldset>
-      <textarea name="text" maxlength="4000" aria-label="Текст обзора"
+      <textarea name="text" maxlength="4000" aria-label="Текст отзыва"
                  placeholder="Текст необязателен">{{ review['review_text'] or '' }}</textarea>
       <div class="profile-review-actions{{ ' is-single' if not shareable else '' }}">
-        <button type="submit" class="btn primary">Сохранить обзор</button>
+        <button type="submit" class="btn primary">Сохранить отзыв</button>
         {% if shareable %}
         <button type="button" class="btn ghost profile-review-share" data-community-share
                 data-share-url="{{ review_share_url }}"
-                data-share-title="Обзор события «{{ review['name'] }}»"
-                data-share-text="Посмотри мой обзор события в date4you">Поделиться</button>
+                data-share-title="Отзыв о событии «{{ review['name'] }}»"
+                data-share-text="Посмотри мой отзыв о событии в date4you">Поделиться</button>
         {% endif %}
       </div>
     </form>
     {% if not shareable %}
-    <p class="profile-review-private-note">Скрытым обзором нельзя поделиться.</p>
+    <p class="profile-review-private-note">Скрытым отзывом нельзя поделиться.</p>
     {% endif %}
     {% elif shareable %}
     <button type="button" class="btn ghost profile-review-share" data-community-share
             data-share-url="{{ review_share_url }}"
-            data-share-title="Обзор события «{{ review['name'] }}»"
-            data-share-text="Посмотри мой обзор события в date4you">Поделиться</button>
+            data-share-title="Отзыв о событии «{{ review['name'] }}»"
+            data-share-text="Посмотри мой отзыв о событии в date4you">Поделиться</button>
     {% endif %}
   </div>
 </article>

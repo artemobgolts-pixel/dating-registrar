@@ -389,7 +389,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     pf = c.get("/admin/profile")
     assert pf.status_code == 200 and "Мой профиль" in pf.text
     assert "Открыть публичный профиль" not in pf.text
-    assert all(label in pf.text for label in ("Публичные события", "Хочу сходить", "Обзоры"))
+    assert all(label in pf.text for label in ("Публичные события", "Хочу сходить", "Отзывы"))
     assert "/admin/profile" in c.get("/admin/categories").text
     # сохранение имени/ДР/пола + аватара одним POST
     r = apost(c, "/admin/profile",
@@ -661,7 +661,9 @@ with TestClient(main.app, follow_redirects=False) as c:
               {"text": "Конечно, жду тебя!", "next": "/admin/questions"})
     assert r.status_code == 303
     assert "Конечно, жду тебя!" in ga.get(f"/c/{tok}").text
-    assert "Отвечено" in c.get("/admin/questions?f=all").text
+    legacy_all = c.get("/admin/questions?f=all").text
+    assert "Отвечено" not in legacy_all and "Ждут ответа" in legacy_all
+    assert ">Все<" not in legacy_all
     r = apost(c, f"/admin/questions/{qid}/answer", {"text": "", "next": "/admin/questions"})
     assert "пока без ответа" in ga.get(f"/c/{tok}").text
     apost(c, f"/admin/questions/{qid}/answer",
@@ -716,7 +718,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     card2 = re.search(r'<article[^>]*id="date-%d".*?</article>' % did2, page, re.S).group(0)
     assert "1 августа 2030" in card2 and "предложить дату" not in card2
     assert "✅ Принято" in card2                  # автор видит авто-ответ
-    assert "Принять время" not in c.get("/admin/questions?f=all").text
+    assert "Принять время" not in c.get("/admin/questions").text
 
     # ---------- …или вежливо отказывается ----------
     r = apost(c, "/admin/dates/new", {"name": "Качели", "categories": str(cid)})
@@ -3040,7 +3042,7 @@ with TestClient(main.app, follow_redirects=False) as cnata, \
         "WHERE event_key=?",
         (social.prompt_key(pub["id"], gosha_id),),
     )
-    assert prompt["kind"] == "review_prompt" and prompt["action_label"] == "Оставить обзор"
+    assert prompt["kind"] == "review_prompt" and prompt["action_label"] == "Оставить отзыв"
 
     # Имитируем прошедшее событие. Review due следует реальному окончанию, а
     # не более раннему дедлайну голосования; пересчёт сохраняет тот же key.
@@ -3088,7 +3090,7 @@ with TestClient(main.app, follow_redirects=False) as cnata, \
     own_review_widget = cgosha.get(
         f'/u/{gosha_id}/reviews/{review["id"]}/widget',
     ).text
-    assert "Сохранить обзор" in own_review_widget
+    assert "Сохранить отзыв" in own_review_widget
     assert "Добавить себе" not in own_review_widget and "Спросить" not in own_review_widget
     assert f'/d/{pub["share_token"]}/review/{review["id"]}' in own_review_widget
     assert "Пикник на закате" not in cgosha.get(f"/u/{gosha_id}?tab=want").text, \
@@ -3118,7 +3120,8 @@ with TestClient(main.app, follow_redirects=False) as cnata, \
     })
     assert recreated.status_code == 303
     assert not db_one(
-        "SELECT 1 FROM review_queue WHERE user_id=? AND date_id=?",
+        "SELECT 1 FROM review_queue WHERE user_id=? AND date_id=? "
+        "AND dismissed_at IS NULL",
         (gosha_id, pub["id"]),
     )
     assert "Обновлённый обзор" in cnata.get(f"/u/{gosha_id}?tab=reviews").text

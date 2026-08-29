@@ -152,9 +152,9 @@
           rating,
           textValue
         );
-        toast(result.message || "Обзор сохранён");
+        toast(result.message || "Отзыв сохранён");
       }).catch(function (error) {
-        toast(error.message || "Не удалось сохранить обзор");
+        toast(error.message || "Не удалось сохранить отзыв");
       }).finally(function () {
         form.dataset.saving = "0";
         if (submit) {

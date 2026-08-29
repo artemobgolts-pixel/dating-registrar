@@ -23,6 +23,32 @@ def rule(css: str, selector: str) -> str:
 
 
 class ReviewCollectionUiTests(unittest.TestCase):
+    def test_review_wording_uses_otzyv_across_user_surfaces(self):
+        user_surfaces = (
+            "templates/admin/questions.html",
+            "templates/public/_profile_sections.html",
+            "templates/public/_profile_review_widget.html",
+            "templates/public/profile_review.html",
+            "templates/public/share.html",
+            "static/profile.js",
+            "static/public_review.js",
+            "admin_routes.py",
+            "public_routes.py",
+            "social_events.py",
+        )
+        legacy_term = re.compile(
+            r"\b(?:Обзор|обзор)(?:ы|а|ов|е|ом|у)?\b",
+        )
+        for relative in user_surfaces:
+            with self.subTest(relative=relative):
+                self.assertNotRegex(source(relative), legacy_term)
+
+        profile_sections = source("templates/public/_profile_sections.html")
+        self.assertIn("Отзывы <b>{{ review_total }}</b>", profile_sections)
+        self.assertIn("Пока нет отзывов.", profile_sections)
+        self.assertIn("Отзыв о событии", source("templates/public/_profile_review_widget.html"))
+        self.assertIn("Оставить отзыв", source("templates/admin/questions.html"))
+
     def test_review_editor_is_star_only_and_saves_in_place(self):
         widget = source("templates/public/_profile_review_widget.html")
         share = source("templates/public/share.html")
@@ -34,7 +60,7 @@ class ReviewCollectionUiTests(unittest.TestCase):
         self.assertIn('id="profile-rating-{{ review[\'review_id\'] }}-{{ score }}"', widget)
         self.assertIn('<span class="sr-only">{{ score }} из 5</span>', widget)
         self.assertIn('class="profile-review-actions', widget)
-        self.assertIn(">Сохранить обзор</button>", widget)
+        self.assertIn(">Сохранить отзыв</button>", widget)
         self.assertIn(">Поделиться</button>", widget)
         self.assertIn("{% if not is_me %}", widget)
         self.assertNotIn("{{ score }} ★", widget)
@@ -81,7 +107,7 @@ class ReviewCollectionUiTests(unittest.TestCase):
             r"\.editor-back\.date-editor-back,\s*"
             r"\.editor-back\.category-new-back \{ top: 112px; \}",
         )
-        self.assertNotIn("Так твои события, планы и обзоры собраны в профиле.", profile)
+        self.assertNotIn("Так твои события, планы и отзывы собраны в профиле.", profile)
 
     def test_event_cards_use_desktop_grid_and_full_width_mobile_cards(self):
         dates = source("templates/admin/dates.html")

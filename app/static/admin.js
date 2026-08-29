@@ -728,6 +728,8 @@
         };
       }).filter(function (item) { return item.section; });
       var flowFrame = 0;
+      var flowPinnedItem = null;
+      var flowPinnedScrollY = null;
 
       function selectFlowItem(selected) {
         flowItems.forEach(function (item) {
@@ -741,6 +743,10 @@
       function syncFlowItem() {
         flowFrame = 0;
         if (!flowItems.length) return;
+        if (flowPinnedItem && Math.abs(window.scrollY - flowPinnedScrollY) > 4) {
+          flowPinnedItem = null;
+          flowPinnedScrollY = null;
+        }
         // Секции имеют scroll-margin-top: 150px. Небольшой запас после нижней
         // кромки sticky-навигации не даёт scrollspy вернуть предыдущий пункт
         // сразу после перехода по якорю на типичном desktop-вьюпорте.
@@ -749,10 +755,11 @@
         flowItems.forEach(function (item) {
           if (item.section.getBoundingClientRect().top <= threshold) selected = item;
         });
-        if (window.scrollY > 0 && window.scrollY + window.innerHeight >=
+        if (!flowPinnedItem && window.scrollY > 0 && window.scrollY + window.innerHeight >=
             document.documentElement.scrollHeight - 4) {
           selected = flowItems[flowItems.length - 1];
         }
+        if (flowPinnedItem) selected = flowPinnedItem;
         selectFlowItem(selected);
       }
 
@@ -760,16 +767,45 @@
         if (!flowFrame) flowFrame = requestAnimationFrame(syncFlowItem);
       }
 
+      function pinFlowItem(item) {
+        flowPinnedItem = item;
+        var marginTop = parseFloat(
+          window.getComputedStyle(item.section).scrollMarginTop
+        ) || 0;
+        var targetY = window.scrollY + item.section.getBoundingClientRect().top - marginTop;
+        var maxY = Math.max(
+          0, document.documentElement.scrollHeight - window.innerHeight
+        );
+        flowPinnedScrollY = Math.min(maxY, Math.max(0, targetY));
+        selectFlowItem(item);
+      }
+
+      function pinFlowHash() {
+        var hashItem = flowItems.find(function (item) {
+          return item.link.hash === window.location.hash;
+        });
+        if (hashItem) pinFlowItem(hashItem);
+        queueFlowSync();
+      }
+
       flowItems.forEach(function (item) {
-        item.link.addEventListener("click", function () { selectFlowItem(item); });
+        item.link.addEventListener("click", function () {
+          pinFlowItem(item);
+        });
       });
       window.addEventListener("scroll", queueFlowSync, { passive: true });
       window.addEventListener("resize", queueFlowSync);
+      window.addEventListener("hashchange", pinFlowHash);
       window.__categoryFlowCleanup = function () {
         window.removeEventListener("scroll", queueFlowSync);
         window.removeEventListener("resize", queueFlowSync);
+        window.removeEventListener("hashchange", pinFlowHash);
         if (flowFrame) cancelAnimationFrame(flowFrame);
       };
+      var initialHashItem = flowItems.find(function (item) {
+        return item.link.hash === window.location.hash;
+      });
+      if (initialHashItem) pinFlowItem(initialHashItem);
       syncFlowItem();
     }
 

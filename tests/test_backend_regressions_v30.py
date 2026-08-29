@@ -88,6 +88,216 @@ class BackendV30RegressionTests(unittest.TestCase):
         ).fetchone()
         return SimpleNamespace(state=SimpleNamespace(user=user))
 
+    def _questions_context(self, user_id: int, filter_value: str):
+        user = self.conn.execute(
+            "SELECT * FROM users WHERE id=?", (user_id,),
+        ).fetchone()
+        request = SimpleNamespace(
+            query_params={"f": filter_value},
+            state=SimpleNamespace(user=user),
+            session={"csrf": "test"},
+        )
+        with patch.object(
+                admin_routes.templates, "TemplateResponse",
+                side_effect=lambda _request, _name, context: context), \
+                patch.object(
+                    admin_routes.notify, "get_preferences", return_value={},
+                ):
+            return admin_routes.questions_list(request, conn=self.conn)
+
+    def test_reviews_filter_selects_due_want_without_prebuilt_queue(self):
+        date_id = self._date(
+            self.owner_id, "Выбранное прошедшее событие",
+            starts_at="2030-01-02T18:00:00",
+            ends_at="2030-01-02T20:00:00",
+            share_token="selected-past-event",
+        )
+        self._want(date_id)
+        self.assertEqual(
+            self.conn.execute("SELECT COUNT(*) FROM review_queue").fetchone()[0],
+            0,
+            "страница должна находить due-событие, а не зависеть от побочного заполнения очереди",
+        )
+
+        current = datetime(2030, 1, 2, 20, 0, 1)
+        with patch.object(admin_routes, "now_naive", return_value=current), \
+                patch.object(social_events, "now_naive", return_value=current):
+            context = self._questions_context(self.viewer_id, "reviews")
+
+        self.assertEqual(
+            [row["date_name"] for row in context["review_rows"]],
+            ["Выбранное прошедшее событие"],
+        )
+
+    def test_reviews_filter_selects_due_winning_booking(self):
+        date_id = self._date(
+            self.owner_id, "Прошедший выбранный победитель",
+            starts_at="2030-01-02T18:00:00",
+            ends_at="2030-01-02T20:00:00",
+            share_token="selected-winning-event",
+        )
+        category_id = int(self.conn.execute(
+            "INSERT INTO categories(owner_id,name,choice_mode,voting_deadline,"
+            "voting_status,created_at) VALUES(?,?,?,?,?,?)",
+            (
+                self.owner_id, "Завершённая подборка", "multiple",
+                "2030-01-01T20:00:00", "unconfigured", STAMP,
+            ),
+        ).lastrowid)
+        self.conn.execute(
+            "INSERT INTO date_categories(date_id,category_id) VALUES(?,?)",
+            (date_id, category_id),
+        )
+        self.conn.execute(
+            "INSERT INTO bookings(date_id,category_id,guest_token,user_id,created_at) "
+            "VALUES(?,?,?,?,?)",
+            (date_id, category_id, "winner", self.viewer_id, STAMP),
+        )
+        self.conn.execute(
+            "UPDATE categories SET voting_status='resolved',winner_date_id=?,"
+            "closed_at=?,resolved_at=? WHERE id=?",
+            (date_id, STAMP, STAMP, category_id),
+        )
+
+        current = datetime(2030, 1, 2, 20, 0, 1)
+        with patch.object(social_events, "now_naive", return_value=current):
+            context = self._questions_context(self.viewer_id, "reviews")
+
+        self.assertEqual(
+            [row["date_name"] for row in context["review_rows"]],
+            ["Прошедший выбранный победитель"],
+        )
+
+    def test_dismissed_due_event_stays_out_of_review_waiting(self):
+        date_id = self._date(
+            self.owner_id, "Убранное прошедшее событие",
+            starts_at="2030-01-02T18:00:00",
+            ends_at="2030-01-02T20:00:00",
+            share_token="dismissed-due-event",
+        )
+        self._want(date_id)
+        current = datetime(2030, 1, 2, 20, 0, 1)
+
+        with patch.object(social_events, "now_naive", return_value=current):
+            self.assertEqual(
+                [row["date_name"] for row in self._questions_context(
+                    self.viewer_id, "reviews",
+                )["review_rows"]],
+                ["Убранное прошедшее событие"],
+            )
+            self.assertEqual(social_events.clear_review_waiting(
+                self.conn, date_id, self.viewer_id,
+            ), 1)
+            self.assertEqual(
+                self._questions_context(self.viewer_id, "reviews")["review_rows"],
+                [],
+            )
+            self.assertEqual(social_events.clear_review_waiting(
+                self.conn, date_id, self.viewer_id,
+            ), 0)
+
+    def test_undated_want_is_due_immediately_after_collection_deadline(self):
+        category_id = int(self.conn.execute(
+            "INSERT INTO categories(owner_id,name,choice_mode,voting_deadline,"
+            "voting_status,created_at) VALUES(?,?,?,?,?,?)",
+            (
+                self.owner_id, "Подборка с дедлайном", "multiple",
+                "2030-01-03T11:00:00", "open", STAMP,
+            ),
+        ).lastrowid)
+        date_id = self._date(
+            self.owner_id, "Выбранное событие без своей даты",
+            share_token="undated-selected-event",
+        )
+        self.conn.execute(
+            "INSERT INTO date_categories(date_id,category_id) VALUES(?,?)",
+            (date_id, category_id),
+        )
+        self.conn.execute(
+            "UPDATE categories SET voting_status='no_winner',closed_at=? WHERE id=?",
+            ("2030-01-03T11:00:00", category_id),
+        )
+        self._want(date_id)
+
+        deadline = datetime(2030, 1, 3, 11, 0, 0)
+        self.assertEqual(
+            social_events.review_due(self.conn, date_id), deadline,
+            "у события без собственной даты дедлайн подборки сам открывает отзыв",
+        )
+        self.assertTrue(social_events.review_available(
+            self.conn, date_id, self.viewer_id,
+            now=datetime(2030, 1, 3, 11, 0, 1),
+        ))
+
+    def test_undated_standalone_want_is_not_automatically_waiting(self):
+        date_id = self._date(
+            self.owner_id, "Событие без даты и подборки",
+            share_token="undated-standalone-event",
+        )
+        self._want(date_id)
+
+        current = datetime(2030, 1, 10, 12, 0, 0)
+        with patch.object(social_events, "now_naive", return_value=current):
+            context = self._questions_context(self.viewer_id, "reviews")
+
+        self.assertEqual(context["review_rows"], [])
+
+    def test_invalid_legacy_deadline_does_not_override_valid_deadline(self):
+        date_id = self._date(
+            self.owner_id, "Событие со старым битым дедлайном",
+            share_token="legacy-deadline-event",
+        )
+        valid_category = int(self.conn.execute(
+            "INSERT INTO categories(owner_id,name,choice_mode,voting_deadline,"
+            "voting_status,created_at) VALUES(?,?,?,?,?,?)",
+            (
+                self.owner_id, "Корректная подборка", "multiple",
+                "2030-01-05T12:00:00", "unconfigured", STAMP,
+            ),
+        ).lastrowid)
+        invalid_category = int(self.conn.execute(
+            "INSERT INTO categories(owner_id,name,choice_mode,voting_deadline,"
+            "voting_status,created_at) VALUES(?,?,?,?,?,?)",
+            (
+                self.owner_id, "Старая подборка", "multiple", "zzzz",
+                "unconfigured", STAMP,
+            ),
+        ).lastrowid)
+        self.conn.executemany(
+            "INSERT INTO date_categories(date_id,category_id) VALUES(?,?)",
+            ((date_id, valid_category), (date_id, invalid_category)),
+        )
+        self._want(date_id)
+
+        self.assertEqual(
+            social_events.review_due(self.conn, date_id),
+            datetime(2030, 1, 5, 12, 0, 0),
+        )
+        current = datetime(2030, 1, 4, 12, 0, 0)
+        with patch.object(social_events, "now_naive", return_value=current):
+            context = self._questions_context(self.viewer_id, "reviews")
+        self.assertEqual(context["review_rows"], [])
+
+    def test_removed_all_filter_cannot_return_answered_notifications(self):
+        date_id = self._date(self.viewer_id, "Событие с вопросами")
+        self.conn.executemany(
+            "INSERT INTO questions(date_id,guest_token,text,answer,is_read,created_at) "
+            "VALUES(?,?,?,?,?,?)",
+            (
+                (date_id, "new", "Нужен ответ", None, 0, STAMP),
+                (date_id, "seen", "Прочитан, но ждёт ответа", None, 1, STAMP),
+                (date_id, "done", "Уже отвечен", "Да", 1, STAMP),
+            ),
+        )
+
+        context = self._questions_context(self.viewer_id, "all")
+
+        self.assertNotEqual(context["f"], "all")
+        self.assertCountEqual(
+            [row["text"] for row in context["rows"]],
+            ["Нужен ответ", "Прочитан, но ждёт ответа"],
+        )
+
     def test_review_waiting_upserts_then_clears_without_duplicates(self):
         date_id = self._date(
             self.owner_id, "Прошедшая встреча",

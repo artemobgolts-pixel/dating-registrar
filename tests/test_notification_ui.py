@@ -120,6 +120,25 @@ class NotificationUiTests(unittest.TestCase):
         self.assertIn("review_deleted", template)
         self.assertIn("declined", template)
 
+    def test_notification_tabs_only_show_waiting_answer_and_review(self):
+        template = (APP / "templates/admin/questions.html").read_text(
+            encoding="utf-8",
+        )
+        tabs = template.split(
+            '<div class="tabs" data-glass-key="notification-filters"', 1,
+        )[1].split("</div>", 1)[0]
+
+        self.assertIn("Ждут ответа", tabs)
+        self.assertIn("Ждут отзыва", tabs)
+        self.assertNotIn("Непрочитанные", tabs)
+        self.assertNotIn("?f=all", tabs)
+        self.assertNotIn("{{ total_notifications }}", tabs)
+        self.assertIn("Требуют внимания:", template)
+
+        base = (APP / "templates/admin/base.html").read_text(encoding="utf-8")
+        self.assertIn("требуют действия", base)
+        self.assertNotIn("непрочитанных", base)
+
     def test_event_feed_hides_author_until_widget_and_submits_reports_with_csrf(self):
         dashboard = (APP / "templates/admin/dashboard.html").read_text(
             encoding="utf-8",

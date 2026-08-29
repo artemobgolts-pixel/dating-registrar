@@ -5,8 +5,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
-  <title>Обзор: {{ review['name'] }} · date4you</title>
-  <meta property="og:title" content="Обзор события «{{ review['name'] }}»">
+  <title>Отзыв: {{ review['name'] }} · date4you</title>
+  <meta property="og:title" content="Отзыв о событии «{{ review['name'] }}»">
   <meta property="og:description" content="{{ review['review_text'] or ('Оценка: ' ~ review['rating'] ~ ' из 5') }}">
   <meta property="og:image" content="{{ BASE_URL }}/d/{{ review['share_token'] }}/og-image?skin={{ category_skin }}&amp;v={{ review_og_revision }}">
   <meta property="og:type" content="article">
@@ -38,7 +38,7 @@
 
 <div class="wrap review-share-wrap">
   <header class="hero review-share-hero">
-    <span class="review-share-eyebrow">Обзор</span>
+    <span class="review-share-eyebrow">Отзыв</span>
     <h1>{{ review['name'] }}</h1>
     {% if category_skin == 'friends' %}
     <div class="hero-mark" aria-hidden="true">{{ icon('gather') }}</div>
@@ -60,16 +60,16 @@
     <section class="review-share-cta" aria-labelledby="review-add-title">
       {% if me and me['id'] == event_owner_id %}
       <h2 id="review-add-title">Событие уже в твоей коллекции</h2>
-      <p>Это обзор твоего события — исходная карточка доступна в кабинете.</p>
+      <p>Это отзыв о твоём событии — исходная карточка доступна в кабинете.</p>
       <a class="btn ghost" href="/admin/dates">Открыть мои события</a>
       {% elif me %}
-      <h2 id="review-add-title">Понравился обзор?</h2>
+      <h2 id="review-add-title">Понравился отзыв?</h2>
       <form method="post" action="/d/{{ token }}/add">
         <input type="hidden" name="csrf" value="{{ csrf }}">
         <button type="submit" class="btn book">{{ icon('plus') }} Добавить событие в коллекцию</button>
       </form>
       {% else %}
-      <h2 id="review-add-title">Понравился обзор?</h2>
+      <h2 id="review-add-title">Понравился отзыв?</h2>
       <button type="button" class="btn book" data-login-open>{{ icon('plus') }} Добавить событие в коллекцию</button>
       {% endif %}
     </section>
