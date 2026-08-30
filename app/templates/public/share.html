@@ -16,6 +16,7 @@
   {% from "_appearance_assets.html" import appearance_assets %}
   {{ appearance_assets(active_skin) }}
   <link rel="stylesheet" href="{{ asset('public.css') }}">
+  <link rel="stylesheet" href="{{ asset('auth.css') }}">
   <style>
     .share-cta {
       position: relative; z-index: 1;
@@ -89,15 +90,15 @@
 </svg>
 
 <div class="corner-actions">
-  <button type="button" class="promo-btn theme-toggle icon-only" data-theme-toggle aria-label="Включить тёмную тему">
+  <button type="button" class="corner-control promo-btn theme-toggle icon-only" data-theme-toggle aria-label="Включить тёмную тему">
     <span class="promo-ic theme-moon-icon" data-theme-icon aria-hidden="true"></span>
   </button>
-  {% if not me %}<button type="button" class="login-corner" id="loginOpen">Войти</button>
+  {% if not me %}<button type="button" class="corner-control login-corner" id="loginOpen">Войти</button>
   {% else %}
-  {% if is_mine %}<a class="login-corner owner-edit-link" href="/admin/dates/{{ d.id }}/edit?return_to={{ request.url.path | urlencode }}"
+  {% if is_mine %}<a class="corner-control login-corner owner-edit-link" href="/admin/dates/{{ d.id }}/edit?return_to={{ request.url.path | urlencode }}"
      aria-label="Редактировать событие «{{ d.name }}»">Редактировать</a>{% endif %}
   <details class="public-account-menu">
-    <summary aria-label="Меню аккаунта — {{ me['display_name'] or me['tg_username'] or 'Аккаунт' }}">
+    <summary aria-label="Меню аккаунта — {{ me['display_name'] or me['tg_username'] or 'Аккаунт' }}" class="corner-control">
       {% if me['avatar_path'] %}<img src="/u/{{ me['id'] }}/avatar?w=64" alt="" width="32" height="32">
       {% else %}<span aria-hidden="true">{{ icon('user') }}</span>{% endif %}
     </summary>
@@ -117,8 +118,10 @@
 <div class="wrap">
   <header class="hero">
     <h1>{{ d.name }}</h1>
-    {% if active_skin == 'friends' %}<div class="hero-mark" aria-hidden="true">{{ icon('gather') }}</div>
-    {% else %}<div class="hearts" aria-hidden="true"><span>♥</span><span>♥</span><span>♥</span></div>{% endif %}
+    <div class="hero-ornament" aria-hidden="true">
+      {% if active_skin == 'friends' %}<div class="hero-mark">{{ icon('gather') }}</div>
+      {% else %}<div class="hearts"><span>♥</span><span>♥</span><span>♥</span></div>{% endif %}
+    </div>
     <p class="share-from">поделился:
       {% if owner %}<a href="/u/{{ owner['id'] }}?skin={{ active_skin }}">{{ owner_name }}</a>{% else %}{{ owner_name }}{% endif %}
     </p>
@@ -129,7 +132,7 @@
     {% if vote_state.status == 'open' %}<div class="vote-countdown" role="timer"><span class="vote-countdown-label" data-countdown-label>До конца голосования</span><b data-vote-countdown data-deadline="{{ vote_state.voting_deadline }}+03:00">считаем…</b></div><span class="vote-rule">{% if vote_state.choice_mode == 'multiple' %}Можно выбрать несколько вариантов; каждый выбор можно снять до дедлайна.{% else %}Можно выбрать один вариант; новый выбор заменит предыдущий.{% endif %}</span>
     {% elif vote_state.status == 'tie' %}<b>Ничья</b><span>Организатор вручную выбирает победителя среди лидеров.</span>
     {% elif vote_state.status == 'no_winner' %}<b>Никто не выбрал</b><span>Голосование завершено без победителя.</span>
-    {% else %}<b>Голосование завершено</b><span>{% if d.is_winner %}{{ 'Это общий выбор участников.' if active_skin == 'friends' else 'Это победившее событие ♥' }}{% else %}Победил другой вариант подборки.{% endif %}</span>{% endif %}
+    {% else %}<b>Голосование завершено</b><span>{% if d.is_winner %}Это общий выбор участников.{% else %}Победил другой вариант подборки.{% endif %}</span>{% endif %}
   </section>
   {% endif %}
 
@@ -140,7 +143,17 @@
       <div class="gal-wrap">
         {% if not d.is_winner %}<div class="seal"{% if not d.booked_by_me %} hidden{% endif %}>{{ icon('check') }}</div>{% endif %}
         {% if d.pay_split %}<div class="badges media-badges"><span class="badge pay media-badge media-badge--pay">{{ d.pay_split | pay_label }}</span></div>{% endif %}
-        {% if d.is_winner %}<div class="winner-ribbon">{% if d.booked_by_me %}{{ icon('check', 'winner-check') }}{% elif active_skin == 'friends' %}{{ icon('spark') }}{% endif %}<span>{{ 'Общий выбор' if active_skin == 'friends' else 'Победитель ♥' }}</span></div>{% endif %}
+        {% if d.is_winner %}<div class="winner-ribbon">{% if d.booked_by_me %}{{ icon('check', 'winner-check') }}{% endif %}<span>Общий выбор</span></div>{% endif %}
+        {% if not is_mine %}
+        <details class="event-card-menu event-card-menu--media">
+          <summary aria-label="Действия с событием «{{ d.name }}»">
+            <svg class="event-card-menu-dots" viewBox="0 0 20 6" aria-hidden="true"><circle cx="3" cy="3" r="1.5"/><circle cx="10" cy="3" r="1.5"/><circle cx="17" cy="3" r="1.5"/></svg>
+          </summary>
+          <div class="event-card-menu-popover">
+            <button type="button" class="report-link" data-id="{{ d.id }}" data-name="{{ d.name }}">Пожаловаться</button>
+          </div>
+        </details>
+        {% endif %}
         <div class="gallery">
           {% for im in d.images %}
           <img src="/d/{{ token }}/image/{{ im['filename'] }}?w=960"
@@ -165,16 +178,21 @@
       </div>
       {% endif %}
       <div class="body">
+        {% if not d.images and not d.videos and not is_mine %}
+        <details class="event-card-menu event-card-menu--body">
+          <summary aria-label="Действия с событием «{{ d.name }}»">
+            <svg class="event-card-menu-dots" viewBox="0 0 20 6" aria-hidden="true"><circle cx="3" cy="3" r="1.5"/><circle cx="10" cy="3" r="1.5"/><circle cx="17" cy="3" r="1.5"/></svg>
+          </summary>
+          <div class="event-card-menu-popover">
+            <button type="button" class="report-link" data-id="{{ d.id }}" data-name="{{ d.name }}">Пожаловаться</button>
+          </div>
+        </details>
+        {% endif %}
         {% if not d.images and not d.videos and d.pay_split %}
         <div class="badges media-badges media-badges--inflow inflow"><span class="badge pay media-badge media-badge--pay">{{ d.pay_split | pay_label }}</span></div>
         {% endif %}
-        <div class="title-row">
-          <h2 class="title">{{ d.name }}</h2>
-          {% if not is_mine %}
-          <button type="button" class="report-link" data-id="{{ d.id }}" data-name="{{ d.name }}">пожаловаться</button>
-          {% endif %}
-        </div>
-        {% if not d.images and not d.videos and d.is_winner %}<div class="winner-ribbon inflow">{% if d.booked_by_me %}{{ icon('check', 'winner-check') }}{% elif active_skin == 'friends' %}{{ icon('spark') }}{% endif %}<span>{{ 'Общий выбор' if active_skin == 'friends' else 'Победитель ♥' }}</span></div>{% endif %}
+        <h2 class="title">{{ d.name }}</h2>
+        {% if not d.images and not d.videos and d.is_winner %}<div class="winner-ribbon inflow">{% if d.booked_by_me %}{{ icon('check', 'winner-check') }}{% endif %}<span>Общий выбор</span></div>{% endif %}
         <div class="meta">
           {% if d.starts_at %}
           <div class="when"><span class="meta-icon" aria-hidden="true">{{ icon('clock') }}</span>
@@ -354,13 +372,14 @@
   {% endif %}
 
   <footer>
+    <div class="footer-ornament" aria-hidden="true">
     {% if active_skin == 'friends' %}
-    <div class="footer-mark" aria-hidden="true">{{ icon('gather') }}</div>
-    придумано, чтобы встречаться
+    <div class="footer-mark">{{ icon('gather') }}</div>
     {% else %}
     <div class="hearts">♥ ♥ ♥</div>
-    сделано с любовью
     {% endif %}
+    </div>
+    придумано, чтобы встречаться
     <div class="foot-legal">
       <a href="/about?return_to={{ request.url.path | urlencode }}">О проекте</a> · <a href="/terms?return_to={{ request.url.path | urlencode }}">Соглашение</a> · <a href="/privacy?return_to={{ request.url.path | urlencode }}">Конфиденциальность</a>
     </div>
@@ -368,26 +387,13 @@
 </div>
 
 <!-- Вход прямо со страницы события (модалка с Telegram Login Widget) -->
-<dialog id="loginDlg" class="login-dlg"
-        aria-labelledby="loginDlgTitle" aria-describedby="loginDlgDescription">
-  <button type="button" class="dlg-x" id="loginClose" aria-label="Закрыть">✕</button>
-  <div class="login-dlg-head">
-    <div class="ld-heart" aria-hidden="true">{% if active_skin == 'friends' %}{{ icon('gather') }}{% else %}♥{% endif %}</div>
-    <h2 class="dlg-head" id="loginDlgTitle">Войти, чтобы выбрать или сохранить событие</h2>
-    <p class="dlg-sub" id="loginDlgDescription">Вход через Telegram — быстро и без пароля{% if active_skin == 'romantic' %}&nbsp;♥{% endif %}</p>
-  </div>
-  {% set next_url = "/d/" ~ token %}
-  {% if bot or oauth %}
-    {% include "auth/_login_methods.html" %}
-  {% else %}
-    <div class="err">Способы входа пока не настроены.</div>
-  {% endif %}
-</dialog>
+{% from "auth/_login_module.html" import login_module with context %}
+{{ login_module('dialog', 'Войти, чтобы выбрать или сохранить событие', 'Вход через Telegram — быстро и без пароля', "/d/" ~ token) }}
 
 <!-- Вопрос -->
 <dialog id="askDlg" aria-labelledby="askDlgTitle" aria-describedby="askDlgDescription">
   <h2 class="dlg-head" id="askDlgTitle">Спросить про «<span id="askTitle"></span>»</h2>
-  <p class="dlg-sub" id="askDlgDescription">Увидит только организатор — ответ появится прямо здесь{% if active_skin == 'romantic' %}&nbsp;♥{% endif %}</p>
+  <p class="dlg-sub" id="askDlgDescription">Увидит только организатор — ответ появится прямо здесь</p>
   <form id="askForm">
     <input type="hidden" name="date_id" id="askDateId">
     <div class="field">
@@ -424,7 +430,7 @@
 <!-- Предложить время для события без даты -->
 <dialog id="timeDlg" aria-labelledby="timeDlgTitle" aria-describedby="timeDlgDescription">
   <h2 class="dlg-head" id="timeDlgTitle">Когда удобно?</h2>
-  <p class="dlg-sub" id="timeDlgDescription">Предложишь время для «<span id="timeTitle"></span>» — организатор увидит{% if active_skin == 'romantic' %}&nbsp;♥{% endif %}</p>
+  <p class="dlg-sub" id="timeDlgDescription">Предложишь время для «<span id="timeTitle"></span>» — организатор увидит</p>
   <form id="timeForm">
     <input type="hidden" name="date_id" id="timeDateId">
     <div class="field">

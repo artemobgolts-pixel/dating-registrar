@@ -16,6 +16,7 @@
   <script src="{{ asset('theme.js') }}"></script>
   <link rel="stylesheet" href="{{ asset('public.css') }}">
   <link rel="stylesheet" href="{{ asset('profile.css') }}">
+  <link rel="stylesheet" href="{{ asset('auth.css') }}">
 </head>
 <body class="review-share-page"
       data-token="{{ token }}"
@@ -40,11 +41,13 @@
   <header class="hero review-share-hero">
     <span class="review-share-eyebrow">Отзыв</span>
     <h1>{{ review['name'] }}</h1>
+    <div class="hero-ornament" aria-hidden="true">
     {% if category_skin == 'friends' %}
-    <div class="hero-mark" aria-hidden="true">{{ icon('gather') }}</div>
+    <div class="hero-mark">{{ icon('gather') }}</div>
     {% else %}
-    <div class="hearts" aria-hidden="true"><span>♥</span><span>♥</span><span>♥</span></div>
+    <div class="hearts"><span>♥</span><span>♥</span><span>♥</span></div>
     {% endif %}
+    </div>
   </header>
 
   <main class="profile-review-page">
@@ -76,13 +79,14 @@
   </main>
 
   <footer>
+    <div class="footer-ornament" aria-hidden="true">
     {% if category_skin == 'friends' %}
-    <div class="footer-mark" aria-hidden="true">{{ icon('gather') }}</div>
-    придумано, чтобы встречаться
+    <div class="footer-mark">{{ icon('gather') }}</div>
     {% else %}
     <div class="hearts">♥ ♥ ♥</div>
-    сделано с любовью
     {% endif %}
+    </div>
+    придумано, чтобы встречаться
     <div class="foot-legal">
       <a href="/about?return_to={{ request.url.path | urlencode }}">О проекте</a> · <a href="/terms?return_to={{ request.url.path | urlencode }}">Соглашение</a> ·
       <a href="/privacy?return_to={{ request.url.path | urlencode }}">Конфиденциальность</a>
@@ -91,22 +95,8 @@
 </div>
 
 {% if not me %}
-<dialog id="loginDlg" class="login-dlg" aria-labelledby="reviewLoginTitle">
-  <button type="button" class="dlg-x" id="loginClose" aria-label="Закрыть">✕</button>
-  <div class="login-dlg-head">
-    <div class="ld-heart" aria-hidden="true">
-      {% if category_skin == 'friends' %}{{ icon('gather') }}{% else %}♥{% endif %}
-    </div>
-    <h2 class="dlg-head" id="reviewLoginTitle">Войти в date4you</h2>
-    <p class="dlg-sub">Войди, чтобы сохранить событие в личную коллекцию.</p>
-  </div>
-  {% set next_url = "/d/" ~ token ~ "/review/" ~ review['review_id'] %}
-  {% if bot or oauth %}
-    {% include "auth/_login_methods.html" %}
-  {% else %}
-    <div class="err">Способы входа пока не настроены.</div>
-  {% endif %}
-</dialog>
+{% from "auth/_login_module.html" import login_module with context %}
+{{ login_module('dialog', 'Войти в date4you', 'Войди, чтобы сохранить событие в личную коллекцию.', "/d/" ~ token ~ "/review/" ~ review['review_id'], 'reviewLoginTitle', 'reviewLoginDescription') }}
 {% endif %}
 
 <dialog id="reportDlg" aria-labelledby="reviewReportTitle"

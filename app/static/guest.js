@@ -31,18 +31,20 @@
     toastTimer = setTimeout(() => toastEl.classList.remove("show"), 2600);
   }
 
-  // Компактное меню аккаунта остаётся нативным <details>, но закрывается как
+  // Компактные disclosure-меню остаются нативными <details>, но закрываются как
   // привычный popover: снаружи и по Escape, с возвратом фокуса на trigger.
-  const accountMenus = Array.from(document.querySelectorAll(".public-account-menu"));
-  if (accountMenus.length) {
+  const disclosureMenus = Array.from(document.querySelectorAll(
+    ".public-account-menu, .event-card-menu"
+  ));
+  if (disclosureMenus.length) {
     document.addEventListener("pointerdown", (event) => {
-      accountMenus.forEach((menu) => {
+      disclosureMenus.forEach((menu) => {
         if (menu.open && !menu.contains(event.target)) menu.open = false;
       });
     });
     document.addEventListener("keydown", (event) => {
       if (event.key !== "Escape") return;
-      const menu = accountMenus.find((item) => item.open);
+      const menu = disclosureMenus.find((item) => item.open);
       if (!menu) return;
       menu.open = false;
       const trigger = menu.querySelector("summary");
@@ -503,11 +505,16 @@
   const reportDlg = $("#reportDlg"), reportForm = $("#reportForm");
   document.querySelectorAll(".report-link[data-id]").forEach((b) => {
     b.addEventListener("click", () => {
+      const disclosure = b.closest(".event-card-menu");
+      const trigger = disclosure && disclosure.querySelector("summary");
       $("#reportType").value = "date";
       $("#reportTargetId").value = b.dataset.id;
       $("#reportTitle").textContent = b.dataset.name;
       $("#reportReason").value = "";
-      openModal(reportDlg, b, "#reportReason");
+      // Кнопка действия скрывается вместе с disclosure. Возвращаем фокус на
+      // постоянно видимый summary, а меню закрываем до открытия dialog.
+      if (disclosure) disclosure.open = false;
+      openModal(reportDlg, trigger || b, "#reportReason");
     });
   });
   $("#reportCancel").onclick = () => reportDlg.close();
@@ -1105,6 +1112,7 @@
   }
 
   /* --- галереи: 1:1 Pointer Events, проекция скорости и snap -----------------*/
+  const FINE_GALLERY_POINTER = window.matchMedia("(hover: hover) and (pointer: fine)");
   document.querySelectorAll(".gal-wrap").forEach((w) => {
     const g = w.querySelector(".gallery");
     const slides = [...g.children];       // фото и видео — единая лента
@@ -1207,6 +1215,9 @@
     g.addEventListener("dragstart", (event) => event.preventDefault());
     g.addEventListener("pointerdown", (event) => {
       if (!event.isPrimary || event.button !== 0) return;
+      // Touch/coarse input keeps the browser's native overflow + scroll-snap.
+      // Custom projection is an enhancement for a precise mouse pointer only.
+      if (event.pointerType !== "mouse" || !FINE_GALLERY_POINTER.matches) return;
       const video = event.target.closest("video");
       // Leave the native transport/seek controls untouched. A drag on the
       // visual part of a video may still page the carousel after hysteresis.

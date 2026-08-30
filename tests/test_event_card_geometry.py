@@ -126,14 +126,12 @@ class EventCardGeometryBrowserTests(unittest.TestCase):
                 </article>
               </section>
               <article class="card cat-card has-thumb" data-status-tone="danger">
-                <img class="cat-thumb" alt="" src="{PHOTO}">
+                <div class="cat-media">
+                  <img class="cat-thumb" alt="" src="{PHOTO}">
+                  <div class="menu-wrap cat-card-menu"><button class="more">⋯</button></div>
+                </div>
                 <div class="cat-body">
-                  <div class="bar">
-                    <div><span class="cat-name">Категория</span></div>
-                    <div class="cat-tail">
-                      <div class="menu-wrap"><button class="more">⋯</button></div>
-                    </div>
-                  </div>
+                  <span class="cat-name">Категория</span>
                 </div>
               </article>
               <section class="dlist">
@@ -337,11 +335,11 @@ class EventCardGeometryBrowserTests(unittest.TestCase):
                 }""", {"skin": skin, "theme": theme})
                 right_edges = page.evaluate("""() => {
                   const thumb = document.querySelector(".cat-thumb").getBoundingClientRect();
-                  const tail = document.querySelector(".cat-tail").getBoundingClientRect();
-                  return {thumb: thumb.right, tail: tail.right};
+                  const menu = document.querySelector(".cat-card-menu .more").getBoundingClientRect();
+                  return {thumb: thumb.right, menu: menu.right};
                 }""")
                 self.assertAlmostEqual(
-                    right_edges["thumb"], right_edges["tail"], delta=1,
+                    right_edges["thumb"] - 8, right_edges["menu"], delta=1,
                     msg=(skin, theme, "mobile category right edge"),
                 )
                 for selector in (
@@ -408,10 +406,7 @@ class EventCardGeometryBrowserTests(unittest.TestCase):
                 }""")
                 context = (skin, theme)
                 self.assertEqual(status["topWidth"], "2px", context)
-                self.assertEqual(
-                    status["leftWidth"], "5px" if skin == "friends" else "2px",
-                    context,
-                )
+                self.assertEqual(status["leftWidth"], "2px", context)
                 red, green, blue = status["border"]
                 self.assertGreater(green, red, context)
                 self.assertGreater(green, blue, context)
@@ -866,6 +861,136 @@ class EventCardGeometryBrowserTests(unittest.TestCase):
         self.assertGreaterEqual(geometry["dragHeight"], 44)
         self.assertIn(geometry["labelContent"], ('none', 'normal', '""'))
         self.assertEqual(geometry["progressDisplay"], "none")
+
+    def test_public_corner_controls_share_a_44px_box_and_center_the_edit_label(self):
+        page = self.page_with_styles("""
+          <html data-skin="friends" data-theme="light"><body>
+            <div class="corner-actions">
+              <button id="theme" type="button"
+                      class="corner-control promo-btn theme-toggle icon-only">
+                <span class="promo-ic">◐</span>
+              </button>
+              <a id="edit" class="corner-control login-corner owner-edit-link" href="#">
+                Редактировать
+              </a>
+              <details class="public-account-menu">
+                <summary id="account" class="corner-control" aria-label="Меню аккаунта">☺</summary>
+              </details>
+            </div>
+          </body></html>
+        """, "static/public.css")
+
+        for selector in ("#theme", "#edit", "#account"):
+            box = page.locator(selector).bounding_box()
+            self.assertAlmostEqual(box["height"], 44, delta=.5, msg=selector)
+
+        edit_alignment = page.locator("#edit").evaluate("""node => {
+          const outer = node.getBoundingClientRect();
+          const range = document.createRange();
+          range.selectNodeContents(node);
+          const label = range.getBoundingClientRect();
+          return {
+            outerCenter: outer.top + outer.height / 2,
+            labelCenter: label.top + label.height / 2,
+          };
+        }""")
+        self.assertAlmostEqual(
+            edit_alignment["outerCenter"], edit_alignment["labelCenter"], delta=1,
+        )
+
+    def test_community_report_action_stays_on_media_and_out_of_title_flow(self):
+        page = self.page_with_styles(f"""
+          <html data-skin="friends" data-theme="light"><body>
+            <main class="wrap"><section class="cfeed">
+              <article class="cfeed-card">
+                <div class="cfeed-ph">
+                  <img alt="" src="{PHOTO}">
+                  <div class="menu-wrap cfeed-menu cfeed-menu--media">
+                    <button class="more" aria-label="Действия">⋯</button>
+                    <div class="menu"><button class="report-link">Пожаловаться</button></div>
+                  </div>
+                </div>
+                <div class="cfeed-body">
+                  <h3 class="cfeed-ttl serif">ЦПКиО (Крестовский остров)</h3>
+                  <p class="cfeed-desc">На крестах есть и парк, и кофейни.</p>
+                  <div class="cfeed-card-actions"><button>Добавить</button><button>Поделиться</button></div>
+                </div>
+              </article>
+            </section></main>
+          </body></html>
+        """, "static/admin.css")
+
+        for width in (320, 390, 1100):
+            with self.subTest(width=width):
+                page.set_viewport_size({"width": width, "height": 844})
+                geometry = page.evaluate("""() => {
+                  const rect = selector => {
+                    const box = document.querySelector(selector).getBoundingClientRect();
+                    return {left: box.left, right: box.right, top: box.top,
+                            bottom: box.bottom, width: box.width, height: box.height};
+                  };
+                  return {media: rect('.cfeed-ph'), menu: rect('.cfeed-menu .more'),
+                    title: rect('.cfeed-ttl'), body: rect('.cfeed-body'),
+                    overflow: document.documentElement.scrollWidth - innerWidth};
+                }""")
+                self.assertLessEqual(geometry["overflow"], 1)
+                self.assertGreaterEqual(geometry["menu"]["width"], 44)
+                self.assertGreaterEqual(geometry["menu"]["height"], 44)
+                self.assertGreaterEqual(geometry["menu"]["left"], geometry["media"]["left"])
+                self.assertLessEqual(geometry["menu"]["right"], geometry["media"]["right"])
+                self.assertGreaterEqual(geometry["menu"]["top"], geometry["media"]["top"])
+                self.assertLessEqual(geometry["menu"]["bottom"], geometry["media"]["bottom"])
+                self.assertAlmostEqual(geometry["title"]["left"], geometry["body"]["left"] + 16, delta=2)
+                self.assertAlmostEqual(geometry["title"]["right"], geometry["body"]["right"] - 16, delta=2)
+
+    def test_community_report_dialog_restores_focus_to_the_visible_menu_button(self):
+        page = self.page_with_styles("""
+          <html data-skin="friends"><body data-csrf="csrf">
+            <div id="toast"></div>
+            <section id="communityFeed" class="cfeed">
+              <article class="cfeed-card">
+                <div class="cfeed-ph">
+                  <div class="menu-wrap cfeed-menu cfeed-menu--media" data-stop>
+                    <button id="communityMore" class="more" aria-expanded="false">⋯</button>
+                    <div class="menu">
+                      <button data-community-report data-stop
+                              data-report-url="/d/test/report" data-report-id="7"
+                              data-report-name="Тест">Пожаловаться</button>
+                    </div>
+                  </div>
+                </div>
+              </article>
+            </section>
+            <dialog id="communityReportDlg">
+              <span id="communityReportName"></span>
+              <form id="communityReportForm">
+                <input id="communityReportTargetId">
+                <textarea id="communityReportReason"></textarea>
+                <button type="submit">Отправить</button>
+              </form>
+              <button id="communityReportCancel" type="button">Отмена</button>
+            </dialog>
+          </body></html>
+        """, "static/admin.css")
+        page.add_script_tag(content=(APP / "static/ui.js").read_text("utf-8"))
+        page.add_script_tag(content=(APP / "static/admin.js").read_text("utf-8"))
+
+        page.locator("#communityMore").click()
+        self.assertTrue(page.locator(".cfeed-menu .menu").evaluate(
+            "node => node.classList.contains('open')",
+        ))
+        page.locator("[data-community-report]").focus()
+        page.keyboard.press("Escape")
+        page.wait_for_function("document.activeElement.id === 'communityMore'")
+
+        page.locator("#communityMore").click()
+        page.locator("[data-community-report]").click()
+        page.wait_for_selector("#communityReportDlg[open]")
+        self.assertFalse(page.locator(".cfeed-menu .menu").evaluate(
+            "node => node.classList.contains('open')",
+        ))
+        page.locator("#communityReportCancel").click()
+        page.wait_for_function("document.activeElement.id === 'communityMore'")
 
 
 if __name__ == "__main__":

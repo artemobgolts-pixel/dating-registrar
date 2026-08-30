@@ -1,0 +1,56 @@
+{#
+  Единая поверхность входа.
+
+  Малый интерфейс намеренно описывает только контекст показа:
+    mode        — page | dialog
+    title       — доступный заголовок
+    description — зачем нужен вход
+    next_url    — безопасный возврат после авторизации
+
+  bot/oauth/widget_state/VPN_URL приходят из контекста страницы. Вся механика
+  способов входа остаётся в _login_methods.html и auth.js.
+#}
+{% macro login_module(mode, title, description, next_url='', title_id='loginDlgTitle', description_id='loginDlgDescription') -%}
+  {% set is_page = mode == 'page' %}
+  {% if is_page %}
+  <div class="login-card auth-module auth-module--page" data-auth-mode="page"
+       aria-labelledby="{{ title_id }}" aria-describedby="{{ description_id }}">
+  {% else %}
+  <dialog id="loginDlg" class="login-dlg auth-module auth-module--dialog" data-auth-mode="dialog"
+          aria-labelledby="{{ title_id }}" aria-describedby="{{ description_id }}">
+    <button type="button" class="dlg-x auth-module__close" id="loginClose" aria-label="Закрыть">✕</button>
+  {% endif %}
+
+    <header class="auth-module__header">
+      <div class="auth-module__logo" aria-hidden="true">
+        <img class="auth-module__logo-romantic" src="{{ asset('logo-romantic.png') }}" alt="">
+        <img class="auth-module__logo-standard" src="{{ asset('logo-standard.png') }}" alt="">
+      </div>
+      {% if is_page %}
+      <h1 class="auth-module__brand" id="{{ title_id }}" aria-label="{{ title }}">date<span>4</span>you</h1>
+      {% else %}
+      <h2 class="auth-module__title" id="{{ title_id }}">{{ title }}</h2>
+      {% endif %}
+      <p class="auth-module__description" id="{{ description_id }}">{{ description }}</p>
+    </header>
+
+    {% if is_page and bot and VPN_URL %}
+    <p class="auth-module__vpn">Чтобы войти через Telegram, включите <a href="{{ VPN_URL }}" target="_blank" rel="noopener sponsored">VPN</a>.</p>
+    {% endif %}
+
+    {% if bot or oauth %}
+      {% include "auth/_login_methods.html" %}
+    {% else %}
+      <div class="err auth-module__error">Способы входа пока не настроены.</div>
+    {% endif %}
+
+    {% if is_page and next_url %}
+      <a class="oauth-btn login-return" href="{{ next_url }}">Вернуться без входа</a>
+    {% endif %}
+
+  {% if is_page %}
+  </div>
+  {% else %}
+  </dialog>
+  {% endif %}
+{%- endmacro %}

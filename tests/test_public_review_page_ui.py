@@ -36,7 +36,11 @@ class PublicReviewPageUiTests(unittest.TestCase):
         self.assertIn('method="post" action="/d/{{ token }}/add"', page)
         self.assertIn('Добавить событие в коллекцию', page)
         self.assertNotIn("Войди, чтобы добавить событие в свою коллекцию.", page)
-        self.assertIn('{% include "auth/_login_methods.html" %}', page)
+        self.assertIn(
+            '{% from "auth/_login_module.html" import login_module with context %}',
+            page,
+        )
+        self.assertIn("login_module('dialog'", page)
         self.assertIn('<footer>', page)
         self.assertIn("{{ asset('confirm.js') }}", page)
         self.assertIn("{{ asset('public_review.js') }}", page)

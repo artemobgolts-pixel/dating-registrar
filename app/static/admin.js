@@ -1172,6 +1172,7 @@
     var reportTarget = document.getElementById("communityReportTargetId");
     var reportReason = document.getElementById("communityReportReason");
     var reportCancel = document.getElementById("communityReportCancel");
+    var reportOpener = null;
 
     var loading = false, done = false, loadedAny = false;
     var io = null;
@@ -1350,6 +1351,13 @@
 
     function openReport(button) {
       if (!reportDlg || !reportForm || !button) return;
+      var disclosure = button.closest(".cfeed-menu");
+      reportOpener = (disclosure && disclosure.querySelector(".more")) || button;
+      if (disclosure) {
+        var popup = disclosure.querySelector(".menu");
+        if (popup) popup.classList.remove("open");
+        if (reportOpener) reportOpener.setAttribute("aria-expanded", "false");
+      }
       reportForm.setAttribute("action", button.getAttribute("data-report-url") || "");
       if (reportTarget) reportTarget.value = button.getAttribute("data-report-id") || "";
       if (reportName) reportName.textContent = button.getAttribute("data-report-name") || "событие";
@@ -1359,10 +1367,21 @@
       if (reportReason) reportReason.focus();
     }
 
+    function restoreReportFocus() {
+      var source = reportOpener;
+      reportOpener = null;
+      if (source && source.isConnected && typeof source.focus === "function") {
+        requestAnimationFrame(function () { source.focus(); });
+      }
+    }
+
     function closeReport() {
       if (!reportDlg) return;
       if (typeof reportDlg.close === "function" && reportDlg.open) reportDlg.close();
-      else reportDlg.removeAttribute("open");
+      else {
+        reportDlg.removeAttribute("open");
+        restoreReportFocus();
+      }
     }
 
     // Клик по карточке открывает виджет; обе кнопки действий остаются на месте.
@@ -1404,6 +1423,7 @@
       if (e.target === dlg) closeWidget();               // клик по подложке
     });
     if (reportCancel) reportCancel.addEventListener("click", closeReport);
+    if (reportDlg) reportDlg.addEventListener("close", restoreReportFocus);
     if (reportDlg) reportDlg.addEventListener("click", function (e) {
       if (e.target === reportDlg) closeReport();
     });

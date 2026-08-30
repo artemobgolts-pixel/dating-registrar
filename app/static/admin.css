@@ -24,7 +24,8 @@
   --choice-pay-fg: #ffffff;
   --r: 14px;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --serif: "Cormorant Garamond", Georgia, "Times New Roman", serif;
+  /* Both skins share typography metrics; artwork and materials carry identity. */
+  --serif: var(--sans);
   --script: "Great Vibes", "Cormorant Garamond", cursive;
   --ease: cubic-bezier(.22, .8, .3, 1);
   --ease-press: cubic-bezier(.2, .8, .2, 1);
@@ -1429,7 +1430,7 @@ body {
 .top nav { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
 h1 {
-  font-family: "Cormorant Garamond", Georgia, serif;
+  font-family: var(--sans);
   font-weight: 600;
   font-size: 30px;
   letter-spacing: .01em;
@@ -2112,7 +2113,8 @@ html.ink-static .bg-smoke span {
    карточку, у которой открыто меню, над соседями (баг #6). */
 .dcard:has(.menu.open),
 .drow:has(.menu.open),
-.cat-card:has(.menu.open) { z-index: 30; position: relative; }
+.cat-card:has(.menu.open),
+.cfeed-card:has(.menu.open) { z-index: 30; position: relative; }
 .menu-wrap { position: relative; flex: none; }
 .more {
   width: 36px; height: 36px; border-radius: 10px;
@@ -2362,6 +2364,7 @@ html[data-theme="dark"][data-skin="friends"] .share-qr {
    в детали (баг #8). Клик по «пустым» местам карточки всё равно открывает
    категорию: pointer-events:none пропускает его вниз на оверлей-ссылку. */
 .cat-card .cat-body,
+.cat-card .cat-media,
 .cat-card .cat-thumb,
 .cat-card .bar,
 .cat-card .bar > div,
@@ -2380,71 +2383,77 @@ html[data-theme="dark"][data-skin="friends"] .share-qr {
 }
 .cat-card:hover .cat-arrow { opacity: 1; transform: translateX(3px); }
 
-/* правый край карточки категории: меню ⋯ + стрелка. Вся группа поднята НАД
-   ссылкой-оверлеем (z-index оверлея = 3), поэтому ⋯ кликается, а не открывает
-   категорию. ВАЖНО: селектор `.bar > .cat-tail` (0,3,0) обязан обыгрывать по
-   специфичности `.cat-card .bar > div` (0,2,1) — иначе хвост наследует от него
-   pointer-events:none и z-index:1, проваливается под оверлей, и клик по ⋯ уводит
-   в редактирование (баг #7). */
-/* ⋯ на карточке категории — всегда в правом ВЕРХНЕМ углу (не по центру строки).
-   Абсолютом внутри .cat-card (position:relative), поверх ссылки-оверлея. */
-.cat-card .bar > .cat-tail {
-  display: flex; align-items: center; gap: 0; flex: none;
-  position: absolute; top: 12px; right: 12px; z-index: 7; pointer-events: auto;
+/* Анатомия карточки события для подборки: безопасный OG-media, отдельный body
+   и контекстное меню поверх изображения. */
+.cat-card.has-thumb {
+  display: flex; gap: 14px; align-items: center;
 }
-/* стрелку-«→» убираем: угол занимает ⋯, а вся карточка и так кликабельна */
-.cat-card .cat-arrow { display: none; }
-/* имя не залезает под кнопку в углу */
-.cat-card .bar > div:first-child { padding-right: 44px; }
-.cat-card .cat-tail .menu-wrap { position: relative; z-index: 6; pointer-events: auto; flex: none; }
-.cat-card .cat-tail .more,
-.cat-card .cat-tail .menu { pointer-events: auto; }
-/* ⋯ на карточке категории — заметная, но не «кричащая»; ярче при hover/открытии */
-.cat-card .cat-tail .more {
-  background: rgba(255, 255, 255, .7); border-color: var(--line); color: var(--muted);
-  opacity: .8; transition: opacity .15s, background .15s;
+.cat-card .cat-media {
+  width: 168px; flex: 0 0 168px; align-self: center;
+  aspect-ratio: 1200 / 630;
 }
-.cat-card:hover .cat-tail .more,
-.cat-card .cat-tail .more:hover,
-.cat-card .cat-tail .more[aria-expanded="true"] {
-  opacity: 1; background: #fff;
-}
-/* на карточке кнопка ⋯ в правом верхнем углу — меню открываем ВНИЗ и ВЛЕВО от
-   угла (иначе выходит за правый край карточки/экрана) */
-.cat-card .menu { top: 42px; bottom: auto; right: 0; left: auto; }
-/* «шапка» карточки: имя слева тянется/обрезается, хвост (⋯ + стрелка) фиксирован
-   справа и НЕ переносится на новую строку при длинном названии */
-.cat-card .bar { display: flex; align-items: center; gap: 10px; flex-wrap: nowrap; }
-/* ⋯ позиционируется от всей карточки, а не от строки под мобильной обложкой. */
-.cat-card .bar { position: static; }
-.cat-card .cat-body { position: static; }
-.cat-card .bar > div:first-child { flex: 1; min-width: 0; }
-.cat-card .cat-name {
-  font-weight: 600; font-size: 16px; color: var(--ink);
-}
-.cat-card .cat-heading-line { display: flex; align-items: center; flex-wrap: wrap; gap: 5px 0; }
-.cat-card .cat-status-row { margin-top: 7px; }
-
-/* миниатюра превью ссылки в списке категорий: широкий кадр 1.91:1 слева,
-   содержимое справа. На узких экранах — картинка сверху, контент под ней. */
-.cat-card.has-thumb { display: flex; gap: 14px; align-items: stretch; }
 .cat-card .cat-thumb {
-  position: relative; z-index: 2; pointer-events: none;
-  width: 168px; flex: none; align-self: center;
+  display: block; width: 100%; height: 100%;
   aspect-ratio: 1200 / 630; object-fit: cover;
   border-radius: 12px; background: #f5edef;
   border: 1px solid var(--line);
 }
-.cat-card.has-thumb .cat-body { flex: 1; min-width: 0; }
+/* Локальный scrim сохраняет читаемость ⋯ на светлых и пёстрых превью, не
+   затемняя кадр целиком и не перехватывая касания. */
+.cat-card .cat-media::after {
+  content: ""; position: absolute; z-index: 3; pointer-events: none;
+  top: 0; right: 0; width: 76px; height: 76px; border-radius: 0 12px 0 76px;
+  background: radial-gradient(circle at 70% 30%, rgba(18, 21, 28, .34), transparent 68%);
+}
+.cat-card .cat-card-menu {
+  position: absolute; top: 8px; right: 8px; z-index: 7;
+  pointer-events: auto;
+}
+.cat-card .cat-card-menu .more,
+.cat-card .cat-card-menu .menu { pointer-events: auto; }
+.cat-card .cat-card-menu .more {
+  background: rgba(24, 25, 31, .34); border-color: rgba(255,255,255,.24);
+  color: #fff; opacity: .8;
+  -webkit-backdrop-filter: blur(5px); backdrop-filter: blur(5px);
+  box-shadow: 0 2px 9px rgba(0,0,0,.12);
+  transition: opacity .15s, background .15s;
+}
+.cat-card:hover .cat-card-menu .more,
+.cat-card .cat-card-menu .more:hover,
+.cat-card .cat-card-menu .more[aria-expanded="true"] {
+  opacity: 1; background: rgba(24, 25, 31, .56);
+}
+.cat-card .cat-card-menu .menu {
+  top: 48px; bottom: auto; right: 0; left: auto;
+}
+.cat-card.has-thumb .cat-body {
+  position: relative; flex: 1; min-width: 0;
+}
+.cat-card .cat-heading-line {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 5px 0;
+  min-width: 0;
+}
+.cat-card .cat-name {
+  min-width: 0; overflow-wrap: anywhere;
+  font-weight: 600; font-size: 1rem; line-height: 1.3; color: var(--ink);
+}
+.cat-card .cat-status-row:empty { display: none; }
+.cat-card .cat-status-row:not(:empty) { margin-top: 7px; }
+
 @media (max-width: 560px) {
-  .cat-card.has-thumb { flex-direction: column; gap: 10px; }
-  .cat-card .cat-thumb { width: 100%; align-self: stretch; }
-  /* На карточке с фотографией меню стоит в свободной нижней строке справа:
-     превью сохраняет исходные размер и положение, а кнопка не перекрывает кадр. */
-  .cat-card.has-thumb .bar > .cat-tail {
-    top: auto; bottom: 10px; right: 18px;
+  .cat-card.has-thumb {
+    flex-direction: column; align-items: stretch; gap: 0;
+    padding: 8px;
   }
-  .cat-card.has-thumb .menu { top: auto; bottom: 42px; }
+  .cat-card .cat-media {
+    width: 100%; flex-basis: auto; align-self: stretch;
+  }
+  .cat-card .cat-thumb { width: 100%; align-self: stretch; }
+  .cat-card.has-thumb .cat-body { padding: 14px 10px 10px; }
+  .cat-card .cat-status-row { gap: 6px 12px; }
+  .cat-card.has-thumb .cat-card-menu .menu {
+    top: 48px; bottom: auto;
+  }
 }
 
 @media (max-width: 640px) {
@@ -3185,16 +3194,12 @@ html[data-theme="dark"][data-skin="friends"] .share-qr {
 .cfeed-card:hover { transform: translateY(-2px); box-shadow: 0 16px 38px rgba(150, 80, 95, .14); }
 .cfeed-card:focus-visible { outline: 2px solid var(--rose); outline-offset: 2px; }
 .cfeed-ph {
-  height: auto; aspect-ratio: 16 / 9;
+  position: relative; height: auto; aspect-ratio: 16 / 9;
   background: linear-gradient(135deg, #caa094, #9c6f6a);
 }
 .cfeed-ph img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .cfeed-ph-vid { display: grid; place-items: center; font-size: 34px; }
-.cfeed-body { padding: 15px 16px 16px; display: flex; flex-direction: column; gap: 9px; flex: 1; }
-.cfeed-title-row {
-  display: flex; align-items: flex-start; justify-content: space-between;
-  gap: 12px; min-width: 0;
-}
+.cfeed-body { position: relative; padding: 15px 16px 16px; display: flex; flex-direction: column; gap: 9px; flex: 1; }
 .cfeed-ttl { min-width: 0; font-size: 20px; color: var(--ink); margin: 0; line-height: 1.2; }
 .cfeed-meta { font-size: 13px; color: var(--muted); display: flex; flex-direction: column; gap: 3px; }
 .cfeed-desc {
@@ -3219,7 +3224,26 @@ html[data-theme="dark"][data-skin="friends"] .share-qr {
   text-decoration: underline dotted; text-underline-offset: 3px;
 }
 .report-link:hover { color: var(--rose-2); opacity: 1; }
-.cfeed-title-row .report-link { flex: none; margin-top: 3px; white-space: nowrap; }
+.cfeed-menu { position: absolute; z-index: 8; }
+.cfeed-menu--media { top: 8px; right: 8px; }
+.cfeed-menu--body { top: 10px; right: 10px; }
+.cfeed-menu .more {
+  width: 44px; height: 44px; border-radius: 50%;
+  color: #fff; background: rgba(24, 25, 31, .38);
+  border-color: rgba(255,255,255,.28);
+  box-shadow: 0 3px 12px rgba(0,0,0,.18);
+  -webkit-backdrop-filter: blur(7px); backdrop-filter: blur(7px);
+}
+.cfeed-menu--body .more {
+  color: var(--ink); background: var(--material-control);
+  border-color: var(--material-border); box-shadow: none;
+}
+.cfeed-menu .menu { top: 48px; right: 0; bottom: auto; min-width: 164px; }
+.cfeed-menu .report-link {
+  min-height: 44px; margin: 0; padding: 9px 11px;
+  color: var(--ink); opacity: 1; text-decoration: none;
+}
+.cfeed-body:has(> .cfeed-menu--body) .cfeed-ttl { padding-right: 52px; }
 .cfeed-card-actions {
   display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
   align-items: center; gap: 10px; margin-top: auto; padding-top: 5px;
@@ -3845,8 +3869,8 @@ html[data-theme="dark"] .login-skin-pick { background: rgba(42,33,40,.78); }
 /* ============================================================
    ВЫБОР ОФОРМЛЕНИЯ: кабинет пользователя и гостевая категория.
    Светлая/тёмная схема (data-theme) независима от эмоционального оформления
-   (data-skin). Romantic остаётся прежним авторским видом; friends меняет
-   палитру, геометрию карточек и функциональные иконки.
+   (data-skin). Оба оформления разделяют строгую геометрию; skin меняет только
+   палитру, материалы, artwork и функциональные иконки.
    ============================================================ */
 
 .admin-icon {
@@ -4125,21 +4149,12 @@ html[data-theme="dark"][data-skin="friends"] .brand .d4 {
   background-clip: text;
 }
 html[data-skin="friends"] h1 {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  font-weight: 750;
-  font-size: 27px;
-  letter-spacing: -.025em;
   background: linear-gradient(110deg, var(--rose-2), var(--rose) 62%, var(--friends-teal));
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
   color: var(--rose-2);
 }
-html[data-skin="friends"] .serif,
-html[data-skin="friends"] .dcard .ttl {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-}
-html[data-skin="friends"] .dcard .ttl { font-weight: 700; letter-spacing: -.01em; }
 html[data-skin="friends"] table th { color: var(--rose-2); }
 html[data-skin="friends"] .avatar-pick .avatar-img,
 html[data-skin="friends"] .avatar-pick .avatar-ph {
@@ -4467,8 +4482,6 @@ h1 {
   font-weight: 600;
   letter-spacing: -.012em;
 }
-html[data-skin="friends"] .dcard .ttl { font-weight: 600; }
-
 /* One floating chrome layer. The gradient below replaces the hard sticky
    divider with a soft scroll edge. */
 .top {

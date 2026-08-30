@@ -1,5 +1,5 @@
 {% extends "admin/base.html" %}
-{% from "admin/_entity_status.html" import category_link, category_tone, category_voting, status %}
+{% from "admin/_entity_status.html" import status %}
 {% block title %}Подборки{% endblock %}
 {% block head %}<meta name="turbo-cache-control" content="no-cache">{% endblock %}
 {% block content %}
@@ -12,56 +12,70 @@
 <div data-tour="categories-collection">
 {% for c in cats %}
 <div class="card cat-card has-thumb"
-     data-status-tone="{{ category_tone(c['voting_status'], c['link_enabled']) }}">
-  <a class="cat-link" href="/admin/categories/{{ c['id'] }}" data-tour-category-link aria-label="Открыть «{{ c['name'] }}»"></a>
-  <img class="cat-thumb"
-       src="/admin/categories/{{ c['id'] }}/og-preview?skin={{ c['category_skin'] }}&amp;v={{ c['preview_revision'] }}"
-       alt="" loading="lazy" decoding="async">
-  <div class="cat-body">
-    <div class="bar" style="margin-bottom:0">
-      <div>
-        <div class="cat-heading-line">
-          <span class="cat-name">{{ c['name'] }}</span>
-          <span class="badge badge-meta count-badge count-badge--label">{{ c['dcount'] }} {{ c['dcount'] | plural('событие', 'события', 'событий') }}</span>
-        </div>
-        <div class="entity-status-row cat-status-row">
-          {{ category_voting(c['voting_status']) }}
-          {{ category_link(c['link_enabled']) }}
-          {% if c['moderate_proposals'] %}{{ status('Модерация предложений', 'warning') }}{% endif %}
-        </div>
-      </div>
-      <div class="cat-tail">
-        <div class="menu-wrap">
-          <button type="button" class="more" aria-label="Ещё действия" aria-haspopup="true" aria-expanded="false">⋯</button>
-          <div class="menu">
-            {% if c['link_enabled'] %}
-            <a href="/c/{{ c['link_token'] }}" target="_blank" rel="noopener" data-turbo="false">Открыть</a>
-            <button type="button" data-copy="{{ BASE_URL }}/c/{{ c['link_token'] }}">Скопировать ссылку</button>
-            {% endif %}
-            <form method="post" action="/admin/categories/{{ c['id'] }}/toggle">
-              <input type="hidden" name="csrf" value="{{ csrf }}">
-              <button type="submit">{{ 'Отключить ссылку' if c['link_enabled'] else 'Включить ссылку' }}</button>
-            </form>
-            <form method="post" action="/admin/categories/{{ c['id'] }}/regenerate"
-                  data-confirm="Сгенерировать новую ссылку? Старая перестанет работать, но все голоса и вопросы сохранятся.">
-              <input type="hidden" name="csrf" value="{{ csrf }}">
-              <button type="submit">Перегенерировать ссылку</button>
-            </form>
-            <form method="post" action="/admin/categories/{{ c['id'] }}/clone">
-              <input type="hidden" name="csrf" value="{{ csrf }}">
-              <button type="submit">Скопировать подборку</button>
-            </form>
-            <div class="sepa"></div>
-            <form method="post" action="/admin/categories/{{ c['id'] }}/delete"
-                  data-confirm="Удалить подборку? События останутся, но голоса в этой подборке удалятся, а ссылка перестанет работать.">
-              <input type="hidden" name="csrf" value="{{ csrf }}">
-              <button type="submit" class="danger">Удалить подборку</button>
-            </form>
-          </div>
-        </div>
-        <span class="cat-arrow" aria-hidden="true">→</span>
+     data-status-tone="{{ 'success' if c['is_active'] else 'neutral' }}"
+     data-category-active="{{ 'true' if c['is_active'] else 'false' }}">
+  <a class="cat-link" href="/admin/categories/{{ c['id'] }}" data-tour-category-link
+     aria-label="Открыть «{{ c['name'] }}»" aria-describedby="cat-status-{{ c['id'] }}"></a>
+  <div class="cat-media">
+    <img class="cat-thumb"
+         src="/admin/categories/{{ c['id'] }}/og-preview?skin={{ c['category_skin'] }}&amp;v={{ c['preview_revision'] }}"
+         alt="" loading="lazy" decoding="async">
+    <div class="menu-wrap cat-card-menu">
+      <button type="button" class="more"
+              aria-label="Ещё действия с подборкой «{{ c['name'] }}»"
+              aria-controls="cat-menu-{{ c['id'] }}" aria-expanded="false">⋯</button>
+      <div class="menu" id="cat-menu-{{ c['id'] }}">
+        {% if c['link_enabled'] %}
+        <a href="/c/{{ c['link_token'] }}" target="_blank" rel="noopener" data-turbo="false">Открыть</a>
+        <button type="button" data-copy="{{ BASE_URL }}/c/{{ c['link_token'] }}">Скопировать ссылку</button>
+        {% endif %}
+        <form method="post" action="/admin/categories/{{ c['id'] }}/toggle">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button type="submit">{{ 'Отключить ссылку' if c['link_enabled'] else 'Включить ссылку' }}</button>
+        </form>
+        <form method="post" action="/admin/categories/{{ c['id'] }}/regenerate"
+              data-confirm="Сгенерировать новую ссылку? Старая перестанет работать, но все голоса и вопросы сохранятся.">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button type="submit">Перегенерировать ссылку</button>
+        </form>
+        <form method="post" action="/admin/categories/{{ c['id'] }}/clone">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button type="submit">Скопировать подборку</button>
+        </form>
+        <div class="sepa"></div>
+        <form method="post" action="/admin/categories/{{ c['id'] }}/delete"
+              data-confirm="Удалить подборку? События останутся, но голоса в этой подборке удалятся, а ссылка перестанет работать.">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button type="submit" class="danger">Удалить подборку</button>
+        </form>
       </div>
     </div>
+  </div>
+  <div class="cat-body">
+    <div class="cat-heading-line">
+      <span class="cat-name">{{ c['name'] }}</span>
+      <span class="badge badge-meta count-badge count-badge--label">{{ c['dcount'] }} {{ c['dcount'] | plural('событие', 'события', 'событий') }}</span>
+    </div>
+    {% set has_status_exceptions = c['deadline_state'] != 'active' or c['voting_status'] == 'tie' or not c['link_enabled'] %}
+    {% if has_status_exceptions %}
+    <div class="entity-status-row cat-status-row">
+      {% if c['deadline_state'] == 'missing' %}
+        {{ status('Настройте дедлайн', 'warning') }}
+      {% elif not c['is_active'] %}
+        {{ status('Дедлайн прошёл', 'neutral') }}
+      {% endif %}
+      {% if c['voting_status'] == 'tie' %}{{ status('Нужен выбор', 'warning') }}{% endif %}
+      {% if not c['link_enabled'] %}{{ status('Ссылка выключена', 'danger') }}{% endif %}
+    </div>
+    {% endif %}
+    <span class="sr-only" id="cat-status-{{ c['id'] }}">
+      {% if c['deadline_state'] == 'active' %}Подборка активна: дедлайн ещё не наступил.
+      {% elif c['deadline_state'] == 'expired' %}Подборка неактивна: дедлайн прошёл.
+      {% else %}Подборка неактивна: дедлайн не настроен.{% endif %}
+      Голосование: {% if c['voting_status'] == 'open' %}идёт{% elif c['voting_status'] == 'tie' %}ничья, нужен выбор{% elif c['voting_status'] == 'resolved' %}победитель выбран{% elif c['voting_status'] == 'no_winner' %}завершено без выбора{% else %}не настроено{% endif %}.
+      Ссылка {{ 'активна' if c['link_enabled'] else 'выключена' }}.
+      {% if c['moderate_proposals'] %}Модерация предложений включена.{% endif %}
+    </span>
   </div>
 </div>
 {% else %}

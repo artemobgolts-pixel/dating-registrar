@@ -834,6 +834,22 @@ def categories_list(request: Request, conn=Depends(get_db)):
         actx(request, conn, active="cats", cats=cats))
 
 
+def _category_deadline_state(deadline: str | None, *, now: datetime) -> str:
+    """Возвращает активность подборки строго по её обязательному дедлайну.
+
+    Отсутствующая, timezone-aware или повреждённая дата не превращает подборку
+    в бессрочную: это некорректное legacy-состояние, которое владелец должен
+    явно исправить.
+    """
+    try:
+        parsed = datetime.fromisoformat(str(deadline))
+    except (TypeError, ValueError):
+        return "missing"
+    if parsed.tzinfo is not None:
+        return "missing"
+    return "active" if now < parsed else "expired"
+
+
 def _categories_list_data(conn, owner_id: int) -> list[dict]:
     """Готовит карточки категорий двумя SELECT независимо от их количества."""
     rows = conn.execute(
@@ -864,6 +880,7 @@ def _categories_list_data(conn, owner_id: int) -> list[dict]:
     )
 
     cats = []
+    list_now = now_naive()
     for row in rows:
         category = dict(row)
         category_id = int(row["id"])
@@ -879,6 +896,10 @@ def _categories_list_data(conn, owner_id: int) -> list[dict]:
             custom_focus=row["og_focus"],
             use_default=bool(row["use_default_preview"]),
         )
+        category["deadline_state"] = _category_deadline_state(
+            row["voting_deadline"], now=list_now,
+        )
+        category["is_active"] = category["deadline_state"] == "active"
         cats.append(category)
     return cats
 

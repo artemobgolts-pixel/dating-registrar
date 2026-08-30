@@ -13,6 +13,7 @@
 <meta name="theme-color" content="#554eae">
 <script src="{{ asset('theme.js') }}"></script>
 <link rel="stylesheet" href="{{ asset('admin.css') }}">
+<link rel="stylesheet" href="{{ asset('auth.css') }}">
 </head>
 <body data-ink-interactive="{{ '1' if request.state.user and request.state.user['cursor_effects'] else '0' }}">
 {% include "public/_bg.html" %}
@@ -33,26 +34,8 @@
 </div>
 <div class="login-page">
   <div class="login-center">
-  <div class="login-card">
-    <div class="login-mark" aria-hidden="true">
-      <img class="login-mark-romantic" src="{{ asset('logo-romantic.png') }}" alt="">
-      <img class="login-mark-standard" src="{{ asset('logo-standard.png') }}" alt="">
-    </div>
-    <h1 class="login-brand">date<span class="d4">4</span>you<span class="sr-only"> — вход</span></h1>
-    <p class="login-lead">Войди, чтобы создавать события и организовывать встречи.</p>
-    {% if bot and VPN_URL %}
-      <p class="login-vpn-note">Чтобы войти через Telegram, включите
-        <a href="{{ VPN_URL }}" target="_blank" rel="noopener sponsored">VPN</a>.</p>
-    {% endif %}
-    {% if not bot and not oauth %}
-      <div class="err">Вход пока не настроен.</div>
-    {% else %}
-      {% include "auth/_login_methods.html" %}
-    {% endif %}
-    {% if next_url %}
-      <a class="oauth-btn login-return" href="{{ next_url }}">Вернуться без входа</a>
-    {% endif %}
-  </div>
+  {% from "auth/_login_module.html" import login_module with context %}
+  {{ login_module('page', 'Вход в date4you', 'Войди, чтобы создавать события и организовывать встречи.', next_url, 'loginPageTitle', 'loginPageDescription') }}
   </div>
   <footer class="login-foot">
     <a href="/about?return_to=%2Flogin">О проекте</a> · <a href="/terms?return_to=%2Flogin">Соглашение</a> · <a href="/privacy?return_to=%2Flogin">Конфиденциальность</a>

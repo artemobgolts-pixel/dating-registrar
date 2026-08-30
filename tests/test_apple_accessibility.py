@@ -16,8 +16,11 @@ APP = ROOT / "app"
 
 class PublicDialogAccessibilityTests(unittest.TestCase):
     def test_every_public_dialog_has_an_accessible_name(self):
+        login_module = (APP / "templates/auth/_login_module.html").read_text("utf-8")
         for relative in ("templates/public/category.html", "templates/public/share.html"):
             source = (APP / relative).read_text("utf-8")
+            self.assertIn("login_module('dialog'", source)
+            source = f"{source}\n{login_module}"
             dialogs = re.findall(r"<dialog\b([^>]*)>", source, re.DOTALL)
             self.assertGreaterEqual(len(dialogs), 6, relative)
             for attributes in dialogs:
@@ -41,11 +44,13 @@ class PublicDialogAccessibilityTests(unittest.TestCase):
 
     def test_login_has_a_real_heading_and_an_explicit_return_path(self):
         source = (APP / "templates/auth/login.html").read_text("utf-8")
-        self.assertIn('<h1 class="login-brand">', source)
+        module = (APP / "templates/auth/_login_module.html").read_text("utf-8")
+        self.assertIn("login_module('page'", source)
+        self.assertIn('<h1 class="auth-module__brand"', module)
         self.assertNotIn('<h1 class="login-mark" aria-hidden="true">', source)
-        self.assertIn('{% if next_url %}', source)
-        self.assertIn('class="oauth-btn login-return" href="{{ next_url }}"', source)
-        self.assertIn("Вернуться без входа", source)
+        self.assertIn('{% if is_page and next_url %}', module)
+        self.assertIn('class="oauth-btn login-return" href="{{ next_url }}"', module)
+        self.assertIn("Вернуться без входа", module)
 
     def test_shared_review_report_is_labelled_and_available_without_login(self):
         template = (APP / "templates/public/profile_review.html").read_text("utf-8")
@@ -54,6 +59,22 @@ class PublicDialogAccessibilityTests(unittest.TestCase):
         self.assertIn('id="reviewReportDescription">Вход не требуется.', template)
         self.assertIn('<label class="sr-only" for="reportReason">', template)
         self.assertNotIn("if (!authenticated)", script)
+
+    def test_event_report_is_an_accessible_overflow_action_not_title_content(self):
+        for name in ("category.html", "share.html"):
+            template = (APP / "templates/public" / name).read_text("utf-8")
+            with self.subTest(template=name):
+                self.assertNotIn('class="title-row"', template)
+                self.assertIn(
+                    'class="event-card-menu event-card-menu--media"', template,
+                )
+                self.assertIn(
+                    'class="event-card-menu event-card-menu--body"', template,
+                )
+                self.assertIn(
+                    'aria-label="Действия с событием «{{ d.name }}»"', template,
+                )
+                self.assertEqual(template.count(">Пожаловаться</button>"), 2)
 
 
 class FluidInteractionContractTests(unittest.TestCase):
@@ -133,6 +154,13 @@ class PublicPrivacyNavigationContractTests(unittest.TestCase):
             with self.subTest(template=name):
                 self.assertIn('<details class="public-account-menu">', source)
                 self.assertIn('<summary aria-label="Меню аккаунта — {{', source)
+                self.assertIn('class="corner-control promo-btn theme-toggle icon-only"', source)
+                self.assertIn('class="corner-control login-corner"', source)
+                self.assertIn('class="corner-control login-corner owner-edit-link"', source)
+                self.assertRegex(
+                    source,
+                    r'<summary aria-label="Меню аккаунта — \{\{[^>]+class="corner-control">',
+                )
                 self.assertIn('class="public-account-popover"', source)
                 self.assertIn('<a href="/admin/">Кабинет</a>', source)
                 self.assertIn('<a href="/admin/profile">Профиль</a>', source)
@@ -290,6 +318,106 @@ class FluidInteractionBrowserTests(unittest.TestCase):
         page.wait_for_function(
             "!document.querySelector('#lightbox img').style.transform", timeout=5000)
         self.assertEqual(errors, [])
+
+    def test_coarse_touch_keeps_native_horizontal_scroll_and_diagonal_handoff(self):
+        context = self.browser.new_context(
+            viewport={"width": 390, "height": 844},
+            has_touch=True,
+            is_mobile=True,
+        )
+        self.addCleanup(context.close)
+        page = context.new_page()
+        pixel = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="
+        page.set_content(f"""
+          <body data-token="test" data-auth="1" data-csrf="csrf" data-skin="friends">
+            <div id="toast"></div>
+            <dialog id="askDlg"><form id="askForm"><button type="submit">ok</button></form></dialog>
+            <button id="askCancel" type="button"></button>
+            <dialog id="reportDlg"><form id="reportForm"><button type="submit">ok</button></form></dialog>
+            <button id="reportCancel" type="button"></button>
+            <dialog id="timeDlg"><form id="timeForm">
+              <input id="timeStart" type="datetime-local"><input id="timeEnd" type="datetime-local">
+              <button type="submit">ok</button></form></dialog>
+            <button id="timeCancel" type="button"></button>
+            <dialog id="calDlg"></dialog><button id="calCancel" type="button"></button>
+            <a id="calGoogle"></a><a id="calIcs"></a>
+            <article class="card"><h2 class="title">Тест</h2><div class="gal-wrap">
+              <div class="gallery"><img src="{pixel}"><img src="{pixel}"></div>
+            </div></article>
+            <dialog class="lightbox" id="lightbox"><button id="lbX"></button>
+              <button id="lbPrev"></button><img><button id="lbNext"></button>
+              <div id="lbCount"></div>
+            </dialog>
+          </body>
+        """)
+        page.add_style_tag(content=(APP / "static/public.css").read_text("utf-8"))
+        page.add_script_tag(content=(APP / "static/ui.js").read_text("utf-8"))
+        page.add_script_tag(content=(APP / "static/guest.js").read_text("utf-8"))
+
+        handoff = page.locator(".gallery").evaluate("""gallery => {
+          const send = (type, x, y) => gallery.dispatchEvent(new PointerEvent(type, {
+            bubbles: true, cancelable: true, isPrimary: true, button: 0,
+            buttons: type === 'pointerup' ? 0 : 1, pointerId: 41,
+            pointerType: 'touch', clientX: x, clientY: y,
+          }));
+          send('pointerdown', 280, 90);
+          send('pointermove', 272, 102);
+          send('pointermove', 130, 108);
+          const result = {
+            touchAction: getComputedStyle(gallery).touchAction,
+            snapOverride: gallery.style.scrollSnapType,
+            captured: gallery.hasPointerCapture(41),
+          };
+          send('pointerup', 130, 108);
+          return result;
+        }""")
+
+        self.assertTrue(
+            "pan-x" in handoff["touchAction"] or handoff["touchAction"] == "manipulation",
+            handoff,
+        )
+        self.assertEqual(handoff["snapOverride"], "")
+        self.assertFalse(handoff["captured"])
+
+    def test_report_dialog_returns_focus_to_visible_overflow_trigger(self):
+        page = self.browser.new_page(viewport={"width": 390, "height": 844})
+        self.addCleanup(page.close)
+        page.set_content("""
+          <body data-token="test" data-auth="1" data-csrf="csrf" data-skin="friends">
+            <div id="toast"></div>
+            <details class="event-card-menu" open>
+              <summary id="reportMenuTrigger">Действия</summary>
+              <button type="button" class="report-link" data-id="7" data-name="Тест">Пожаловаться</button>
+            </details>
+            <dialog id="reportDlg">
+              <span id="reportTitle"></span>
+              <form id="reportForm"><input id="reportType"><input id="reportTargetId">
+                <textarea id="reportReason"></textarea><button type="submit">Отправить</button>
+              </form>
+              <button id="reportCancel" type="button">Отмена</button>
+            </dialog>
+            <dialog id="askDlg"><form id="askForm"><button type="submit">ok</button></form></dialog>
+            <button id="askCancel" type="button"></button>
+            <dialog id="timeDlg"><form id="timeForm">
+              <input id="timeStart" type="datetime-local"><input id="timeEnd" type="datetime-local">
+              <button type="submit">ok</button></form></dialog>
+            <button id="timeCancel" type="button"></button>
+            <dialog id="calDlg"></dialog><button id="calCancel" type="button"></button>
+            <a id="calGoogle"></a><a id="calIcs"></a>
+            <dialog class="lightbox" id="lightbox"><button id="lbX"></button>
+              <button id="lbPrev"></button><img><button id="lbNext"></button>
+              <div id="lbCount"></div>
+            </dialog>
+          </body>
+        """)
+        page.add_script_tag(content=(APP / "static/ui.js").read_text("utf-8"))
+        page.add_script_tag(content=(APP / "static/guest.js").read_text("utf-8"))
+
+        page.locator(".report-link").click()
+        page.wait_for_selector("#reportDlg[open]")
+        self.assertFalse(page.locator(".event-card-menu").evaluate("node => node.open"))
+        page.locator("#reportCancel").click()
+        page.wait_for_function("document.activeElement.id === 'reportMenuTrigger'")
 
     def test_successful_vote_plays_one_shot_feedback_and_updates_the_counter(self):
         page = self.browser.new_page(viewport={"width": 760, "height": 900})

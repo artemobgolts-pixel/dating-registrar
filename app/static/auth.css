@@ -1,0 +1,262 @@
+/* Shared login module: one stable geometry for standalone and dialog surfaces.
+   Skins may change finish and artwork, never the component's metrics. */
+
+.auth-module {
+  --auth-accent: var(--rose-2, #a64d61);
+  --auth-surface: linear-gradient(150deg, rgba(255, 252, 251, .82), rgba(255, 246, 246, .72));
+  --auth-shadow: 0 20px 54px rgba(87, 54, 67, .16), inset 0 1px 0 rgba(255, 255, 255, .86);
+  box-sizing: border-box;
+  color: var(--ink);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  text-align: center;
+  background: var(--auth-surface);
+  border: 1px solid rgba(255, 255, 255, .68);
+  border-radius: 24px;
+  box-shadow: var(--auth-shadow);
+  -webkit-backdrop-filter: blur(18px) saturate(1.35);
+  backdrop-filter: blur(18px) saturate(1.35);
+}
+
+.auth-module--page.login-card {
+  width: min(100%, 392px);
+  max-width: 392px;
+  padding: 30px 28px 26px;
+}
+
+.auth-module--dialog.login-dlg {
+  width: min(392px, calc(100vw - 32px));
+  max-width: 392px;
+  padding: 28px 24px 24px;
+  overflow: auto;
+}
+
+.auth-module__header { margin: 0 0 16px; }
+
+.auth-module__logo {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 88px;
+  height: 88px;
+  margin: 0 auto 10px;
+}
+
+.auth-module--dialog .auth-module__logo {
+  width: 56px;
+  height: 56px;
+  margin-bottom: 10px;
+}
+
+.auth-module__logo img {
+  position: absolute;
+  display: none;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* The source assets have different transparent bounds. Their fixed optical
+   scales keep the perceived logo size stable without moving the slot. */
+.auth-module__logo-standard {
+  transform: scale(.78);
+  border-radius: 22%;
+}
+
+.auth-module__logo-romantic { transform: scale(1.1); }
+
+html[data-skin="friends"] .auth-module__logo-standard,
+html:not([data-skin]) .auth-module__logo-standard { display: block; }
+
+html[data-skin="romantic"] .auth-module__logo-romantic { display: block; }
+
+.auth-module__brand,
+.auth-module__title {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
+  color: var(--auth-accent);
+  letter-spacing: -.025em;
+}
+
+.auth-module__brand {
+  margin: 0 0 8px;
+  padding: 0;
+  font-size: 38px;
+  font-weight: 720;
+  line-height: 1.08;
+  background: none;
+  -webkit-text-fill-color: currentColor;
+}
+
+.auth-module__brand span {
+  display: inline;
+  color: inherit;
+  background: none;
+  -webkit-text-fill-color: currentColor;
+}
+
+.auth-module__title {
+  margin: 0 28px 6px;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.auth-module__description {
+  margin: 0;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.auth-module__vpn {
+  margin: -2px 0 16px;
+  color: var(--muted);
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+
+.auth-module__vpn a {
+  color: var(--auth-accent);
+  font-weight: 700;
+  text-underline-offset: 3px;
+}
+
+.auth-module__close.dlg-x {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  color: var(--muted);
+  font-size: 17px;
+  line-height: 1;
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.auth-module__close:hover { color: var(--auth-accent); background: rgba(127, 106, 116, .08); }
+
+.auth-module .login-methods { position: relative; }
+
+.auth-module .tg-widget-wrap { display: none; color-scheme: light; }
+.auth-module .tg-widget-wrap:not([hidden]) {
+  display: flex;
+  justify-content: center;
+  min-height: 46px;
+  max-height: 54px;
+  margin: 2px 0 4px;
+  overflow: hidden;
+  opacity: 1;
+  transition: min-height .28s ease, max-height .28s ease, margin .28s ease, opacity .2s ease;
+}
+.auth-module .tg-widget-wrap iframe {
+  margin: 0 auto !important;
+  color-scheme: light;
+  border-radius: 12px;
+  transition: opacity .18s ease;
+}
+.auth-module .tg-widget-wrap.tg-checking iframe { opacity: 0; }
+.auth-module .tg-widget-wrap.tg-unavailable {
+  min-height: 0 !important;
+  max-height: 0;
+  margin-block: 0 !important;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.auth-module .oauth-sep {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 14px 0;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.auth-module .oauth-sep::before,
+.auth-module .oauth-sep::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.auth-module .oauth-row { display: flex; justify-content: center; flex-wrap: wrap; gap: 10px; margin-top: 4px; }
+
+.auth-module .oauth-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  min-width: 44px;
+  height: 52px;
+  min-height: 44px;
+  padding: 0;
+  color: var(--auth-accent);
+  text-decoration: none;
+  background: rgba(255, 255, 255, .76);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  cursor: pointer;
+  transition: transform .15s, box-shadow .2s, border-color .2s;
+}
+.auth-module .oauth-btn:hover { transform: translateY(-1px); box-shadow: 0 8px 18px rgba(80, 55, 67, .14); }
+.auth-module .oauth-tg:hover { border-color: #2aabee; }
+.auth-module .oauth-discord:hover { border-color: #5865f2; }
+.auth-module .oauth-google:hover { border-color: #ea4335; }
+.auth-module .oauth-yandex:hover { border-color: #fc3f1d; }
+.auth-module .oauth-ico { display: block; width: 24px; height: 24px; }
+.auth-module span.oauth-ico { display: grid; place-items: center; font-size: 18px; font-weight: 700; }
+.auth-module .oauth-btn[aria-busy="true"] { opacity: .6; pointer-events: none; }
+.auth-module .oauth-btn.disabled[aria-disabled="true"] {
+  opacity: .52;
+  filter: grayscale(.2);
+  cursor: default;
+  pointer-events: none;
+}
+.auth-module .oauth-btn.disabled[aria-disabled="true"]:is(:hover, :active) { transform: none; box-shadow: none; }
+.auth-module .login-methods.gated { opacity: .55; filter: grayscale(.35); }
+.auth-module .login-methods.gated .oauth-btn { cursor: not-allowed; }
+
+.auth-module .login-legal {
+  margin: 16px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.auth-module .login-legal a { color: inherit; text-underline-offset: 2px; }
+
+.auth-module .login-return {
+  width: auto;
+  min-width: 0;
+  height: auto;
+  min-height: 44px;
+  margin-top: 10px;
+  padding: 0 14px;
+  color: var(--muted);
+  background: transparent;
+  border-color: transparent;
+}
+
+.auth-module__error.err { margin: 8px 0 0; }
+
+html[data-skin="friends"] .auth-module { --auth-accent: #4f5cad; }
+
+html[data-theme="dark"] .auth-module {
+  --auth-surface: linear-gradient(150deg, rgba(39, 34, 42, .88), rgba(30, 27, 34, .84));
+  --auth-shadow: 0 24px 64px rgba(0, 0, 0, .38), inset 0 1px 0 rgba(255, 255, 255, .07);
+  border-color: rgba(255, 255, 255, .11);
+}
+html[data-theme="dark"] .auth-module .oauth-btn { background: rgba(42, 33, 40, .82); }
+
+@media (max-width: 480px) {
+  .auth-module--page.login-card { padding: 26px 20px 22px; }
+  .auth-module--dialog.login-dlg { padding: 26px 20px 22px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-module *, .auth-module *::before, .auth-module *::after {
+    scroll-behavior: auto !important;
+    transition-duration: .01ms !important;
+    animation-duration: .01ms !important;
+  }
+}

@@ -1014,11 +1014,13 @@ window.UI = (() => {
     // только что открытое меню (wasOpen=true), и «⋯» переставало работать.
     if (root.__cardMenuInit) return;
     root.__cardMenuInit = true;
-    function closeAll() {
+    function closeAll(restoreFocus) {
       root.querySelectorAll(".menu.open").forEach(function (m) {
+        var focusWasInside = m.contains(document.activeElement);
         m.classList.remove("open");
         var b = m.parentNode && m.parentNode.querySelector(".more");
         if (b) b.setAttribute("aria-expanded", "false");
+        if (restoreFocus && focusWasInside && b) b.focus();
       });
     }
     root.addEventListener("click", function (e) {
@@ -1037,7 +1039,7 @@ window.UI = (() => {
       if (!e.target.closest(".menu")) closeAll();
     });
     document.addEventListener("keydown", function (e) {
-      if (e.key === "Escape") closeAll();
+      if (e.key === "Escape") closeAll(true);
     });
   }
 

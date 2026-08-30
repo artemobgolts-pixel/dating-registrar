@@ -791,6 +791,24 @@ class BackendV30RegressionTests(unittest.TestCase):
             {"custom-shared.webp", "live-shared.webp"},
         )
 
+    def test_category_activity_is_defined_only_by_a_valid_future_deadline(self):
+        now = datetime(2030, 1, 1, 12, 0, 0)
+        cases = (
+            ("2030-01-01T12:00:01", "active"),
+            ("2030-01-01T12:00:00", "expired"),
+            ("2029-12-31T23:59:59", "expired"),
+            (None, "missing"),
+            ("", "missing"),
+            ("not-a-date", "missing"),
+            ("2030-01-01T12:00:01+03:00", "missing"),
+        )
+        for deadline, expected in cases:
+            with self.subTest(deadline=deadline):
+                self.assertEqual(
+                    admin_routes._category_deadline_state(deadline, now=now),
+                    expected,
+                )
+
     def test_operator_report_lists_use_constant_joined_queries(self):
         reported_date = self._date(self.owner_id, "С жалобами")
         clean_date = self._date(self.owner_id, "Без открытых жалоб")

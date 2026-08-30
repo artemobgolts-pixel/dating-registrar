@@ -2169,7 +2169,7 @@ with TestClient(main.app, follow_redirects=False) as cown, \
     # вошедший гость жалуется на событие; анонимный сценарий покрыт отдельно
     main._rates.clear()
     assert tg_login(g, 990011, username="reporter").json()["status"] == "ok"
-    assert "пожаловаться" in g.get(f"/c/{rtok}").text
+    assert "пожаловаться" in g.get(f"/c/{rtok}").text.lower()
     r = g.post(f"/c/{rtok}/report",
                data={"target_type": "date", "target_id": rdid, "reason": "спам"})
     assert r.status_code == 200 and r.json()["ok"]
@@ -2572,8 +2572,9 @@ with TestClient(main.app, follow_redirects=False) as cl:
     assert 'data-skin-switchable' in lp
     assert 'data-skin-set="friends"' in lp and 'data-skin-set="romantic"' in lp
     assert "Стандартная тема" in lp and "Романтическая тема" in lp
-    assert "login-mark-standard" in lp and "logo-standard.png" in lp
-    assert "login-mark-romantic" in lp and "logo-romantic.png" in lp
+    assert "auth-module--page" in lp and "auth.css" in lp
+    assert "auth-module__logo-standard" in lp and "logo-standard.png" in lp
+    assert "auth-module__logo-romantic" in lp and "logo-romantic.png" in lp
     assert 'transform="translate(2.41 2.64) scale(.78)"' in lp
     assert '<circle cx="12" cy="12" r="11" fill="#FC3F1D"/>' in lp
     assert '<html lang="ru" data-skin="friends" data-skin-switchable>' in lp
@@ -2962,7 +2963,7 @@ with TestClient(main.app, follow_redirects=False) as cnata, \
     assert f'data-add="/d/{pub["share_token"]}/add"' in feed
     assert 'class="cfeed-owner"' not in feed and "Автор:" not in feed
     assert f'href="/u/{pub["owner_id"]}"' not in feed
-    assert "data-community-report" in feed and "пожаловаться" in feed
+    assert "data-community-report" in feed and "пожаловаться" in feed.lower()
     assert f'data-report-url="/d/{pub["share_token"]}/report"' in feed
     assert "?w=480 480w" in feed and 'fetchpriority="low"' in feed
     # автор не видит своё событие в собственной ленте
@@ -3440,8 +3441,9 @@ with TestClient(main.app, follow_redirects=False) as cui2:
     assert 'action="/admin/categories/create"' in category_new
     assert "Новая подборка" in category_new and "Например, Летние планы" in category_new
     assert 'class="btn editor-back category-new-back"' in category_new
-    # #10: ⋯-меню идёт ПЕРЕД стрелкой (menu-wrap раньше cat-arrow)
-    assert cats.index("menu-wrap") < cats.index("cat-arrow")
+    # ⋯-меню живёт поверх превью и имеет контекстное доступное имя.
+    assert cats.index('class="cat-media"') < cats.index('class="menu-wrap cat-card-menu"')
+    assert "Ещё действия с подборкой" in cats
 
     # GET списка событий не чинит данные и не захватывает writer-lock.
     # Одноразовый repair легаси-строк проверяется отдельно миграционным тестом.

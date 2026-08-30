@@ -261,26 +261,27 @@ class CopyActionTests(unittest.TestCase):
             copied_card = category_card_fragment(
                 categories_page.text, int(copied_category["id"]),
             )
-            status_matrix = (
-                (source_card, (
-                    ("info", "Голосование идёт"),
-                    ("success", "Ссылка активна"),
-                )),
-                (copied_card, (
-                    ("neutral", "Без голосования"),
-                    ("danger", "Ссылка выключена"),
-                )),
+            # Рутинные состояния не занимают место в карточке: обе подборки
+            # активны по будущему дедлайну, а видимой остаётся только проблема
+            # выключенной ссылки у копии. Полное описание доступно скринридеру.
+            self.assertGreaterEqual(
+                categories_page.text.count('data-category-active="true"'), 2,
             )
-            for card, expected_statuses in status_matrix:
-                self.assertEqual(
-                    card.count('class="entity-status entity-status--'), 2,
-                )
-                for tone, label in expected_statuses:
-                    self.assertRegex(
-                        card,
-                        rf'(?s)class="entity-status entity-status--{tone}"'
-                        rf'[^>]*>.*?<span>{re.escape(label)}</span>',
-                    )
+            self.assertEqual(
+                source_card.count('class="entity-status entity-status--'), 0,
+            )
+            self.assertIn("Голосование: идёт.", source_card)
+            self.assertIn("Ссылка активна.", source_card)
+
+            self.assertEqual(
+                copied_card.count('class="entity-status entity-status--'), 1,
+            )
+            self.assertRegex(
+                copied_card,
+                r'(?s)class="entity-status entity-status--danger"'
+                r'[^>]*>.*?<span>Ссылка выключена</span>',
+            )
+            self.assertIn("Голосование: не настроено.", copied_card)
             copied_files = {copied_category["og_image"]}
             conn.close()
             self.assertTrue(all((main.images.UPLOAD_DIR / name).exists()

@@ -1,6 +1,19 @@
 {# Карточки ленты событий (фрагмент для бесконечного скролла). Категорию и
    модификатор оплаты НЕ показываем. Клик по карточке открывает мини-виджет,
    а основное действие сразу добавляет отдельную копию в коллекцию. #}
+{% macro report_menu(d, placement) %}
+<div class="menu-wrap cfeed-menu cfeed-menu--{{ placement }}" data-stop>
+  <button type="button" class="more" data-stop
+          aria-label="Действия с событием «{{ d['name'] }}»"
+          aria-controls="cfeed-menu-{{ d['id'] }}-{{ placement }}"
+          aria-expanded="false">⋯</button>
+  <div class="menu" id="cfeed-menu-{{ d['id'] }}-{{ placement }}">
+    <button type="button" class="report-link" data-stop data-community-report
+            data-report-url="/d/{{ d['share_token'] }}/report"
+            data-report-id="{{ d['id'] }}" data-report-name="{{ d['name'] }}">Пожаловаться</button>
+  </div>
+</div>
+{% endmacro %}
 {% for d in cards %}
 <article class="cfeed-card" data-widget="{{ d['id'] }}" role="button" tabindex="0"
          aria-label="Открыть «{{ d['name'] }}»">
@@ -12,17 +25,14 @@
          sizes="(max-width: 720px) calc(100vw - 72px), 360px" alt=""
          loading="lazy" fetchpriority="low" decoding="async"
          {% if d['images'][0]['focus'] %}style="object-position:{{ d['images'][0]['focus'] }}"{% endif %}>
+    {{ report_menu(d, 'media') }}
   </div>
   {% elif d['videos'] %}
-  <div class="cfeed-ph cfeed-ph-vid"><span aria-hidden="true">🎬</span></div>
+  <div class="cfeed-ph cfeed-ph-vid"><span aria-hidden="true">🎬</span>{{ report_menu(d, 'media') }}</div>
   {% endif %}
   <div class="cfeed-body">
-    <div class="cfeed-title-row">
-      <h3 class="cfeed-ttl serif">{{ d['name'] }}</h3>
-      <button type="button" class="report-link cfeed-report" data-stop data-community-report
-              data-report-url="/d/{{ d['share_token'] }}/report"
-              data-report-id="{{ d['id'] }}" data-report-name="{{ d['name'] }}">пожаловаться</button>
-    </div>
+    {% if not d['images'] and not d['videos'] %}{{ report_menu(d, 'body') }}{% endif %}
+    <h3 class="cfeed-ttl serif">{{ d['name'] }}</h3>
     {% set when_str = d['starts_at'] | when(d['ends_at']) %}
     {% if when_str or d['place'] %}
     <div class="cfeed-meta">

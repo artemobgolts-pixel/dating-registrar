@@ -160,7 +160,11 @@ class NotificationUiTests(unittest.TestCase):
         self.assertNotIn('class="cfeed-owner"', cards)
         self.assertIn("d['owner_display']", widget)
         self.assertIn('class="cfeed-owner"', widget)
-        self.assertIn('class="cfeed-title-row"', cards)
+        self.assertNotIn('class="cfeed-title-row"', cards)
+        self.assertIn("{% macro report_menu(d, placement) %}", cards)
+        self.assertIn("{{ report_menu(d, 'media') }}", cards)
+        self.assertIn("{{ report_menu(d, 'body') }}", cards)
+        self.assertIn('class="menu-wrap cfeed-menu cfeed-menu--{{ placement }}"', cards)
         self.assertIn("data-community-report", cards)
         self.assertIn('data-report-url="/d/{{ d[\'share_token\'] }}/report"', cards)
         self.assertLess(
@@ -173,8 +177,9 @@ class NotificationUiTests(unittest.TestCase):
         )
         self.assertIn('"X-CSRF-Token": document.body.dataset.csrf || ""', admin)
         self.assertIn("new FormData(reportForm)", admin)
-        self.assertIn(".report-link {", css)
-        self.assertIn("text-decoration: underline dotted", css)
+        self.assertIn(".cfeed-menu--media", css)
+        self.assertIn(".cfeed-menu .report-link", css)
+        self.assertIn('button.closest(".cfeed-menu")', admin)
 
     def test_categories_have_spacing_and_a_default_thumbnail(self):
         categories = (APP / "templates/admin/categories.html").read_text(
@@ -231,9 +236,10 @@ class NotificationUiTests(unittest.TestCase):
             "карточки и строки событий должны получать тон из одного макроса",
         )
         self.assertIn(
-            'data-status-tone="{{ category_tone(c[\'voting_status\'], c[\'link_enabled\']) }}"',
+            'data-status-tone="{{ \'success\' if c[\'is_active\'] else \'neutral\' }}"',
             categories,
         )
+        self.assertIn('data-category-active="{{ \'true\' if c[\'is_active\'] else \'false\' }}"', categories)
         self.assertIn('data-status-tone="{{ event_tone(d) }}"', detail)
         self.assertIn(
             ":is(.dcard.dcard, .drow.drow, .cat-card.cat-card)[data-status-tone]",
@@ -245,33 +251,23 @@ class NotificationUiTests(unittest.TestCase):
 
         env = Environment(loader=FileSystemLoader(APP / "templates"))
         template = env.from_string(
-            "{% from 'admin/_entity_status.html' import event_tone, category_tone %}"
-            "{{ event_tone(event) }}|"
-            "{{ category_tone(category_status, link_enabled, counting) }}"
+            "{% from 'admin/_entity_status.html' import event_tone %}"
+            "{{ event_tone(event) }}"
         )
         active = {"archived_at": None, "is_draft": 0}
         draft = {"archived_at": None, "is_draft": 1}
         archived = {"archived_at": "2030-01-01", "is_draft": 0}
         self.assertEqual(
-            template.render(
-                event=active, category_status="resolved",
-                link_enabled=True, counting=False,
-            ),
-            "success|success",
+            template.render(event=active),
+            "success",
         )
         self.assertEqual(
-            template.render(
-                event=draft, category_status="open",
-                link_enabled=True, counting=True,
-            ),
-            "warning|warning",
+            template.render(event=draft),
+            "warning",
         )
         self.assertEqual(
-            template.render(
-                event=archived, category_status="open",
-                link_enabled=False, counting=False,
-            ),
-            "neutral|danger",
+            template.render(event=archived),
+            "neutral",
         )
 
     def test_countdown_is_continuous_turbo_safe_and_reused_on_dashboard(self):
