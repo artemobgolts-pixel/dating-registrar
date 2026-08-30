@@ -232,6 +232,7 @@ class FrontendMediaContractTests(unittest.TestCase):
         templates = (
             APP / "templates/public/category.html",
             APP / "templates/public/share.html",
+            APP / "templates/admin/_community_cards.html",
             APP / "templates/admin/_community_widget.html",
         )
         for path in templates:
@@ -240,15 +241,15 @@ class FrontendMediaContractTests(unittest.TestCase):
             self.assertIn("?w=96 96w", text, path.name)
             self.assertIn("?w=128 128w", text, path.name)
 
-        # Автор скрыт в ленте и появляется только после открытия виджета.
+        # Автор одинаково узнаваем в карточке ленты и открытом виджете.
         feed_card = (APP / "templates/admin/_community_cards.html").read_text(
             encoding="utf-8",
         )
         widget = (APP / "templates/admin/_community_widget.html").read_text(
             encoding="utf-8",
         )
-        self.assertNotIn("d['owner_display']", feed_card)
-        self.assertNotIn('class="cfeed-owner"', feed_card)
+        self.assertIn("d['owner_display']", feed_card)
+        self.assertIn('class="cfeed-owner cfeed-card-owner"', feed_card)
         self.assertIn("d['owner_display']", widget)
         self.assertIn('class="cfeed-owner"', widget)
         self.assertIn(">Добавить</button>", feed_card)

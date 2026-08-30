@@ -450,8 +450,13 @@ class CopyActionTests(unittest.TestCase):
             self.assertIn(
                 f'data-add="/d/date-880301/add"', feed.text,
             )
-            self.assertNotIn('class="cfeed-owner"', feed.text)
-            self.assertNotIn("Автор: ", feed.text)
+            self.assertIn('class="cfeed-owner cfeed-card-owner"', feed.text)
+            self.assertIn('class="cfeed-owner-name">Тест</span>', feed.text)
+            self.assertIn('href="/u/', feed.text)
+            self.assertIn(
+                'data-copy="https://copy.test/d/date-880301"', feed.text,
+            )
+            self.assertIn(">Скопировать ссылку</button>", feed.text)
 
             widget = viewer.get(f"/admin/community/date/{source_date}")
             self.assertEqual(widget.status_code, 200)

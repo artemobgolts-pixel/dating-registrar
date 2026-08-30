@@ -139,7 +139,7 @@ class NotificationUiTests(unittest.TestCase):
         self.assertIn("требуют действия", base)
         self.assertNotIn("непрочитанных", base)
 
-    def test_event_feed_hides_author_until_widget_and_submits_reports_with_csrf(self):
+    def test_event_feed_shows_author_and_submits_reports_with_csrf(self):
         dashboard = (APP / "templates/admin/dashboard.html").read_text(
             encoding="utf-8",
         )
@@ -156,8 +156,8 @@ class NotificationUiTests(unittest.TestCase):
         self.assertNotIn("Встречи сообщества", dashboard)
         self.assertNotIn("Публичные события других людей", dashboard)
         self.assertIn('id="communityReportDlg"', dashboard)
-        self.assertNotIn("d['owner_display']", cards)
-        self.assertNotIn('class="cfeed-owner"', cards)
+        self.assertIn("d['owner_display']", cards)
+        self.assertIn('class="cfeed-owner cfeed-card-owner"', cards)
         self.assertIn("d['owner_display']", widget)
         self.assertIn('class="cfeed-owner"', widget)
         self.assertNotIn('class="cfeed-title-row"', cards)
@@ -165,6 +165,10 @@ class NotificationUiTests(unittest.TestCase):
         self.assertIn("{{ report_menu(d, 'media') }}", cards)
         self.assertIn("{{ report_menu(d, 'body') }}", cards)
         self.assertIn('class="menu-wrap cfeed-menu cfeed-menu--{{ placement }}"', cards)
+        self.assertIn(
+            'data-copy="{{ BASE_URL }}/d/{{ d[\'share_token\'] }}"', cards,
+        )
+        self.assertIn(">Скопировать ссылку</button>", cards)
         self.assertIn("data-community-report", cards)
         self.assertIn('data-report-url="/d/{{ d[\'share_token\'] }}/report"', cards)
         self.assertLess(

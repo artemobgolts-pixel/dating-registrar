@@ -8,6 +8,9 @@
           aria-controls="cfeed-menu-{{ d['id'] }}-{{ placement }}"
           aria-expanded="false">⋯</button>
   <div class="menu" id="cfeed-menu-{{ d['id'] }}-{{ placement }}">
+    <button type="button" data-stop
+            data-copy="{{ BASE_URL }}/d/{{ d['share_token'] }}">Скопировать ссылку</button>
+    <div class="sepa" role="separator"></div>
     <button type="button" class="report-link" data-stop data-community-report
             data-report-url="/d/{{ d['share_token'] }}/report"
             data-report-id="{{ d['id'] }}" data-report-name="{{ d['name'] }}">Пожаловаться</button>
@@ -33,6 +36,19 @@
   <div class="cfeed-body">
     {% if not d['images'] and not d['videos'] %}{{ report_menu(d, 'body') }}{% endif %}
     <h3 class="cfeed-ttl serif">{{ d['name'] }}</h3>
+    <a class="cfeed-owner cfeed-card-owner" href="/u/{{ d['owner_id'] }}" data-stop
+       aria-label="Автор: {{ d['owner_display'] }}">
+      {% if d['owner_avatar'] %}
+      <img class="cfeed-ava" src="/u/{{ d['owner_id'] }}/avatar?w=64"
+           srcset="/u/{{ d['owner_id'] }}/avatar?w=64 64w,
+                   /u/{{ d['owner_id'] }}/avatar?w=96 96w,
+                   /u/{{ d['owner_id'] }}/avatar?w=128 128w"
+           sizes="26px" alt="" width="26" height="26" loading="lazy" decoding="async">
+      {% else %}
+      <span class="cfeed-ava cfeed-ava-ph" aria-hidden="true">🙂</span>
+      {% endif %}
+      <span class="cfeed-owner-name">{{ d['owner_display'] }}</span>
+    </a>
     {% set when_str = d['starts_at'] | when(d['ends_at']) %}
     {% if when_str or d['place'] %}
     <div class="cfeed-meta">

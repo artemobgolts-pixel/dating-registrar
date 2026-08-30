@@ -2961,8 +2961,10 @@ with TestClient(main.app, follow_redirects=False) as cnata, \
     assert ">Добавить</button>" in feed, "главное действие карточки копирует событие"
     assert "Добавить в коллекцию" not in feed
     assert f'data-add="/d/{pub["share_token"]}/add"' in feed
-    assert 'class="cfeed-owner"' not in feed and "Автор:" not in feed
-    assert f'href="/u/{pub["owner_id"]}"' not in feed
+    assert 'class="cfeed-owner cfeed-card-owner"' in feed
+    assert f'href="/u/{pub["owner_id"]}"' in feed
+    assert f'data-copy="https://example.com/d/{pub["share_token"]}"' in feed
+    assert ">Скопировать ссылку</button>" in feed
     assert "data-community-report" in feed and "пожаловаться" in feed.lower()
     assert f'data-report-url="/d/{pub["share_token"]}/report"' in feed
     assert "?w=480 480w" in feed and 'fetchpriority="low"' in feed
