@@ -4749,6 +4749,7 @@ h1 {
     backdrop-filter: none;
   }
   .secondary-top-control { display: none !important; }
+  .secondary-top-control.mobile-top-control { display: inline-flex !important; }
   .mobile-account-menu { display: block; }
   .account-popover { right: 0; }
   .top nav.glass-nav {

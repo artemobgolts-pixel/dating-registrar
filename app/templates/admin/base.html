@@ -102,11 +102,11 @@
     {% if user['is_operator'] %}<a href="/operator/" class="op-link"><span class="ic">{% with icon='settings' %}{% include "admin/_icon.html" %}{% endwith %}</span><span class="lb">Админ</span></a>{% endif %}
   </nav>
   <div class="top-right">
-    <button type="button" class="bell secondary-top-control" data-theme-toggle aria-label="Включить тёмную тему">
+    <button type="button" class="bell secondary-top-control mobile-top-control" data-theme-toggle aria-label="Включить тёмную тему">
       <span class="bell-ic theme-moon-icon" data-theme-icon aria-hidden="true"></span>
     </button>
     {% if VPN_URL %}
-    <a class="bell bell-link secondary-top-control" href="{{ VPN_URL }}" target="_blank" rel="noopener"
+    <a class="bell bell-link secondary-top-control mobile-top-control" href="{{ VPN_URL }}" target="_blank" rel="noopener"
        aria-label="VPN">
       <img class="bell-img" src="{{ asset('vpn-logo.webp') }}" alt="" width="42" height="42" decoding="async">
       <span class="bell-lb">VPN</span>
@@ -127,8 +127,6 @@
       </summary>
       <div class="account-popover" role="group" aria-label="Профиль и настройки">
         <a href="/admin/profile">{% with icon='profile' %}{% include "admin/_icon.html" %}{% endwith %}<span>Мой профиль</span></a>
-        <button type="button" data-theme-toggle>{% with icon='gather' %}{% include "admin/_icon.html" %}{% endwith %}<span data-theme-label>Сменить тему</span></button>
-        {% if VPN_URL %}<a href="{{ VPN_URL }}" target="_blank" rel="noopener">{% with icon='link' %}{% include "admin/_icon.html" %}{% endwith %}<span>VPN</span></a>{% endif %}
         {% if user['is_operator'] %}<a href="/operator/">{% with icon='settings' %}{% include "admin/_icon.html" %}{% endwith %}<span>Администрирование</span></a>{% endif %}
         <form method="post" action="/admin/logout">
           <input type="hidden" name="csrf" value="{{ csrf }}">
