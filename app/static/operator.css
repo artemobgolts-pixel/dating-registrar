@@ -213,13 +213,20 @@ button { color: inherit; }
   background: rgba(250, 246, 244, .58);
 }
 
-.bg-smoke .ink-canvas {
+.bg-smoke .ink-canvas,
+.bg-smoke .ink-static-frame {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
-  opacity: .38;
+  display: block;
+  object-fit: cover;
+  pointer-events: none;
+  opacity: 0;
 }
+.bg-smoke.has-ink .ink-canvas,
+.bg-smoke.has-ink .ink-static-frame { opacity: .38; }
+.bg-smoke.has-ink > span { display: none; }
 
 .bg-smoke > span {
   position: absolute;
@@ -2369,7 +2376,8 @@ html[data-theme="dark"][data-skin="friends"] body {
 }
 
 html[data-theme="dark"] .bg-smoke::after { background: rgba(23,20,24,.73); }
-html[data-theme="dark"] .bg-smoke .ink-canvas { opacity: .24; }
+html[data-theme="dark"] .bg-smoke.has-ink .ink-canvas,
+html[data-theme="dark"] .bg-smoke.has-ink .ink-static-frame { opacity: .24; }
 html[data-theme="dark"][data-skin="friends"] .bg-smoke::after { background: rgba(21,25,35,.73); }
 
 html[data-theme="dark"] .op-sidebar {

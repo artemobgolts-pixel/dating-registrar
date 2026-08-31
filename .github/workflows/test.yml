@@ -35,7 +35,7 @@ jobs:
         run: |
           for test in tests/test_*.py; do
             case "$test" in
-              tests/test_ink.py|tests/test_smoke.py) continue ;;
+              tests/test_smoke.py) continue ;;
             esac
             echo "::group::$test"
             python "$test"

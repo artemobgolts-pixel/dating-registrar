@@ -22,6 +22,7 @@ from playwright.sync_api import sync_playwright
 
 HERE = Path(__file__).resolve().parent
 INK_JS = HERE.parent / "app" / "static" / "ink.js"
+INK_RUNTIME_JS = HERE.parent / "app" / "static" / "ink-runtime.js"
 
 # Флаги, чтобы headless Chromium рендерил WebGL2 без железного GPU.
 GL_FLAGS = ["--use-gl=angle", "--use-angle=swiftshader",
@@ -67,6 +68,7 @@ def capture(out, clicks=(), frames=90, dt_ms=16, w=900, h=600, debug=False):
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
     ink_src = INK_JS.read_text(encoding="utf-8")
+    runtime_src = INK_RUNTIME_JS.read_text(encoding="utf-8")
     click_map = {}
     for fr, x, y in clicks:
         click_map.setdefault(int(fr), []).append((x, y))
@@ -85,7 +87,10 @@ def capture(out, clicks=(), frames=90, dt_ms=16, w=900, h=600, debug=False):
         # performance.now/requestAnimationFrame. __INK_PRESERVE — чтобы кадр
         # сохранялся в буфере и его можно было прочитать через toDataURL.
         page.evaluate("window.__INK_PRESERVE = true;")
+        page.evaluate("window.__INK_FORCE_MAIN = true;")
+        page.evaluate("document.documentElement.dataset.inkInteractive = '1';")
         page.evaluate(CLOCK_JS)
+        page.add_script_tag(content=runtime_src)
         page.add_script_tag(content=ink_src)
         # ink.js при загрузке уже зарегистрировал первый кадр через наш rAF.
         for f in range(frames):
@@ -117,7 +122,8 @@ def _save_canvas_png(page, out):
     Path(out).write_bytes(base64.b64decode(data_url.split(",", 1)[1]))
 
 
-def capture_clicks(out, clicks, bg_time=8.0, w=900, h=600):
+def capture_clicks(out, clicks, bg_time=8.0, w=900, h=600,
+                   skin="romantic", theme="light"):
     """Снять PNG детерминированно через тест-хук __inkRenderClicks.
 
     В отличие от capture() здесь НЕ крутится жидкость и нет случайного dye-следа:
@@ -131,6 +137,7 @@ def capture_clicks(out, clicks, bg_time=8.0, w=900, h=600):
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
     ink_src = INK_JS.read_text(encoding="utf-8")
+    runtime_src = INK_RUNTIME_JS.read_text(encoding="utf-8")
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=GL_FLAGS)
         page = browser.new_page(viewport={"width": w, "height": h},
@@ -138,6 +145,14 @@ def capture_clicks(out, clicks, bg_time=8.0, w=900, h=600):
                                 reduced_motion="no-preference")
         page.set_content(PAGE_HTML)
         page.evaluate("window.__INK_TEST = true;")
+        page.evaluate("window.__INK_FORCE_MAIN = true;")
+        page.evaluate("window.__INK_PRESERVE = true;")
+        page.evaluate(
+            "([skin, theme]) => { document.documentElement.dataset.skin = skin; "
+            "document.documentElement.dataset.theme = theme; }",
+            [skin, theme],
+        )
+        page.add_script_tag(content=runtime_src)
         page.add_script_tag(content=ink_src)
         if not page.evaluate("() => window.__inkReady === true"):
             browser.close()
@@ -148,6 +163,15 @@ def capture_clicks(out, clicks, bg_time=8.0, w=900, h=600):
         page.locator(".ink-canvas").screenshot(path=str(out))
         browser.close()
     return out
+
+
+def capture_background(out, skin="romantic", theme="light", bg_time=8.0,
+                       w=1440, h=900):
+    """Снять чистый текстурный фон при фиксированном времени (main-thread)."""
+    return capture_clicks(
+        out=out, clicks=(), bg_time=bg_time, w=w, h=h,
+        skin=skin, theme=theme,
+    )
 
 
 if __name__ == "__main__":

@@ -1,919 +1,605 @@
-/* Фон «растекающиеся чернила» (вариант A) + локальная деформация-жидкость.
- *
- * Видимый фон — наш прежний доменно-искажённый fbm: чернильные пятна нашей
- * палитры медленно перетекают (анимация не изменилась). Поверх него работает
- * GPU-решатель Навье–Стокса (стабильные жидкости): курсор вливает скорость,
- * она течёт и завихряется по законам жидкости — и этим полем скоростей мы
- * ЛОКАЛЬНО смещаем фон у курсора. Краску (dye) не рисуем: фон остаётся нашим,
- * а деформация живёт только маленьким пятном под курсором и плавно тает.
- *
- * Самохостинг, без зависимостей и Three.js — под нашу строгую CSP.
- * Нет WebGL2 / float-рендера → тихий выход, остаётся CSS-дым (.bg-smoke).
- * prefers-reduced-motion / Save-Data / действительно слабое устройство →
- * один статичный кадр. На остальных устройствах — постоянные 30 FPS и
- * адаптивное разрешение по реальной стоимости кадра.
- */
+/* date4you ink controller: policy, progressive OffscreenCanvas and DOM lifecycle. */
 (function () {
   "use strict";
 
   var host = document.querySelector(".bg-smoke");
   if (!host) return;
-  // Под Turbo фон помечен data-turbo-permanent и переживает переходы вместе со
-  // своим canvas. Если скрипт исполнится повторно — выходим, чтобы не плодить
-  // второй WebGL-контекст и RAF-цикл на том же узле.
-  if (host.classList.contains("has-ink") || host.querySelector(".ink-canvas")) return;
 
-  var reduce = window.matchMedia &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var script = document.currentScript ||
+    document.querySelector('script[src*="/ink.js"]');
+  var assets = script ? script.dataset : {};
+  var controller = host.__d4yInkController;
+  if (controller) {
+    controller.refresh();
+    return;
+  }
+
+  var reduceQuery = window.matchMedia &&
+    window.matchMedia("(prefers-reduced-motion: reduce)");
+  var reduceMotion = !!(reduceQuery && reduceQuery.matches);
   var connection = navigator.connection ||
     navigator.mozConnection || navigator.webkitConnection;
   var saveData = !!(connection && connection.saveData);
-  var deviceMemory = Number(navigator.deviceMemory);
-  var hardwareConcurrency = Number(navigator.hardwareConcurrency);
-  // Не считаем устройство слабым по одному лишь небольшому числу ядер:
-  // браузеры могут скрывать/занижать эту метрику. 1 ГБ памяти — уже достаточно
-  // сильный сигнал; для 2 ГБ требуем ещё и не более двух логических процессоров.
-  // Если API метрик нет, фон остаётся анимированным.
-  var veryWeakDevice =
-    (deviceMemory > 0 && deviceMemory <= 1) ||
-    (deviceMemory > 1 && deviceMemory <= 2 &&
-      hardwareConcurrency > 0 && hardwareConcurrency <= 2);
-  var staticBackground = reduce || saveData || veryWeakDevice;
-  // CSS-фолбэк должен замереть по тем же правилам даже при отсутствии WebGL.
-  // Класс ставим до попытки создать контекст, чтобы Save-Data не оставлял
-  // анимированные градиенты, дым, сердечки или орбиты.
-  document.documentElement.classList.toggle("ink-static", staticBackground);
-  if (staticBackground) {
-    host.querySelectorAll("animate, animateTransform").forEach(function (node) {
-      node.remove();
-    });
+  var memory = Number(navigator.deviceMemory);
+  var cores = Number(navigator.hardwareConcurrency);
+  var veryWeak = (memory > 0 && memory <= 1) ||
+    (memory > 1 && memory <= 2 && cores > 0 && cores <= 2);
+  var deviceStaticPolicy = saveData || veryWeak;
+  var staticPolicy = reduceMotion || deviceStaticPolicy;
+
+  var canvas = null;
+  var worker = null;
+  var renderer = null;
+  var backendReady = false;
+  var firstFrameReady = false;
+  var workerTimer = 0;
+  var revealRaf = 0;
+  var backendGeneration = 0;
+  var failedOver = false;
+  var runtimeLoading = false;
+  var runtimeWaiters = [];
+  var latestRuntimeStats = {};
+  var controllerStats = {
+    backend: staticPolicy ? "poster" : "pending",
+    worker: false,
+    pointerFlushes: 0,
+    firstFrameReady: false,
+  };
+
+  var pendingMove = null;
+  var pendingClicks = [];
+  var inputRaf = 0;
+  var lastPointer = {x: 0.5, y: 0.5};
+  var stateCache = null;
+  var posterLoader = null;
+  var posterGeneration = 0;
+
+  function assetFallback(name) {
+    if (!script || !script.src) return "";
+    try {
+      var url = new URL(script.src, window.location.href);
+      url.pathname = url.pathname.replace(/ink\.js$/, name);
+      return url.toString();
+    } catch (_) {
+      return "";
+    }
   }
-  var darkTheme = document.documentElement.getAttribute("data-theme") === "dark";
+
+  var runtimeSrc = assets.runtimeSrc || assetFallback("ink-runtime.js");
+  var workerSrc = assets.workerSrc || assetFallback("ink-worker.js");
+
+  function darkTheme() {
+    return document.documentElement.getAttribute("data-theme") === "dark";
+  }
   function friendsSkin() {
-    // body нужен для Turbo: он заменяется между публичными страницами, тогда как
-    // <html> и постоянный canvas могут пережить переход.
     var bodySkin = document.body && document.body.getAttribute("data-skin");
     return (bodySkin || document.documentElement.getAttribute("data-skin")) === "friends";
   }
-
-  // Интерактивная часть — настройка аккаунта. Сам живой фон рисуется всегда,
-  // но движение мыши и клики читаются только при явном серверном разрешении.
-  // Проверяем атрибут на каждом событии: Turbo может заменить <body>, сохранив
-  // постоянный canvas и этот единственный экземпляр скрипта.
-  function interactiveEnabled() {
+  function cursorEffects() {
     return document.documentElement.getAttribute("data-ink-interactive") === "1" ||
       (!!document.body && document.body.getAttribute("data-ink-interactive") === "1");
   }
-
-  var canvas = document.createElement("canvas");
-  canvas.className = "ink-canvas";
-  canvas.setAttribute("aria-hidden", "true");
-
-  var gl = canvas.getContext("webgl2", {
-    alpha: true, antialias: false, depth: false, stencil: false,
-    premultipliedAlpha: false, powerPreference: "low-power",
-    // только в скриншот-тестах: иначе toDataURL читает уже очищенный буфер
-    preserveDrawingBuffer: !!window.__INK_PRESERVE,
-  });
-  if (!gl) return;
-  if (!gl.getExtension("EXT_color_buffer_float")) return;  // нет float-рендера
-  var LINEAR_OK = !!gl.getExtension("OES_texture_float_linear");
-
-  host.appendChild(canvas);
-  host.classList.add("has-ink");
-
-  // --- параметры (можно крутить) ------------------------------------------
-  var SMALL = Math.min(window.innerWidth, window.innerHeight) < 700;
-  var SIM_RES    = SMALL ? 110 : 150;  // сетка скоростей/давления
-  var DYE_RES    = SMALL ? 200 : 280;  // сетка краски (чернил) — повыше, для тендрилов
-  var ITER       = 20;                 // итерации давления (несжимаемость)
-  var CURL       = 0;                  // завихрённость ВЫКЛ в покое — давала зерно по экрану
-  var CLICK_CURL = 0.5;                // вихри едва заметны: кончики чуть колышет, краску в шарики НЕ скатывает
-  var VEL_DISS   = 1.1;                 // скорость гаснет быстро: нити-корона не сметается в вихри
-  var PRESS_DISS = 0.8;
-  var SPLAT_R    = 0.00045;            // размер зоны скорости у курсора (uv²)
-  var FORCE      = 6000;               // сила толчка течения
-  var STEP_SCALE = -0.016;             // вклад скорости в накопление (знак «-» = расталкивание)
-  var PERSIST    = 0.999;              // деформация почти не возвращается (медленно зарастает ~20с)
-  var DISP_MAX   = 0.22;               // максимум перекоса фона (защита от «взрыва»)
-  var MASK_R     = 0.003033;            // радиус² пятна деформации у курсора (+5% радиус: ×1.05²)
-  var IDLE_HOLD  = 2.6;                // сек: сколько ещё считать жидкость после движения
-  var CLICK_HOLD = 7.0;                // сек: считать жидкость+адвекцию после клика (чернила раскручиваются в тендрилы)
-  var DECAY_HOLD = 22;                 // сек: сколько крутить затухание следа (до полного зарастания)
-  // --- чернила (dye): тёплый след курсора, который несёт и расползается по воде ---
-  var DYE_DISS    = 0.25;              // затухание следа при активной симуляции (живёт долго)
-  var DYE_FADE    = 0.985;             // дотаивание следа в покое (×за кадр; меньше=быстрее)
-  var DYE_SPREAD  = 0.05;              // диффузия следа (слабая — не сливается в пятно)
-  var DYE_R_MOVE  = 0.0000396;         // радиус² капли-следа от движения (толщина −20%: ×0.8²)
-  var DYE_AMT     = 0.3;               // насыщенность тёплой капли от движения (тоньше=прозрачнее)
-  // (чёрная клякса по клику рисуется ПРОЦЕДУРНО в шейдере DISP_FS — см. uClick*)
-  var MAX_CLICKS  = 24;                // кольцо клик-клякс: новый клик НЕ стирает прежние
-
-
-  // --- шейдеры -------------------------------------------------------------
-  var BASE_VS = `#version 300 es
-precision highp float;
-layout(location=0) in vec2 aPos;
-out vec2 vUv; out vec2 vL; out vec2 vR; out vec2 vT; out vec2 vB;
-uniform vec2 texel;
-void main(){
-  vUv = aPos*0.5+0.5;
-  vL = vUv - vec2(texel.x,0.0); vR = vUv + vec2(texel.x,0.0);
-  vT = vUv + vec2(0.0,texel.y); vB = vUv - vec2(0.0,texel.y);
-  gl_Position = vec4(aPos,0.0,1.0);
-}`;
-
-  var CLEAR_FS = `#version 300 es
-precision highp float; in vec2 vUv; out vec4 o; uniform sampler2D uTex; uniform float val;
-void main(){ o = val*texture(uTex,vUv); }`;
-
-  // ДИФФУЗИЯ чернил: лёгкое расползание к соседям (как капля в воде растекается),
-  // + общее дотаивание (fade). Работает и без поля скоростей, в покое.
-  var DIFFUSE_FS = `#version 300 es
-precision highp float; in vec2 vUv; in vec2 vL; in vec2 vR; in vec2 vT; in vec2 vB;
-out vec4 o; uniform sampler2D uTex; uniform float spread; uniform float fade;
-void main(){
-  vec2 c = texture(uTex,vUv).xy;
-  vec2 n = texture(uTex,vL).xy + texture(uTex,vR).xy
-         + texture(uTex,vT).xy + texture(uTex,vB).xy;
-  vec2 v = mix(c, n*0.25, spread);   // тянемся к среднему по соседям → размытие/расплыв
-  o = vec4(v*fade, 0.0, 1.0);
-}`;
-
-  var SPLAT_FS = `#version 300 es
-precision highp float; in vec2 vUv; out vec4 o;
-uniform sampler2D uTarget; uniform float aspect; uniform vec3 color;
-uniform vec2 point; uniform float radius;
-void main(){
-  vec2 p = vUv - point; p.x *= aspect;
-  vec3 splat = exp(-dot(p,p)/radius) * color;
-  o = vec4(texture(uTarget,vUv).rgb + splat, 1.0);
-}`;
-
-  var ADV_FS = `#version 300 es
-precision highp float; in vec2 vUv; out vec4 o;
-uniform sampler2D uVelocity; uniform sampler2D uSource;
-uniform vec2 texel; uniform float dt; uniform float diss;
-void main(){
-  vec2 coord = vUv - dt * texture(uVelocity,vUv).xy * texel;
-  o = texture(uSource,coord) / (1.0 + diss*dt);
-}`;
-
-  var DIV_FS = `#version 300 es
-precision highp float; in vec2 vUv; in vec2 vL; in vec2 vR; in vec2 vT; in vec2 vB;
-out vec4 o; uniform sampler2D uVelocity;
-void main(){
-  float l = texture(uVelocity,vL).x; float r = texture(uVelocity,vR).x;
-  float t = texture(uVelocity,vT).y; float b = texture(uVelocity,vB).y;
-  vec2 c = texture(uVelocity,vUv).xy;
-  if(vL.x<0.0) l=-c.x; if(vR.x>1.0) r=-c.x;
-  if(vT.y>1.0) t=-c.y; if(vB.y<0.0) b=-c.y;
-  o = vec4(0.5*(r-l+t-b),0.0,0.0,1.0);
-}`;
-
-  var CURL_FS = `#version 300 es
-precision highp float; in vec2 vUv; in vec2 vL; in vec2 vR; in vec2 vT; in vec2 vB;
-out vec4 o; uniform sampler2D uVelocity;
-void main(){
-  float l = texture(uVelocity,vL).y; float r = texture(uVelocity,vR).y;
-  float t = texture(uVelocity,vT).x; float b = texture(uVelocity,vB).x;
-  o = vec4(0.5*(r-l-(t-b)),0.0,0.0,1.0);
-}`;
-
-  var VORT_FS = `#version 300 es
-precision highp float; in vec2 vUv; in vec2 vL; in vec2 vR; in vec2 vT; in vec2 vB;
-out vec4 o; uniform sampler2D uVelocity; uniform sampler2D uCurl;
-uniform float curl; uniform float dt;
-void main(){
-  float l = texture(uCurl,vL).x; float r = texture(uCurl,vR).x;
-  float t = texture(uCurl,vT).x; float b = texture(uCurl,vB).x;
-  float c = texture(uCurl,vUv).x;
-  vec2 force = 0.5*vec2(abs(t)-abs(b), abs(r)-abs(l));
-  force /= length(force)+1e-4; force *= curl*c; force.y *= -1.0;
-  vec2 vel = texture(uVelocity,vUv).xy;
-  o = vec4(vel + force*dt, 0.0, 1.0);
-}`;
-
-  var PRESS_FS = `#version 300 es
-precision highp float; in vec2 vUv; in vec2 vL; in vec2 vR; in vec2 vT; in vec2 vB;
-out vec4 o; uniform sampler2D uPressure; uniform sampler2D uDivergence;
-void main(){
-  float l = texture(uPressure,vL).x; float r = texture(uPressure,vR).x;
-  float t = texture(uPressure,vT).x; float b = texture(uPressure,vB).x;
-  float div = texture(uDivergence,vUv).x;
-  o = vec4((l+r+t+b-div)*0.25,0.0,0.0,1.0);
-}`;
-
-  var GRAD_FS = `#version 300 es
-precision highp float; in vec2 vUv; in vec2 vL; in vec2 vR; in vec2 vT; in vec2 vB;
-out vec4 o; uniform sampler2D uPressure; uniform sampler2D uVelocity;
-void main(){
-  float l = texture(uPressure,vL).x; float r = texture(uPressure,vR).x;
-  float t = texture(uPressure,vT).x; float b = texture(uPressure,vB).x;
-  vec2 vel = texture(uVelocity,vUv).xy;
-  vel -= vec2(r-l,t-b);
-  o = vec4(vel,0.0,1.0);
-}`;
-
-  // ВЫВОД: наш прежний fbm-фон, смещённый НАКОПЛЕННЫМ полем (uDisp), плюс
-  // настоящие ЧЕРНИЛА (uDye) — краска, которую несёт и закручивает течение.
-  var DISP_FS = `#version 300 es
-precision highp float;
-in vec2 vUv; out vec4 o;
-uniform sampler2D uDisp; uniform sampler2D uDye; uniform vec2 res; uniform float t;
-uniform float uDark; uniform float uFriends; uniform float uInteractive;
-// Кольцевой буфер кликов: каждый клик — центр (xy в uv), возраст(с) и сид формы.
-// Неактивные слоты держат uClickAge < 0 и пропускаются в цикле (тяжёлый fbm не считается).
-#define MAX_CLICKS ${MAX_CLICKS}
-uniform vec2  uClickPos[MAX_CLICKS];
-uniform float uClickAge[MAX_CLICKS];
-uniform float uClickSeed[MAX_CLICKS];
-const vec3 BG_L    = vec3(0.984, 0.949, 0.945);
-const vec3 ROSE_L  = vec3(0.713, 0.372, 0.435);
-const vec3 BERRY_L = vec3(0.560, 0.290, 0.345);
-const vec3 PEACH_L = vec3(0.886, 0.690, 0.541);
-const vec3 LILAC_L = vec3(0.808, 0.588, 0.784);
-const vec3 EMBER_L = vec3(1.0, 0.38, 0.0);
-const vec3 EMBHI_L = vec3(1.0, 0.78, 0.22);
-const vec3 INK_L   = vec3(0.05, 0.04, 0.06);
-// Та же палитра в ночной экспозиции: без чистого чёрного и кислотных бликов.
-const vec3 BG_D    = vec3(0.090, 0.071, 0.090);
-const vec3 ROSE_D  = vec3(0.380, 0.205, 0.265);
-const vec3 BERRY_D = vec3(0.245, 0.128, 0.185);
-const vec3 PEACH_D = vec3(0.405, 0.285, 0.235);
-const vec3 LILAC_D = vec3(0.300, 0.220, 0.335);
-const vec3 EMBER_D = vec3(0.730, 0.390, 0.245);
-const vec3 EMBHI_D = vec3(0.845, 0.615, 0.390);
-const vec3 INK_D   = vec3(0.835, 0.665, 0.720);
-// Дружеская экспозиция: ivory + indigo / teal / amber. Геометрия и движение
-// остаются теми же, поэтому оба оформления узнаются как один date4you.
-const vec3 F_BG_L    = vec3(0.965, 0.953, 0.914);
-const vec3 F_ROSE_L  = vec3(0.333, 0.306, 0.682);
-const vec3 F_BERRY_L = vec3(0.220, 0.200, 0.500);
-const vec3 F_PEACH_L = vec3(0.827, 0.604, 0.196);
-const vec3 F_LILAC_L = vec3(0.067, 0.545, 0.525);
-const vec3 F_INK_L   = vec3(0.055, 0.060, 0.125);
-const vec3 F_BG_D    = vec3(0.071, 0.082, 0.137);
-const vec3 F_ROSE_D  = vec3(0.310, 0.285, 0.600);
-const vec3 F_BERRY_D = vec3(0.170, 0.155, 0.370);
-const vec3 F_PEACH_D = vec3(0.480, 0.330, 0.115);
-const vec3 F_LILAC_D = vec3(0.055, 0.330, 0.320);
-const vec3 F_INK_D   = vec3(0.620, 0.610, 0.875);
-float hash(vec2 p){ p = fract(p*vec2(123.34,456.21)); p += dot(p,p+45.32); return fract(p.x*p.y); }
-float noise(vec2 p){
-  vec2 i = floor(p), f = fract(p);
-  float a = hash(i), b = hash(i+vec2(1.0,0.0));
-  float c = hash(i+vec2(0.0,1.0)), d = hash(i+vec2(1.0,1.0));
-  vec2 u = f*f*(3.0-2.0*f);
-  return mix(mix(a,b,u.x), mix(c,d,u.x), u.y);
-}
-float fbm(vec2 p){ float s=0.0,a=0.5; for(int i=0;i<5;i++){ s+=a*noise(p); p*=2.02; a*=0.5; } return s; }
-// Гребневой («ridged») fbm: пики шума → тонкие яркие жилы. Им рисуем ВЕТВИ туши.
-float rfbm(vec2 p){ float s=0.0,a=0.5; for(int i=0;i<5;i++){ float n=1.0-abs(2.0*noise(p)-1.0); s+=a*n*n; p*=2.03; a*=0.5; } return s; }
-
-// Плотность туши в нормированной точке p (тело капли ≈ радиус 1) и сид формы.
-// Возвращает vec2(dens, veins): dens — плотность чернил, veins — жилы (для оттенка).
-// Вынесено отдельно, чтобы inkAt мог усреднить НЕСКОЛЬКО подточек на пиксель
-// (суперсэмплинг) — иначе субпиксельный шум нитей идёт «лесенкой».
-// warp (0..1) — насколько развёрнут доменный варп: 0 = округлая капля (как в
-// момент падения), 1 = полная форма с тендрилами. inkAt поднимает его с возрастом,
-// поэтому клякса не «вылупляется» сразу изогнутой, а распускается из круглого пятна.
-// evo — медленный «дрейф» шумового поля во времени: тендрилы сами расползаются и
-// переплетаются за жизнь кляксы, как настоящая тушь, без сноса внешним течением.
-vec2 inkDens(vec2 p, float sd, float warp, float evo){
-  // РАЗНООБРАЗИЕ между кляксами: сид задаёт свой поворот, вытянутость по оси и
-  // силу ветвления — силуэты получаются разными, а не «штампованными». Поворот+
-  // анизотропия деформируют само тело капли, амплитуда варпа — густоту нитей.
-  float ca = cos(sd), sa = sin(sd);
-  vec2 ap = mat2(ca, -sa, sa, ca) * p;              // поворот тела на угол сида
-  // вытянутость и сдвиг ОГРАНИЧЕНЫ: центр около 1.0, мягкий разброс — клякса
-  // всегда читается как пятно, не вырождается в тонкий диагональный штрих
-  // (раньше stretch уезжал в ~0.32 → растяжение ~10:1, получался «мазок»).
-  float stretch = 1.0 + 0.16 * sin(sd * 1.7);       // ~0.84..1.16 — лёгкий овал
-  ap.x *= stretch; ap.y /= stretch;
-  ap.x += ap.y * 0.16 * sin(sd * 2.3);              // лёгкий сдвиг (shear), не штрих
-  float br = 0.62 + 0.85 * fract(sd * 0.618);        // шире разброс силы ветвления у нитей
-  // три прохода доменного варпа: всё сильнее закручиваем координату — прямые
-  // радиальные линии изгибаются в блуждающие нити-тендрилы (как тушь в воде).
-  // evo сдвигает аргумент шума → форма медленно «течёт» сама по себе во времени.
-  vec2 wp = ap;
-  wp += warp * br * 0.60 * (vec2(fbm(ap*1.4 + sd + evo),        fbm(ap*1.4 + sd + 7.0 - evo))  - 0.5);
-  wp += warp * br * 0.45 * (vec2(fbm(wp*3.0 - sd*1.2 + evo*1.6), fbm(wp*3.0 + sd + 3.0 - evo*1.6)) - 0.5);
-  wp += warp * br * 0.26 * (vec2(fbm(wp*6.5 + sd*2.0 + evo*2.4), fbm(wp*6.5 - sd + 9.0 + evo*2.4)) - 0.5);
-  float rr = length(wp);
-  // ДВА конверта на одной искажённой координате:
-  //   coreEnv — тугое плотное тело (тает к ~1.3 радиуса)
-  //   webEnv  — далеко тянущееся поле, в нём живут ТОНКИЕ нити-тендрилы
-  float coreEnv = 1.0 - smoothstep(0.0, 1.3, rr);
-  float webEnv  = 1.0 - smoothstep(0.0, 3.0, rr);
-  if (webEnv <= 0.0) return vec2(0.0);
-  // нити: гребневой шум → сеть жил; высокая степень заостряет их в волоски.
-  float veins = rfbm(wp*2.1 + sd*0.6 + evo);
-  veins = pow(clamp(veins, 0.0, 1.0), 2.3);         // острее → тоньше нити
-  float core = pow(coreEnv, 2.0);                   // плотная сердцевина
-  float dens = max(core, webEnv * veins * 1.7);     // тело + ветвящиеся нити
-  return vec2(clamp(dens, 0.0, 1.0), veins);
-}
-
-// Одна клякса туши в воде вокруг точки cc (в тех же координатах, что uv).
-// Тушь = связное пятно с мягкими вытянутыми нитями, не крапинки и не дым.
-vec3 inkAt(vec3 col, vec2 uv, vec2 dsp, vec2 cc, float age, float sd){
-  if (age < 0.0 || age >= 6.5) return col;
-  vec2 d = uv - cc;
-  float grow = smoothstep(0.0, 0.35, age);          // распускается (вдвое быстрее)
-  float fade = 1.0 - smoothstep(2.5, 6.5, age);     // потом тает
-  float life = grow * fade;
-  // reach = радиус капли. Кроме раскрытия (grow) добавляем медленное РАСПЛЫВАНИЕ
-  // по возрасту (spread): тушь со временем сама растекается и разрастается в воде,
-  // а не держит фиксированный размер. Растёт до конца жизни кляксы.
-  float spread = 1.0 + 0.55 * smoothstep(0.0, 6.5, age);
-  // случайный размер ±15% от кляксы к кляксе (детерминированно от сида).
-  float szJit = 1.0 + 0.15 * sin(sd * 3.13 + 1.7);
-  float reach = (0.0035 + 0.0037 * grow) * spread * szJit;
-  // доменный варп разворачиваем с возрастом: капля падает округлой, и лишь
-  // за ~0.9 с распускается в форму с тендрилами — не «вылупляется» изогнутой.
-  float warp = smoothstep(0.05, 0.95, age);
-  // медленный дрейф формы за жизнь кляксы: тендрилы расползаются сами, не резко.
-  float evo = age * 0.18;
-  float dist0 = length(d);
-  if (life <= 0.001 || dist0 >= reach * 4.6) return col;
-  vec2 p = d / reach;                               // нормируем: тело капли ≈ радиус 1
-  // ВЛИЯНИЕ ТЕЧЕНИЯ: ведём/мнём кляксу полем курсора, как фон. Работаем уже в
-  // НОРМИРОВАННОЙ координате (p), поэтому усиление измеряется в радиусах капли и
-  // не зависит от reach — раньше dsp подмешивался в d и делился на крошечный reach,
-  // давая снос в ~десятки радиусов (тот самый излом-«банан»). Сила растёт с grow:
-  // свежая капля держит округлую форму, раскрывшаяся — сильно деформируется потоком.
-  p += dsp * (5.0 * grow);
-  // СУПЕРСЭМПЛИНГ: пятно мелкое, шум нитей мельче пикселя → берём 4 подточки
-  // по диагонали экранного следа пикселя (fwidth) и усредняем. Это убирает
-  // «лесенки» на тонких нитях, не размывая саму форму (в отличие от fwidth-кромки).
-  vec2 hp = fwidth(p) * 0.5;
-  vec2 dn = vec2(0.0);
-  dn += inkDens(p + vec2(-hp.x*0.5, -hp.y*0.5), sd, warp, evo);
-  dn += inkDens(p + vec2( hp.x*0.5, -hp.y*0.5), sd, warp, evo);
-  dn += inkDens(p + vec2(-hp.x*0.5,  hp.y*0.5), sd, warp, evo);
-  dn += inkDens(p + vec2( hp.x*0.5,  hp.y*0.5), sd, warp, evo);
-  float dens = dn.x * 0.25 * life;
-  float veins = dn.y * 0.25;
-  if (dens <= 0.004) return col;
-  float dd = smoothstep(0.10, 0.72, dens);          // густота → к центру плотнее
-  float a  = smoothstep(0.02, 0.18, dens);          // мягкая, но не размытая кромка
-  vec3 inkBase = mix(INK_L, INK_D, uDark);
-  if (uFriends > 0.5) inkBase = mix(F_INK_L, F_INK_D, uDark);
-  vec3 inkc = mix(inkBase + vec3(0.14,0.115,0.15), inkBase, dd);
-  inkc += (veins - 0.5) * 0.05;                     // лёгкая мраморность в жилах
-  return mix(col, inkc, clamp(a * (0.34 + 0.50 * dd), 0.0, 0.86));
-}
-void main(){
-  vec2 uv = vUv;
-  uv.x *= res.x/res.y;
-  float tt = t * 0.016;
-  vec3 dsp = texture(uDisp, vUv).xyz * uInteractive;
-  vec2 inkUv = uv;                       // НЕсмещённая координата для туши:
-                                         // тушь стоит на месте, как в статич. эталоне
-  uv += dsp.xy;                          // накопленное смещение — только для ФОНА
-  vec2 mo = vec2(sin(tt*0.7), cos(tt*0.6)) * 0.7;
-  vec2 q = vec2(fbm(uv*1.6 + mo + vec2(0.0, tt)), fbm(uv*1.6 - mo + vec2(5.2, -tt)));
-  vec2 r = vec2(fbm(uv*1.6 + 4.0*q + vec2(1.7, 9.2) + tt*0.9),
-                fbm(uv*1.6 + 4.0*q + vec2(8.3, 2.8) - tt*0.9));
-  float f = fbm(uv*1.6 + 4.3*r + 0.35*sin(tt));
-  vec3 bg = mix(BG_L, BG_D, uDark);
-  vec3 rose = mix(ROSE_L, ROSE_D, uDark);
-  vec3 berry = mix(BERRY_L, BERRY_D, uDark);
-  vec3 peach = mix(PEACH_L, PEACH_D, uDark);
-  vec3 lilac = mix(LILAC_L, LILAC_D, uDark);
-  if (uFriends > 0.5) {
-    bg = mix(F_BG_L, F_BG_D, uDark);
-    rose = mix(F_ROSE_L, F_ROSE_D, uDark);
-    berry = mix(F_BERRY_L, F_BERRY_D, uDark);
-    peach = mix(F_PEACH_L, F_PEACH_D, uDark);
-    lilac = mix(F_LILAC_L, F_LILAC_D, uDark);
+  function phoneLike() {
+    if (!window.matchMedia) return Math.min(window.innerWidth, window.innerHeight) < 700;
+    return window.matchMedia("(pointer: coarse)").matches ||
+      window.matchMedia("(max-width: 700px)").matches;
   }
-  vec3 col = bg;
-  col = mix(col, lilac, smoothstep(0.42, 1.02, length(r)) * 0.42);
-  col = mix(col, rose,  smoothstep(0.52, 1.10, f) * 0.62);
-  col = mix(col, peach, smoothstep(0.45, 0.95, q.x*q.x) * 0.38);
-  col = mix(col, berry, smoothstep(0.74, 1.12, f*1.1) * 0.5);
-  col = mix(col, bg, smoothstep(0.55, 1.0, 1.0 - vUv.y*res.y/res.x) * 0.25);
-  // тёплый след курсора (R-канал dye): оранжевая обводка + едва заметное ядро
-  float warm = clamp(texture(uDye, vUv).x, 0.0, 1.4) * uInteractive;
-  col = mix(col, mix(EMBER_L, EMBER_D, uDark), smoothstep(0.015, 0.35, warm) * 0.45);
-  col = mix(col, mix(EMBHI_L, EMBHI_D, uDark), smoothstep(0.45, 1.15, warm) * 0.10);
-  // ЧЁРНЫЕ КЛИКИ → тушь в воде. Кольцо клик-слотов: каждый рисуется тонкими
-  // ветвящимися нитями (inkAt). Новый клик НЕ стирает прежние — складываем все
-  // активные. Неактивные (age<0) inkAt отбрасывает сразу, fbm для них не считает.
-  if (uInteractive > 0.5) {
-    for (int i = 0; i < MAX_CLICKS; i++) {
-      vec2 cc = uClickPos[i]; cc.x *= res.x/res.y;
-      col = inkAt(col, inkUv, dsp.xy, cc, uClickAge[i], uClickSeed[i]);
+  function finePointer() {
+    return !phoneLike() && (!window.matchMedia ||
+      window.matchMedia("(pointer: fine)").matches);
+  }
+  function state() {
+    stateCache = {
+      width: Math.max(1, window.innerWidth),
+      height: Math.max(1, window.innerHeight),
+      dpr: Math.min(window.devicePixelRatio || 1, 2),
+      dark: darkTheme(),
+      friends: friendsSkin(),
+      interactive: cursorEffects(),
+      fine: finePointer(),
+    };
+    return stateCache;
+  }
+  function eligible() {
+    var next = stateCache || state();
+    return !staticPolicy && next.interactive && next.fine;
+  }
+
+  function stats() {
+    var result = {};
+    var key;
+    for (key in latestRuntimeStats) result[key] = latestRuntimeStats[key];
+    for (key in controllerStats) result[key] = controllerStats[key];
+    return result;
+  }
+  window.__inkStats = stats;
+
+  function resetReveal() {
+    if (revealRaf) window.cancelAnimationFrame(revealRaf);
+    revealRaf = 0;
+    firstFrameReady = false;
+    controllerStats.firstFrameReady = false;
+    host.classList.remove("has-ink");
+  }
+
+  function beginBackend() {
+    backendGeneration += 1;
+    resetReveal();
+    return backendGeneration;
+  }
+
+  function reveal(expectedCanvas, generation) {
+    if (generation !== backendGeneration || expectedCanvas !== canvas) return;
+    if (firstFrameReady) return;
+    firstFrameReady = true;
+    controllerStats.firstFrameReady = true;
+    revealRaf = window.requestAnimationFrame(function () {
+      revealRaf = 0;
+      if (generation === backendGeneration && expectedCanvas === canvas &&
+          expectedCanvas.parentNode === host) {
+        host.classList.add("has-ink");
+      }
+    });
+  }
+
+  function makeCanvas() {
+    var node = document.createElement("canvas");
+    node.className = "ink-canvas";
+    node.setAttribute("aria-hidden", "true");
+    host.appendChild(node);
+    return node;
+  }
+
+  function removeCanvas() {
+    if (canvas && canvas.parentNode) canvas.parentNode.removeChild(canvas);
+    canvas = null;
+  }
+
+  function removePoster() {
+    posterGeneration += 1;
+    var image = host.querySelector(".ink-static-frame");
+    if (image) {
+      image.onload = null;
+      image.onerror = null;
+      image.remove();
     }
+    posterLoader = null;
   }
-  o = vec4(col, 1.0);
-}`;
 
-  // НАКОПЛЕНИЕ смещения. Затухание (persist) идёт КАЖДЫЙ кадр → след всегда
-  // дотаивает и зарастает фоном, не «замерзает». Вклад скорости добавляем только
-  // во время движения (inject=1) и по маске вдоль ОТРЕЗКА пути курсора (prev→ptr)
-  // — получается непрерывный хвост-след, а не круг под точкой.
-  // Канал z — оранжевая подкраска того же следа, тает быстрее (свой persist).
-  var ACCUM_FS = `#version 300 es
-precision highp float; in vec2 vUv; out vec4 o;
-uniform sampler2D uDisp; uniform sampler2D uVelocity;
-uniform vec2 ptr; uniform vec2 prev; uniform float maskR; uniform float aspect;
-uniform float stepScale; uniform float persist; uniform float dispMax;
-uniform float inject;
-void main(){
-  vec2 old = texture(uDisp, vUv).xy;
-  vec2 p = vUv; p.x *= aspect;
-  vec2 a = prev; a.x *= aspect;
-  vec2 b = ptr;  b.x *= aspect;
-  vec2 ab = b - a; float len2 = max(dot(ab,ab), 1e-7);
-  float h = clamp(dot(p - a, ab) / len2, 0.0, 1.0);   // проекция на отрезок пути
-  vec2 nearest = a + ab * h;
-  vec2 dp = p - nearest;
-  float mask = exp(-dot(dp,dp)/max(maskR,1e-4)) * inject;
-  vec2 nd = old * persist + texture(uVelocity, vUv).xy * stepScale * mask;
-  float L = length(nd);
-  if (L > dispMax) nd *= dispMax / L;    // ограничиваем перекос, без «взрыва»
-  o = vec4(nd, 0.0, 1.0);
-}`;
+  function updateRuntimeStats(next) {
+    latestRuntimeStats = next || latestRuntimeStats;
+  }
 
-  // --- компиляция/линковка -------------------------------------------------
-  function compile(type, src) {
-    var s = gl.createShader(type);
-    gl.shaderSource(s, src); gl.compileShader(s);
-    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
-      if (window.__INK_DEBUG) console.log("SHADER ERR", gl.getShaderInfoLog(s));
-      gl.deleteShader(s); return null;
+  function posterUrl() {
+    var skin = friendsSkin() ? "Friends" : "Romantic";
+    var theme = darkTheme() ? "Dark" : "Light";
+    var key = "static" + skin + theme;
+    return assets[key] || assetFallback(
+      "ink-static-" + skin.toLowerCase() + "-" + theme.toLowerCase() + ".webp");
+  }
+
+  function startPoster() {
+    document.documentElement.classList.add("ink-static");
+    controllerStats.backend = "poster";
+    controllerStats.worker = false;
+    host.querySelectorAll("animate, animateTransform").forEach(function (node) {
+      node.remove();
+    });
+    var image = host.querySelector(".ink-static-frame");
+    if (!image) {
+      image = document.createElement("img");
+      image.className = "ink-static-frame";
+      image.alt = "";
+      image.setAttribute("aria-hidden", "true");
+      image.setAttribute("draggable", "false");
+      image.decoding = "async";
+      host.appendChild(image);
     }
-    return s;
-  }
-  function makeProg(vsSrc, fsSrc) {
-    var vs = compile(gl.VERTEX_SHADER, vsSrc), fs = compile(gl.FRAGMENT_SHADER, fsSrc);
-    if (!vs || !fs) return null;
-    var p = gl.createProgram();
-    gl.attachShader(p, vs); gl.attachShader(p, fs); gl.linkProgram(p);
-    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) return null;
-    var u = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
-    for (var i = 0; i < n; i++) { var nm = gl.getActiveUniform(p, i).name; u[nm] = gl.getUniformLocation(p, nm); }
-    return { prog: p, u: u };
-  }
-
-  var progs = {
-    clear: makeProg(BASE_VS, CLEAR_FS), splat: makeProg(BASE_VS, SPLAT_FS),
-    adv: makeProg(BASE_VS, ADV_FS), div: makeProg(BASE_VS, DIV_FS),
-    curl: makeProg(BASE_VS, CURL_FS), vort: makeProg(BASE_VS, VORT_FS),
-    press: makeProg(BASE_VS, PRESS_FS), grad: makeProg(BASE_VS, GRAD_FS),
-    disp: makeProg(BASE_VS, DISP_FS), accum: makeProg(BASE_VS, ACCUM_FS),
-    diffuse: makeProg(BASE_VS, DIFFUSE_FS),
-  };
-  for (var k in progs) { if (!progs[k]) { teardown(); return; } }
-
-  var quad = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, quad);
-  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
-  gl.enableVertexAttribArray(0);
-  gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
-
-  function blit(target) {
-    gl.bindFramebuffer(gl.FRAMEBUFFER, target ? target.fbo : null);
-    if (target) gl.viewport(0, 0, target.w, target.h);
-    else gl.viewport(0, 0, canvas.width, canvas.height);
-    gl.drawArrays(gl.TRIANGLES, 0, 3);
-  }
-
-  // --- буферы кадра (FBO): скорость, давление, смещение, чернила -----------
-  var RG = gl.RG16F, R = gl.R16F;
-  function makeFBO(w, h, internal, format, filter) {
-    var tex = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, tex);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    gl.texImage2D(gl.TEXTURE_2D, 0, internal, w, h, 0, format, gl.HALF_FLOAT, null);
-    var fbo = gl.createFramebuffer();
-    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
-    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
-    gl.viewport(0, 0, w, h); gl.clear(gl.COLOR_BUFFER_BIT);
-    return { tex: tex, fbo: fbo, w: w, h: h,
-      attach: function (n) { gl.activeTexture(gl.TEXTURE0 + n); gl.bindTexture(gl.TEXTURE_2D, tex); return n; } };
-  }
-  function makeDouble(w, h, internal, format, filter) {
-    var a = makeFBO(w, h, internal, format, filter), b = makeFBO(w, h, internal, format, filter);
-    return { w: w, h: h, read: a, write: b,
-      swap: function () { var t = this.read; this.read = this.write; this.write = t; } };
-  }
-
-  var LIN = LINEAR_OK ? gl.LINEAR : gl.NEAREST;
-  var velocity = makeDouble(SIM_RES, SIM_RES, RG, gl.RG, LIN);
-  var divergence = makeFBO(SIM_RES, SIM_RES, R, gl.RED, gl.NEAREST);
-  var curlFbo = makeFBO(SIM_RES, SIM_RES, R, gl.RED, gl.NEAREST);
-  var pressure = makeDouble(SIM_RES, SIM_RES, R, gl.RED, gl.NEAREST);
-  // накопленное смещение фона (xy) — «расталкивание дыма». Своя сетка.
-  var DISP_RES = SMALL ? 160 : 220;
-  var disp = makeDouble(DISP_RES, DISP_RES, RG, gl.RG, LIN);
-  // ЧЕРНИЛА (dye): два канала — R тёплый след от движения, G чёрный впрыск по клику.
-  var dye = makeDouble(DYE_RES, DYE_RES, RG, gl.RG, LIN);
-
-  // --- один шаг симуляции скорости (без краски) ---------------------------
-  var simTexel = [1 / SIM_RES, 1 / SIM_RES];
-  var dyeTexel = [1 / DYE_RES, 1 / DYE_RES];
-
-  function step(dt) {
-    gl.disable(gl.BLEND);
-
-    // завихрённость (vorticity confinement) — только если включена; на грубой
-    // сетке она шумит, поэтому по умолчанию CURL=0 и блок пропускается
-    if (CURL > 0) {
-      var c = progs.curl;
-      gl.useProgram(c.prog);
-      gl.uniform2f(c.u.texel, simTexel[0], simTexel[1]);
-      gl.uniform1i(c.u.uVelocity, velocity.read.attach(0));
-      blit(curlFbo);
-
-      var v = progs.vort;
-      gl.useProgram(v.prog);
-      gl.uniform2f(v.u.texel, simTexel[0], simTexel[1]);
-      gl.uniform1i(v.u.uVelocity, velocity.read.attach(0));
-      gl.uniform1i(v.u.uCurl, curlFbo.attach(1));
-      gl.uniform1f(v.u.curl, CURL);
-      gl.uniform1f(v.u.dt, dt);
-      blit(velocity.write); velocity.swap();
+    function loadPoster() {
+      var url = posterUrl();
+      if (!url) return;
+      if (image.getAttribute("src") === url &&
+          image.complete && image.naturalWidth > 0) {
+        if (staticPolicy && image.parentNode === host) host.classList.add("has-ink");
+        return;
+      }
+      var generation = ++posterGeneration;
+      host.classList.remove("has-ink");
+      image.onload = function () {
+        if (generation !== posterGeneration || !staticPolicy ||
+            image.parentNode !== host) return;
+        var decoded = image.decode ? image.decode().catch(function () {}) : Promise.resolve();
+        decoded.then(function () {
+          if (generation === posterGeneration && staticPolicy &&
+              image.parentNode === host && image.complete && image.naturalWidth > 0) {
+            firstFrameReady = true;
+            controllerStats.firstFrameReady = true;
+            host.classList.add("has-ink");
+          }
+        });
+      };
+      image.onerror = function () {
+        if (generation === posterGeneration && staticPolicy &&
+            image.parentNode === host) host.classList.remove("has-ink");
+      };
+      image.src = url;
     }
-
-    var d = progs.div;
-    gl.useProgram(d.prog);
-    gl.uniform2f(d.u.texel, simTexel[0], simTexel[1]);
-    gl.uniform1i(d.u.uVelocity, velocity.read.attach(0));
-    blit(divergence);
-
-    var cl = progs.clear;
-    gl.useProgram(cl.prog);
-    gl.uniform1i(cl.u.uTex, pressure.read.attach(0));
-    gl.uniform1f(cl.u.val, PRESS_DISS);
-    blit(pressure.write); pressure.swap();
-
-    var pr = progs.press;
-    gl.useProgram(pr.prog);
-    gl.uniform2f(pr.u.texel, simTexel[0], simTexel[1]);
-    gl.uniform1i(pr.u.uDivergence, divergence.attach(0));
-    for (var i = 0; i < ITER; i++) {
-      gl.uniform1i(pr.u.uPressure, pressure.read.attach(1));
-      blit(pressure.write); pressure.swap();
-    }
-
-    var g = progs.grad;
-    gl.useProgram(g.prog);
-    gl.uniform2f(g.u.texel, simTexel[0], simTexel[1]);
-    gl.uniform1i(g.u.uPressure, pressure.read.attach(0));
-    gl.uniform1i(g.u.uVelocity, velocity.read.attach(1));
-    blit(velocity.write); velocity.swap();
-
-    var a = progs.adv;
-    gl.useProgram(a.prog);
-    gl.uniform2f(a.u.texel, simTexel[0], simTexel[1]);
-    gl.uniform1i(a.u.uVelocity, velocity.read.attach(0));
-    gl.uniform1i(a.u.uSource, velocity.read.attach(0));
-    gl.uniform1f(a.u.dt, dt);
-    gl.uniform1f(a.u.diss, VEL_DISS);
-    blit(velocity.write); velocity.swap();
-
-    // адвекция ЧЕРНИЛ тем же полем скоростей — краску несёт и закручивает.
-    // texel = simTexel (скорость в единицах своей сетки); своё затухание DYE_DISS.
-    var ad = progs.adv;
-    gl.useProgram(ad.prog);
-    gl.uniform2f(ad.u.texel, simTexel[0], simTexel[1]);
-    gl.uniform1i(ad.u.uVelocity, velocity.read.attach(0));
-    gl.uniform1i(ad.u.uSource, dye.read.attach(1));
-    gl.uniform1f(ad.u.dt, dt);
-    gl.uniform1f(ad.u.diss, DYE_DISS);
-    blit(dye.write); dye.swap();
+    posterLoader = loadPoster;
+    loadPoster();
   }
 
-  // толчок течения в точку (uv 0..1), направление dx/dy
-  function splat(x, y, dx, dy) {
-    var aspect = canvas.width / canvas.height;
-    var s = progs.splat;
-    gl.useProgram(s.prog);
-    gl.uniform1f(s.u.aspect, aspect);
-    gl.uniform2f(s.u.point, x, y);
-    gl.uniform1f(s.u.radius, SPLAT_R);
-    gl.uniform1i(s.u.uTarget, velocity.read.attach(0));
-    gl.uniform3f(s.u.color, dx, dy, 0.0);
-    blit(velocity.write); velocity.swap();
-  }
-
-  // капля ЧЕРНИЛ: добавляем плотность в каналы R (тёплый след) и/или G (чёрный клик).
-  function dyeSplat(x, y, amtR, amtG, r) {
-    var aspect = canvas.width / canvas.height;
-    var s = progs.splat;
-    gl.useProgram(s.prog);
-    gl.uniform1f(s.u.aspect, aspect);
-    gl.uniform2f(s.u.point, x, y);
-    gl.uniform1f(s.u.radius, r);
-    gl.uniform1i(s.u.uTarget, dye.read.attach(0));
-    gl.uniform3f(s.u.color, amtR, amtG, 0.0);
-    blit(dye.write); dye.swap();
-  }
-
-  // --- ввод курсора --------------------------------------------------------
-  var pointer = { x: 0.5, y: 0.5, px: 0.5, py: 0.5, moved: false };
-  var activeUntil = 0;     // до какого времени гоняем симуляцию после движения
-  var decayUntil = 0;      // до какого времени крутим затухание накопл. поля
-  var curlUntil = 0;       // до какого времени держим вихри включёнными (после клика)
-  var clickX = 0, clickY = 0, clickPending = false;  // впрыск чернил по клику
-  // --- кольцо процедурных клякс (рисуются в шейдере по всем активным слотам) ---
-  // Новый клик пишется в следующий слот по кругу и НЕ стирает прежние: пока
-  // живут (возраст < 6.5с), все рисуются одновременно. MAX_CLICKS с запасом
-  // больше, чем успеет нащёлкать рука за время жизни одной кляксы.
-  var clickPos  = new Float32Array(MAX_CLICKS * 2);   // [x0,y0, x1,y1, ...] uv-центры
-  var clickAge  = new Float32Array(MAX_CLICKS);       // возраст(с); <0 = слот пуст
-  var clickSeed = new Float32Array(MAX_CLICKS);       // сид формы у каждого
-  var clickStart = new Float32Array(MAX_CLICKS);      // время рождения (с от start)
-  var clickSlot = 0;                                  // курсор записи по кольцу
-  var seedRot = 0;                                    // вращаем сид от клика к клику
-  for (var ci = 0; ci < MAX_CLICKS; ci++) clickAge[ci] = -1.0;  // все слоты пусты
-
-  function onMove(cx, cy) {
-    if (!interactiveEnabled()) return;
-    pointer.px = pointer.x; pointer.py = pointer.y;
-    pointer.x = cx / window.innerWidth;
-    pointer.y = 1.0 - cy / window.innerHeight;
-    pointer.moved = true;
-    play(true);
-  }
-  function onClick(cx, cy) {
-    if (!interactiveEnabled()) return;
-    clickX = cx / window.innerWidth;
-    clickY = 1.0 - cy / window.innerHeight;
-    clickPending = true;
-    activeUntil = (performance.now() - start) / 1000 + CLICK_HOLD;
-    play(true);
-  }
-  if (!staticBackground) {
-    // След и клик-всплеск — только на устройствах с ТОЧНЫМ указателем (мышь/трекпад).
-    // На телефоне (pointer: coarse) не вешаем ничего: важно, что тап там порождает
-    // ещё и СИНТЕТИЧЕСКИЕ mouse-события — поэтому мало убрать touch-слушатели, нужно
-    // не вешать и mouse, иначе чернила всё равно появлялись по тапу. Фон (fbm) живёт сам.
-    var fine = !window.matchMedia || window.matchMedia("(pointer: fine)").matches;
-    if (fine) {
-      window.addEventListener("mousemove", function (e) { onMove(e.clientX, e.clientY); }, { passive: true });
-      window.addEventListener("mousedown", function (e) { onClick(e.clientX, e.clientY); }, { passive: true });
-    }
-  }
-
-  // Полное разрешение: клякса теперь очень мелкая (≈ размер курсора), на
-  // пониженном буфере на неё приходилось бы лишь несколько пикселей и она шла
-  // «лесенкой». Сглаживание нитей внутри лечит суперсэмплинг в inkAt.
-  var SCALE = 1.0;
-  var slowFrames = 0, fastFrames = 0;
-  function resize() {
-    var dpr = Math.min(window.devicePixelRatio || 1, 2);
-    var w = Math.max(2, Math.floor(window.innerWidth * dpr * SCALE));
-    var h = Math.max(2, Math.floor(window.innerHeight * dpr * SCALE));
-    if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
-  }
-
-  // --- цикл ----------------------------------------------------------------
-  var FRAME_MS = 1000 / 30;
-  // Малый допуск не даёт мониторам с дробной частотой (например, 59.94 Гц)
-  // периодически проваливаться с 30 до 20 FPS из-за долей миллисекунды.
-  var FRAME_EARLY_TOLERANCE_MS = 1;
-  var raf = 0, last = 0, nextFrameAt = 0, start = performance.now();
-
-  function render(now) {
-    raf = 0;
-    var relativeNow = (now - start) / 1000;
-    var highActivity = pointer.moved || clickPending
-      || relativeNow < activeUntil || relativeNow < decayUntil;
-    if (nextFrameAt && now + FRAME_EARLY_TOLERANCE_MS < nextFrameAt) {
-      if (!document.hidden) raf = requestAnimationFrame(render);
+  function ensureRuntime(callback, errorCallback) {
+    if (window.D4YInkRuntime && window.D4YInkRuntime.create) {
+      callback();
       return;
     }
-    if (!nextFrameAt) nextFrameAt = now;
-    do {
-      nextFrameAt += FRAME_MS;
-    } while (nextFrameAt <= now);
-    var renderStarted = performance.now();
-    if (!last) last = now;
-    var dt = Math.min((now - last) / 1000, 0.022);
-    last = now;
-    resize();
-    var nowS = (now - start) / 1000;
-
-    // ввод курсора → толчок течения; держим симуляцию активной ещё IDLE_HOLD сек.
-    // prevX/Y — начало отрезка пути для непрерывного следа в accum.
-    var inject = 0.0, prevX = pointer.x, prevY = pointer.y;
-    var interactive = interactiveEnabled();
-    if (!interactive) {
-      pointer.moved = false;
-      clickPending = false;
-    }
-    if (interactive && pointer.moved) {
-      var dx = (pointer.x - pointer.px) * FORCE;
-      var dy = (pointer.y - pointer.py) * FORCE;
-      splat(pointer.x, pointer.y, dx * dt, dy * dt);
-      dyeSplat(pointer.x, pointer.y, DYE_AMT, 0.0, DYE_R_MOVE);   // тёплая капля (R) у курсора
-      prevX = pointer.px; prevY = pointer.py;
-      pointer.px = pointer.x; pointer.py = pointer.y;
-      pointer.moved = false;
-      inject = 1.0;
-      activeUntil = nowS + IDLE_HOLD;
-      decayUntil = nowS + DECAY_HOLD;
-    }
-    // КЛИК = капля упала в воду. Чернила рисуем ПРОЦЕДУРНО в шейдере (см. DISP_FS):
-    // занимаем следующий слот кольца (центр, время рождения, сид) — прежние кляксы
-    // остаются жить. Лёгкий толчок скорости оставляем, чтобы марморность колыхнулась.
-    if (interactive && clickPending) {
-      CURL = CLICK_CURL;
-      clickPos[clickSlot * 2] = clickX; clickPos[clickSlot * 2 + 1] = clickY;
-      clickStart[clickSlot] = nowS;
-      // сид формы: золотой угол даёт несхожесть с прошлым кликом, случайный
-      // разброс сверху делает каждую кляксу по-настоящему непредсказуемой.
-      seedRot = (seedRot + 2.39996 + Math.random() * 3.0) % 6.2832;
-      clickSeed[clickSlot] = seedRot;
-      clickSlot = (clickSlot + 1) % MAX_CLICKS;         // по кругу: переполнение затрёт самый старый
-      clickPending = false;
-      activeUntil = Math.max(activeUntil, nowS + CLICK_HOLD);
-      decayUntil = nowS + DECAY_HOLD;
-      curlUntil = nowS + 2.6;
-    }
-    // вихри только короткое время после клика — в покое CURL=0 (иначе зерно по экрану)
-    if (CURL > 0 && nowS >= curlUntil) CURL = 0;
-    // жидкость + чернила считаем пока активна симуляция (дёшево). Накопительное
-    // затухание (accum) и дотаивание чернил крутим дольше — пока след не зарастёт,
-    // иначе деформация «замерзает» на полпути (это и были визуальные баги).
-    if (nowS < activeUntil) step(dt);
-    if (nowS < decayUntil) {
-      var ac = progs.accum;
-      gl.useProgram(ac.prog);
-      gl.uniform1i(ac.u.uDisp, disp.read.attach(0));
-      gl.uniform1i(ac.u.uVelocity, velocity.read.attach(1));
-      gl.uniform2f(ac.u.ptr, pointer.x, pointer.y);
-      gl.uniform2f(ac.u.prev, prevX, prevY);
-      gl.uniform1f(ac.u.maskR, MASK_R);
-      gl.uniform1f(ac.u.aspect, canvas.width / canvas.height);
-      gl.uniform1f(ac.u.stepScale, STEP_SCALE);
-      gl.uniform1f(ac.u.persist, PERSIST);
-      gl.uniform1f(ac.u.dispMax, DISP_MAX);
-      gl.uniform1f(ac.u.inject, inject);
-      blit(disp.write); disp.swap();
-
-      // расползание + дотаивание чернил: всегда (и в движении, и в покое), чтобы
-      // и след, и клик-капля мягко растекались по воде, а не стояли чётким пятном.
-      var df = progs.diffuse;
-      gl.useProgram(df.prog);
-      gl.uniform2f(df.u.texel, dyeTexel[0], dyeTexel[1]);
-      gl.uniform1i(df.u.uTex, dye.read.attach(0));
-      gl.uniform1f(df.u.spread, DYE_SPREAD);
-      gl.uniform1f(df.u.fade, nowS >= activeUntil ? DYE_FADE : 1.0);
-      blit(dye.write); dye.swap();
-    }
-
-    // вывод: наш fbm-фон, смещённый накопл. полем + настоящие чернила (uDye)
-    gl.disable(gl.BLEND);
-    var dp = progs.disp;
-    gl.useProgram(dp.prog);
-    gl.uniform2f(dp.u.res, canvas.width, canvas.height);
-    gl.uniform1f(dp.u.t, nowS);
-    gl.uniform1f(dp.u.uDark, darkTheme ? 1.0 : 0.0);
-    gl.uniform1f(dp.u.uFriends, friendsSkin() ? 1.0 : 0.0);
-    gl.uniform1f(dp.u.uInteractive, interactive ? 1.0 : 0.0);
-    gl.uniform1i(dp.u.uDisp, disp.read.attach(0));
-    gl.uniform1i(dp.u.uDye, dye.read.attach(1));
-    // возраст каждой кляксы = now − рождение; пустые слоты держим <0 (шейдер их пропустит)
-    for (var s = 0; s < MAX_CLICKS; s++) {
-      clickAge[s] = clickStart[s] > 0 ? nowS - clickStart[s] : -1.0;
-    }
-    gl.uniform2fv(dp.u["uClickPos[0]"], clickPos);
-    gl.uniform1fv(dp.u["uClickAge[0]"], clickAge);
-    gl.uniform1fv(dp.u["uClickSeed[0]"], clickSeed);
-    blit(null);
-
-    // Подстраиваем только display-buffer: при устойчиво тяжёлом GPU снижаем
-    // scale небольшими шагами, а после спокойного периода возвращаем детализацию.
-    // Симуляция и геометрия страницы не меняются, поэтому скачков layout нет.
-    var renderCost = performance.now() - renderStarted;
-    if (highActivity && renderCost > 22) {
-      slowFrames += 1; fastFrames = 0;
-    } else if (renderCost < 11) {
-      fastFrames += 1; slowFrames = Math.max(0, slowFrames - 1);
-    } else {
-      slowFrames = Math.max(0, slowFrames - 1);
-      fastFrames = Math.max(0, fastFrames - 1);
-    }
-    if (slowFrames >= 24 && SCALE > .72) {
-      SCALE = Math.max(.72, SCALE - .08);
-      slowFrames = 0; nextFrameAt = 0;
-    } else if (fastFrames >= 180 && SCALE < 1) {
-      SCALE = Math.min(1, SCALE + .04);
-      fastFrames = 0; nextFrameAt = 0;
-    }
-
-    // фон сам по себе анимирован всегда; даже без курсора крутим цикл,
-    // чтобы fbm жил. (раньше при затухании жидкости цикл засыпал)
-    if (!document.hidden) raf = requestAnimationFrame(render);
-  }
-
-  function play(immediate) {
-    if (immediate && raf) {
-      cancelAnimationFrame(raf);
-      raf = 0;
-    }
-    if (!raf && !document.hidden) {
-      last = 0;
-      nextFrameAt = 0;
-      raf = requestAnimationFrame(render);
-    }
-  }
-  function pause() { if (raf) { cancelAnimationFrame(raf); raf = 0; } }
-
-  function teardown() {
-    pause();
-    if (canvas.parentNode) canvas.parentNode.removeChild(canvas);
-  }
-
-  resize();
-
-  // --- тест-хук (только когда страница выставила window.__INK_TEST=true) ------
-  // Детерминированно рисует ОДИН кадр: фон при фиксированном времени, без жидкости
-  // (uDisp=0), и заданные клик-кляксы с явными возрастом/сидом. Так скриншот следа
-  // воспроизводим пиксель-в-пиксель и годится в эталон. В проде хук не вызывается.
-  if (window.__INK_TEST) {
-    window.__inkRenderClicks = function (clicks, bgTime) {
-      resize();
-      for (var i = 0; i < MAX_CLICKS; i++) {
-        var c = clicks[i];
-        clickPos[i * 2] = c ? c.x : 0.0;
-        clickPos[i * 2 + 1] = c ? c.y : 0.0;
-        clickAge[i] = c ? c.age : -1.0;
-        clickSeed[i] = c ? c.seed : 0.0;
+    runtimeWaiters.push({ready: callback, error: errorCallback});
+    if (runtimeLoading) return;
+    runtimeLoading = true;
+    if (!runtimeSrc) {
+      runtimeLoading = false;
+      var missing = runtimeWaiters.splice(0);
+      for (var m = 0; m < missing.length; m++) {
+        if (missing[m].error) missing[m].error("runtime-url-missing");
       }
-      var d = progs.disp;
-      gl.disable(gl.BLEND);
-      gl.useProgram(d.prog);
-      gl.uniform2f(d.u.res, canvas.width, canvas.height);
-      gl.uniform1f(d.u.t, bgTime == null ? 8.0 : bgTime);
-      gl.uniform1f(d.u.uDark, darkTheme ? 1.0 : 0.0);
-      gl.uniform1f(d.u.uFriends, friendsSkin() ? 1.0 : 0.0);
-      gl.uniform1f(d.u.uInteractive, 1.0);
-      gl.uniform1i(d.u.uDisp, disp.read.attach(0));   // disp пустой → фон не смещён
-      gl.uniform1i(d.u.uDye, dye.read.attach(1));     // dye пустой → без тёплого следа
-      gl.uniform2fv(d.u["uClickPos[0]"], clickPos);
-      gl.uniform1fv(d.u["uClickAge[0]"], clickAge);
-      gl.uniform1fv(d.u["uClickSeed[0]"], clickSeed);
-      blit(null);
-      gl.finish();
+      return;
+    }
+    var tag = document.createElement("script");
+    tag.src = runtimeSrc;
+    tag.async = true;
+    tag.onload = function () {
+      runtimeLoading = false;
+      var waiters = runtimeWaiters.splice(0);
+      for (var i = 0; i < waiters.length; i++) waiters[i].ready();
     };
-    window.__inkReady = true;
-    return;   // в тест-режиме фоновый цикл не запускаем — кадры рисует хук
+    tag.onerror = function () {
+      runtimeLoading = false;
+      var waiters = runtimeWaiters.splice(0);
+      for (var i = 0; i < waiters.length; i++) {
+        if (waiters[i].error) waiters[i].error("runtime-load-error");
+      }
+    };
+    document.head.appendChild(tag);
   }
 
-  function drawStatic() {
-    // статичный «красивый» кадр без анимации и без жидкости (uDisp = 0)
-    resize();
-    var dpr2 = progs.disp;
-    gl.useProgram(dpr2.prog);
-    gl.uniform2f(dpr2.u.res, canvas.width, canvas.height);
-    gl.uniform1f(dpr2.u.t, 8.0);
-    gl.uniform1f(dpr2.u.uDark, darkTheme ? 1.0 : 0.0);
-    gl.uniform1f(dpr2.u.uFriends, friendsSkin() ? 1.0 : 0.0);
-    gl.uniform1f(dpr2.u.uInteractive, 0.0);
-    gl.uniform1i(dpr2.u.uDisp, disp.read.attach(0));
-    gl.uniform1i(dpr2.u.uDye, dye.read.attach(1));   // пустые чернила на статичном кадре
-    gl.uniform2fv(dpr2.u["uClickPos[0]"], clickPos);
-    gl.uniform1fv(dpr2.u["uClickAge[0]"], clickAge); // все <0 → без клик-клякс на статике
-    gl.uniform1fv(dpr2.u["uClickSeed[0]"], clickSeed);
-    blit(null);
+  function mainFatal(expectedCanvas, generation) {
+    if (generation !== backendGeneration || expectedCanvas !== canvas) return;
+    backendGeneration += 1;
+    resetReveal();
+    backendReady = false;
+    if (renderer) {
+      renderer.destroy();
+      renderer = null;
+    }
+    removeCanvas();
+    controllerStats.backend = "css-fallback";
   }
 
-  document.addEventListener("d4y:themechange", function (event) {
-    darkTheme = event.detail && event.detail.theme === "dark";
-    if (staticBackground) drawStatic(); else play();
-  });
-  document.addEventListener("d4y:skinchange", function () {
-    if (staticBackground) drawStatic(); else play();
-  });
-  document.addEventListener("turbo:load", function () {
-    if (staticBackground) drawStatic(); else play();
-  });
-
-  if (staticBackground) {
-    drawStatic();
-    var staticResizeRaf = 0;
-    window.addEventListener("resize", function () {
-      if (staticResizeRaf) cancelAnimationFrame(staticResizeRaf);
-      staticResizeRaf = requestAnimationFrame(function () {
-        staticResizeRaf = 0;
-        drawStatic();
+  function startMain(useExistingCanvas) {
+    if (!useExistingCanvas || !canvas) {
+      removeCanvas();
+      canvas = makeCanvas();
+    }
+    var mainCanvas = canvas;
+    var generation = beginBackend();
+    controllerStats.backend = "main";
+    controllerStats.worker = false;
+    ensureRuntime(function () {
+      if (staticPolicy || generation !== backendGeneration ||
+          mainCanvas !== canvas || !window.D4YInkRuntime) return;
+      var created = window.D4YInkRuntime.create(mainCanvas, {
+        preserveDrawingBuffer: !!window.__INK_PRESERVE,
+        debug: !!window.__INK_DEBUG,
+        onFirstFrame: function (runtimeStats) {
+          if (generation !== backendGeneration || mainCanvas !== canvas) return;
+          updateRuntimeStats(runtimeStats);
+          reveal(mainCanvas, generation);
+          scheduleInteractiveUpgrade();
+        },
+        onInteractiveReady: function () {},
+        onFatal: function () { mainFatal(mainCanvas, generation); },
+        onStats: function (runtimeStats) {
+          if (generation === backendGeneration && mainCanvas === canvas) {
+            updateRuntimeStats(runtimeStats);
+          }
+        },
       });
-    }, { passive: true });
-  } else {
-    document.addEventListener("visibilitychange", function () {
-      if (document.hidden) pause(); else play();
-    });
-    window.addEventListener("pagehide", pause);
-    play();
+      if (!created) {
+        mainFatal(mainCanvas, generation);
+        return;
+      }
+      if (staticPolicy || generation !== backendGeneration || mainCanvas !== canvas) {
+        created.destroy();
+        return;
+      }
+      renderer = created;
+      created.setState(state());
+      backendReady = true;
+
+      if (window.__INK_TEST) {
+        window.__inkRenderClicks = function (clicks, bgTime) {
+          if (generation !== backendGeneration || created !== renderer) return;
+          created.setState({
+            width: window.innerWidth,
+            height: window.innerHeight,
+            dpr: window.devicePixelRatio || 1,
+            dark: darkTheme(),
+            friends: friendsSkin(),
+            interactive: true,
+            fine: true,
+          });
+          created.renderTest(clicks || [], bgTime);
+          latestRuntimeStats = created.stats();
+          firstFrameReady = true;
+          controllerStats.firstFrameReady = true;
+          host.classList.add("has-ink");
+        };
+        window.__inkReady = true;
+      } else {
+        created.start();
+      }
+      flushInput();
+    }, function () { mainFatal(mainCanvas, generation); });
   }
+
+  function fallbackFromWorker(expectedWorker, generation) {
+    if (generation !== backendGeneration || worker !== expectedWorker || failedOver) return;
+    failedOver = true;
+    window.clearTimeout(workerTimer);
+    if (expectedWorker) expectedWorker.terminate();
+    worker = null;
+    renderer = null;
+    backendReady = false;
+    resetReveal();
+    // Transferred canvas is one-way; main fallback always receives a fresh node.
+    removeCanvas();
+    canvas = makeCanvas();
+    startMain(true);
+  }
+
+  function startWorker() {
+    failedOver = false;
+    removeCanvas();
+    canvas = makeCanvas();
+    var workerCanvas = canvas;
+    var generation = beginBackend();
+    controllerStats.backend = "worker";
+    controllerStats.worker = true;
+    var startedWorker = null;
+    try {
+      startedWorker = new Worker(workerSrc);
+      worker = startedWorker;
+      startedWorker.onerror = function () {
+        fallbackFromWorker(startedWorker, generation);
+      };
+      startedWorker.onmessageerror = function () {
+        fallbackFromWorker(startedWorker, generation);
+      };
+      startedWorker.onmessage = function (event) {
+        if (generation !== backendGeneration || worker !== startedWorker ||
+            canvas !== workerCanvas) return;
+        var message = event.data || {};
+        if (message.type === "first-frame") {
+          window.clearTimeout(workerTimer);
+          updateRuntimeStats(message.detail);
+          reveal(workerCanvas, generation);
+          scheduleInteractiveUpgrade();
+        } else if (message.type === "stats") {
+          updateRuntimeStats(message.detail);
+        } else if (message.type === "fatal") {
+          fallbackFromWorker(startedWorker, generation);
+        }
+      };
+      var offscreen = workerCanvas.transferControlToOffscreen();
+      startedWorker.postMessage({
+        type: "init",
+        canvas: offscreen,
+        runtimeUrl: runtimeSrc,
+        state: state(),
+        preserveDrawingBuffer: false,
+        debug: !!window.__INK_DEBUG,
+      }, [offscreen]);
+      backendReady = true;
+      workerTimer = window.setTimeout(function () {
+        fallbackFromWorker(startedWorker, generation);
+      }, 5000);
+    } catch (_) {
+      fallbackFromWorker(startedWorker, generation);
+    }
+  }
+
+  function scheduleInteractiveUpgrade() {
+    if (!eligible()) return;
+    var upgrade = function () {
+      if (!eligible()) return;
+      if (worker) worker.postMessage({type: "ensure-interactive"});
+      else if (renderer) renderer.ensureInteractive();
+    };
+    if (window.requestIdleCallback) {
+      window.requestIdleCallback(upgrade, {timeout: 1800});
+    } else {
+      window.setTimeout(upgrade, 250);
+    }
+  }
+
+  function sendState() {
+    var next = state();
+    if (worker) worker.postMessage({type: "state", state: next});
+    else if (renderer) renderer.setState(next);
+  }
+
+  function flushInput() {
+    inputRaf = 0;
+    if (!pendingMove && !pendingClicks.length) return;
+    if (!backendReady || !eligible()) {
+      if (!eligible()) {
+        pendingMove = null;
+        pendingClicks.length = 0;
+      } else {
+        inputRaf = window.requestAnimationFrame(flushInput);
+      }
+      return;
+    }
+    var payload = {move: pendingMove, clicks: pendingClicks.splice(0)};
+    if (pendingMove) {
+      lastPointer.x = pendingMove.x;
+      lastPointer.y = pendingMove.y;
+    }
+    pendingMove = null;
+    controllerStats.pointerFlushes += 1;
+    if (worker) worker.postMessage({type: "input", payload: payload});
+    else if (renderer) renderer.input(payload);
+  }
+
+  function scheduleInput() {
+    if (!inputRaf) inputRaf = window.requestAnimationFrame(flushInput);
+  }
+
+  function onMove(event) {
+    if (!eligible()) return;
+    var x = event.clientX / Math.max(1, window.innerWidth);
+    var y = 1 - event.clientY / Math.max(1, window.innerHeight);
+    pendingMove = {x: x, y: y, px: lastPointer.x, py: lastPointer.y};
+    scheduleInput();
+  }
+
+  function onClick(event) {
+    if (!eligible()) return;
+    if (event.button != null && event.button !== 0) return;
+    pendingClicks.push({
+      x: event.clientX / Math.max(1, window.innerWidth),
+      y: 1 - event.clientY / Math.max(1, window.innerHeight),
+    });
+    scheduleInput();
+  }
+
+  var refreshRaf = 0;
+  function refresh() {
+    if (staticPolicy) {
+      if (posterLoader) posterLoader();
+      return;
+    }
+    if (refreshRaf) return;
+    refreshRaf = window.requestAnimationFrame(function () {
+      refreshRaf = 0;
+      if (staticPolicy) return;
+      stateCache = null;
+      sendState();
+      scheduleInteractiveUpgrade();
+    });
+  }
+
+  function pause() {
+    if (staticPolicy) return;
+    if (worker) worker.postMessage({type: "pause"});
+    else if (renderer) renderer.pause();
+  }
+  function resume() {
+    if (staticPolicy) {
+      if (posterLoader) posterLoader();
+      return;
+    }
+    sendState();
+    if (worker) worker.postMessage({type: "resume"});
+    else if (renderer) renderer.start();
+  }
+
+  function canUseOffscreen() {
+    return !window.__INK_FORCE_MAIN && !window.__INK_TEST &&
+      !!window.Worker && !!workerSrc && !!runtimeSrc &&
+      "transferControlToOffscreen" in HTMLCanvasElement.prototype;
+  }
+
+  function startBackend() {
+    document.documentElement.classList.remove("ink-static");
+    removePoster();
+    latestRuntimeStats = {};
+    failedOver = false;
+    backendReady = false;
+    if (canUseOffscreen()) startWorker();
+    else {
+      removeCanvas();
+      canvas = makeCanvas();
+      startMain(true);
+    }
+  }
+
+  function enterStaticMode() {
+    if (staticPolicy && posterLoader) {
+      posterLoader();
+      return;
+    }
+    staticPolicy = true;
+    backendGeneration += 1;
+    resetReveal();
+    failedOver = true;
+    window.clearTimeout(workerTimer);
+    workerTimer = 0;
+    if (inputRaf) window.cancelAnimationFrame(inputRaf);
+    inputRaf = 0;
+    pendingMove = null;
+    pendingClicks.length = 0;
+    if (worker) {
+      worker.terminate();
+      worker = null;
+    }
+    if (renderer) {
+      renderer.destroy();
+      renderer = null;
+    }
+    backendReady = false;
+    controllerStats.backend = "poster";
+    controllerStats.worker = false;
+    window.__inkReady = false;
+    try { delete window.__inkRenderClicks; } catch (_) {
+      window.__inkRenderClicks = undefined;
+    }
+    removeCanvas();
+    startPoster();
+  }
+
+  function exitStaticMode() {
+    if (!staticPolicy || deviceStaticPolicy || reduceMotion) return;
+    staticPolicy = false;
+    backendGeneration += 1;
+    resetReveal();
+    removePoster();
+    stateCache = null;
+    startBackend();
+  }
+
+  controller = {refresh: refresh, pause: pause, resume: resume};
+  host.__d4yInkController = controller;
+  host.classList.remove("has-ink");
+
+  var moveEvent = window.PointerEvent ? "pointermove" : "mousemove";
+  var clickEvent = window.PointerEvent ? "pointerdown" : "mousedown";
+  window.addEventListener(moveEvent, onMove, {passive: true});
+  window.addEventListener(clickEvent, onClick, {passive: true});
+  window.addEventListener("resize", refresh, {passive: true});
+  document.addEventListener("d4y:themechange", refresh);
+  document.addEventListener("d4y:skinchange", refresh);
+  document.addEventListener("turbo:load", refresh);
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) pause(); else resume();
+  });
+  window.addEventListener("pagehide", pause);
+  window.addEventListener("pageshow", resume);
+  if (reduceQuery && reduceQuery.addEventListener) {
+    reduceQuery.addEventListener("change", function (event) {
+      reduceMotion = !!event.matches;
+      if (reduceMotion) enterStaticMode();
+      else exitStaticMode();
+    });
+  }
+
+  // Настройка cursor_effects может измениться без навигации.
+  new MutationObserver(refresh).observe(document.documentElement, {
+    attributes: true,
+    subtree: true,
+    attributeFilter: ["data-ink-interactive", "data-skin", "data-theme"],
+  });
+
+  if (staticPolicy) enterStaticMode();
+  else startBackend();
 })();

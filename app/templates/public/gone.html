@@ -70,6 +70,13 @@
     <div class="home-dots" aria-hidden="true">♥ ♥ ♥</div>
   </div>
 </main>
-<script src="{{ asset('ink.js') }}" defer></script>
+<script src="{{ asset('ink.js') }}"
+        data-runtime-src="{{ asset('ink-runtime.js') }}"
+        data-worker-src="{{ asset('ink-worker.js') }}"
+        data-static-friends-light="{{ asset('ink-static-friends-light.webp') }}"
+        data-static-friends-dark="{{ asset('ink-static-friends-dark.webp') }}"
+        data-static-romantic-light="{{ asset('ink-static-romantic-light.webp') }}"
+        data-static-romantic-dark="{{ asset('ink-static-romantic-dark.webp') }}"
+        defer></script>
 </body>
 </html>

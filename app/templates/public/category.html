@@ -675,7 +675,14 @@
 </dialog>
 <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
-<script src="{{ asset('ink.js') }}" defer></script>
+<script src="{{ asset('ink.js') }}"
+        data-runtime-src="{{ asset('ink-runtime.js') }}"
+        data-worker-src="{{ asset('ink-worker.js') }}"
+        data-static-friends-light="{{ asset('ink-static-friends-light.webp') }}"
+        data-static-friends-dark="{{ asset('ink-static-friends-dark.webp') }}"
+        data-static-romantic-light="{{ asset('ink-static-romantic-light.webp') }}"
+        data-static-romantic-dark="{{ asset('ink-static-romantic-dark.webp') }}"
+        defer></script>
 <script src="{{ asset('ui.js') }}"></script>
 {% if not me or not me['bot_linked'] %}<script nonce="{{ csp_nonce }}" src="{{ asset('auth.js') }}"></script>{% endif %}
 <script src="{{ asset('confirm.js') }}" defer></script>

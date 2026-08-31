@@ -125,16 +125,23 @@ class FaststartTests(unittest.TestCase):
 class FrontendMediaContractTests(unittest.TestCase):
     def test_static_background_covers_css_fallback_and_resizes(self):
         ink = (APP / "static/ink.js").read_text(encoding="utf-8")
-        self.assertIn('classList.toggle("ink-static", staticBackground)', ink)
+        runtime = (APP / "static/ink-runtime.js").read_text(encoding="utf-8")
+        self.assertIn("var deviceStaticPolicy = saveData || veryWeak", ink)
+        self.assertIn("var staticPolicy = reduceMotion || deviceStaticPolicy", ink)
+        self.assertIn('classList.add("ink-static")', ink)
         self.assertIn('querySelectorAll("animate, animateTransform")', ink)
         self.assertIn('window.addEventListener("resize"', ink)
-        draw_static = ink.split("function drawStatic()", 1)[1].split(
-            'document.addEventListener("d4y:themechange"', 1)[0]
-        self.assertIn("resize();", draw_static)
+        poster_branch = ink.split("function startPoster()", 1)[1].split(
+            "function ensureRuntime", 1)[0]
+        self.assertIn("ink-static-frame", poster_branch)
+        self.assertNotIn("getContext", poster_branch)
+        self.assertIn("BASE_DISPLAY_FS", runtime)
+        self.assertIn("function ensureInteractive()", runtime)
 
         for filename in ("public.css", "admin.css"):
             css = (APP / f"static/{filename}").read_text(encoding="utf-8")
             self.assertIn("html.ink-static .bg-smoke", css, filename)
+            self.assertIn(".ink-static-frame", css, filename)
 
     def test_public_cards_advertise_vertical_desktop_media_widths(self):
         category = (APP / "templates/public/category.html").read_text("utf-8")

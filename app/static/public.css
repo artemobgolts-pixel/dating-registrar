@@ -1814,7 +1814,8 @@ html.ink-static .bg-smoke span {
    но под всем контентом. Когда канвас активен (.has-ink), статичный
    SVG/градиентный дым прячем — шейдер его полностью заменяет.
    ============================================================================ */
-.ink-canvas {
+.ink-canvas,
+.ink-static-frame {
   position: fixed;
   inset: 0;
   width: 100%;
@@ -1822,6 +1823,12 @@ html.ink-static .bg-smoke span {
   display: block;
   z-index: 0;
   pointer-events: none;
+  opacity: 0;
+}
+.ink-static-frame { object-fit: cover; }
+.bg-smoke.has-ink .ink-canvas,
+.bg-smoke.has-ink .ink-static-frame {
+  opacity: 1;
 }
 .bg-smoke.has-ink .turb,
 .bg-smoke.has-ink span { display: none; }   /* шейдер вместо CSS-дыма */

@@ -204,7 +204,8 @@ async def csp_headers(request: Request, call_next):
                 "https://telegram.org https://oauth.telegram.org; "
                 "style-src 'self' 'unsafe-inline'; "
                 "img-src 'self' data: blob: https://t.me; font-src 'self'; "
-                "connect-src 'self'; frame-src https://oauth.telegram.org; "
+                "connect-src 'self'; worker-src 'self'; "
+                "frame-src https://oauth.telegram.org; "
                 "frame-ancestors https://telegram.org https://*.telegram.org; "
                 "object-src 'none'; base-uri 'none'; form-action 'self'")
         elif p == "/login" or p.startswith("/c/") or p.startswith("/d/"):
@@ -214,7 +215,7 @@ async def csp_headers(request: Request, call_next):
                 "https://telegram.org https://oauth.telegram.org; "
                 "style-src 'self' 'unsafe-inline'; "
                 "img-src 'self' data: blob: https://t.me; font-src 'self'; "
-                "connect-src 'self'; "
+                "connect-src 'self'; worker-src 'self'; "
                 "frame-src https://oauth.telegram.org; "
                 "frame-ancestors 'none'; object-src 'none'; "
                 "base-uri 'none'; form-action 'self'")
@@ -224,6 +225,7 @@ async def csp_headers(request: Request, call_next):
                 f"script-src 'self' 'nonce-{request.state.csp_nonce}'; "
                 "style-src 'self' 'unsafe-inline'; "
                 "img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; "
+                "worker-src 'self'; "
                 "frame-ancestors 'none'; object-src 'none'; "
                 "base-uri 'none'; form-action 'self'")
     return resp

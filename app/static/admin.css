@@ -1591,11 +1591,15 @@ tr.drag-row.dragging { background: #fdf1f4; box-shadow: 0 10px 24px rgba(120, 70
 @keyframes a-smoke-b { 0% { transform: translate(0,0) rotate(0) scale(1.05); } 50% { transform: translate(-6vw,5vh) rotate(-70deg) scale(1.14); } 100% { transform: translate(3vw,-3vh) rotate(-120deg) scale(1); } }
 @keyframes a-smoke-c { 0% { transform: translate(0,0) rotate(0) scale(1.1); } 50% { transform: translate(6vw,-6vh) rotate(110deg) scale(1.25); } 100% { transform: translate(-5vw,-2vh) rotate(200deg) scale(1.08); } }
 
-.ink-canvas {
+.ink-canvas,
+.ink-static-frame {
   position: fixed; inset: 0;
   width: 100%; height: 100%;
-  display: block; z-index: 0; pointer-events: none;
+  display: block; z-index: 0; pointer-events: none; opacity: 0;
 }
+.ink-static-frame { object-fit: cover; }
+.bg-smoke.has-ink .ink-canvas,
+.bg-smoke.has-ink .ink-static-frame { opacity: 1; }
 .bg-smoke.has-ink .turb,
 .bg-smoke.has-ink span { display: none; }   /* шейдер вместо CSS-дыма */
 

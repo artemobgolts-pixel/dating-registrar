@@ -180,7 +180,9 @@ html[data-theme="dark"] .bg-smoke .turb { opacity: .28; mix-blend-mode: screen; 
 @keyframes landing-smoke-b { 0% { transform: translate(0, 0) rotate(0) scale(1.05); } 50% { transform: translate(-6vw, 5vh) rotate(-70deg) scale(1.14); } 100% { transform: translate(3vw, -3vh) rotate(-120deg) scale(1); } }
 @keyframes landing-smoke-c { 0% { transform: translate(0, 0) rotate(0) scale(1.1); } 50% { transform: translate(6vw, -6vh) rotate(110deg) scale(1.25); } 100% { transform: translate(-5vw, -2vh) rotate(200deg) scale(1.08); } }
 
-.ink-canvas { position: fixed; inset: 0; z-index: 0; width: 100%; height: 100%; display: block; pointer-events: none; }
+.ink-canvas, .ink-static-frame { position: fixed; inset: 0; z-index: 0; width: 100%; height: 100%; display: block; pointer-events: none; opacity: 0; }
+.ink-static-frame { object-fit: cover; }
+.bg-smoke.has-ink .ink-canvas, .bg-smoke.has-ink .ink-static-frame { opacity: 1; }
 .bg-smoke.has-ink .turb, .bg-smoke.has-ink span { display: none; }
 html.ink-static .bg-smoke .turb, html.ink-static .bg-smoke .plume, html.ink-static .bg-smoke span { animation: none !important; }
 

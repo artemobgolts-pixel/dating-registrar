@@ -312,7 +312,8 @@ button,
   100% { transform: translate(-5vw, -2vh) rotate(200deg) scale(1.08); }
 }
 
-.ink-canvas {
+.ink-canvas,
+.ink-static-frame {
   position: fixed;
   inset: 0;
   z-index: 0;
@@ -320,7 +321,11 @@ button,
   height: 100%;
   display: block;
   pointer-events: none;
+  opacity: 0;
 }
+.ink-static-frame { object-fit: cover; }
+.bg-smoke.has-ink .ink-canvas,
+.bg-smoke.has-ink .ink-static-frame { opacity: 1; }
 
 .bg-smoke.has-ink .turb,
 .bg-smoke.has-ink span { display: none; }
