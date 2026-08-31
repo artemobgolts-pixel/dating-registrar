@@ -10,6 +10,7 @@ from urllib.parse import quote, urlsplit
 
 import httpx
 
+import metrics
 from config import BASE_URL, TG_MINI_APP_URL
 
 log = logging.getLogger("notify")
@@ -28,6 +29,15 @@ _OUTBOX_PREFERENCES = {
     "review_prompt": "reviews",
     "review_received": "reviews",
 }
+
+
+def _telegram_post(operation: str, *args, **kwargs) -> httpx.Response:
+    """Один bounded RED-сигнал на попытку Telegram Bot API."""
+    with metrics.track_dependency("telegram", operation) as observation:
+        response = httpx.post(*args, **kwargs)
+        if response.status_code >= 400:
+            observation.fail()
+        return response
 
 
 def esc(s: str | None) -> str:
@@ -225,7 +235,8 @@ def send_to(chat_id: int | str, text: str, *, reply_markup: dict | None = None) 
         }
         if reply_markup:
             rich_payload["reply_markup"] = reply_markup
-        r = httpx.post(
+        r = _telegram_post(
+            "send_message",
             f"https://api.telegram.org/bot{TOKEN}/sendRichMessage",
             json=rich_payload,
             timeout=10,
@@ -234,8 +245,12 @@ def send_to(chat_id: int | str, text: str, *, reply_markup: dict | None = None) 
             return True
         # Bot API 10.1 может быть ещё недоступен в self-hosted gateway или rich
         # HTML может оказаться несовместимым. Уведомление не теряем.
-        log.warning("Telegram sendRichMessage %s, fallback: %s",
-                    r.status_code, r.text[:200])
+        log.warning(
+            "Telegram Rich Message недоступен, использую fallback",
+            extra={"event": "telegram_rich_message_fallback", "provider": "telegram",
+                   "operation": "send_message", "status_code": r.status_code,
+                   "status_class": f"{r.status_code // 100}xx", "outcome": "fallback"},
+        )
         payload = {
             "chat_id": chat_id,
             "text": text,
@@ -245,18 +260,28 @@ def send_to(chat_id: int | str, text: str, *, reply_markup: dict | None = None) 
         fallback_markup = _legacy_markup(reply_markup)
         if fallback_markup:
             payload["reply_markup"] = fallback_markup
-        fallback = httpx.post(
+        fallback = _telegram_post(
+            "send_message",
             f"https://api.telegram.org/bot{TOKEN}/sendMessage",
             json=payload,
             timeout=10,
         )
         if fallback.status_code < 400:
             return True
-        log.warning("Telegram sendMessage %s: %s",
-                    fallback.status_code, fallback.text[:200])
+        log.warning(
+            "Telegram не принял сообщение",
+            extra={"event": "telegram_send_failed", "provider": "telegram",
+                   "operation": "send_message", "status_code": fallback.status_code,
+                   "status_class": f"{fallback.status_code // 100}xx", "outcome": "failure"},
+        )
         return False
-    except Exception as e:
-        log.warning("Не удалось отправить сообщение в Telegram: %s", e)
+    except Exception as exc:
+        log.warning(
+            "Не удалось отправить сообщение в Telegram",
+            extra={"event": "telegram_send_failed", "provider": "telegram",
+                   "operation": "send_message",
+                   "exception_type": type(exc).__name__, "outcome": "failure"},
+        )
         return False
 
 
@@ -282,7 +307,8 @@ def send_photo_to(chat_id: int | str, path, caption: str,
                 reply_markup, ensure_ascii=False, separators=(",", ":"),
             )
         with open(path, "rb") as photo:
-            response = httpx.post(
+            response = _telegram_post(
+                "send_media",
                 f"https://api.telegram.org/bot{TOKEN}/sendPhoto",
                 data=data,
                 files={"photo": (os.path.basename(path), photo, "image/png")},
@@ -290,8 +316,12 @@ def send_photo_to(chat_id: int | str, path, caption: str,
             )
         if response.status_code < 400:
             return True
-        log.warning("Telegram styled sendPhoto %s, fallback: %s",
-                    response.status_code, response.text[:200])
+        log.warning(
+            "Telegram не принял styled photo, использую fallback",
+            extra={"event": "telegram_media_fallback", "provider": "telegram",
+                   "operation": "send_media", "status_code": response.status_code,
+                   "status_class": f"{response.status_code // 100}xx", "outcome": "fallback"},
+        )
 
         legacy_data: dict[str, str] = {
             "chat_id": str(chat_id), "caption": caption, "parse_mode": "HTML",
@@ -302,7 +332,8 @@ def send_photo_to(chat_id: int | str, path, caption: str,
                 fallback_markup, ensure_ascii=False, separators=(",", ":"),
             )
         with open(path, "rb") as photo:
-            response = httpx.post(
+            response = _telegram_post(
+                "send_media",
                 f"https://api.telegram.org/bot{TOKEN}/sendPhoto",
                 data=legacy_data,
                 files={"photo": (os.path.basename(path), photo, "image/png")},
@@ -310,10 +341,19 @@ def send_photo_to(chat_id: int | str, path, caption: str,
             )
         if response.status_code < 400:
             return True
-        log.warning("Telegram legacy sendPhoto %s, text fallback: %s",
-                    response.status_code, response.text[:200])
-    except Exception as e:
-        log.warning("Не удалось отправить изображение в Telegram, fallback: %s", e)
+        log.warning(
+            "Telegram не принял photo, использую текстовый fallback",
+            extra={"event": "telegram_media_failed", "provider": "telegram",
+                   "operation": "send_media", "status_code": response.status_code,
+                   "status_class": f"{response.status_code // 100}xx", "outcome": "failure"},
+        )
+    except Exception as exc:
+        log.warning(
+            "Не удалось отправить изображение в Telegram, использую fallback",
+            extra={"event": "telegram_media_fallback", "provider": "telegram",
+                   "operation": "send_media",
+                   "exception_type": type(exc).__name__, "outcome": "fallback"},
+        )
     return send_to(chat_id, caption, reply_markup=reply_markup)
 
 
@@ -341,7 +381,8 @@ def send_video_to(chat_id: int | str, path, caption: str,
                 markup, ensure_ascii=False, separators=(",", ":"),
             )
         with open(path, "rb") as video:
-            return httpx.post(
+            return _telegram_post(
+                "send_media",
                 f"https://api.telegram.org/bot{TOKEN}/sendVideo",
                 data=data,
                 files={"video": (os.path.basename(path), video, "video/mp4")},
@@ -352,17 +393,30 @@ def send_video_to(chat_id: int | str, path, caption: str,
         response = upload(reply_markup)
         if response.status_code < 400:
             return True
-        log.warning("Telegram styled sendVideo %s, fallback: %s",
-                    response.status_code, response.text[:200])
+        log.warning(
+            "Telegram не принял styled video, использую fallback",
+            extra={"event": "telegram_media_fallback", "provider": "telegram",
+                   "operation": "send_media", "status_code": response.status_code,
+                   "status_class": f"{response.status_code // 100}xx", "outcome": "fallback"},
+        )
 
         legacy_markup = _legacy_markup(reply_markup)
         response = upload(legacy_markup)
         if response.status_code < 400:
             return True
-        log.warning("Telegram legacy sendVideo %s, text fallback: %s",
-                    response.status_code, response.text[:200])
-    except Exception as e:
-        log.warning("Не удалось отправить видео в Telegram, fallback: %s", e)
+        log.warning(
+            "Telegram не принял video, использую текстовый fallback",
+            extra={"event": "telegram_media_failed", "provider": "telegram",
+                   "operation": "send_media", "status_code": response.status_code,
+                   "status_class": f"{response.status_code // 100}xx", "outcome": "failure"},
+        )
+    except Exception as exc:
+        log.warning(
+            "Не удалось отправить видео в Telegram, использую fallback",
+            extra={"event": "telegram_media_fallback", "provider": "telegram",
+                   "operation": "send_media",
+                   "exception_type": type(exc).__name__, "outcome": "fallback"},
+        )
     return send_to(chat_id, caption, reply_markup=reply_markup)
 
 
@@ -371,14 +425,20 @@ def answer_callback(query_id: str, text: str = "") -> bool:
     if not TOKEN or not query_id:
         return False
     try:
-        r = httpx.post(
+        r = _telegram_post(
+            "answer_callback",
             f"https://api.telegram.org/bot{TOKEN}/answerCallbackQuery",
             json={"callback_query_id": query_id, "text": text[:200]},
             timeout=10,
         )
         return r.status_code < 400
-    except Exception as e:
-        log.warning("Не удалось ответить на callback Telegram: %s", e)
+    except Exception as exc:
+        log.warning(
+            "Не удалось ответить на callback Telegram",
+            extra={"event": "telegram_callback_failed", "provider": "telegram",
+                   "operation": "answer_callback",
+                   "exception_type": type(exc).__name__, "outcome": "failure"},
+        )
         return False
 
 
@@ -399,18 +459,29 @@ def send_document(chat_id: int | str, path, caption: str | None = None,
             if caption:
                 data["caption"] = caption
                 data["parse_mode"] = "HTML"
-            r = httpx.post(
+            r = _telegram_post(
+                "send_document",
                 f"https://api.telegram.org/bot{TOKEN}/sendDocument",
                 data=data,
                 files={"document": (filename or os.path.basename(path), f)},
                 timeout=60,
             )
         if r.status_code >= 400:
-            log.warning("Telegram sendDocument %s: %s", r.status_code, r.text[:200])
+            log.warning(
+                "Telegram не принял документ",
+                extra={"event": "telegram_send_failed", "provider": "telegram",
+                       "operation": "send_document", "status_code": r.status_code,
+                       "status_class": f"{r.status_code // 100}xx", "outcome": "failure"},
+            )
             return False
         return True
-    except Exception as e:
-        log.warning("Не удалось отправить документ в Telegram: %s", e)
+    except Exception as exc:
+        log.warning(
+            "Не удалось отправить документ в Telegram",
+            extra={"event": "telegram_send_failed", "provider": "telegram",
+                   "operation": "send_document",
+                   "exception_type": type(exc).__name__, "outcome": "failure"},
+        )
         return False
 
 

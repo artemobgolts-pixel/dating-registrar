@@ -260,8 +260,11 @@ def user_ban(uid: int, request: Request, conn=Depends(get_db)):
     new = 0 if u["is_active"] else 1
     conn.execute("UPDATE users SET is_active=? WHERE id=?", (new, uid))
     conn.commit()
-    log.warning("operator %s set is_active=%s for user %s (%s)",
-                request.state.user["id"], new, uid, u["tg_username"])
+    log.warning(
+        "Оператор изменил доступ пользователя",
+        extra={"event": "operator_user_access_changed",
+               "outcome": "enabled" if new else "disabled"},
+    )
     return redir(_back(uid), "Пользователь разбанен" if new else "Пользователь забанен")
 
 
@@ -283,8 +286,11 @@ def user_operator(uid: int, request: Request, conn=Depends(get_db)):
     new = 0 if u["is_operator"] else 1
     conn.execute("UPDATE users SET is_operator=? WHERE id=?", (new, uid))
     conn.commit()
-    log.warning("operator %s set is_operator=%s for user %s",
-                request.state.user["id"], new, uid)
+    log.warning(
+        "Оператор изменил роль пользователя",
+        extra={"event": "operator_role_changed",
+               "outcome": "granted" if new else "revoked"},
+    )
     return redir(_back(uid), "Назначен оператором" if new else "Роль оператора снята")
 
 
@@ -344,8 +350,11 @@ def user_delete(uid: int, request: Request, conn=Depends(get_db)):
     conn.commit()
     for fn in files:                                       # файлы — после коммита
         images.delete_file(fn)
-    log.warning("operator %s DELETED user %s (%s), %d files",
-                request.state.user["id"], uid, u["tg_username"], len(files))
+    log.warning(
+        "Оператор удалил пользователя",
+        extra={"event": "operator_user_deleted", "count": len(files),
+               "outcome": "success"},
+    )
     return redir("/operator/users", "Пользователь и все его данные удалены")
 
 
@@ -446,8 +455,11 @@ def report_takedown(rid: int, request: Request, conn=Depends(get_db)):
     conn.commit()
     for fn in files:
         images.delete_file(fn)
-    log.warning("operator %s TAKEDOWN %s %s (report %s), %d files",
-                request.state.user["id"], tt, tid, rid, len(files))
+    log.warning(
+        "Оператор удалил контент по жалобе",
+        extra={"event": "operator_report_takedown", "operation": tt,
+               "count": len(files), "outcome": "success"},
+    )
     return redir("/operator/reports", "Контент удалён, жалоба закрыта")
 
 
@@ -500,8 +512,11 @@ def cat_toggle(cid: int, request: Request, conn=Depends(get_db)):
     new = 0 if c["link_enabled"] else 1
     conn.execute("UPDATE categories SET link_enabled=? WHERE id=?", (new, cid))
     conn.commit()
-    log.warning("operator %s toggled link_enabled=%s for category %s",
-                request.state.user["id"], new, cid)
+    log.warning(
+        "Оператор изменил доступность ссылки",
+        extra={"event": "operator_category_link_changed",
+               "outcome": "enabled" if new else "disabled"},
+    )
     return redir("/operator/categories",
                  "Ссылка включена" if new else "Ссылка выключена")
 
@@ -522,7 +537,10 @@ def cat_delete(cid: int, request: Request, conn=Depends(get_db)):
     conn.commit()
     if cat["og_image"]:
         images.delete_file(cat["og_image"])
-    log.warning("operator %s deleted category %s", request.state.user["id"], cid)
+    log.warning(
+        "Оператор удалил категорию",
+        extra={"event": "operator_category_deleted", "outcome": "success"},
+    )
     return redir("/operator/categories", "Категория удалена (события остались)")
 
 
@@ -633,8 +651,11 @@ def date_delete(did: int, request: Request, conn=Depends(get_db)):
     conn.commit()
     for fn in files:
         images.delete_file(fn)
-    log.warning("operator %s deleted date %s, %d files",
-                request.state.user["id"], did, len(files))
+    log.warning(
+        "Оператор удалил событие",
+        extra={"event": "operator_date_deleted", "count": len(files),
+               "outcome": "success"},
+    )
     return redir("/operator/dates", "Событие удалено")
 
 
@@ -693,7 +714,10 @@ def booking_delete(bid: int, request: Request, conn=Depends(get_db)):
             conn, {(int(b["vote_category_id"]), int(b["vote_user_id"]))},
         )
     conn.commit()
-    log.warning("operator %s deleted booking %s", request.state.user["id"], bid)
+    log.warning(
+        "Оператор удалил голос",
+        extra={"event": "operator_booking_deleted", "outcome": "success"},
+    )
     return redir("/operator/bookings", "Голос снят — освободилось одно место")
 
 
@@ -718,8 +742,15 @@ def settings_save(request: Request,
                           "1" if moderate_users else "0")
     app_settings.set_flag(conn, app_settings.MODERATE_CATEGORIES,
                           "1" if moderate_categories else "0")
-    log.warning("operator %s updated moderation flags: users=%s cats=%s",
-                request.state.user["id"], bool(moderate_users), bool(moderate_categories))
+    moderation_outcome = (
+        f"users_{'on' if moderate_users else 'off'}_"
+        f"categories_{'on' if moderate_categories else 'off'}"
+    )
+    log.warning(
+        "Оператор изменил настройки модерации",
+        extra={"event": "operator_moderation_settings_changed",
+               "outcome": moderation_outcome},
+    )
     return redir("/operator/settings", "Настройки сохранены")
 
 
@@ -749,7 +780,10 @@ def review_user_approve(uid: int, request: Request, conn=Depends(get_db)):
     _target(conn, uid)
     conn.execute("UPDATE users SET is_reviewed=1 WHERE id=?", (uid,))
     conn.commit()
-    log.warning("operator %s approved user %s", request.state.user["id"], uid)
+    log.warning(
+        "Оператор одобрил пользователя",
+        extra={"event": "operator_user_approved", "outcome": "success"},
+    )
     return redir("/operator/review", "Пользователь одобрен")
 
 
@@ -758,5 +792,8 @@ def review_category_approve(cid: int, request: Request, conn=Depends(get_db)):
     _cat_or_404(conn, cid)
     conn.execute("UPDATE categories SET is_reviewed=1 WHERE id=?", (cid,))
     conn.commit()
-    log.warning("operator %s approved category %s", request.state.user["id"], cid)
+    log.warning(
+        "Оператор одобрил категорию",
+        extra={"event": "operator_category_approved", "outcome": "success"},
+    )
     return redir("/operator/review", "Категория одобрена")

@@ -27,6 +27,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
+import metrics
 import users
 from config import (BASE_URL, SUPPORT_CONTACT, TG_BOT_USERNAME, TG_MINI_APP_URL,
                     TG_WEBHOOK_SECRET, OAUTH_PROVIDERS, OAUTH_LABELS, OAUTH_META)
@@ -213,14 +214,28 @@ def resolve_bot_username() -> None:
     if BOT_USERNAME or not notify.TOKEN:
         return
     try:
-        r = httpx.get(f"https://api.telegram.org/bot{notify.TOKEN}/getMe", timeout=10)
+        with metrics.track_dependency("telegram", "get_me") as observation:
+            r = httpx.get(
+                f"https://api.telegram.org/bot{notify.TOKEN}/getMe", timeout=10
+            )
+            if r.status_code != 200:
+                observation.fail()
         if r.status_code != 200:
-            log.warning("getMe вернул %s: %s", r.status_code, r.text[:200])
+            log.warning(
+                "Telegram getMe завершился ошибкой",
+                extra={"event": "telegram_setup_failed", "provider": "telegram",
+                       "operation": "get_me", "status_code": r.status_code,
+                       "status_class": f"{r.status_code // 100}xx", "outcome": "failure"},
+            )
             return
         username = ((r.json().get("result") or {}).get("username") or "").lstrip("@")
         if username:
             BOT_USERNAME = username
-            log.info("Username бота определён по токену: @%s", username)
+            log.info(
+                "Username Telegram-бота определён по токену",
+                extra={"event": "telegram_bot_username_resolved",
+                       "provider": "telegram", "outcome": "success"},
+            )
         else:
             log.warning("getMe не вернул username бота")
     except Exception:
@@ -237,14 +252,22 @@ def setup_webhook() -> None:
     if not (notify.TOKEN and TG_WEBHOOK_SECRET and BASE_URL.startswith("https://")):
         return
     try:
-        r = httpx.post(
-            f"https://api.telegram.org/bot{notify.TOKEN}/setWebhook",
-            json={"url": f"{BASE_URL}/tg/webhook",
-                  "secret_token": TG_WEBHOOK_SECRET,
-                  "allowed_updates": ["message", "callback_query", "my_chat_member"]},
-            timeout=10)
+        with metrics.track_dependency("telegram", "set_webhook") as observation:
+            r = httpx.post(
+                f"https://api.telegram.org/bot{notify.TOKEN}/setWebhook",
+                json={"url": f"{BASE_URL}/tg/webhook",
+                      "secret_token": TG_WEBHOOK_SECRET,
+                      "allowed_updates": ["message", "callback_query", "my_chat_member"]},
+                timeout=10)
+            if r.status_code >= 400:
+                observation.fail()
         if r.status_code >= 400:
-            log.warning("setWebhook вернул %s: %s", r.status_code, r.text[:200])
+            log.warning(
+                "Telegram setWebhook завершился ошибкой",
+                extra={"event": "telegram_setup_failed", "provider": "telegram",
+                       "operation": "set_webhook", "status_code": r.status_code,
+                       "status_class": f"{r.status_code // 100}xx", "outcome": "failure"},
+            )
         else:
             log.info("Telegram-вебхук входа зарегистрирован")
     except Exception:
@@ -262,19 +285,27 @@ def setup_miniapp_menu() -> None:
     if not (notify.TOKEN and url):
         return
     try:
-        r = httpx.post(
-            f"https://api.telegram.org/bot{notify.TOKEN}/setChatMenuButton",
-            json={
-                "menu_button": {
-                    "type": "web_app",
-                    "text": "Открыть date4you",
-                    "web_app": {"url": url},
+        with metrics.track_dependency("telegram", "set_menu") as observation:
+            r = httpx.post(
+                f"https://api.telegram.org/bot{notify.TOKEN}/setChatMenuButton",
+                json={
+                    "menu_button": {
+                        "type": "web_app",
+                        "text": "Открыть date4you",
+                        "web_app": {"url": url},
+                    },
                 },
-            },
-            timeout=10,
-        )
+                timeout=10,
+            )
+            if r.status_code >= 400:
+                observation.fail()
         if r.status_code >= 400:
-            log.warning("setChatMenuButton вернул %s: %s", r.status_code, r.text[:200])
+            log.warning(
+                "Telegram setChatMenuButton завершился ошибкой",
+                extra={"event": "telegram_setup_failed", "provider": "telegram",
+                       "operation": "set_menu", "status_code": r.status_code,
+                       "status_class": f"{r.status_code // 100}xx", "outcome": "failure"},
+            )
         else:
             log.info("Кнопка меню Telegram Mini App зарегистрирована")
     except Exception:
@@ -364,11 +395,20 @@ def auth_widget(request: Request, conn=Depends(get_db)):
     логиним. Бот при этом НЕ запускается — bot_linked не выставляем."""
     ip = client_ip(request)
     if not rate_ok(f"widget:{ip}", 10, 600):
+        metrics.observe_auth(
+            flow="telegram_widget", provider="telegram", result="rate_limited",
+        )
         raise HTTPException(429, "Слишком много попыток входа. Подожди немного.")
     data = dict(request.query_params)
     if not data.get("id") or not _verify_widget(data):
+        metrics.observe_auth(
+            flow="telegram_widget", provider="telegram", result="invalid",
+        )
         raise HTTPException(403, "Подпись Telegram не подтвердилась. Попробуй ещё раз.")
     if not _consume_widget_state(request, data.get("widget_state")):
+        metrics.observe_auth(
+            flow="telegram_widget", provider="telegram", result="expired",
+        )
         raise HTTPException(403, "Сессия входа устарела. Открой страницу входа заново.")
     # return_to не является полем Telegram и потому не покрыт HMAC. Разрешаем
     # только локальные разделы; внешний/протокол-относительный адрес отбрасываем.
@@ -382,9 +422,15 @@ def auth_widget(request: Request, conn=Depends(get_db)):
                                 first_name=data.get("first_name"), link_bot=False)
     user = users.get_user(conn, uid)
     if not user["is_active"]:
+        metrics.observe_auth(
+            flow="telegram_widget", provider="telegram", result="banned",
+        )
         raise HTTPException(403, "Доступ закрыт. Напиши в поддержку.")
     request.session["user_id"] = uid
     request.session["csrf"] = secrets.token_urlsafe(16)
+    metrics.observe_auth(
+        flow="telegram_widget", provider="telegram", result="success",
+    )
     return RedirectResponse(_post_login_redirect(request), status_code=303)
 
 
@@ -458,6 +504,9 @@ async def auth_miniapp(request: Request, conn=Depends(get_db)):
     """Безопасный автологин Mini App для Telegram mobile, Desktop и Web."""
     ip = client_ip(request)
     if not rate_ok(f"miniapp:{ip}", 30, 60):
+        metrics.observe_auth(
+            flow="miniapp", provider="telegram", result="rate_limited",
+        )
         raise HTTPException(429, "Слишком много попыток. Открой Mini App заново.")
     content_length = request.headers.get("content-length")
     if not content_length or not content_length.isdigit():
@@ -477,8 +526,17 @@ async def auth_miniapp(request: Request, conn=Depends(get_db)):
     if not isinstance(payload, dict):
         raise HTTPException(400, "Ожидались данные Telegram.")
     if not _consume_miniapp_nonce(request, payload.get("nonce")):
+        metrics.observe_auth(
+            flow="miniapp", provider="telegram", result="expired",
+        )
         raise HTTPException(403, "Страница Mini App устарела. Открой её заново.")
-    person = verify_miniapp_init_data(payload.get("init_data"))
+    try:
+        person = verify_miniapp_init_data(payload.get("init_data"))
+    except HTTPException:
+        metrics.observe_auth(
+            flow="miniapp", provider="telegram", result="invalid",
+        )
+        raise
     # allows_write_to_pm покрыт подписью initData. Само открытие Mini App не
     # означает, что бот вправе писать: без этого флага bot_linked не выдаём.
     may_notify = person.get("allows_write_to_pm") is True
@@ -492,12 +550,16 @@ async def auth_miniapp(request: Request, conn=Depends(get_db)):
     user = users.get_user(conn, uid)
     if not user or not user["is_active"]:
         request.session.clear()
+        metrics.observe_auth(
+            flow="miniapp", provider="telegram", result="banned",
+        )
         raise HTTPException(403, "Доступ закрыт. Напиши в поддержку.")
     nxt = _safe_next(str(payload.get("next") or "")) or "/admin/"
     request.session.clear()
     request.session["user_id"] = uid
     request.session["csrf"] = secrets.token_urlsafe(16)
     request.session["telegram_miniapp"] = True
+    metrics.observe_auth(flow="miniapp", provider="telegram", result="success")
     return JSONResponse({
         "status": "ok",
         "redirect": nxt,
@@ -516,8 +578,14 @@ def auth_start(request: Request, conn=Depends(get_db)):
     ip = client_ip(request)
     # анти-спам: не больше 10 кодов с одного IP за 10 минут
     if not rate_ok(f"authstart:{ip}", 10, 600):
+        metrics.observe_auth(
+            flow="deep_link", provider="telegram", result="rate_limited",
+        )
         raise HTTPException(429, "Слишком много попыток входа. Подожди немного.")
     if not BOT_USERNAME:
+        metrics.observe_auth(
+            flow="deep_link", provider="telegram", result="provider_error",
+        )
         raise HTTPException(503, "Вход через Telegram не настроен (TG_BOT_USERNAME).")
     # Публичные баннеры запускают вход на месте. Запоминаем только проверенный
     # локальный адрес возврата и затем привязываем его к конкретному коду.
@@ -553,16 +621,25 @@ def auth_poll(request: Request, code: str, conn=Depends(get_db)):
     """
     known_flow, flow_nxt = _auth_flow(request, code)
     if not known_flow:
+        metrics.observe_auth(
+            flow="deep_link", provider="telegram", result="invalid",
+        )
         return JSONResponse({"status": "forbidden"}, status_code=403)
     row = conn.execute(
         "SELECT * FROM login_codes WHERE code=?", (code,)).fetchone()
     if not row:
         _consume_auth_flow(request, code)
+        metrics.observe_auth(
+            flow="deep_link", provider="telegram", result="expired",
+        )
         return JSONResponse({"status": "expired"})
     if row["created_at"] < _code_cutoff():
         conn.execute("DELETE FROM login_codes WHERE code=?", (code,))
         conn.commit()
         _consume_auth_flow(request, code)
+        metrics.observe_auth(
+            flow="deep_link", provider="telegram", result="expired",
+        )
         return JSONResponse({"status": "expired"})
     if row["purpose"] == "link":
         # Код жёстко привязан к сессии, которая его выпустила. Даже успешно
@@ -573,6 +650,9 @@ def auth_poll(request: Request, code: str, conn=Depends(get_db)):
             conn.execute("DELETE FROM login_codes WHERE code=?", (code,))
             conn.commit()
             _consume_auth_flow(request, code)
+            metrics.observe_auth(
+                flow="deep_link", provider="telegram", result="conflict",
+            )
             return JSONResponse({"status": "conflict"})
         if row["status"] != "confirmed":
             return JSONResponse({"status": "pending"})
@@ -581,6 +661,9 @@ def auth_poll(request: Request, code: str, conn=Depends(get_db)):
             conn.execute("DELETE FROM login_codes WHERE code=?", (code,))
             conn.commit()
             _consume_auth_flow(request, code)
+            metrics.observe_auth(
+                flow="deep_link", provider="telegram", result="banned",
+            )
             return JSONResponse({"status": "banned"})
         conn.execute("DELETE FROM login_codes WHERE code=?", (code,))
         conn.commit()
@@ -588,6 +671,9 @@ def auth_poll(request: Request, code: str, conn=Depends(get_db)):
         # user_id в сессии намеренно не меняем: Telegram только привязан.
         if flow_nxt and request.session.get("login_next") == flow_nxt:
             request.session.pop("login_next", None)
+        metrics.observe_auth(
+            flow="deep_link", provider="telegram", result="success",
+        )
         return JSONResponse({"status": "ok", "linked": True,
                              "redirect": flow_nxt or "/admin/profile"})
     if row["status"] != "confirmed" or not row["telegram_id"]:
@@ -599,6 +685,9 @@ def auth_poll(request: Request, code: str, conn=Depends(get_db)):
         conn.execute("DELETE FROM login_codes WHERE code=?", (code,))
         conn.commit()
         _consume_auth_flow(request, code)
+        metrics.observe_auth(
+            flow="deep_link", provider="telegram", result="banned",
+        )
         return JSONResponse({"status": "banned"})
     conn.execute("DELETE FROM login_codes WHERE code=?", (code,))
     conn.commit()
@@ -607,6 +696,9 @@ def auth_poll(request: Request, code: str, conn=Depends(get_db)):
     request.session["csrf"] = secrets.token_urlsafe(16)
     if flow_nxt and request.session.get("login_next") == flow_nxt:
         request.session.pop("login_next", None)
+    metrics.observe_auth(
+        flow="deep_link", provider="telegram", result="success",
+    )
     return JSONResponse({"status": "ok", "redirect": flow_nxt or "/admin/"})
 
 
@@ -924,14 +1016,21 @@ def oauth_start(provider: str, request: Request):
     """Старт OAuth: редирект на страницу авторизации провайдера. Параметр
     ?link=1 запоминает, что это привязка к текущему аккаунту (из профиля)."""
     if provider not in OAUTH_PROVIDERS:
+        metrics.observe_auth(flow="oauth", provider=provider, result="invalid")
         raise HTTPException(404, "Неизвестный провайдер входа")
     client_id, _secret = OAUTH_PROVIDERS[provider]
     label = OAUTH_LABELS.get(provider, provider)
     if not client_id:
+        metrics.observe_auth(
+            flow="oauth", provider=provider, result="provider_error",
+        )
         raise HTTPException(503, f"Вход через {label} ещё не настроен")
 
     ip = client_ip(request)
     if not rate_ok(f"oauth:{ip}", 20, 600):
+        metrics.observe_auth(
+            flow="oauth", provider=provider, result="rate_limited",
+        )
         raise HTTPException(429, "Слишком много попыток входа. Подожди немного.")
 
     meta = OAUTH_META[provider]
@@ -974,20 +1073,38 @@ def _oauth_fetch_identity(provider: str, code: str) -> dict:
     }
     try:
         with httpx.Client(timeout=10) as cli:
-            tok = cli.post(meta["token"], data=data,
-                           headers={"Accept": "application/json"})
+            dependency = f"oauth_{provider}"
+            with metrics.track_dependency(dependency, "token_exchange") as observation:
+                tok = cli.post(meta["token"], data=data,
+                               headers={"Accept": "application/json"})
+                if tok.status_code != 200:
+                    observation.fail()
             if tok.status_code != 200:
-                log.warning("OAuth %s: обмен кода не удался: %s %s",
-                            provider, tok.status_code, tok.text[:200])
+                log.warning(
+                    "OAuth: обмен кода завершился ошибкой",
+                    extra={"event": "oauth_dependency_failed", "provider": provider,
+                           "operation": "token_exchange", "status_code": tok.status_code,
+                           "status_class": f"{tok.status_code // 100}xx",
+                           "outcome": "failure"},
+                )
                 raise HTTPException(502, "Провайдер не выдал токен. Попробуй ещё раз.")
             access = tok.json().get("access_token")
             if not access:
                 raise HTTPException(502, "Провайдер не выдал токен. Попробуй ещё раз.")
-            ui = cli.get(meta["userinfo"],
-                         headers={"Authorization": f"Bearer {access}",
-                                  "Accept": "application/json"})
+            with metrics.track_dependency(dependency, "userinfo") as observation:
+                ui = cli.get(meta["userinfo"],
+                             headers={"Authorization": f"Bearer {access}",
+                                      "Accept": "application/json"})
+                if ui.status_code != 200:
+                    observation.fail()
             if ui.status_code != 200:
-                log.warning("OAuth %s: userinfo не удался: %s", provider, ui.status_code)
+                log.warning(
+                    "OAuth: userinfo завершился ошибкой",
+                    extra={"event": "oauth_dependency_failed", "provider": provider,
+                           "operation": "userinfo", "status_code": ui.status_code,
+                           "status_class": f"{ui.status_code // 100}xx",
+                           "outcome": "failure"},
+                )
                 raise HTTPException(502, "Не удалось получить профиль. Попробуй ещё раз.")
             info = ui.json()
     except httpx.HTTPError:
@@ -1006,11 +1123,16 @@ def _oauth_fetch_identity(provider: str, code: str) -> dict:
 def oauth_callback(provider: str, request: Request, conn=Depends(get_db)):
     """Колбэк провайдера: сверяем state, меняем code на профиль, логиним/привязываем."""
     if provider not in OAUTH_PROVIDERS:
+        metrics.observe_auth(flow="oauth", provider=provider, result="invalid")
         raise HTTPException(404, "Неизвестный провайдер входа")
     if not OAUTH_PROVIDERS[provider][0]:
+        metrics.observe_auth(
+            flow="oauth", provider=provider, result="provider_error",
+        )
         raise HTTPException(503, "Провайдер не настроен")
 
     if request.query_params.get("error"):
+        metrics.observe_auth(flow="oauth", provider=provider, result="cancelled")
         return RedirectResponse("/login?msg=" +
                                 quote("Вход отменён."), status_code=303)
     state = request.query_params.get("state")
@@ -1018,18 +1140,30 @@ def oauth_callback(provider: str, request: Request, conn=Depends(get_db)):
     is_link = request.session.pop("oauth_link", False)
     request.session.pop("oauth_provider", None)
     if not state or not saved or not secrets.compare_digest(state, saved):
+        metrics.observe_auth(flow="oauth", provider=provider, result="expired")
         raise HTTPException(403, "Проверка state не прошла. Начни вход заново.")
     code = request.query_params.get("code")
     if not code:
+        metrics.observe_auth(flow="oauth", provider=provider, result="invalid")
         raise HTTPException(400, "Провайдер не вернул код авторизации.")
 
-    ident = _oauth_fetch_identity(provider, code)
+    try:
+        ident = _oauth_fetch_identity(provider, code)
+    except HTTPException:
+        metrics.observe_auth(
+            flow="oauth", provider=provider, result="provider_error",
+        )
+        raise
 
     # режим привязки: пользователь уже вошёл — привязываем соцсеть к его аккаунту
     if is_link and request.session.get("user_id"):
         uid = request.session["user_id"]
         ok = users.link_oauth_account(conn, uid, provider, ident["uid"],
                                       email=ident["email"])
+        metrics.observe_auth(
+            flow="oauth", provider=provider,
+            result="success" if ok else "conflict",
+        )
         msg = ("Аккаунт привязан ♥" if ok else
                "Эта соцсеть уже привязана к другому профилю.")
         return RedirectResponse("/admin/profile?msg=" + quote(msg), status_code=303)
@@ -1039,7 +1173,9 @@ def oauth_callback(provider: str, request: Request, conn=Depends(get_db)):
                                    display_name=ident["name"], email=ident["email"])
     user = users.get_user(conn, uid)
     if not user or not user["is_active"]:
+        metrics.observe_auth(flow="oauth", provider=provider, result="banned")
         raise HTTPException(403, "Доступ закрыт. Напиши в поддержку.")
     request.session["user_id"] = uid
     request.session["csrf"] = secrets.token_urlsafe(16)
+    metrics.observe_auth(flow="oauth", provider=provider, result="success")
     return RedirectResponse(_post_login_redirect(request), status_code=303)

@@ -32,4 +32,4 @@ ENTRYPOINT ["/app/docker-entrypoint.sh"]
 # в памяти процесса; SQLite тоже комфортнее с одним писателем.
 # IP клиента приложение берёт из X-Real-IP, который перезаписывает Caddy, —
 # поэтому никаких --proxy-headers с доверием "*" здесь нет.
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--no-access-log"]

@@ -189,8 +189,12 @@ def _write_responsive_variant(source: Path, filename: str, width: int,
         os.replace(tmp, target)
         return target
     except (OSError, ValueError) as exc:
-        log.warning("responsive image fallback for %s (%s): %s",
-                    filename, width, exc)
+        log.warning(
+            "Не удалось создать responsive-вариант, используем оригинал",
+            extra={"event": "responsive_image_fallback",
+                   "operation": f"resize_{width}",
+                   "exception_type": type(exc).__name__, "outcome": "fallback"},
+        )
         return source
     finally:
         try:
@@ -236,8 +240,11 @@ def generate_responsive_variants(
         try:
             return build(image)
         except (OSError, ValueError) as exc:
-            log.warning("responsive image pre-generation failed for %s: %s",
-                        name, exc)
+            log.warning(
+                "Не удалось предгенерировать responsive-варианты",
+                extra={"event": "responsive_image_pregeneration_failed",
+                       "exception_type": type(exc).__name__, "outcome": "failure"},
+            )
             return {}
 
     try:
@@ -245,8 +252,11 @@ def generate_responsive_variants(
             opened.load()
             return build(opened)
     except (OSError, ValueError) as exc:
-        log.warning("responsive image pre-generation failed for %s: %s",
-                    name, exc)
+        log.warning(
+            "Не удалось предгенерировать responsive-варианты",
+            extra={"event": "responsive_image_pregeneration_failed",
+                   "exception_type": type(exc).__name__, "outcome": "failure"},
+        )
         return {}
 
 
@@ -278,8 +288,12 @@ def responsive_image(filename: str, width: int | None = None) -> Path:
     except (OSError, ValueError) as exc:
         # Повреждение кэша не должно ломать страницу: оригинал всё ещё можно
         # отдать. Ошибка останется в журнале для диагностики.
-        log.warning("responsive image fallback for %s (%s): %s",
-                    name, width, exc)
+        log.warning(
+            "Не удалось получить responsive-вариант, используем оригинал",
+            extra={"event": "responsive_image_fallback",
+                   "operation": f"resize_{width}",
+                   "exception_type": type(exc).__name__, "outcome": "fallback"},
+        )
         return source
 
 
@@ -306,8 +320,13 @@ def copy_file(filename: str) -> str | None:
                 shutil.copyfile(cached, tmp)
                 os.replace(tmp, target)
             except OSError as exc:
-                log.warning("responsive cache copy failed for %s (%s): %s",
-                            src.name, width, exc)
+                log.warning(
+                    "Не удалось скопировать responsive-кэш",
+                    extra={"event": "responsive_cache_copy_failed",
+                           "operation": f"resize_{width}",
+                           "exception_type": type(exc).__name__,
+                           "outcome": "failure"},
+                )
             finally:
                 try:
                     tmp.unlink()
@@ -358,14 +377,20 @@ def _faststart_mp4(path: Path) -> bool:
             with tmp.open("rb") as check:
                 valid_output = _sniff_video_ext(check.read(16)) == ".mp4"
         if result.returncode != 0 or not valid_output:
-            detail = result.stderr.decode("utf-8", "replace")[-500:]
-            log.warning("ffmpeg faststart fallback for %s: %s",
-                        path.name, detail or f"exit {result.returncode}")
+            log.warning(
+                "ffmpeg faststart не применён, оставляем исходное видео",
+                extra={"event": "video_faststart_fallback",
+                       "operation": "ffmpeg", "outcome": "failure"},
+            )
             return False
         os.replace(tmp, path)
         return True
     except (OSError, subprocess.SubprocessError) as exc:
-        log.warning("ffmpeg faststart fallback for %s: %s", path.name, exc)
+        log.warning(
+            "ffmpeg faststart не применён, оставляем исходное видео",
+            extra={"event": "video_faststart_fallback", "operation": "ffmpeg",
+                   "exception_type": type(exc).__name__, "outcome": "failure"},
+        )
         return False
     finally:
         try:
@@ -546,7 +571,10 @@ def og_default_path(skin: str = appearance.ROMANTIC) -> Path:
     """
     appearance.normalize_skin(skin, default=appearance.ROMANTIC)
     if not OG_DEFAULT_IMAGE.is_file():
-        log.error("OG default image is unavailable: %s", OG_DEFAULT_IMAGE)
+        log.error(
+            "OG-изображение по умолчанию недоступно",
+            extra={"event": "og_default_image_unavailable", "outcome": "failure"},
+        )
         raise RuntimeError("OG default image is unavailable")
     return OG_DEFAULT_IMAGE
 

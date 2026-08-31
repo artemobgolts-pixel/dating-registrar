@@ -17,6 +17,7 @@ import asyncio
 import logging
 import os
 import secrets
+import time
 from contextlib import asynccontextmanager
 from urllib.parse import parse_qsl, urlencode, urlsplit
 
@@ -33,16 +34,19 @@ import auth_routes
 import backup
 import db
 import notify
+import observability
 import operator_routes
 import public_routes
 import users
 import voting_events
-from config import COOKIE_SECURE, DOMAIN, SECRET_KEY, SENTRY_DSN
+from config import (APP_ENV, APP_RELEASE, COOKIE_SECURE, DOMAIN, LOG_LEVEL,
+                    SECRET_KEY, SENTRY_DSN, SENTRY_TRACES_SAMPLE_RATE)
 from web import redir
 
 # Реэкспорты: тестам и консоли удобно обращаться к main.<имя>,
 # не зная внутреннюю раскладку по модулям.
 import images                                              # noqa: F401
+import metrics
 import places                                              # noqa: F401
 from helpers import now_iso, now_naive                     # noqa: F401
 from ratelimit import (_rates, client_ip,                  # noqa: F401
@@ -50,21 +54,17 @@ from ratelimit import (_rates, client_ip,                  # noqa: F401
 from tasks import (autoarchive_loop, autoarchive_once, backup_loop,
                    notification_outbox_loop, voting_close_loop)     # noqa: F401
 
-logging.basicConfig(level=logging.INFO)
+observability.configure_logging(
+    level=LOG_LEVEL, environment=APP_ENV, release=APP_RELEASE,
+)
 log = logging.getLogger("app")
 
-# Мониторинг ошибок (опционально). Sentry подключается, только если задан
-# SENTRY_DSN и установлен пакет sentry-sdk (`pip install sentry-sdk`). Без него
-# работает минимальный рубеж: обработчик ниже логирует 500-е и шлёт алёрт в TG.
-if SENTRY_DSN:
-    try:
-        import sentry_sdk
-        sentry_sdk.init(dsn=SENTRY_DSN, traces_sample_rate=0.0,
-                        send_default_pii=False)
-        log.info("Sentry подключён")
-    except Exception:
-        log.warning("SENTRY_DSN задан, но sentry-sdk не установлен — "
-                    "ошибки идут только в лог и в Telegram-алёрт")
+observability.init_sentry(
+    dsn=SENTRY_DSN,
+    environment=APP_ENV,
+    release=APP_RELEASE,
+    traces_sample_rate=SENTRY_TRACES_SAMPLE_RATE,
+)
 
 
 @asynccontextmanager
@@ -95,7 +95,8 @@ async def lifespan(app: FastAPI):
     # внутри сетевые запросы к картам, не блокируем событийный цикл.
     async def _repair_places():
         try:
-            n = await asyncio.to_thread(places.repair_legacy_places)
+            with metrics.track_background_job("repair_places"):
+                n = await asyncio.to_thread(places.repair_legacy_places)
             if n:
                 log.info("Починены ссылки-места у старых событий: распознано %d", n)
         except Exception:
@@ -135,6 +136,7 @@ if _domain_host and not _domain_host.startswith("www."):
     _trusted_hosts.add(f"www.{_domain_host}")
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=sorted(_trusted_hosts),
                    www_redirect=False)
+app.add_middleware(metrics.PrometheusMiddleware)
 
 
 class CachedStatic(StaticFiles):
@@ -225,7 +227,56 @@ async def csp_headers(request: Request, call_next):
                 "base-uri 'none'; form-action 'self'")
     return resp
 
+
+@app.middleware("http")
+async def request_observability(request: Request, call_next):
+    """Корреляция + один безопасный access-event на запрос.
+
+    Route берём из ``scope`` после роутинга, поэтому в логах остаётся шаблон
+    ``/c/{token}``, а не секретный фактический URL.
+    """
+    request_id, context_token = observability.bind_request_id(
+        request.headers.get("x-request-id")
+    )
+    request.state.request_id = request_id
+    started = time.perf_counter()
+    status_code = 500
+    raised: Exception | None = None
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+        response.headers["X-Request-ID"] = request_id
+        return response
+    except Exception as exc:
+        raised = exc
+        observability.attach_request_id(exc, request_id)
+        raise
+    finally:
+        route = observability.route_template(request)
+        duration_ms = round((time.perf_counter() - started) * 1000, 3)
+        # Не превращаем access-event в отдельное Sentry-событие: само
+        # исключение захватывает ASGI integration с полным traceback.
+        level = logging.WARNING if status_code >= 500 else logging.INFO
+        extra = {
+            "event": "http_request_completed",
+            "method": request.method,
+            "route": route,
+            "status_code": status_code,
+            "status_class": f"{status_code // 100}xx",
+            "duration_ms": duration_ms,
+        }
+        if raised is not None:
+            extra["exception_type"] = type(raised).__name__
+        try:
+            # Starlette Route не всегда кладёт шаблон в scope. Сравнение с
+            # двумя константами безопасно: сырой path никуда не экспортируется.
+            if request.scope.get("path") not in {"/metrics", "/metrics/"}:
+                log.log(level, "HTTP-запрос завершён", extra=extra)
+        finally:
+            observability.reset_request_id(context_token)
+
 app.mount("/static", CachedStatic(directory="static"), name="static")
+app.add_route("/metrics", metrics.prometheus_endpoint, methods=["GET"])
 # /uploads наружу не монтируется: фото отдаются только через
 # /c/<токен>/image/<файл> с проверкой категории и /admin/uploads/<файл> для админа.
 
@@ -259,15 +310,33 @@ async def unhandled_error(request: Request, exc: Exception):
     Не перехватывает HTTPException/NeedLogin: для них есть свои обработчики.
     Если подключён Sentry, исключение уже ушло туда через его интеграцию.
     """
-    log.exception("Необработанная ошибка на %s %s", request.method, request.url.path)
+    route = observability.route_template(request)
+    request_id = getattr(request.state, "request_id", None)
+    log.exception(
+        "Необработанная ошибка HTTP-запроса",
+        extra={
+            "event": "http_request_unhandled_error",
+            "request_id": request_id,
+            "method": request.method,
+            "route": route,
+            "status_code": 500,
+            "status_class": "5xx",
+            "exception_type": type(exc).__name__,
+        },
+    )
     try:
-        msg = (f"🔥 500 на <code>{request.method} {request.url.path}</code>\n"
-               f"<b>{type(exc).__name__}</b>: {notify.esc(str(exc)[:300])}")
+        rid = f"\n<code>request_id={notify.esc(request_id)}</code>" if request_id else ""
+        msg = (f"🔥 500 на <code>{request.method} {notify.esc(route)}</code>\n"
+               f"<b>{type(exc).__name__}</b>{rid}")
         asyncio.create_task(asyncio.to_thread(notify.alert, msg))
     except Exception:
         log.exception("Не удалось отправить алёрт о сбое")
-    return PlainTextResponse("Что-то пошло не так. Мы уже разбираемся.",
-                             status_code=500)
+    response = PlainTextResponse(
+        "Что-то пошло не так. Мы уже разбираемся.", status_code=500
+    )
+    if request_id:
+        response.headers["X-Request-ID"] = request_id
+    return response
 
 
 app.include_router(public_routes.router)

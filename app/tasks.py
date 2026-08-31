@@ -10,6 +10,7 @@ from pathlib import Path
 
 import backup
 import db
+import metrics
 import notify
 import notification_outbox
 import social_events
@@ -27,7 +28,16 @@ async def notification_outbox_loop() -> None:
     """Отправляет наступившие сообщения, не блокируя event loop HTTP-запросами."""
     while True:
         try:
-            stats = await asyncio.to_thread(notification_outbox.process_due)
+            with metrics.track_background_job("notification_outbox"):
+                stats = await asyncio.to_thread(notification_outbox.process_due)
+                metrics.observe_outbox_batch(stats)
+                state = await asyncio.to_thread(notification_outbox.snapshot_state)
+                metrics.set_outbox_state(
+                    pending=state.pending,
+                    due=state.due,
+                    claimed=state.claimed,
+                    oldest_due_age_seconds=state.oldest_due_age_seconds,
+                )
             if stats.sent or stats.failed or stats.expired or stats.skipped:
                 log.info(
                     "Telegram outbox: отправлено=%d, ошибок=%d, ждут привязки=%d, "
@@ -45,7 +55,8 @@ async def voting_close_loop() -> None:
     """Фиксирует результаты вскоре после дедлайна, даже без открытия страницы."""
     while True:
         try:
-            closed = await asyncio.to_thread(voting_events.close_due_once)
+            with metrics.track_background_job("voting_close"):
+                closed = await asyncio.to_thread(voting_events.close_due_once)
             if closed:
                 log.info("Закрыто голосований по дедлайну: %d", closed)
         except asyncio.CancelledError:
@@ -204,7 +215,8 @@ async def autoarchive_loop() -> None:
         # короткий минутный проход адресным и оставляют статус почти мгновенным.
         await asyncio.sleep(60)
         try:
-            n = autoarchive_once()
+            with metrics.track_background_job("autoarchive"):
+                n = autoarchive_once()
             if n:
                 log.info("Авто-архив: перенесено событий — %d", n)
         except asyncio.CancelledError:
@@ -228,9 +240,11 @@ def ship_backup_to_tg(snapshot: Path) -> bool:
             shutil.copyfileobj(fin, fout)
         size = tmp.stat().st_size
         if size > TG_DOC_LIMIT:
-            log.warning("Бэкап %s сжат до %.1f МБ — больше лимита TG (49 МБ), "
-                        "в Telegram не отправлен (облачный бэкап остаётся)",
-                        snapshot.name, size / 1024 / 1024)
+            log.warning(
+                "Сжатый бэкап больше лимита Telegram; облачная копия остаётся",
+                extra={"event": "telegram_backup_too_large",
+                       "operation": "send_document", "outcome": "skipped"},
+            )
             return False
         caption = (f"📦 Бэкап базы <code>{notify.esc(snapshot.name)}</code>\n"
                    f"{size / 1024 / 1024:.1f} МБ (gzip)")
@@ -253,9 +267,13 @@ async def backup_loop() -> None:
     while True:
         await asyncio.sleep(6 * 3600)
         try:
-            made = backup.make_backup_if_stale(hours=20)
+            with metrics.track_background_job("backup"):
+                made = backup.make_backup_if_stale(hours=20)
             if made:
-                log.info("Локальный авто-бэкап: %s", made)
+                log.info(
+                    "Локальный авто-бэкап создан",
+                    extra={"event": "local_backup_created", "outcome": "success"},
+                )
         except asyncio.CancelledError:
             raise
         except Exception:

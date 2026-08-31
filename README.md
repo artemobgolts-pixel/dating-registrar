@@ -39,6 +39,7 @@
 
 - **Python + FastAPI + SQLite** — само приложение (один контейнер, процесс работает не от root);
 - **Caddy 2** — веб-сервер, который **сам получает и продлевает** сертификат Let's Encrypt;
+- **Prometheus + Grafana** — необязательный внутренний профиль `monitoring` с готовым dashboard;
 - **Docker Compose** — всё поднимается одной командой.
 
 Все данные (база + фото + автоснимки базы) живут в папке `./data` рядом с проектом.
@@ -277,6 +278,91 @@ docker compose start app   # права на файлы entrypoint поправ�
 ```
 
 Полный архив (база + все фото + JSON) можно скачать кнопкой в админке → Главная → Экспорт.
+
+---
+
+## Наблюдаемость
+
+### JSON-логи, request ID и Sentry
+
+Приложение пишет в stdout по одному JSON-объекту на строку. Основные поля:
+`event`, `request_id`, `route`, `status_class`, `duration_ms`, `environment` и
+`release`. Сырые query string, cookies, токены, email и секретные части URL в
+телеметрию не попадают. На публичном HTTPS edge Caddy всегда заменяет входящий
+`X-Request-ID` своим значением: присланному клиентом ID мы не доверяем. Возьми
+фактический `X-Request-ID` из заголовков ответа и найди его в логах приложения
+(для фильтра нужен `jq`, на Debian: `apt install -y jq`):
+
+```bash
+curl -sS -D - -o /dev/null https://date4you.online/health
+# скопируй значение X-Request-ID из ответа, например edge-generated-id
+docker compose logs --no-log-prefix app \
+  | jq -R 'fromjson? | select(.request_id == "edge-generated-id")'
+```
+
+Для Sentry заполни в `.env`:
+
+```dotenv
+APP_ENV=production
+APP_RELEASE=<полный git SHA развёрнутого коммита>
+SENTRY_DSN=<DSN проекта Sentry>
+SENTRY_TRACES_SAMPLE_RATE=0.05
+```
+
+Пустой `SENTRY_DSN` полностью отключает Sentry. `SENTRY_TRACES_SAMPLE_RATE=0`
+отключает performance traces, но оставляет сбор необработанных ошибок. Перед
+отправкой наружу приложение удаляет request body, query, cookies, заголовки и PII;
+`request_id` остаётся безопасным ключом корреляции. После изменения переменных
+пересоздай контейнер: `docker compose up -d --build app`.
+
+### Локальные Prometheus и Grafana
+
+Monitoring-стек является opt-in и без профиля не запускается. Его настройки
+хранятся отдельно от переменных приложения, чтобы пароль Grafana не попадал в
+app-контейнер. Создай игнорируемый `.env.monitoring` и задай стойкий пароль:
+
+```bash
+cp .env.monitoring.example .env.monitoring
+openssl rand -hex 24
+nano .env.monitoring  # вставь результат в GRAFANA_ADMIN_PASSWORD=...
+docker compose --env-file .env --env-file .env.monitoring \
+  --profile monitoring up -d --build
+docker compose --env-file .env --env-file .env.monitoring \
+  --profile monitoring ps
+```
+
+Compose создаёт password secret из `GRAFANA_ADMIN_PASSWORD`, а Grafana читает
+его из `/run/secrets/grafana_admin_password`; пароль не передаётся обычной
+переменной окружения ни в Grafana, ни в приложение. Срок хранения метрик задаёт
+`PROMETHEUS_RETENTION` (по умолчанию `30d`).
+
+Prometheus опрашивает `http://app:8000/metrics` внутри Compose-сети и не имеет
+опубликованного host-порта. Публичный `https://<DOMAIN>/metrics` намеренно
+заблокирован Caddy. Grafana также не выставлена в интернет: порт привязан только
+к `127.0.0.1:3000` сервера. Для доступа открой SSH-туннель на своём компьютере:
+
+```bash
+ssh -N -L 3000:127.0.0.1:3000 root@<IP_СЕРВЕРА>
+```
+
+Затем открой `http://127.0.0.1:3000` и войди как `admin` с паролем из
+`.env.monitoring`.
+Открывать порт 3000 в `ufw` не нужно. Datasource и dashboard **Date4you —
+Production overview** создаются автоматически и показывают request rate, долю
+5xx, p50/p95/p99 HTTP latency, разбивку route/status, ошибки и latency внешних
+зависимостей, результаты входа, backlog/возраст outbox и состояние фоновых задач.
+
+Готовых alert rules намеренно нет. До настройки алёртов нужно собрать
+репрезентативный baseline обычной и пиковой нагрузки, согласовать пользовательские
+SLO, затем вывести из них пороги и длительности. У каждого будущего алёрта должны
+быть понятное действие и runbook; иначе он создаст шум вместо сигнала.
+
+Остановить только monitoring-контейнеры, сохранив данные в именованных volumes:
+
+```bash
+docker compose --env-file .env --env-file .env.monitoring \
+  --profile monitoring stop grafana prometheus
+```
 
 ---
 

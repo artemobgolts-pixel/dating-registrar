@@ -21,6 +21,7 @@ from urllib.parse import urljoin, urlsplit
 import httpx
 
 import db
+import metrics
 
 log = logging.getLogger("places")
 
@@ -90,20 +91,32 @@ def resolve_name(url: str) -> str | None:
     """Возвращает название из <title>, но ТОЛЬКО для доверённых доменов карт."""
     safe, host = _safe_map_url(url)
     if not _host_allowed(host):
-        log.info("Ссылка не на карты (%s) — название не запрашиваем", host)
+        log.info(
+            "Ссылка не относится к поддерживаемым картам",
+            extra={"event": "map_link_unsupported", "outcome": "skipped"},
+        )
         return None
     if not safe:
-        log.warning("Хост %s резолвится во внутренний адрес — пропускаем", host)
+        log.warning(
+            "Адрес карт не прошёл SSRF-проверку",
+            extra={"event": "map_link_blocked", "outcome": "blocked"},
+        )
         return None
     try:
         current = url
         for _ in range(5):
             safe, host = _safe_map_url(current)
             if not safe:
-                log.warning("Небезопасная цель редиректа карт (%s) — пропускаем", host)
+                log.warning(
+                    "Редирект карт не прошёл SSRF-проверку",
+                    extra={"event": "map_redirect_blocked", "outcome": "blocked"},
+                )
                 return None
-            r = httpx.get(current, follow_redirects=False, timeout=5,
-                          headers={"User-Agent": "Mozilla/5.0 (date4you)"})
+            with metrics.track_dependency("maps", "resolve_redirect") as observation:
+                r = httpx.get(current, follow_redirects=False, timeout=5,
+                              headers={"User-Agent": "Mozilla/5.0 (date4you)"})
+                if r.status_code >= 400:
+                    observation.fail()
             if r.status_code in (301, 302, 303, 307, 308):
                 location = r.headers.get("location")
                 if not location:
@@ -120,8 +133,12 @@ def resolve_name(url: str) -> str | None:
             return (t[:200] or None)
         log.warning("Слишком много редиректов при загрузке названия места")
         return None
-    except Exception as e:
-        log.warning("Не удалось получить название места по ссылке: %s", e)
+    except Exception as exc:
+        log.warning(
+            "Не удалось получить название места",
+            extra={"event": "map_title_resolution_failed",
+                   "exception_type": type(exc).__name__, "outcome": "failure"},
+        )
         return None
 
 

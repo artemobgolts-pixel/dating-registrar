@@ -6,6 +6,8 @@ import time
 
 from fastapi import HTTPException, Request
 
+import metrics
+
 log = logging.getLogger("ratelimit")
 
 _rates: dict[str, list[float]] = {}
@@ -94,7 +96,8 @@ async def rates_gc_loop() -> None:
     while True:
         await asyncio.sleep(3600)
         try:
-            prune_rate_buckets()
+            with metrics.track_background_job("rate_limit_gc"):
+                prune_rate_buckets()
         except asyncio.CancelledError:
             raise
         except Exception:

@@ -8,6 +8,7 @@
 import html
 import io
 import json
+import logging
 import os
 import re
 import shutil
@@ -247,6 +248,31 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert (DATA / ".health").exists()           # проба записи на диск прошла
     assert c.get("/favicon.ico").status_code == 200
     step("/health отвечает и проверяет чтение базы + запись на диск; favicon на месте")
+
+    correlated = c.get("/health", headers={"X-Request-ID": "edge-smoke-42"})
+    assert correlated.headers["X-Request-ID"] == "edge-smoke-42"
+    regenerated = c.get("/health", headers={"X-Request-ID": "bad request id"})
+    assert re.fullmatch(r"[0-9a-f]{32}", regenerated.headers["X-Request-ID"])
+    access_records = []
+
+    class _MetricsLogProbe(logging.Handler):
+        def emit(self, record):
+            access_records.append(record)
+
+    probe = _MetricsLogProbe()
+    logging.getLogger("app").addHandler(probe)
+    try:
+        exposition = c.get("/metrics")
+    finally:
+        logging.getLogger("app").removeHandler(probe)
+    assert exposition.status_code == 200
+    assert "date4you_http_requests_total" in exposition.text
+    assert 'route="/health"' in exposition.text
+    assert not any(getattr(record, "event", "") == "http_request_completed"
+                   for record in access_records)
+    caddy = (ROOT.parent / "Caddyfile").read_text(encoding="utf-8")
+    assert "handle @metrics" in caddy and "header_up X-Request-ID" in caddy
+    step("request_id коррелируется; RED-метрики доступны внутри и закрыты Caddy снаружи")
 
     holder = {}
     t = threading.Thread(target=lambda: holder.update(c=dbm.connect()))
@@ -2963,7 +2989,8 @@ with TestClient(main.app, follow_redirects=False) as cnata, \
     assert f'data-add="/d/{pub["share_token"]}/add"' in feed
     assert 'class="cfeed-owner cfeed-card-owner"' in feed
     assert f'href="/u/{pub["owner_id"]}"' in feed
-    assert f'data-copy="https://example.com/d/{pub["share_token"]}"' in feed
+    expected_public_url = f'https://{ENV["DOMAIN"]}/d/{pub["share_token"]}'
+    assert f'data-copy="{expected_public_url}"' in feed
     assert ">Скопировать ссылку</button>" in feed
     assert "data-community-report" in feed and "пожаловаться" in feed.lower()
     assert f'data-report-url="/d/{pub["share_token"]}/report"' in feed

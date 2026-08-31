@@ -68,6 +68,21 @@ class ProcessStats:
     skipped: int = 0
 
 
+@dataclass(frozen=True)
+class OutboxState:
+    """Низкокардинальное состояние очереди для эксплуатационных метрик.
+
+    ``pending`` — весь активный backlog, поэтому он намеренно включает
+    подмножества ``due`` и ``claimed``. ``due`` учитывает только сообщения,
+    доступные для claim прямо сейчас; живая аренда в него не входит.
+    """
+
+    pending: int = 0
+    due: int = 0
+    claimed: int = 0
+    oldest_due_age_seconds: float = 0.0
+
+
 def _dt(value: datetime | str | None, *, default: datetime | None = None) -> datetime:
     if value is None:
         if default is None:
@@ -334,6 +349,63 @@ def _send(sender: Sender, chat_id: int | str, text: str,
     return sender(chat_id, text) is True
 
 
+def snapshot_state(
+    conn: sqlite3.Connection | None = None,
+    *,
+    now: datetime | str | None = None,
+) -> OutboxState:
+    """Возвращает агрегаты очереди без идентификаторов и содержимого сообщений."""
+    own = conn is None
+    if own:
+        conn = db.connect()
+    assert conn is not None
+    now_dt = _dt(now, default=now_naive())
+    stamp = _iso(now_dt)
+    lease_before = _iso(now_dt - CLAIM_LEASE)
+    try:
+        row = conn.execute(
+            """
+            SELECT
+                COUNT(*) AS pending,
+                COALESCE(SUM(CASE
+                    WHEN send_at<=:stamp
+                     AND (claimed_at IS NULL OR claimed_at<=:lease_before)
+                    THEN 1 ELSE 0 END), 0) AS due,
+                COALESCE(SUM(CASE
+                    WHEN claimed_at IS NOT NULL AND claimed_at>:lease_before
+                    THEN 1 ELSE 0 END), 0) AS claimed,
+                COALESCE(
+                    (julianday(:stamp) - julianday(MIN(CASE
+                        WHEN send_at<=:stamp
+                         AND (claimed_at IS NULL OR claimed_at<=:lease_before)
+                        THEN send_at END))) * 86400.0,
+                    0.0
+                ) AS oldest_due_age_seconds
+            FROM notification_outbox
+            WHERE sent_at IS NULL AND cancelled_at IS NULL
+              AND (expires_at IS NULL OR expires_at>:stamp)
+            """,
+            {"stamp": stamp, "lease_before": lease_before},
+        ).fetchone()
+        if row is None:  # pragma: no cover — aggregate SELECT всегда даёт строку
+            return OutboxState()
+        if isinstance(row, sqlite3.Row):
+            values = tuple(row[key] for key in (
+                "pending", "due", "claimed", "oldest_due_age_seconds",
+            ))
+        else:
+            values = tuple(row)
+        return OutboxState(
+            pending=max(0, int(values[0] or 0)),
+            due=max(0, int(values[1] or 0)),
+            claimed=max(0, int(values[2] or 0)),
+            oldest_due_age_seconds=max(0.0, float(values[3] or 0.0)),
+        )
+    finally:
+        if own:
+            conn.close()
+
+
 def process_due(
     conn: sqlite3.Connection | None = None,
     *,
@@ -458,8 +530,15 @@ def process_due(
                     error = "telegram_send_failed"
             except Exception as exc:  # sender может быть пользовательским в тесте
                 delivered = False
-                error = f"{type(exc).__name__}: {exc}"[:MAX_ERROR_LENGTH]
-                log.warning("Ошибка отправки outbox id=%s: %s", notification_id, exc)
+                # Exception text внешнего sender может содержать URL/токен/PII;
+                # для retry и диагностики достаточно стабильного типа.
+                error = type(exc).__name__[:MAX_ERROR_LENGTH]
+                log.warning(
+                    "Ошибка отправки уведомления из outbox",
+                    extra={"event": "notification_outbox_send_failed",
+                           "exception_type": type(exc).__name__,
+                           "outcome": "failure"},
+                )
 
             attempts = int(row["attempts"]) + 1
             if delivered:

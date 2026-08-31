@@ -1314,7 +1314,10 @@ def prewarm_date_collages(did: int) -> None:
                 images.build_og_collage(
                     files, appearance.normalize_skin(category["category_skin"]))
     except Exception:
-        log.exception("prewarm_date_collages did=%s", did)
+        log.exception(
+            "Не удалось прогреть коллажи события",
+            extra={"event": "date_collage_prewarm_failed", "outcome": "failure"},
+        )
     finally:
         conn.close()
 
