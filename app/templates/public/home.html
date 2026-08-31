@@ -23,17 +23,35 @@
 {{ appearance_assets('friends') }}
 <meta name="theme-color" content="#554eae">
 <script src="{{ asset('theme.js') }}"></script>
+<link rel="preload" as="image" href="{{ asset('landing-brand-poster.webp') }}" type="image/webp" media="(min-width: 641px)">
+<link rel="preload" as="image" href="{{ asset('landing-brand-poster-mobile.webp') }}" type="image/webp" media="(max-width: 640px)">
 <link rel="stylesheet" href="{{ asset('landing.css') }}">
+<script src="{{ asset('landing-video.js') }}" defer></script>
 <script type="application/ld+json" nonce="{{ csp_nonce }}">{{ structured_data | tojson }}</script>
 </head>
-<body class="landing-page" data-ink-interactive="{{ '1' if request.state.user and request.state.user['cursor_effects'] else '0' }}">
-{% include "public/_bg.html" %}
+<body class="landing-page">
+<div class="brand-motion" data-brand-motion aria-hidden="true">
+  <picture class="brand-motion__poster">
+    <source media="(max-width: 640px)" srcset="{{ asset('landing-brand-poster-mobile.webp') }}">
+    <img src="{{ asset('landing-brand-poster.webp') }}" alt="" width="1672" height="941" fetchpriority="high">
+  </picture>
+  <video class="brand-motion__video"
+         data-brand-video
+         data-src-desktop="{{ asset('landing-brand-loop.mp4') }}"
+         data-src-mobile="{{ asset('landing-brand-loop-mobile.mp4') }}"
+         autoplay muted loop playsinline preload="metadata"
+         tabindex="-1" disablepictureinpicture></video>
+  <span class="brand-motion__scrim"></span>
+</div>
 <a class="skip-link" href="#main-content">К содержанию</a>
 
 <header class="site-header" aria-label="Основная навигация">
   <div class="site-header__inner">
     <a class="wordmark" href="/" aria-label="date4you — главная">
-      <span class="wordmark__mark" aria-hidden="true"></span>
+      <span class="wordmark__mark" aria-hidden="true">
+        <img class="wordmark__logo wordmark__logo--friends" src="{{ asset('logo-standard.png') }}" alt="">
+        <img class="wordmark__logo wordmark__logo--romantic" src="{{ asset('logo-romantic.png') }}" alt="">
+      </span>
       <span>date4you</span>
     </a>
     <nav class="site-nav" aria-label="Разделы страницы">
@@ -52,7 +70,7 @@
 </header>
 
 <main id="main-content">
-  <section class="hero" aria-labelledby="hero-title">
+  <section class="hero hero--brand" aria-labelledby="hero-title">
     <div class="hero__copy">
       <p class="eyebrow"><span aria-hidden="true"></span> Решение, которое выбираете вместе</p>
       <h1 id="hero-title">Встреча начинается с&nbsp;общего выбора</h1>
@@ -63,9 +81,20 @@
       </div>
       <p class="hero__note"><span aria-hidden="true">✓</span> Участники открывают ссылку и голосуют со своего телефона</p>
     </div>
+    <a class="hero__scroll" href="#product-preview" aria-label="Перейти к примеру подборки">
+      <span aria-hidden="true">↓</span> Узнать больше
+    </a>
+  </section>
 
-    <section class="hero-preview" aria-label="Пример подборки событий">
-      <div class="preview-window">
+  <div class="landing-details">
+    <section class="section product-showcase" id="product-preview" aria-labelledby="product-preview-title">
+      <div class="product-showcase__copy">
+        <p class="eyebrow">Одна ссылка для всех</p>
+        <h2 id="product-preview-title">Понятно с первого взгляда</h2>
+        <p>Добавь варианты, отправь друзьям ссылку и смотри, какой план собирает больше голосов.</p>
+      </div>
+      <section class="hero-preview" aria-label="Пример подборки событий">
+        <div class="preview-window">
         <div class="preview-window__top">
           <span class="preview-window__status">Пример подборки</span>
           <span class="preview-window__people" role="img" aria-label="Участвуют шесть человек">
@@ -104,12 +133,12 @@
           <span><i aria-hidden="true"></i> Голос учтён</span>
           <span>Результат виден сразу</span>
         </div>
-      </div>
-      <div class="hero-preview__glow" aria-hidden="true"></div>
+        </div>
+        <div class="hero-preview__glow" aria-hidden="true"></div>
+      </section>
     </section>
-  </section>
 
-  <section class="section how" id="how-it-works" aria-labelledby="how-title">
+    <section class="section how" id="how-it-works" aria-labelledby="how-title">
     <div class="section-heading">
       <p class="eyebrow">Три простых шага</p>
       <h2 id="how-title">От идеи до общего плана</h2>
@@ -135,9 +164,9 @@
         <p>Соберите голоса, сравните варианты и договоритесь без лишнего шума.</p>
       </li>
     </ol>
-  </section>
+    </section>
 
-  <section class="section possibilities" id="possibilities" aria-labelledby="possibilities-title">
+    <section class="section possibilities" id="possibilities" aria-labelledby="possibilities-title">
     <div class="possibilities__copy">
       <p class="eyebrow">Всё нужное — в одном месте</p>
       <h2 id="possibilities-title">Больше ясности, меньше сообщений</h2>
@@ -162,9 +191,9 @@
         <div><h3>Контроль у организатора</h3><p>Управляй доступом, сроками и содержанием своей подборки.</p></div>
       </li>
     </ul>
-  </section>
+    </section>
 
-  <section class="section privacy-card" aria-labelledby="privacy-title">
+    <section class="section privacy-card" aria-labelledby="privacy-title">
     <div class="privacy-card__icon" aria-hidden="true">⌁</div>
     <div>
       <p class="eyebrow">Личное остаётся личным</p>
@@ -172,21 +201,28 @@
       <p>Страницы подборок закрыты от поисковой индексации. Организатор решает, когда ссылка активна, а мы не добавляем рекламные вставки в карточки и голосование.</p>
     </div>
     <a class="button button--quiet" href="/privacy?return_to=%2F">О конфиденциальности</a>
-  </section>
+    </section>
 
-  <section class="section final-cta" aria-labelledby="cta-title">
+    <section class="section final-cta" aria-labelledby="cta-title">
     <div>
       <p class="eyebrow">Пора договориться</p>
       <h2 id="cta-title">Собери вашу следующую встречу</h2>
       <p>Создай первую подборку и отправь друзьям одну понятную ссылку.</p>
     </div>
     <a class="button button--primary button--light" href="/login">Начать <span aria-hidden="true">→</span></a>
-  </section>
+    </section>
+  </div>
 </main>
 
 <footer class="site-footer">
   <div class="site-footer__brand">
-    <a class="wordmark" href="/" aria-label="date4you — главная"><span class="wordmark__mark" aria-hidden="true"></span><span>date4you</span></a>
+    <a class="wordmark" href="/" aria-label="date4you — главная">
+      <span class="wordmark__mark" aria-hidden="true">
+        <img class="wordmark__logo wordmark__logo--friends" src="{{ asset('logo-standard.png') }}" alt="">
+        <img class="wordmark__logo wordmark__logo--romantic" src="{{ asset('logo-romantic.png') }}" alt="">
+      </span>
+      <span>date4you</span>
+    </a>
     <p>Простой способ выбрать встречу вместе.</p>
   </div>
   <nav class="site-footer__links" aria-label="Справочная навигация">
@@ -198,6 +234,5 @@
   <p class="site-footer__copy">© date4you</p>
 </footer>
 
-<script src="{{ asset('ink.js') }}" defer></script>
 </body>
 </html>

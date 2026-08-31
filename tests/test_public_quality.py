@@ -70,8 +70,15 @@ class PublicSeoTests(unittest.TestCase):
             with self.subTest(signal=signal):
                 self.assertIn(signal, source)
         self.assertIn('href="https://t.me/artiwayn"', source)
-        self.assertNotIn("logo-standard.png", source)
-        self.assertNotIn("logo-romantic.png", source)
+        self.assertIn("logo-standard.png", source)
+        self.assertIn("logo-romantic.png", source)
+        self.assertIn("landing-brand-poster.webp", source)
+        self.assertIn("landing-brand-poster-mobile.webp", source)
+        self.assertIn("landing-brand-loop.mp4", source)
+        self.assertIn("landing-brand-loop-mobile.mp4", source)
+        self.assertIn("landing-video.js", source)
+        self.assertIn("autoplay muted loop playsinline", source)
+        self.assertNotIn("ink.js", source)
         self.assertIn(
             'class="preview-window__people" role="img" '
             'aria-label="Участвуют шесть человек"',
@@ -143,6 +150,15 @@ class PublicSeoTests(unittest.TestCase):
         self.assertIn(".button--light { color: var(--accent-fill-strong)", css)
         self.assertIn("padding: 30px 22px", css)
         self.assertIn("padding: 38px 22px", css)
+
+    def test_landing_video_respects_user_motion_and_data_preferences(self):
+        script = (APP / "static/landing-video.js").read_text("utf-8")
+
+        self.assertIn('matchMedia("(max-width: 640px)")', script)
+        self.assertIn('matchMedia("(prefers-reduced-motion: reduce)")', script)
+        self.assertIn("connection.saveData", script)
+        self.assertIn("video.dataset.srcMobile", script)
+        self.assertIn("video.dataset.srcDesktop", script)
 
     def test_private_surfaces_keep_noindex(self):
         for relative in (
