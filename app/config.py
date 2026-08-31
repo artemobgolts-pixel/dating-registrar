@@ -115,8 +115,8 @@ def _parse_operator_ids(raw: str) -> set[int]:
 
 # Операторы (суперадмины): их telegram_id. Пусто — операторов нет до ручного бэкофилла.
 OPERATOR_TG_IDS = _parse_operator_ids(os.getenv("OPERATOR_TG_IDS", ""))
-# Контакт поддержки (Telegram @username или ссылка) — для текста про расширение
-# лимита и страницы /about. Без значения — текст без конкретного контакта.
+# Текстовый контакт поддержки (Telegram @username или ссылка) — для уведомлений
+# и страниц с документами. Если он пуст, публичный UI использует SUPPORT_URL.
 SUPPORT_CONTACT = os.getenv("SUPPORT_CONTACT", "").strip()
 
 
@@ -150,10 +150,13 @@ ABOUT_TEXT = os.getenv("ABOUT_TEXT", "").strip()
 
 def support_link() -> dict | None:
     """Контакт поддержки как {label, url} для ссылки. @username → t.me/username,
-    готовая ссылка — как есть. None, если контакт не задан."""
-    c = SUPPORT_CONTACT
-    if not c:
+    готовая ссылка — как есть. Пустой SUPPORT_CONTACT наследует существующую
+    кнопку SUPPORT_URL, но только если там безопасная http(s)-ссылка."""
+    if not SUPPORT_CONTACT:
+        if SUPPORT_URL.startswith(("https://", "http://")):
+            return {"label": "Связаться с поддержкой", "url": SUPPORT_URL}
         return None
+    c = SUPPORT_CONTACT
     if c.startswith(("https://", "http://")):
         return {"label": c, "url": c}
     if c.startswith("@"):

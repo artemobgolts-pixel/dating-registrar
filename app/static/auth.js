@@ -47,7 +47,11 @@
 
   function verifyLoginWidget(wrap) {
     setTimeout(function () {
-      if (wrap.querySelector("iframe")) {
+      var iframe = wrap.querySelector("iframe");
+      if (iframe) {
+        if (!iframe.getAttribute("title")) {
+          iframe.setAttribute("title", "Войти через Telegram");
+        }
         setTelegramState(wrap, "ready");
       } else {
         setTelegramState(wrap, "unavailable");

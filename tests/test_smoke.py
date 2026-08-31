@@ -2621,9 +2621,13 @@ with TestClient(main.app, follow_redirects=False) as cl:
     assert 'href="/about?return_to=%2Flogin"' in lp
     assert 'href="/terms?return_to=%2Flogin"' in lp
     assert 'href="/privacy?return_to=%2Flogin"' in lp
-    # домен ведёт сразу на вход/регистрацию (декоративный лендинг убран)
+    # Корень — публичный индексируемый лендинг; вход остаётся отдельной страницей.
     root = cl.get("/")
-    assert root.status_code == 307 and root.headers["location"] == "/login"
+    assert root.status_code == 200
+    assert '<main id="main-content">' in root.text
+    assert '<meta name="robots" content="index, follow, max-image-preview:large">' in root.text
+    assert f'<link rel="canonical" href="https://{ENV["DOMAIN"]}/">' in root.text
+    assert 'href="/login"' in root.text
     # cookie-баннер убран — его нет ни на входе, ни на гостевой
     assert "cookie-bar" not in lp
     # Защита работает и без внешнего reverse proxy: заголовки ставит приложение.
@@ -2636,7 +2640,7 @@ with TestClient(main.app, follow_redirects=False) as cl:
     # Внутренние пояснения остаются в исходниках, но не попадают в публичный DOM.
     assert "<!--" not in lp
     assert cl.get("/login", headers={"host": "evil.example"}).status_code == 400
-step("1.8: /terms и /privacy доступны; согласие пассивное; VPN-подсказка; / → /login")
+step("1.8: /terms и /privacy доступны; согласие пассивное; VPN-подсказка; публичный лендинг /")
 
 
 # ---------- 1.10: страница «О проекте», поддержка, проекты автора ----------

@@ -111,7 +111,7 @@
       {% endif %}
     </div>
 
-<div class="wrap">
+<main class="wrap">
   <header class="hero">
     <h1>{{ cat.name }}</h1>
     <div class="hero-ornament" aria-hidden="true">
@@ -197,7 +197,8 @@
                      /c/{{ token }}/image/{{ im['filename'] }}?w=960 960w,
                      /c/{{ token }}/image/{{ im['filename'] }}?w=1600 1600w"
              sizes="(max-width: 899px) calc(100vw - 32px), 820px"
-             data-full="/c/{{ token }}/image/{{ im['filename'] }}" alt=""
+             data-full="/c/{{ token }}/image/{{ im['filename'] }}"
+             alt="Фото {{ loop.index }}: {{ d.name }}"
              role="button" tabindex="0" draggable="false"
              aria-label="Открыть фото {{ loop.index }} из {{ d.images | length }}: {{ d.name }}"
              aria-haspopup="dialog" aria-controls="lightbox"
@@ -268,6 +269,8 @@
         </div>
         <div class="vote-progress-track" role="progressbar" aria-valuemin="0"
              aria-valuemax="{{ d.capacity }}" aria-valuenow="{{ d.vote_count }}"
+             aria-label="Заполненность события «{{ d.name }}»"
+             aria-valuetext="{{ d.vote_count }} из {{ d.capacity }} участников"
              {% if hide_empty_single_counter %}hidden{% endif %}>
           <i style="--vote-width:{{ [100, (d.vote_count * 100 / d.capacity)] | min }}%"></i>
         </div>
@@ -427,7 +430,7 @@
       <a href="/about?return_to={{ request.url.path | urlencode }}">О проекте</a> · <a href="/terms?return_to={{ request.url.path | urlencode }}">Соглашение</a> · <a href="/privacy?return_to={{ request.url.path | urlencode }}">Конфиденциальность</a>
     </div>
   </footer>
-</div>
+</main>
 
 {% if proposals_editable %}<button class="fab fab-floating" id="fabPropose" type="button"
   data-propose-open aria-label="Предложить своё событие">

@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="ru" data-skin="friends" data-skin-switchable>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="index, follow, max-image-preview:large">
+<title>date4you — выберите встречу вместе</title>
+<meta name="description" content="{{ description }}">
+<link rel="canonical" href="{{ BASE_URL }}/">
+<meta property="og:type" content="website">
+<meta property="og:locale" content="ru_RU">
+<meta property="og:site_name" content="date4you">
+<meta property="og:title" content="date4you — выберите встречу вместе">
+<meta property="og:description" content="{{ description }}">
+<meta property="og:url" content="{{ BASE_URL }}/">
+<meta property="og:image" content="{{ BASE_URL }}{{ asset('og-default.jpg') }}">
+<meta property="og:image:alt" content="date4you — сервис для совместного выбора встреч">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="date4you — выберите встречу вместе">
+<meta name="twitter:description" content="{{ description }}">
+<meta name="twitter:image" content="{{ BASE_URL }}{{ asset('og-default.jpg') }}">
+{% from "_appearance_assets.html" import appearance_assets %}
+{{ appearance_assets('friends') }}
+<meta name="theme-color" content="#554eae">
+<script src="{{ asset('theme.js') }}"></script>
+<link rel="stylesheet" href="{{ asset('landing.css') }}">
+<script type="application/ld+json" nonce="{{ csp_nonce }}">{{ structured_data | tojson }}</script>
+</head>
+<body class="landing-page" data-ink-interactive="{{ '1' if request.state.user and request.state.user['cursor_effects'] else '0' }}">
+{% include "public/_bg.html" %}
+<a class="skip-link" href="#main-content">К содержанию</a>
+
+<header class="site-header" aria-label="Основная навигация">
+  <div class="site-header__inner">
+    <a class="wordmark" href="/" aria-label="date4you — главная">
+      <span class="wordmark__mark" aria-hidden="true"></span>
+      <span>date4you</span>
+    </a>
+    <nav class="site-nav" aria-label="Разделы страницы">
+      <a href="#how-it-works">Как это работает</a>
+      <a href="#possibilities">Возможности</a>
+      <a href="/about?return_to=%2F">О сервисе</a>
+    </nav>
+    <div class="site-actions">
+      <button type="button" class="theme-button" data-theme-toggle aria-label="Включить тёмную тему">
+        <span class="theme-moon-icon" data-theme-icon aria-hidden="true"></span>
+        <span class="theme-button__label" data-theme-label>Тёмная тема</span>
+      </button>
+      <a class="button button--compact" href="/login">Войти</a>
+    </div>
+  </div>
+</header>
+
+<main id="main-content">
+  <section class="hero" aria-labelledby="hero-title">
+    <div class="hero__copy">
+      <p class="eyebrow"><span aria-hidden="true"></span> Решение, которое выбираете вместе</p>
+      <h1 id="hero-title">Встреча начинается с&nbsp;общего выбора</h1>
+      <p class="hero__lead">Собери идеи в одной подборке, поделись приватной ссылкой и узнай, какой вариант подходит всем — без бесконечной переписки.</p>
+      <div class="hero__actions">
+        <a class="button button--primary" href="/login">Создать подборку <span aria-hidden="true">→</span></a>
+        <a class="button button--quiet" href="#how-it-works">Посмотреть, как работает</a>
+      </div>
+      <p class="hero__note"><span aria-hidden="true">✓</span> Участники открывают ссылку и голосуют со своего телефона</p>
+    </div>
+
+    <section class="hero-preview" aria-label="Пример подборки событий">
+      <div class="preview-window">
+        <div class="preview-window__top">
+          <span class="preview-window__status">Пример подборки</span>
+          <span class="preview-window__people" role="img" aria-label="Участвуют шесть человек">
+            <span aria-hidden="true">А</span><span aria-hidden="true">М</span><span aria-hidden="true">+4</span>
+          </span>
+        </div>
+        <div class="preview-window__heading">
+          <p>Вечер с друзьями</p>
+          <span>Выберите один или несколько вариантов</span>
+        </div>
+        <div class="preview-options">
+          <article class="preview-option preview-option--selected">
+            <div class="preview-option__icon" aria-hidden="true">🎬</div>
+            <div class="preview-option__body">
+              <div class="preview-option__title"><strong>Кино под открытым небом</strong><span>4 голоса</span></div>
+              <div class="preview-progress preview-progress--67" role="progressbar" aria-label="Голоса за кино под открытым небом" aria-valuemin="0" aria-valuemax="6" aria-valuenow="4" aria-valuetext="4 из 6 голосов"><span></span></div>
+            </div>
+            <span class="preview-option__check" aria-hidden="true">✓</span>
+          </article>
+          <article class="preview-option">
+            <div class="preview-option__icon" aria-hidden="true">🖼️</div>
+            <div class="preview-option__body">
+              <div class="preview-option__title"><strong>Новая выставка</strong><span>3 голоса</span></div>
+              <div class="preview-progress preview-progress--50" role="progressbar" aria-label="Голоса за новую выставку" aria-valuemin="0" aria-valuemax="6" aria-valuenow="3" aria-valuetext="3 из 6 голосов"><span></span></div>
+            </div>
+          </article>
+          <article class="preview-option">
+            <div class="preview-option__icon" aria-hidden="true">🌿</div>
+            <div class="preview-option__body">
+              <div class="preview-option__title"><strong>Прогулка в парке</strong><span>2 голоса</span></div>
+              <div class="preview-progress preview-progress--33" role="progressbar" aria-label="Голоса за прогулку в парке" aria-valuemin="0" aria-valuemax="6" aria-valuenow="2" aria-valuetext="2 из 6 голосов"><span></span></div>
+            </div>
+          </article>
+        </div>
+        <div class="preview-window__footer">
+          <span><i aria-hidden="true"></i> Голос учтён</span>
+          <span>Результат виден сразу</span>
+        </div>
+      </div>
+      <div class="hero-preview__glow" aria-hidden="true"></div>
+    </section>
+  </section>
+
+  <section class="section how" id="how-it-works" aria-labelledby="how-title">
+    <div class="section-heading">
+      <p class="eyebrow">Три простых шага</p>
+      <h2 id="how-title">От идеи до общего плана</h2>
+      <p>Организатор задаёт варианты, а друзья помогают выбрать лучший.</p>
+    </div>
+    <ol class="steps">
+      <li class="step-card">
+        <span class="step-card__number">01</span>
+        <span class="step-card__icon" aria-hidden="true">＋</span>
+        <h3>Создай подборку</h3>
+        <p>Добавь события, даты, фотографии и всё, что поможет определиться.</p>
+      </li>
+      <li class="step-card">
+        <span class="step-card__number">02</span>
+        <span class="step-card__icon" aria-hidden="true">↗</span>
+        <h3>Поделись ссылкой</h3>
+        <p>Отправь приватную ссылку тем, чьё мнение важно для встречи.</p>
+      </li>
+      <li class="step-card">
+        <span class="step-card__number">03</span>
+        <span class="step-card__icon" aria-hidden="true">✓</span>
+        <h3>Выберите вместе</h3>
+        <p>Соберите голоса, сравните варианты и договоритесь без лишнего шума.</p>
+      </li>
+    </ol>
+  </section>
+
+  <section class="section possibilities" id="possibilities" aria-labelledby="possibilities-title">
+    <div class="possibilities__copy">
+      <p class="eyebrow">Всё нужное — в одном месте</p>
+      <h2 id="possibilities-title">Больше ясности, меньше сообщений</h2>
+      <p>Подборка сохраняет варианты и мнения участников в понятном виде. Каждый видит актуальную информацию на удобном ему экране.</p>
+      <a class="text-link" href="/about?return_to=%2F">Подробнее о date4you <span aria-hidden="true">→</span></a>
+    </div>
+    <ul class="feature-list">
+      <li>
+        <span class="feature-list__icon" aria-hidden="true">◇</span>
+        <div><h3>Несколько вариантов</h3><p>Собери разные идеи в одной аккуратной подборке.</p></div>
+      </li>
+      <li>
+        <span class="feature-list__icon" aria-hidden="true">◉</span>
+        <div><h3>Наглядное голосование</h3><p>Результаты обновляются и помогают увидеть общий выбор.</p></div>
+      </li>
+      <li>
+        <span class="feature-list__icon" aria-hidden="true">⌁</span>
+        <div><h3>Удобно на телефоне</h3><p>Открывай ссылку и голосуй без привязки к большому экрану.</p></div>
+      </li>
+      <li>
+        <span class="feature-list__icon" aria-hidden="true">⌾</span>
+        <div><h3>Контроль у организатора</h3><p>Управляй доступом, сроками и содержанием своей подборки.</p></div>
+      </li>
+    </ul>
+  </section>
+
+  <section class="section privacy-card" aria-labelledby="privacy-title">
+    <div class="privacy-card__icon" aria-hidden="true">⌁</div>
+    <div>
+      <p class="eyebrow">Личное остаётся личным</p>
+      <h2 id="privacy-title">Встречи доступны по приватной ссылке</h2>
+      <p>Страницы подборок закрыты от поисковой индексации. Организатор решает, когда ссылка активна, а мы не добавляем рекламные вставки в карточки и голосование.</p>
+    </div>
+    <a class="button button--quiet" href="/privacy?return_to=%2F">О конфиденциальности</a>
+  </section>
+
+  <section class="section final-cta" aria-labelledby="cta-title">
+    <div>
+      <p class="eyebrow">Пора договориться</p>
+      <h2 id="cta-title">Собери вашу следующую встречу</h2>
+      <p>Создай первую подборку и отправь друзьям одну понятную ссылку.</p>
+    </div>
+    <a class="button button--primary button--light" href="/login">Начать <span aria-hidden="true">→</span></a>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="site-footer__brand">
+    <a class="wordmark" href="/" aria-label="date4you — главная"><span class="wordmark__mark" aria-hidden="true"></span><span>date4you</span></a>
+    <p>Простой способ выбрать встречу вместе.</p>
+  </div>
+  <nav class="site-footer__links" aria-label="Справочная навигация">
+    <a href="/about?return_to=%2F">О проекте</a>
+    <a href="/terms?return_to=%2F">Соглашение</a>
+    <a href="/privacy?return_to=%2F">Конфиденциальность</a>
+    {% if support %}<a href="{{ support.url }}" target="_blank" rel="noopener">{{ support.label }}</a>{% endif %}
+  </nav>
+  <p class="site-footer__copy">© date4you</p>
+</footer>
+
+<script src="{{ asset('ink.js') }}" defer></script>
+</body>
+</html>

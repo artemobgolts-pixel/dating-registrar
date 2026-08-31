@@ -59,4 +59,4 @@
 
 <h2>8. Контакты</h2>
 <p>По вопросам обработки персональных данных:
-  {% if support %}<b>{{ support }}</b>{% else %}контакт указан в разделе поддержки{% endif %}.</p>
+  {% if support %}<a href="{{ support.url }}" target="_blank" rel="noopener">{{ support.label }}</a>{% else %}контакт указан в разделе поддержки{% endif %}.</p>

@@ -12,6 +12,7 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Annotated
+from xml.sax.saxutils import escape as xml_escape
 
 from fastapi import (APIRouter, BackgroundTasks, Depends, File, Form,
                      HTTPException, Request, UploadFile)
@@ -31,7 +32,7 @@ import users
 import voting
 import voting_events
 from config import (AUTHOR_PROJECTS, ABOUT_TEXT, BASE_URL, DOMAIN,
-                    MSK, SUPPORT_CONTACT, support_link)
+                    MSK, support_link)
 from helpers import (_parse, clean_text, fmt_gcal, fmt_when, new_link_token,
                      normalize_period, now_iso, now_naive, parse_dt_local,
                      parse_links)
@@ -865,10 +866,43 @@ def health():
 
 
 @router.get("/")
-def home():
-    # Домен открывает сразу страницу входа/регистрации (а /login уже сам уводит
-    # залогиненного в кабинет). Декоративный лендинг убран по просьбе владельца.
-    return RedirectResponse("/login", status_code=307)
+def home(request: Request):
+    description = (
+        "Создавай подборки событий, делись приватной ссылкой, собирай голоса "
+        "и выбирай удобный вариант встречи вместе с друзьями."
+    )
+    structured_data = {
+        "@context": "https://schema.org",
+        "@graph": [
+            {
+                "@type": "WebSite",
+                "@id": f"{BASE_URL}/#website",
+                "url": f"{BASE_URL}/",
+                "name": "date4you",
+                "description": description,
+                "inLanguage": "ru-RU",
+            },
+            {
+                "@type": "WebApplication",
+                "@id": f"{BASE_URL}/#application",
+                "url": f"{BASE_URL}/",
+                "name": "date4you",
+                "description": description,
+                "applicationCategory": "LifestyleApplication",
+                "operatingSystem": "Web",
+                "inLanguage": "ru-RU",
+            },
+        ],
+    }
+    return templates.TemplateResponse(
+        request,
+        "public/home.html",
+        {
+            "description": description,
+            "structured_data": structured_data,
+            "support": support_link(),
+        },
+    )
 
 
 @router.head("/", include_in_schema=False)
@@ -889,7 +923,24 @@ def favicon():
 
 @router.get("/robots.txt")
 def robots():
-    return PlainTextResponse("User-agent: *\nDisallow: /\n")
+    # Закрытые страницы несут meta noindex/X-Robots-Tag. Не блокируем их здесь:
+    # иначе поисковый робот не сможет прочитать сам запрет индексации.
+    return PlainTextResponse(
+        f"User-agent: *\nAllow: /\n\nSitemap: {BASE_URL}/sitemap.xml\n"
+    )
+
+
+@router.get("/sitemap.xml", include_in_schema=False)
+def sitemap():
+    base = xml_escape(BASE_URL.rstrip("/"))
+    content = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+        f"  <url><loc>{base}/</loc></url>\n"
+        f"  <url><loc>{base}/about</loc></url>\n"
+        "</urlset>\n"
+    )
+    return Response(content=content, media_type="application/xml")
 
 
 _INFO_RETURN_RE = re.compile(
@@ -905,16 +956,17 @@ def _safe_info_return(request: Request) -> str:
         from urllib.parse import urlsplit
         parsed = urlsplit(raw)
         if (not parsed.scheme and not parsed.netloc and not parsed.query
-                and not parsed.fragment and _INFO_RETURN_RE.fullmatch(parsed.path)):
+                and not parsed.fragment
+                and (parsed.path == "/" or _INFO_RETURN_RE.fullmatch(parsed.path))):
             return parsed.path
-    return "/admin/" if getattr(request.state, "user", None) else "/login"
+    return "/admin/" if getattr(request.state, "user", None) else "/"
 
 
 @router.get("/terms", response_class=HTMLResponse)
 def terms(request: Request):
     return templates.TemplateResponse(
         request, "public/legal.html",
-        {"doc": "terms", "support": SUPPORT_CONTACT, "domain": DOMAIN,
+        {"doc": "terms", "support": support_link(), "domain": DOMAIN,
          "back_url": _safe_info_return(request)})
 
 
@@ -922,7 +974,7 @@ def terms(request: Request):
 def privacy(request: Request):
     return templates.TemplateResponse(
         request, "public/legal.html",
-        {"doc": "privacy", "support": SUPPORT_CONTACT, "domain": DOMAIN,
+        {"doc": "privacy", "support": support_link(), "domain": DOMAIN,
          "back_url": _safe_info_return(request)})
 
 

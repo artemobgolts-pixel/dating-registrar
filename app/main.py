@@ -40,8 +40,9 @@ import public_routes
 import users
 import voting_events
 from config import (APP_ENV, APP_RELEASE, COOKIE_SECURE, DOMAIN, LOG_LEVEL,
-                    SECRET_KEY, SENTRY_DSN, SENTRY_TRACES_SAMPLE_RATE)
-from web import redir
+                    SECRET_KEY, SENTRY_DSN, SENTRY_TRACES_SAMPLE_RATE,
+                    support_link)
+from web import redir, templates
 
 # Реэкспорты: тестам и консоли удобно обращаться к main.<имя>,
 # не зная внутреннюю раскладку по модулям.
@@ -294,6 +295,17 @@ async def friendly_http_exc(request: Request, exc: StarletteHTTPException):
         else:
             back = "/admin/"
         return redir(back, f"⚠ {exc.detail}")
+    if (exc.status_code == 404 and request.method in {"GET", "HEAD"}
+            and "text/html" in request.headers.get("accept", "").lower()):
+        # Путь и detail намеренно не отражаем: URL может содержать секретный
+        # токен гостевой ссылки, а текст исключения — внутренние подробности.
+        return templates.TemplateResponse(
+            request,
+            "public/not_found.html",
+            {"support": support_link()},
+            status_code=404,
+            headers={"X-Robots-Tag": "noindex, nofollow"},
+        )
     return await http_exception_handler(request, exc)
 
 

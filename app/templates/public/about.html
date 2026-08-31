@@ -3,8 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex, nofollow">
-<title>О проекте · date4you</title>
+<meta name="robots" content="index, follow">
+<title>О date4you — сервисе для совместного выбора встреч</title>
+<meta name="description" content="Узнай, как date4you помогает собрать идеи, проголосовать за события и организовать встречу по приватной ссылке.">
+<link rel="canonical" href="{{ BASE_URL }}/about">
+<meta property="og:type" content="website">
+<meta property="og:locale" content="ru_RU">
+<meta property="og:site_name" content="date4you">
+<meta property="og:title" content="О date4you">
+<meta property="og:description" content="Сервис для совместного выбора событий и организации встреч.">
+<meta property="og:url" content="{{ BASE_URL }}/about">
+<meta property="og:image" content="{{ BASE_URL }}{{ asset('og-default.jpg') }}">
+<meta name="twitter:card" content="summary_large_image">
 {% from "_appearance_assets.html" import appearance_assets %}
 {{ appearance_assets('friends') }}
 <meta name="theme-color" content="#554eae">
@@ -17,6 +27,9 @@
   .legal p, .legal li { line-height: 1.6; color: var(--ink); font-size: 15px; }
   .legal a { color: var(--rose); }
   .legal .back { display: inline-block; margin-bottom: 22px; color: var(--rose); text-decoration: none; }
+  .skip-link { position: fixed; top: 10px; left: 10px; z-index: 100; padding: 10px 14px;
+    color: var(--card); background: var(--ink); border-radius: 10px; transform: translateY(-150%); }
+  .skip-link:focus { transform: translateY(0); }
   .proj-list { list-style: none; padding: 0; }
   .proj-list li { margin: 8px 0; }
   .proj-list a { display: inline-block; padding: 10px 16px; border: 1px solid var(--line);
@@ -27,14 +40,16 @@
 </head>
 <body data-ink-interactive="{{ '1' if request.state.user and request.state.user['cursor_effects'] else '0' }}">
 {% include "public/_bg.html" %}
-<main class="legal">
+<a class="skip-link" href="#main-content">К содержанию</a>
+<main class="legal" id="main-content">
   <a class="back" href="{{ back_url | default('/admin/' if request.state.user else '/login', true) }}">← Вернуться</a>
   <h1>О проекте</h1>
   {% if about_text %}
     <p>{{ about_text }}</p>
   {% else %}
     <p>date4you — лёгкий способ собрать подборку событий, проголосовать и
-      организовать встречу по приватной ссылке. Без рекламы и сбора лишних данных.</p>
+      организовать встречу по приватной ссылке. Без рекламных вставок в карточках
+      и голосовании и без сбора лишних данных.</p>
   {% endif %}
 
   <h2>Поддержка и связь</h2>

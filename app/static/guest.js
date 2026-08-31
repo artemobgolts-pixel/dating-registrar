@@ -371,6 +371,7 @@
         track.hidden = hideEmptySingleCounter;
         track.setAttribute("aria-valuemax", String(capacity));
         track.setAttribute("aria-valuenow", String(count));
+        track.setAttribute("aria-valuetext", `${count} из ${capacity} участников`);
         const fill = track.querySelector("i");
         if (fill) {
           fill.style.setProperty(

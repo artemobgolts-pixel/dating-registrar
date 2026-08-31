@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ru" data-skin="friends" data-skin-switchable>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Страница не найдена · date4you</title>
+<meta name="description" content="Этой страницы нет или ссылка больше не действует.">
+{% from "_appearance_assets.html" import appearance_assets %}
+{{ appearance_assets('friends') }}
+<meta name="theme-color" content="#554eae">
+<script src="{{ asset('theme.js') }}"></script>
+<link rel="stylesheet" href="{{ asset('landing.css') }}">
+</head>
+<body class="not-found-page" data-ink-interactive="0">
+{% include "public/_bg.html" %}
+<a class="skip-link" href="#main-content">К содержанию</a>
+<header class="site-header" aria-label="Основная навигация">
+  <div class="site-header__inner">
+    <a class="wordmark" href="/" aria-label="date4you — главная"><span class="wordmark__mark" aria-hidden="true"></span><span>date4you</span></a>
+    <div class="site-actions">
+      <button type="button" class="theme-button" data-theme-toggle aria-label="Включить тёмную тему">
+        <span class="theme-moon-icon" data-theme-icon aria-hidden="true"></span>
+        <span class="theme-button__label" data-theme-label>Тёмная тема</span>
+      </button>
+      <a class="button button--compact" href="/login">Войти</a>
+    </div>
+  </div>
+</header>
+<main class="not-found" id="main-content">
+  <p class="not-found__code" aria-hidden="true">404</p>
+  <p class="eyebrow">Здесь ничего нет</p>
+  <h1>Кажется, эта ссылка закончилась</h1>
+  <p>Страница могла быть удалена, а приватная ссылка — отключена организатором. Можно вернуться на главную или войти в свой кабинет.</p>
+  <div class="hero__actions">
+    <a class="button button--primary" href="/">На главную</a>
+    <a class="button button--quiet" href="/login">Войти</a>
+  </div>
+  {% if support %}<a class="not-found__support" href="{{ support.url }}" target="_blank" rel="noopener">{{ support.label }}</a>{% endif %}
+</main>
+<script src="{{ asset('ink.js') }}" defer></script>
+</body>
+</html>

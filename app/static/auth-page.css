@@ -1,0 +1,520 @@
+/* Standalone /login shell. The shared login component itself lives in auth.css;
+   public dialogs continue to receive their surrounding tokens from public.css. */
+
+:root {
+  --bg: #f6f4f5;
+  --card: #fff;
+  --ink: #43373a;
+  --muted: #716166;
+  --accent: #a34c60;
+  --rose: #a34c60;
+  --rose-2: #8f4a58;
+  --rose-soft: #f7e9e7;
+  --line: #f0e4e1;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --ease-press: cubic-bezier(.2, .8, .2, 1);
+  --shadow-soft: 0 6px 20px rgba(91, 54, 62, .08);
+  --material-sheet: color-mix(in srgb, var(--card) 92%, transparent);
+  --material-border: color-mix(in srgb, var(--line) 76%, var(--ink) 8%);
+  --material-blur-sheet: blur(24px) saturate(1.25);
+  --shadow-sheet: 0 28px 80px color-mix(in srgb, var(--ink) 28%, transparent);
+  --type-body: clamp(.9375rem, .91rem + .1vw, 1rem);
+  --leading-body: 1.5;
+}
+
+* { box-sizing: border-box; }
+
+html {
+  min-height: 100%;
+  overflow-x: clip;
+  scrollbar-gutter: stable;
+  font-size: 100%;
+}
+
+body {
+  min-height: 100%;
+  margin: 0;
+  overflow-x: clip;
+  color: var(--ink);
+  background:
+    radial-gradient(700px 360px at 90% -120px, rgba(214, 150, 150, .12), transparent 65%),
+    linear-gradient(180deg, #fdf6f4, #f9eef0 55%, #f6edf2);
+  background-attachment: fixed;
+  font: var(--type-body)/var(--leading-body) var(--sans);
+  font-optical-sizing: auto;
+  text-rendering: optimizeLegibility;
+}
+
+a { color: var(--accent); }
+
+a,
+button,
+[role="button"] { -webkit-tap-highlight-color: transparent; }
+
+:is(a, button, [role="button"]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.login-page {
+  position: relative;
+  z-index: 1;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  padding: 20px;
+}
+
+.login-center {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.login-foot {
+  padding: 14px 0 4px;
+  color: var(--muted);
+  font-size: 12.5px;
+  text-align: center;
+}
+
+.login-foot a {
+  color: var(--rose);
+  text-decoration: none;
+  opacity: .85;
+}
+
+.login-foot a:hover { text-decoration: underline; }
+
+.auth-module .login-return { text-underline-offset: .22em; }
+
+.auth-module--page.login-card {
+  background: var(--material-sheet);
+  border-color: var(--material-border);
+  box-shadow: var(--shadow-sheet);
+  -webkit-backdrop-filter: var(--material-blur-sheet);
+  backdrop-filter: var(--material-blur-sheet);
+}
+
+.auth-module__error.err {
+  padding: 9px 12px;
+  color: #a33;
+  font-size: 13.5px;
+  background: #fdeeee;
+  border: 1px solid #f3cfcf;
+  border-radius: 10px;
+}
+
+.login-appearance {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.login-theme {
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 13px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, .58);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  box-shadow: var(--shadow-soft);
+  cursor: pointer;
+}
+
+.login-theme [data-theme-icon] {
+  width: 22px;
+  height: 22px;
+  display: inline-grid;
+  place-items: center;
+  color: currentColor;
+  line-height: 1;
+}
+
+.theme-moon-icon::before,
+.theme-sun-icon::before {
+  content: "";
+  width: 22px;
+  height: 22px;
+  background: currentColor;
+}
+
+.theme-moon-icon::before {
+  width: 21px;
+  height: 21px;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M20.3 15.4A8.7 8.7 0 0 1 8.6 3.7a8.7 8.7 0 1 0 11.7 11.7Z'/%3E%3C/svg%3E") center/contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M20.3 15.4A8.7 8.7 0 0 1 8.6 3.7a8.7 8.7 0 1 0 11.7 11.7Z'/%3E%3C/svg%3E") center/contain no-repeat;
+}
+
+.theme-sun-icon::before {
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10Zm-1-7h2v4h-2V0Zm0 20h2v4h-2v-4ZM0 11h4v2H0v-2Zm20 0h4v2h-4v-2ZM3.51 4.93l1.42-1.42 2.83 2.83-1.42 1.42-2.83-2.83Zm12.73 12.73 1.42-1.42 2.83 2.83-1.42 1.42-2.83-2.83ZM4.93 20.49l-1.42-1.42 2.83-2.83 1.42 1.42-2.83 2.83ZM17.66 7.76l-1.42-1.42 2.83-2.83 1.42 1.42-2.83 2.83Z'/%3E%3C/svg%3E") center/contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10Zm-1-7h2v4h-2V0Zm0 20h2v4h-2v-4ZM0 11h4v2H0v-2Zm20 0h4v2h-4v-2ZM3.51 4.93l1.42-1.42 2.83 2.83-1.42 1.42-2.83-2.83Zm12.73 12.73 1.42-1.42 2.83 2.83-1.42 1.42-2.83-2.83ZM4.93 20.49l-1.42-1.42 2.83-2.83 1.42 1.42-2.83 2.83ZM17.66 7.76l-1.42-1.42 2.83-2.83 1.42 1.42-2.83 2.83Z'/%3E%3C/svg%3E") center/contain no-repeat;
+}
+
+.login-skin-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px;
+  background: rgba(255, 255, 255, .58);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  box-shadow: var(--shadow-soft);
+}
+
+.login-skin-choice {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: color .18s, background .18s, transform .15s, box-shadow .18s;
+}
+
+.login-skin-choice:hover { color: var(--ink); transform: translateY(-1px); }
+
+.login-skin-choice img {
+  width: 27px;
+  height: 27px;
+  display: block;
+  object-fit: cover;
+  border-radius: 50%;
+}
+
+.login-skin-choice[data-skin-set="friends"][aria-pressed="true"] {
+  color: #fff;
+  background: linear-gradient(135deg, #5365bc, #354483);
+  box-shadow: 0 4px 11px rgba(58, 70, 139, .3);
+}
+
+.login-skin-choice[data-skin-set="romantic"][aria-pressed="true"] {
+  color: #fff;
+  background: linear-gradient(135deg, #c56f82, #995062);
+  box-shadow: 0 4px 11px rgba(153, 80, 98, .3);
+}
+
+:where(.login-theme, .login-skin-choice):active {
+  transform: scale(.97);
+  transition: transform 80ms var(--ease-press);
+}
+
+/* The unchanged ink.js canvas and its no-WebGL fallback keep their existing
+   geometry, palettes and deliberately slow ambient movement. */
+.bg-smoke {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.bg-smoke svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.bg-smoke .turb {
+  width: 100%;
+  height: 100%;
+  opacity: .5;
+  mix-blend-mode: multiply;
+}
+
+.bg-smoke .plume {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.bg-smoke .plume.p1 { animation: auth-plume-a 24s ease-in-out infinite alternate; }
+.bg-smoke .plume.p2 { animation: auth-plume-b 30s ease-in-out infinite alternate; }
+.bg-smoke .plume.p3 { animation: auth-plume-c 27s ease-in-out infinite alternate; }
+
+.bg-smoke span {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  will-change: transform;
+}
+
+.bg-smoke span:nth-child(2) {
+  width: 80vw;
+  height: 80vw;
+  top: -18vh;
+  left: -16vw;
+  background: radial-gradient(46% 48% at 40% 40%, rgba(231, 120, 145, .4), transparent 66%);
+  animation: auth-smoke-a 22s ease-in-out infinite alternate;
+}
+
+.bg-smoke span:nth-child(3) {
+  width: 70vw;
+  height: 70vw;
+  top: 16vh;
+  right: -18vw;
+  background: radial-gradient(46% 44% at 56% 40%, rgba(214, 150, 200, .34), transparent 66%);
+  animation: auth-smoke-b 26s ease-in-out infinite alternate;
+}
+
+.bg-smoke span:nth-child(4) {
+  width: 86vw;
+  height: 86vw;
+  bottom: -32vh;
+  left: 0;
+  background: radial-gradient(46% 46% at 44% 50%, rgba(226, 176, 138, .32), transparent 66%);
+  animation: auth-smoke-c 30s ease-in-out infinite alternate;
+}
+
+@keyframes auth-plume-a {
+  from { transform: translate(0, 0) rotate(-4deg) scale(1); }
+  to { transform: translate(4%, -8%) rotate(6deg) scale(1.1); }
+}
+
+@keyframes auth-plume-b {
+  from { transform: translate(0, 0) rotate(3deg) scale(1.05); }
+  to { transform: translate(-5%, -6%) rotate(-5deg) scale(1.12); }
+}
+
+@keyframes auth-plume-c {
+  from { transform: translate(0, 0) rotate(2deg) scale(1); }
+  to { transform: translate(3%, -7%) rotate(-4deg) scale(1.14); }
+}
+
+@keyframes auth-smoke-a {
+  0% { transform: translate(0, 0) rotate(0) scale(1); }
+  50% { transform: translate(5vw, 4vh) rotate(60deg) scale(1.12); }
+  100% { transform: translate(-3vw, 6vh) rotate(110deg) scale(1.05); }
+}
+
+@keyframes auth-smoke-b {
+  0% { transform: translate(0, 0) rotate(0) scale(1.05); }
+  50% { transform: translate(-6vw, 5vh) rotate(-70deg) scale(1.14); }
+  100% { transform: translate(3vw, -3vh) rotate(-120deg) scale(1); }
+}
+
+@keyframes auth-smoke-c {
+  0% { transform: translate(0, 0) rotate(0) scale(1.1); }
+  50% { transform: translate(6vw, -6vh) rotate(110deg) scale(1.25); }
+  100% { transform: translate(-5vw, -2vh) rotate(200deg) scale(1.08); }
+}
+
+.ink-canvas {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+}
+
+.bg-smoke.has-ink .turb,
+.bg-smoke.has-ink span { display: none; }
+
+.bg-smoke .plume,
+.bg-smoke span { animation-duration: 48s !important; }
+
+html.ink-static .bg-smoke .turb,
+html.ink-static .bg-smoke .plume,
+html.ink-static .bg-smoke span { animation: none !important; }
+
+html[data-theme="dark"] {
+  --bg: #171418;
+  --card: #251f24;
+  --ink: #efe6eb;
+  --muted: #b2a4ab;
+  --accent: #d48799;
+  --rose: #d48799;
+  --rose-2: #e7a2b1;
+  --rose-soft: #3a2931;
+  --line: #493942;
+}
+
+html[data-theme="dark"] body {
+  background:
+    radial-gradient(700px 360px at 90% -120px, rgba(117, 65, 80, .24), transparent 65%),
+    linear-gradient(180deg, #171418, #1c171b 55%, #17151a);
+}
+
+html[data-theme="dark"] .auth-module--page.login-card {
+  background: linear-gradient(150deg, rgba(45, 35, 42, .84), rgba(30, 25, 30, .76));
+  border-color: rgba(255, 255, 255, .13);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, .42), inset 0 1px 0 rgba(255, 255, 255, .08);
+}
+
+html[data-theme="dark"] .auth-module__error.err {
+  color: #ffaaa8;
+  background: #42272b;
+  border-color: #6d3b42;
+}
+
+html[data-theme="dark"] .login-theme {
+  color: var(--rose-2);
+  background: rgba(45, 35, 42, .78);
+  border-color: var(--line);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .07);
+}
+
+html[data-theme="dark"] .login-skin-pick { background: rgba(42, 33, 40, .78); }
+html[data-theme="dark"] .auth-module .login-return { color: var(--ink); }
+html[data-theme="dark"] .bg-smoke .turb { opacity: .28; mix-blend-mode: screen; }
+
+html[data-theme="dark"] .bg-smoke span:nth-child(2) {
+  background: radial-gradient(46% 48% at 40% 40%, rgba(126, 65, 81, .42), transparent 66%);
+}
+
+html[data-theme="dark"] .bg-smoke span:nth-child(3) {
+  background: radial-gradient(46% 44% at 56% 40%, rgba(91, 65, 103, .34), transparent 66%);
+}
+
+html[data-theme="dark"] .bg-smoke span:nth-child(4) {
+  background: radial-gradient(46% 46% at 44% 50%, rgba(130, 85, 65, .3), transparent 66%);
+}
+
+html[data-skin="friends"] {
+  --bg: #f5f3ed;
+  --card: #fffdf8;
+  --ink: #252a3d;
+  --muted: #686f82;
+  --accent: #4b59a6;
+  --rose: #4b59a6;
+  --rose-2: #34417f;
+  --rose-soft: #eceffb;
+  --line: #dfe3ed;
+  --friends-teal: #238e89;
+}
+
+html[data-theme="dark"][data-skin="friends"] {
+  --bg: #151923;
+  --card: #202635;
+  --ink: #f0f2f7;
+  --muted: #a9b0c3;
+  --accent: #92a0ff;
+  --rose: #92a0ff;
+  --rose-2: #bdc6ff;
+  --rose-soft: #2b3351;
+  --line: #3c455f;
+  --friends-teal: #59c9c1;
+}
+
+html[data-skin="friends"] body {
+  background:
+    radial-gradient(760px 420px at 4% -8%, rgba(84, 105, 188, .17), transparent 66%),
+    radial-gradient(640px 420px at 102% 28%, rgba(55, 166, 157, .13), transparent 68%),
+    radial-gradient(620px 400px at 38% 108%, rgba(223, 166, 66, .11), transparent 68%),
+    linear-gradient(180deg, #f8f7f2, #f2f3ef 58%, #f4f1e9);
+}
+
+html[data-theme="dark"][data-skin="friends"] body {
+  background:
+    radial-gradient(760px 420px at 4% -8%, rgba(78, 94, 171, .26), transparent 66%),
+    radial-gradient(640px 420px at 102% 28%, rgba(35, 130, 126, .18), transparent 68%),
+    radial-gradient(620px 400px at 38% 108%, rgba(154, 109, 41, .12), transparent 68%),
+    linear-gradient(180deg, #151923, #191f2c 58%, #171b25);
+}
+
+html[data-skin="friends"] .auth-module--page.login-card {
+  background: linear-gradient(150deg, rgba(255, 255, 252, .68), rgba(241, 247, 246, .56));
+  border-color: rgba(255, 255, 255, .72);
+  box-shadow: 0 18px 48px rgba(53, 66, 103, .14), inset 0 2px 1px rgba(255, 255, 255, .86);
+}
+
+html[data-theme="dark"][data-skin="friends"] .auth-module--page.login-card {
+  background: linear-gradient(150deg, rgba(35, 42, 59, .86), rgba(25, 32, 45, .78));
+  border-color: rgba(255, 255, 255, .11);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, .38), inset 0 1px 0 rgba(255, 255, 255, .07);
+}
+
+/* До разделения оболочки этот theme-aware заголовок приходил из admin.css
+   через правило friends h1. Сохраняем ту же отделку и контраст локально. */
+html[data-skin="friends"] .auth-module__brand {
+  color: var(--rose-2);
+  background: linear-gradient(110deg, var(--rose-2), var(--rose) 62%, var(--friends-teal));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+html[data-skin="friends"] .bg-smoke .turb {
+  filter: hue-rotate(218deg) saturate(.88) brightness(1.03);
+}
+
+html[data-skin="friends"] .bg-smoke span:nth-child(2) {
+  background: radial-gradient(46% 48% at 40% 40%, rgba(76, 97, 184, .34), transparent 66%);
+}
+
+html[data-skin="friends"] .bg-smoke span:nth-child(3) {
+  background: radial-gradient(46% 44% at 56% 40%, rgba(45, 157, 149, .28), transparent 66%);
+}
+
+html[data-skin="friends"] .bg-smoke span:nth-child(4) {
+  background: radial-gradient(46% 46% at 44% 50%, rgba(221, 164, 58, .25), transparent 66%);
+}
+
+html[data-theme="dark"][data-skin="friends"] .bg-smoke span:nth-child(2) {
+  background: radial-gradient(46% 48% at 40% 40%, rgba(70, 84, 159, .4), transparent 66%);
+}
+
+html[data-theme="dark"][data-skin="friends"] .bg-smoke span:nth-child(3) {
+  background: radial-gradient(46% 44% at 56% 40%, rgba(38, 127, 122, .3), transparent 66%);
+}
+
+html[data-theme="dark"][data-skin="friends"] .bg-smoke span:nth-child(4) {
+  background: radial-gradient(46% 46% at 44% 50%, rgba(142, 103, 40, .25), transparent 66%);
+}
+
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .auth-module--page.login-card { background: var(--card) !important; }
+}
+
+@media (max-width: 480px) {
+  .login-theme [data-theme-label] { display: none; }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root { --material-sheet: var(--card); }
+  .auth-module--page.login-card,
+  .login-theme,
+  .login-skin-pick {
+    background: var(--card) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --muted: color-mix(in srgb, var(--ink) 78%, var(--bg));
+    --material-sheet: var(--card);
+    --material-border: color-mix(in srgb, var(--ink) 54%, var(--line));
+  }
+  .auth-module--page.login-card,
+  .login-theme,
+  .login-skin-pick {
+    background: var(--card) !important;
+    border-color: var(--material-border) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+  :focus-visible { outline-width: 3px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bg-smoke .plume,
+  .bg-smoke span { animation: none !important; }
+  .login-skin-choice { transition: none; }
+}

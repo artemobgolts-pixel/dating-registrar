@@ -50,6 +50,15 @@ class SharedLoginModuleTests(unittest.TestCase):
         self.assertIn('class="login-card auth-module auth-module--page"', module)
         self.assertIn('class="login-dlg auth-module auth-module--dialog"', module)
 
+        standalone = source("templates/auth/login.html")
+        self.assertIn("{{ asset('auth-page.css') }}", standalone)
+        self.assertNotIn("{{ asset('admin.css') }}", standalone)
+        for relative in surfaces:
+            if relative == "templates/auth/login.html":
+                continue
+            with self.subTest(dialog_surface=relative):
+                self.assertNotIn("auth-page.css", source(relative))
+
     def test_page_keeps_exact_clickable_vpn_copy(self):
         env = self.make_env()
         request = SimpleNamespace(state=SimpleNamespace(user=None))
@@ -108,6 +117,17 @@ class SharedLoginModuleTests(unittest.TestCase):
         )
         self.assertIn('data-skin="friends"] .auth-module { --auth-accent:', css)
 
+    def test_standalone_shell_is_small_and_keeps_accessibility_preferences(self):
+        css = source("static/auth-page.css")
+
+        self.assertLess(len(css.encode("utf-8")), 32_000)
+        self.assertIn(".login-page", css)
+        self.assertIn(".bg-smoke", css)
+        self.assertIn(".ink-canvas", css)
+        self.assertIn("@media (prefers-reduced-motion: reduce)", css)
+        self.assertIn("@media (prefers-reduced-transparency: reduce)", css)
+        self.assertIn("@media (prefers-contrast: more)", css)
+
 
 class LoginGeometryBrowserTests(unittest.TestCase):
     @classmethod
@@ -152,7 +172,7 @@ class LoginGeometryBrowserTests(unittest.TestCase):
         page = self.browser.new_page(viewport={"width": 390, "height": 844})
         self.addCleanup(page.close)
         page.set_content(rendered)
-        page.add_style_tag(content=(APP / "static/admin.css").read_text("utf-8"))
+        page.add_style_tag(content=(APP / "static/auth-page.css").read_text("utf-8"))
         page.add_style_tag(content=(APP / "static/auth.css").read_text("utf-8"))
         page.add_style_tag(content="*,*::before,*::after{animation:none!important;transition:none!important}")
         return page
@@ -191,6 +211,49 @@ class LoginGeometryBrowserTests(unittest.TestCase):
                 for old, new in zip(standard["rect"], romantic["rect"]):
                     self.assertAlmostEqual(old, new, delta=.25)
                 self.assertEqual(standard["type"], romantic["type"])
+
+    def test_friends_brand_keeps_its_theme_aware_gradient_after_css_split(self):
+        page = self.make_page()
+        expected = {
+            "light": {
+                "color": "rgb(52, 65, 127)",
+                "stops": ("rgb(52, 65, 127)", "rgb(75, 89, 166)",
+                          "rgb(35, 142, 137)"),
+            },
+            "dark": {
+                "color": "rgb(189, 198, 255)",
+                "stops": ("rgb(189, 198, 255)", "rgb(146, 160, 255)",
+                          "rgb(89, 201, 193)"),
+            },
+        }
+
+        for theme, wanted in expected.items():
+            with self.subTest(theme=theme):
+                page.locator("html").evaluate(
+                    "(node, value) => { node.dataset.skin = 'friends'; "
+                    "node.dataset.theme = value; }",
+                    theme,
+                )
+                styles = page.evaluate("""() => {
+                  const brand = getComputedStyle(document.querySelector('.auth-module__brand'));
+                  const digit = getComputedStyle(document.querySelector('.auth-module__brand span'));
+                  return {
+                    color: brand.color,
+                    background: brand.backgroundImage,
+                    clip: brand.backgroundClip,
+                    fill: brand.webkitTextFillColor,
+                    digitColor: digit.color,
+                    digitFill: digit.webkitTextFillColor,
+                  };
+                }""")
+
+                self.assertEqual(styles["color"], wanted["color"])
+                self.assertEqual(styles["clip"], "text")
+                self.assertEqual(styles["fill"], "rgba(0, 0, 0, 0)")
+                for stop in wanted["stops"]:
+                    self.assertIn(stop, styles["background"])
+                self.assertEqual(styles["digitColor"], wanted["color"])
+                self.assertEqual(styles["digitFill"], wanted["color"])
 
     def test_logo_artwork_is_optically_normalized_inside_the_fixed_slot(self):
         try:

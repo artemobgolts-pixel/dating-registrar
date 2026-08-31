@@ -117,7 +117,7 @@
 </div>
 
 <!-- Мини-виджет события из ленты -->
-<dialog id="communityDlg" class="community-dlg">
+<dialog id="communityDlg" class="community-dlg" aria-label="Просмотр события из ленты">
   <button type="button" class="dlg-x" id="cwidClose" aria-label="Закрыть">✕</button>
   <div id="cwidBody"></div>
 </dialog>
@@ -131,6 +131,7 @@
     <input type="hidden" name="target_type" value="date">
     <input type="hidden" name="target_id" id="communityReportTargetId">
     <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label class="sr-only" for="communityReportReason">Причина жалобы</label>
     <textarea name="reason" id="communityReportReason" maxlength="1000"
               placeholder="Что не так? (необязательно)"></textarea>
     <div class="community-report-actions">

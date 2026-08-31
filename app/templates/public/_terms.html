@@ -40,4 +40,4 @@
 
 <h2>7. Контакты</h2>
 <p>По вопросам, жалобам и запросам на удаление контента:
-  {% if support %}<b>{{ support }}</b>{% else %}контакт указан в разделе поддержки{% endif %}.</p>
+  {% if support %}<a href="{{ support.url }}" target="_blank" rel="noopener">{{ support.label }}</a>{% else %}контакт указан в разделе поддержки{% endif %}.</p>

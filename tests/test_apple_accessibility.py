@@ -38,9 +38,51 @@ class PublicDialogAccessibilityTests(unittest.TestCase):
                 self.assertIn('<dialog class="lightbox" id="lightbox"', source)
                 self.assertIn('aria-labelledby="lbTitle"', source)
                 self.assertIn('role="button" tabindex="0" draggable="false"', source)
+                self.assertIn('alt="Фото {{ loop.index }}: {{ d.name }}"', source)
+                self.assertNotRegex(
+                    source,
+                    r'<img\b(?=[^>]*\brole="button")(?=[^>]*\balt="")[^>]*>',
+                )
                 self.assertIn('aria-haspopup="dialog" aria-controls="lightbox"', source)
                 self.assertIn('id="lbCount" aria-live="polite" aria-atomic="true"', source)
                 self.assertIn('id="toast" role="status" aria-live="polite"', source)
+
+    def test_public_primary_pages_have_one_main_landmark(self):
+        for relative in (
+            "templates/auth/login.html",
+            "templates/public/category.html",
+            "templates/public/share.html",
+        ):
+            source = (APP / relative).read_text("utf-8")
+            with self.subTest(template=relative):
+                self.assertEqual(len(re.findall(r"<main\b", source)), 1)
+                self.assertEqual(len(re.findall(r"</main>", source)), 1)
+
+    def test_telegram_frame_progress_and_dashboard_controls_are_named(self):
+        auth = (APP / "static/auth.js").read_text("utf-8")
+        self.assertIn('iframe.setAttribute("title", "Войти через Telegram")', auth)
+
+        for relative in ("templates/public/category.html", "templates/public/share.html"):
+            source = (APP / relative).read_text("utf-8")
+            with self.subTest(template=relative):
+                self.assertIn(
+                    'aria-label="Заполненность события «{{ d.name }}»"', source,
+                )
+                self.assertIn(
+                    'aria-valuetext="{{ d.vote_count }} из {{ d.capacity }} участников"',
+                    source,
+                )
+
+        dashboard = (APP / "templates/admin/dashboard.html").read_text("utf-8")
+        self.assertIn(
+            '<dialog id="communityDlg" class="community-dlg" '
+            'aria-label="Просмотр события из ленты">',
+            dashboard,
+        )
+        self.assertIn(
+            '<label class="sr-only" for="communityReportReason">Причина жалобы</label>',
+            dashboard,
+        )
 
     def test_login_has_a_real_heading_and_an_explicit_return_path(self):
         source = (APP / "templates/auth/login.html").read_text("utf-8")
@@ -442,7 +484,8 @@ class FluidInteractionBrowserTests(unittest.TestCase):
                   <div class="vote-progress">
                     <div class="vote-progress-head"><b>0/3</b><span>голосов</span></div>
                     <div class="vote-progress-track" role="progressbar"
-                         aria-valuemin="0" aria-valuemax="3" aria-valuenow="0">
+                         aria-valuemin="0" aria-valuemax="3" aria-valuenow="0"
+                         aria-valuetext="0 из 3 участников">
                       <i style="--vote-width:0%"></i>
                     </div>
                   </div>
@@ -510,6 +553,7 @@ class FluidInteractionBrowserTests(unittest.TestCase):
             label: document.querySelector('#vote').textContent.trim(),
             count: count.textContent,
             now: track.getAttribute('aria-valuenow'),
+            valueText: track.getAttribute('aria-valuetext'),
             counterCue: count.classList.contains('vote-count-updated'),
             ringAnimation: getComputedStyle(card, '::after').animationName,
             sealVisible: !document.querySelector('.seal').hidden,
@@ -522,6 +566,7 @@ class FluidInteractionBrowserTests(unittest.TestCase):
         self.assertEqual(feedback["label"], "Выбрано")
         self.assertEqual(feedback["count"], "1/3")
         self.assertEqual(feedback["now"], "1")
+        self.assertEqual(feedback["valueText"], "1 из 3 участников")
         self.assertTrue(feedback["counterCue"])
         self.assertIn("vote-confirm-ring", feedback["ringAnimation"])
         self.assertTrue(feedback["sealVisible"])
