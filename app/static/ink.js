@@ -50,9 +50,12 @@
   var pendingClicks = [];
   var inputRaf = 0;
   var lastPointer = {x: 0.5, y: 0.5};
+  var hasPointerSample = false;
   var stateCache = null;
   var posterLoader = null;
+  var posterPreloader = null;
   var posterGeneration = 0;
+  var pageStopped = false;
 
   function assetFallback(name) {
     if (!script || !script.src) return "";
@@ -157,12 +160,12 @@
 
   function removePoster() {
     posterGeneration += 1;
-    var image = host.querySelector(".ink-static-frame");
-    if (image) {
+    host.querySelectorAll(".ink-static-frame").forEach(function (image) {
       image.onload = null;
       image.onerror = null;
       image.remove();
-    }
+    });
+    posterPreloader = null;
     posterLoader = null;
   }
 
@@ -174,6 +177,10 @@
     var skin = friendsSkin() ? "Friends" : "Romantic";
     var theme = darkTheme() ? "Dark" : "Light";
     var key = "static" + skin + theme;
+    if (key === "staticFriendsLight" && window.innerHeight > window.innerWidth &&
+        assets.staticFriendsLightPortrait) {
+      return assets.staticFriendsLightPortrait;
+    }
     return assets[key] || assetFallback(
       "ink-static-" + skin.toLowerCase() + "-" + theme.toLowerCase() + ".webp");
   }
@@ -185,44 +192,71 @@
     host.querySelectorAll("animate, animateTransform").forEach(function (node) {
       node.remove();
     });
-    var image = host.querySelector(".ink-static-frame");
-    if (!image) {
-      image = document.createElement("img");
-      image.className = "ink-static-frame";
-      image.alt = "";
-      image.setAttribute("aria-hidden", "true");
-      image.setAttribute("draggable", "false");
-      image.decoding = "async";
-      host.appendChild(image);
-    }
     function loadPoster() {
       var url = posterUrl();
       if (!url) return;
-      if (image.getAttribute("src") === url &&
-          image.complete && image.naturalWidth > 0) {
-        if (staticPolicy && image.parentNode === host) host.classList.add("has-ink");
+      var current = host.querySelector(".ink-static-frame:not(.is-pending)");
+      if (current && current.getAttribute("src") === url &&
+          current.complete && current.naturalWidth > 0) {
+        if (posterPreloader) {
+          posterPreloader.onload = null;
+          posterPreloader.onerror = null;
+          posterPreloader.remove();
+          posterPreloader = null;
+        }
+        if (staticPolicy && current.parentNode === host) host.classList.add("has-ink");
         return;
       }
+      if (posterPreloader && posterPreloader.getAttribute("src") === url) return;
+      if (posterPreloader) {
+        posterPreloader.onload = null;
+        posterPreloader.onerror = null;
+        posterPreloader.remove();
+      }
       var generation = ++posterGeneration;
-      host.classList.remove("has-ink");
-      image.onload = function () {
+      var nextImage = document.createElement("img");
+      posterPreloader = nextImage;
+      nextImage.className = "ink-static-frame is-pending";
+      nextImage.alt = "";
+      nextImage.setAttribute("aria-hidden", "true");
+      nextImage.setAttribute("draggable", "false");
+      nextImage.decoding = "async";
+      nextImage.onload = function () {
         if (generation !== posterGeneration || !staticPolicy ||
-            image.parentNode !== host) return;
-        var decoded = image.decode ? image.decode().catch(function () {}) : Promise.resolve();
+            nextImage.parentNode !== host) return;
+        var decoded = nextImage.decode
+          ? nextImage.decode().catch(function () {}) : Promise.resolve();
         decoded.then(function () {
           if (generation === posterGeneration && staticPolicy &&
-              image.parentNode === host && image.complete && image.naturalWidth > 0) {
+              nextImage.parentNode === host && nextImage.complete &&
+              nextImage.naturalWidth > 0) {
+            var previous = host.querySelector(
+              ".ink-static-frame:not(.is-pending)");
+            if (previous && previous !== nextImage) {
+              previous.onload = null;
+              previous.onerror = null;
+              previous.remove();
+            }
+            nextImage.classList.remove("is-pending");
+            posterPreloader = null;
             firstFrameReady = true;
             controllerStats.firstFrameReady = true;
             host.classList.add("has-ink");
           }
         });
       };
-      image.onerror = function () {
+      nextImage.onerror = function () {
         if (generation === posterGeneration && staticPolicy &&
-            image.parentNode === host) host.classList.remove("has-ink");
+            nextImage.parentNode === host) {
+          nextImage.remove();
+          posterPreloader = null;
+          if (!host.querySelector(".ink-static-frame:not(.is-pending)")) {
+            host.classList.remove("has-ink");
+          }
+        }
       };
-      image.src = url;
+      host.appendChild(nextImage);
+      nextImage.src = url;
     }
     posterLoader = loadPoster;
     loadPoster();
@@ -428,12 +462,17 @@
     else if (renderer) renderer.setState(next);
   }
 
+  function resetPointerSample() {
+    hasPointerSample = false;
+    pendingMove = null;
+  }
+
   function flushInput() {
     inputRaf = 0;
     if (!pendingMove && !pendingClicks.length) return;
     if (!backendReady || !eligible()) {
       if (!eligible()) {
-        pendingMove = null;
+        resetPointerSample();
         pendingClicks.length = 0;
       } else {
         inputRaf = window.requestAnimationFrame(flushInput);
@@ -459,7 +498,15 @@
     if (!eligible()) return;
     var x = event.clientX / Math.max(1, window.innerWidth);
     var y = 1 - event.clientY / Math.max(1, window.innerHeight);
-    pendingMove = {x: x, y: y, px: lastPointer.x, py: lastPointer.y};
+    var firstSample = !hasPointerSample;
+    var px = firstSample ? x : lastPointer.x;
+    var py = firstSample ? y : lastPointer.y;
+    if (firstSample) {
+      lastPointer.x = x;
+      lastPointer.y = y;
+      hasPointerSample = true;
+    }
+    pendingMove = {x: x, y: y, px: px, py: py};
     scheduleInput();
   }
 
@@ -475,6 +522,11 @@
 
   var refreshRaf = 0;
   function refresh() {
+    // Любая граница состояния (тема, Turbo-навигация, cursor_effects,
+    // resize) начинает новый жест. Иначе segment-splat соединит первую
+    // новую координату со старой точкой до выключения эффекта.
+    resetPointerSample();
+    if (pageStopped) return;
     if (staticPolicy) {
       if (posterLoader) posterLoader();
       return;
@@ -490,11 +542,13 @@
   }
 
   function pause() {
+    resetPointerSample();
     if (staticPolicy) return;
     if (worker) worker.postMessage({type: "pause"});
     else if (renderer) renderer.pause();
   }
   function resume() {
+    if (pageStopped) return;
     if (staticPolicy) {
       if (posterLoader) posterLoader();
       return;
@@ -511,6 +565,7 @@
   }
 
   function startBackend() {
+    pageStopped = false;
     document.documentElement.classList.remove("ink-static");
     removePoster();
     latestRuntimeStats = {};
@@ -537,7 +592,7 @@
     workerTimer = 0;
     if (inputRaf) window.cancelAnimationFrame(inputRaf);
     inputRaf = 0;
-    pendingMove = null;
+    resetPointerSample();
     pendingClicks.length = 0;
     if (worker) {
       worker.terminate();
@@ -568,14 +623,58 @@
     startBackend();
   }
 
+  function stopBackend() {
+    if (pageStopped || staticPolicy) return;
+    pageStopped = true;
+    backendGeneration += 1;
+    window.clearTimeout(workerTimer);
+    workerTimer = 0;
+    if (inputRaf) window.cancelAnimationFrame(inputRaf);
+    if (refreshRaf) window.cancelAnimationFrame(refreshRaf);
+    if (revealRaf) window.cancelAnimationFrame(revealRaf);
+    inputRaf = 0;
+    refreshRaf = 0;
+    revealRaf = 0;
+    resetPointerSample();
+    pendingClicks.length = 0;
+    if (worker) {
+      try { worker.postMessage({type: "destroy"}); } catch (_) {}
+      worker.terminate();
+      worker = null;
+    }
+    if (renderer) {
+      renderer.destroy();
+      renderer = null;
+    }
+    backendReady = false;
+    controllerStats.backend = "stopped";
+    controllerStats.worker = false;
+  }
+
+  function onPageHide(event) {
+    pause();
+    if (!event.persisted) stopBackend();
+  }
+
+  function onPageShow() {
+    if (pageStopped && !staticPolicy) {
+      stateCache = null;
+      startBackend();
+      return;
+    }
+    resume();
+  }
+
   controller = {refresh: refresh, pause: pause, resume: resume};
   host.__d4yInkController = controller;
   host.classList.remove("has-ink");
 
   var moveEvent = window.PointerEvent ? "pointermove" : "mousemove";
   var clickEvent = window.PointerEvent ? "pointerdown" : "mousedown";
+  var leaveEvent = window.PointerEvent ? "pointerleave" : "mouseleave";
   window.addEventListener(moveEvent, onMove, {passive: true});
   window.addEventListener(clickEvent, onClick, {passive: true});
+  window.addEventListener(leaveEvent, resetPointerSample, {passive: true});
   window.addEventListener("resize", refresh, {passive: true});
   document.addEventListener("d4y:themechange", refresh);
   document.addEventListener("d4y:skinchange", refresh);
@@ -583,8 +682,8 @@
   document.addEventListener("visibilitychange", function () {
     if (document.hidden) pause(); else resume();
   });
-  window.addEventListener("pagehide", pause);
-  window.addEventListener("pageshow", resume);
+  window.addEventListener("pagehide", onPageHide);
+  window.addEventListener("pageshow", onPageShow);
   if (reduceQuery && reduceQuery.addEventListener) {
     reduceQuery.addEventListener("change", function (event) {
       reduceMotion = !!event.matches;

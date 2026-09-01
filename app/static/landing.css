@@ -183,6 +183,7 @@ html[data-theme="dark"] .bg-smoke .turb { opacity: .28; mix-blend-mode: screen; 
 .ink-canvas, .ink-static-frame { position: fixed; inset: 0; z-index: 0; width: 100%; height: 100%; display: block; pointer-events: none; opacity: 0; }
 .ink-static-frame { object-fit: cover; }
 .bg-smoke.has-ink .ink-canvas, .bg-smoke.has-ink .ink-static-frame { opacity: 1; }
+.bg-smoke.has-ink .ink-static-frame.is-pending { opacity: 0 !important; }
 .bg-smoke.has-ink .turb, .bg-smoke.has-ink span { display: none; }
 html.ink-static .bg-smoke .turb, html.ink-static .bg-smoke .plume, html.ink-static .bg-smoke span { animation: none !important; }
 

@@ -226,6 +226,7 @@ button { color: inherit; }
 }
 .bg-smoke.has-ink .ink-canvas,
 .bg-smoke.has-ink .ink-static-frame { opacity: .38; }
+.bg-smoke.has-ink .ink-static-frame.is-pending { opacity: 0 !important; }
 .bg-smoke.has-ink > span { display: none; }
 
 .bg-smoke > span {

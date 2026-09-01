@@ -326,6 +326,7 @@ button,
 .ink-static-frame { object-fit: cover; }
 .bg-smoke.has-ink .ink-canvas,
 .bg-smoke.has-ink .ink-static-frame { opacity: 1; }
+.bg-smoke.has-ink .ink-static-frame.is-pending { opacity: 0 !important; }
 
 .bg-smoke.has-ink .turb,
 .bg-smoke.has-ink span { display: none; }

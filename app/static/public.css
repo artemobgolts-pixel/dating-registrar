@@ -1830,6 +1830,7 @@ html.ink-static .bg-smoke span {
 .bg-smoke.has-ink .ink-static-frame {
   opacity: 1;
 }
+.bg-smoke.has-ink .ink-static-frame.is-pending { opacity: 0 !important; }
 .bg-smoke.has-ink .turb,
 .bg-smoke.has-ink span { display: none; }   /* шейдер вместо CSS-дыма */
 

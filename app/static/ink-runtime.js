@@ -43,6 +43,7 @@
       qualitySource: "cadence",
       scale: 1,
       inputFlushes: 0,
+      pathSegments: 0,
     };
 
     var gl = canvas.getContext("webgl2", {
@@ -111,10 +112,15 @@ void main(){
   var SPLAT_FS = `#version 300 es
 precision highp float; in vec2 vUv; out vec4 o;
 uniform sampler2D uTarget; uniform float aspect; uniform vec3 color;
-uniform vec2 point; uniform float radius;
+uniform vec2 point; uniform vec2 pointPrev; uniform float radius;
 void main(){
-  vec2 p = vUv - point; p.x *= aspect;
-  vec3 splat = exp(-dot(p,p)/radius) * color;
+  vec2 p = vUv; p.x *= aspect;
+  vec2 a = pointPrev; a.x *= aspect;
+  vec2 b = point; b.x *= aspect;
+  vec2 ab = b - a;
+  float h = clamp(dot(p-a,ab)/max(dot(ab,ab),1e-7),0.0,1.0);
+  vec2 delta = p - (a + ab*h);
+  vec3 splat = exp(-dot(delta,delta)/radius) * color;
   o = vec4(texture(uTarget,vUv).rgb + splat, 1.0);
 }`;
 
@@ -242,22 +248,26 @@ float rfbm(vec2 p){ float s=0.0,a=0.5; for(int i=0;i<5;i++){ float n=1.0-abs(2.0
 // Грануляция и слои меняют только финальный цвет — движение q/r/f неизменно.
 vec3 pigmentTexture(vec3 col, vec3 bg, vec2 uv, vec2 q, vec2 r, float f){
   float ink = smoothstep(0.025, 0.34, distance(col, bg));
+  float quietFriendsLight = uFriends * (1.0 - uDark);
   float strata = 1.0 - smoothstep(0.025, 0.125,
     abs(fract((f + q.y*0.22 - r.x*0.13)*7.0) - 0.5));
   float gran = noise(uv*92.0 + q*2.1)*0.64
              + noise(uv*231.0 - r*2.7)*0.36;
   float fiber = noise(vec2(uv.x*37.0 + r.y, uv.y*315.0));
-  col *= 0.972 + (gran - 0.5)*0.145*ink;
+  float granStrength = mix(1.0, 0.42, quietFriendsLight);
+  float fiberStrength = mix(1.0, 0.25, quietFriendsLight);
+  col *= 0.972 + (gran - 0.5)*0.145*ink*granStrength;
   vec3 layered = mix(col*0.74 + bg*0.08,
                      col*1.18 + vec3(0.012), uDark);
   col = mix(col, layered, strata*ink*0.34);
-  col += vec3((fiber - 0.5)*0.045*ink*(1.0 + 0.5*uDark));
+  col += vec3((fiber - 0.5)*0.045*ink*(1.0 + 0.5*uDark)*fiberStrength);
   vec2 sp = uv*255.0;
   vec2 cell = floor(sp);
   vec2 local = fract(sp) - 0.5;
-  float mineral = step(0.982, hash(cell + 11.7))
+  float mineral = step(mix(0.982, 0.994, quietFriendsLight), hash(cell + 11.7))
     * (1.0 - smoothstep(0.035, 0.19, length(local)));
-  col = mix(col, vec3(0.985,0.968,0.945), mineral*ink*0.90);
+  float mineralStrength = mix(0.90, 0.34, quietFriendsLight);
+  col = mix(col, vec3(0.985,0.968,0.945), mineral*ink*mineralStrength);
   return clamp(col, 0.0, 1.0);
 }
 
@@ -454,16 +464,21 @@ return mix(mix(a,b,u.x),mix(c,d,u.x),u.y);}
 float fbm(vec2 p){float s=0.0,a=0.5;for(int i=0;i<5;i++){s+=a*noise(p);p*=2.02;a*=0.5;}return s;}
 vec3 pigmentTexture(vec3 col,vec3 bg,vec2 uv,vec2 q,vec2 r,float f){
 float ink=smoothstep(0.025,0.34,distance(col,bg));
+float quietFriendsLight=uFriends*(1.0-uDark);
 float strata=1.0-smoothstep(0.025,0.125,abs(fract((f+q.y*.22-r.x*.13)*7.0)-.5));
 float gran=noise(uv*92.0+q*2.1)*.64+noise(uv*231.0-r*2.7)*.36;
 float fiber=noise(vec2(uv.x*37.0+r.y,uv.y*315.0));
-col*=.972+(gran-.5)*.145*ink;
+float granStrength=mix(1.0,.42,quietFriendsLight);
+float fiberStrength=mix(1.0,.25,quietFriendsLight);
+col*=.972+(gran-.5)*.145*ink*granStrength;
 vec3 layered=mix(col*.74+bg*.08,col*1.18+vec3(.012),uDark);
 col=mix(col,layered,strata*ink*.34);
-col+=vec3((fiber-.5)*.045*ink*(1.0+.5*uDark));
+col+=vec3((fiber-.5)*.045*ink*(1.0+.5*uDark)*fiberStrength);
 vec2 sp=uv*255.0,cell=floor(sp),local=fract(sp)-.5;
-float mineral=step(.982,hash(cell+11.7))*(1.0-smoothstep(.035,.19,length(local)));
-col=mix(col,vec3(.985,.968,.945),mineral*ink*.90);
+float mineral=step(mix(.982,.994,quietFriendsLight),hash(cell+11.7))
+  *(1.0-smoothstep(.035,.19,length(local)));
+float mineralStrength=mix(.90,.34,quietFriendsLight);
+col=mix(col,vec3(.985,.968,.945),mineral*ink*mineralStrength);
 return clamp(col,0.0,1.0);}
 void main(){
 vec2 uv=vUv;uv.x*=res.x/res.y;
@@ -724,12 +739,13 @@ o=vec4(col,1.0);
   }
 
   // толчок течения в точку (uv 0..1), направление dx/dy
-  function splat(x, y, dx, dy) {
+  function splat(x, y, px, py, dx, dy) {
     var aspect = canvas.width / canvas.height;
     var s = progs.splat;
     gl.useProgram(s.prog);
     gl.uniform1f(s.u.aspect, aspect);
     gl.uniform2f(s.u.point, x, y);
+    gl.uniform2f(s.u.pointPrev, px, py);
     gl.uniform1f(s.u.radius, SPLAT_R);
     gl.uniform1i(s.u.uTarget, velocity.read.attach(0));
     gl.uniform3f(s.u.color, dx, dy, 0.0);
@@ -737,12 +753,13 @@ o=vec4(col,1.0);
   }
 
   // капля ЧЕРНИЛ: добавляем плотность в каналы R (тёплый след) и/или G (чёрный клик).
-  function dyeSplat(x, y, amtR, amtG, r) {
+  function dyeSplat(x, y, px, py, amtR, amtG, r) {
     var aspect = canvas.width / canvas.height;
     var s = progs.splat;
     gl.useProgram(s.prog);
     gl.uniform1f(s.u.aspect, aspect);
     gl.uniform2f(s.u.point, x, y);
+    gl.uniform2f(s.u.pointPrev, px, py);
     gl.uniform1f(s.u.radius, r);
     gl.uniform1i(s.u.uTarget, dye.read.attach(0));
     gl.uniform3f(s.u.color, amtR, amtG, 0.0);
@@ -760,7 +777,10 @@ o=vec4(col,1.0);
   var clickSlot=0,seedRot=0;
   for(var ci=0;ci<MAX_CLICKS;ci++) clickAge[ci]=-1;
 
-  var SCALE=1,slowFrames=0,fastFrames=0;
+  var SCALE=1,MIN_SCALE=.72,MAX_SCALE=1,slowFrames=0,fastFrames=0;
+  var COARSE_PIXEL_FLOOR=600000;
+  var SLOW_SAMPLE_LIMIT=12,FAST_SAMPLE_LIMIT=90;
+  var SCALE_DOWN=.88,SCALE_UP=.06;
   var FRAME_MS=1000/30,EARLY=1;
   var raf=0,running=false,last=0,nextFrameAt=0,start=nowFn(),lastDrawAt=0;
   var timerExt=gl.getExtension("EXT_disjoint_timer_query_webgl2");
@@ -780,7 +800,24 @@ o=vec4(col,1.0);
       qualitySource:diagnostics.qualitySource,
       scale:SCALE,
       inputFlushes:diagnostics.inputFlushes,
+      pathSegments:diagnostics.pathSegments,
     };
+  }
+  function updateScaleBounds(){
+    var dpr=Math.min(state.dpr||1,2);
+    var coarseBase=!state.fine;
+    MIN_SCALE=.72;
+    MAX_SCALE=1;
+    if(coarseBase){
+      var nativePixels=Math.max(1,(state.width||1)*(state.height||1)*dpr*dpr);
+      // Стартуем в прежнем полном разрешении. До этого floor опускаемся
+      // только после подтверждённых медленных GPU/cadence-сэмплов.
+      MIN_SCALE=Math.max(.5,Math.min(.72,
+        Math.sqrt(COARSE_PIXEL_FLOOR/nativePixels)));
+    }
+    if(!diagnostics.firstFrameReady||SCALE>MAX_SCALE)SCALE=MAX_SCALE;
+    if(SCALE<MIN_SCALE)SCALE=MIN_SCALE;
+    diagnostics.scale=SCALE;
   }
   function resize(){
     var dpr=Math.min(state.dpr||1,2);
@@ -804,8 +841,10 @@ o=vec4(col,1.0);
     if(interactive&&pointer.moved){
       var dx=(pointer.x-pointer.px)*FORCE;
       var dy=(pointer.y-pointer.py)*FORCE;
-      splat(pointer.x,pointer.y,dx*dt,dy*dt);
-      dyeSplat(pointer.x,pointer.y,DYE_AMT,0,DYE_R_MOVE);
+      splat(pointer.x,pointer.y,pointer.px,pointer.py,dx*dt,dy*dt);
+      dyeSplat(pointer.x,pointer.y,pointer.px,pointer.py,DYE_AMT,0,DYE_R_MOVE);
+      diagnostics.pathSegments+=1;
+      reportStats(snapshot());
       prevX=pointer.px;prevY=pointer.py;
       pointer.px=pointer.x;pointer.py=pointer.y;pointer.moved=false;
       inject=1;activeUntil=nowS+IDLE_HOLD;decayUntil=nowS+DECAY_HOLD;
@@ -879,10 +918,10 @@ o=vec4(col,1.0);
     if(ms>22){slowFrames++;fastFrames=0;}
     else if(ms<11){fastFrames++;slowFrames=Math.max(0,slowFrames-1);}
     else{slowFrames=Math.max(0,slowFrames-1);fastFrames=Math.max(0,fastFrames-1);}
-    if(slowFrames>=24&&SCALE>.72){
-      SCALE=Math.max(.72,SCALE-.08);slowFrames=0;nextFrameAt=0;
-    }else if(fastFrames>=180&&SCALE<1){
-      SCALE=Math.min(1,SCALE+.04);fastFrames=0;nextFrameAt=0;
+    if(slowFrames>=SLOW_SAMPLE_LIMIT&&SCALE>MIN_SCALE){
+      SCALE=Math.max(MIN_SCALE,SCALE*SCALE_DOWN);slowFrames=0;nextFrameAt=0;
+    }else if(fastFrames>=FAST_SAMPLE_LIMIT&&SCALE<MAX_SCALE){
+      SCALE=Math.min(MAX_SCALE,SCALE+SCALE_UP);fastFrames=0;nextFrameAt=0;
     }
     diagnostics.scale=SCALE;
   }
@@ -912,12 +951,16 @@ o=vec4(col,1.0);
     if(interval>45){slowFrames++;fastFrames=0;}
     else if(interval<38){fastFrames++;slowFrames=Math.max(0,slowFrames-1);}
     else{slowFrames=Math.max(0,slowFrames-1);fastFrames=Math.max(0,fastFrames-1);}
-    if(slowFrames>=24&&SCALE>.72){
-      SCALE=Math.max(.72,SCALE-.08);slowFrames=0;nextFrameAt=0;
-    }else if(fastFrames>=180&&SCALE<1){
-      SCALE=Math.min(1,SCALE+.04);fastFrames=0;nextFrameAt=0;
+    if(slowFrames>=SLOW_SAMPLE_LIMIT&&SCALE>MIN_SCALE){
+      SCALE=Math.max(MIN_SCALE,SCALE*SCALE_DOWN);slowFrames=0;nextFrameAt=0;
+    }else if(fastFrames>=FAST_SAMPLE_LIMIT&&SCALE<MAX_SCALE){
+      SCALE=Math.min(MAX_SCALE,SCALE+SCALE_UP);fastFrames=0;nextFrameAt=0;
     }
     diagnostics.scale=SCALE;
+  }
+  function resetQualityEvidence(){
+    slowFrames=0;fastFrames=0;lastDrawAt=0;timerWaitFrames=0;
+    while(timerPending.length)gl.deleteQuery(timerPending.shift());
   }
   function render(now){
     raf=0;
@@ -947,18 +990,26 @@ o=vec4(col,1.0);
   }
   function startLoop(){
     if(running)return;
+    resetQualityEvidence();
     running=true;last=0;nextFrameAt=0;
     raf=requestFrame(render);
   }
   function pause(){
     running=false;
     if(raf){cancelFrame(raf);raf=0;}
+    resetQualityEvidence();
   }
   function setState(next){
     next=next||{};
-    for(var key in state)if(next[key]!==undefined)state[key]=next[key];
+    var qualityBoundary=false;
+    for(var key in state)if(next[key]!==undefined){
+      if((key==="width"||key==="height"||key==="dpr"||key==="fine")&&
+          state[key]!==next[key])qualityBoundary=true;
+      state[key]=next[key];
+    }
+    if(qualityBoundary)resetQualityEvidence();
     if(!effectsEligible()){pointer.moved=false;clickQueue.length=0;}
-    resize();
+    updateScaleBounds();
   }
   function input(payload){
     if(!effectsEligible())return false;

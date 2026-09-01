@@ -28,11 +28,13 @@
      per-request nonce не переживает подмену <body>). Оба — once, re-init по turbo:load. -->
 <script src="{{ asset('ui.js') }}" data-turbo-track="reload" defer></script>
 <script src="{{ asset('admin.js') }}" data-turbo-track="reload" defer></script>
+<script src="{{ asset('profile.js') }}" data-turbo-track="reload" defer></script>
 <script src="{{ asset('tour.js') }}" data-turbo-track="reload" defer></script>
 <script src="{{ asset('ink.js') }}"
         data-runtime-src="{{ asset('ink-runtime.js') }}"
         data-worker-src="{{ asset('ink-worker.js') }}"
         data-static-friends-light="{{ asset('ink-static-friends-light.webp') }}"
+        data-static-friends-light-portrait="{{ asset('ink-static-friends-light-portrait.webp') }}"
         data-static-friends-dark="{{ asset('ink-static-friends-dark.webp') }}"
         data-static-romantic-light="{{ asset('ink-static-romantic-light.webp') }}"
         data-static-romantic-dark="{{ asset('ink-static-romantic-dark.webp') }}"
