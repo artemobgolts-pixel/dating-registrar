@@ -162,45 +162,37 @@ class CachedStatic(StaticFiles):
         return resp
 
 
-@app.middleware("http")
-async def csp_headers(request: Request, call_next):
-    """CSP c per-request nonce вместо script-src 'unsafe-inline'.
+def _apply_security_headers(request: Request, response):
+    """Добавляет общие browser-security headers к уже созданному ответу.
 
-    Инлайновые СТИЛИ (style="...") остаются разрешёнными: на атрибуты
-    nonce не распространяется, а риск инъекции стиля несравним со скриптом.
+    Обычные ответы проходят через ``csp_headers``. Ответ, созданный последним
+    обработчиком 500, может быть отправлен ServerErrorMiddleware напрямую и
+    обойти middleware на обратном пути, поэтому ему нужен тот же набор явно.
     """
-    request.state.csp_nonce = secrets.token_urlsafe(16)
     p = request.url.path
-    resp = await call_next(request)
-    # Telegram Web/Desktop может держать Mini App во frame/webview. Разрешение
-    # выдаётся только boot-route и сессии, которая успешно прошла initData auth.
-    # TrustedHost может отклонить запрос раньше SessionMiddleware. В таком
-    # ответе ``request.session`` недоступен, поэтому читаем уже созданный scope
-    # без AssertionError и сохраняем обычную защиту от framing.
     miniapp = p == "/tg/app" or bool(
         request.scope.get("session", {}).get("telegram_miniapp")
     )
-    resp.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Content-Type-Options"] = "nosniff"
     if not miniapp:
-        resp.headers["X-Frame-Options"] = "DENY"
-    resp.headers["Referrer-Policy"] = "no-referrer"
-    resp.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
-    # Старый браузерный XSS-фильтр сам создавал обходы; современная защита — CSP.
-    resp.headers["X-XSS-Protection"] = "0"
+        response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    response.headers["X-XSS-Protection"] = "0"
     if COOKIE_SECURE:
-        resp.headers["Strict-Transport-Security"] = "max-age=31536000"
-    if resp.headers.get("content-type", "").startswith("text/html"):
-        # В HTML есть персональные данные и секретные токены гостевых ссылок:
-        # браузер и промежуточные кэши не должны сохранять такие страницы.
-        resp.headers["Cache-Control"] = "no-store"
-        # Telegram Login Widget (внешний скрипт + iframe oauth.telegram.org)
-        # грузится на странице входа /login И на гостевых ссылках /c/<токен>
-        # и /d/<токен> (вход-модалка прямо со страницы подборки/события).
-        # Послабление CSP — ровно на этих HTML-страницах, не на всём сайте.
+        response.headers["Strict-Transport-Security"] = "max-age=31536000"
+    if response.headers.get("content-type", "").startswith("text/html"):
+        response.headers["Cache-Control"] = "no-store"
+        nonce = getattr(request.state, "csp_nonce", "")
+        # The nonce is normally created by csp_headers. Keep the fallback
+        # self-contained for errors raised before that middleware runs.
+        if not nonce:
+            nonce = secrets.token_urlsafe(16)
+            request.state.csp_nonce = nonce
         if miniapp:
-            resp.headers["Content-Security-Policy"] = (
+            response.headers["Content-Security-Policy"] = (
                 "default-src 'self'; "
-                f"script-src 'self' 'nonce-{request.state.csp_nonce}' "
+                f"script-src 'self' 'nonce-{nonce}' "
                 "https://telegram.org https://oauth.telegram.org; "
                 "style-src 'self' 'unsafe-inline'; "
                 "img-src 'self' data: blob: https://t.me; font-src 'self'; "
@@ -209,9 +201,9 @@ async def csp_headers(request: Request, call_next):
                 "frame-ancestors https://telegram.org https://*.telegram.org; "
                 "object-src 'none'; base-uri 'none'; form-action 'self'")
         elif p == "/login" or p.startswith("/c/") or p.startswith("/d/"):
-            resp.headers["Content-Security-Policy"] = (
+            response.headers["Content-Security-Policy"] = (
                 "default-src 'self'; "
-                f"script-src 'self' 'nonce-{request.state.csp_nonce}' "
+                f"script-src 'self' 'nonce-{nonce}' "
                 "https://telegram.org https://oauth.telegram.org; "
                 "style-src 'self' 'unsafe-inline'; "
                 "img-src 'self' data: blob: https://t.me; font-src 'self'; "
@@ -220,15 +212,27 @@ async def csp_headers(request: Request, call_next):
                 "frame-ancestors 'none'; object-src 'none'; "
                 "base-uri 'none'; form-action 'self'")
         else:
-            resp.headers["Content-Security-Policy"] = (
+            response.headers["Content-Security-Policy"] = (
                 "default-src 'self'; "
-                f"script-src 'self' 'nonce-{request.state.csp_nonce}'; "
+                f"script-src 'self' 'nonce-{nonce}'; "
                 "style-src 'self' 'unsafe-inline'; "
                 "img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; "
                 "worker-src 'self'; "
                 "frame-ancestors 'none'; object-src 'none'; "
                 "base-uri 'none'; form-action 'self'")
-    return resp
+    return response
+
+
+@app.middleware("http")
+async def csp_headers(request: Request, call_next):
+    """CSP c per-request nonce вместо script-src 'unsafe-inline'.
+
+    Инлайновые СТИЛИ (style="...") остаются разрешёнными: на атрибуты
+    nonce не распространяется, а риск инъекции стиля несравним со скриптом.
+    """
+    request.state.csp_nonce = secrets.token_urlsafe(16)
+    resp = await call_next(request)
+    return _apply_security_headers(request, resp)
 
 
 @app.middleware("http")
@@ -345,11 +349,24 @@ async def unhandled_error(request: Request, exc: Exception):
         asyncio.create_task(asyncio.to_thread(notify.alert, msg))
     except Exception:
         log.exception("Не удалось отправить алёрт о сбое")
-    response = PlainTextResponse(
-        "Что-то пошло не так. Мы уже разбираемся.", status_code=500
-    )
+    if "text/html" in request.headers.get("accept", "").lower():
+        response = templates.TemplateResponse(
+            request,
+            "public/not_found.html",
+            {"support": support_link(), "error_code": 500},
+            status_code=500,
+            # CSP/framing/cache headers are applied by csp_headers, including
+            # its Telegram Mini App exception. Keep only error-specific policy
+            # here so the page can still render inside an authenticated WebView.
+            headers={"X-Robots-Tag": "noindex, nofollow"},
+        )
+    else:
+        response = PlainTextResponse(
+            "Что-то пошло не так. Мы уже разбираемся.", status_code=500
+        )
     if request_id:
         response.headers["X-Request-ID"] = request_id
+    _apply_security_headers(request, response)
     return response
 
 

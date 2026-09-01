@@ -74,8 +74,15 @@ def require_same_origin(request: Request) -> None:
             _origin_key(BASE_URL),
         ) if key is not None
     }
-    if origin and _origin_key(origin) not in expected_origins:
-        raise HTTPException(403, "Запрос с другого сайта отклонён")
+    if origin:
+        # Origin names the exact initiating origin and is the authoritative
+        # browser signal. Telegram Web/WebView may still label a same-origin
+        # form inside its cross-site frame as Sec-Fetch-Site: cross-site.
+        # A matching Origin plus the per-session CSRF secret is valid; an
+        # attacker cannot set either value from a cross-origin HTML form.
+        if _origin_key(origin) not in expected_origins:
+            raise HTTPException(403, "Запрос с другого сайта отклонён")
+        return
     if request.headers.get("sec-fetch-site", "").lower() == "cross-site":
         raise HTTPException(403, "Запрос с другого сайта отклонён")
 

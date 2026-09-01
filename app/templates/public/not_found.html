@@ -1,11 +1,12 @@
 <!doctype html>
 <html lang="ru" data-skin="friends" data-skin-switchable>
 <head>
+{% set server_error = error_code | default(404) == 500 %}
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>Страница не найдена · date4you</title>
-<meta name="description" content="Этой страницы нет или ссылка больше не действует.">
+<title>{{ 'Ошибка сервера' if server_error else 'Страница не найдена' }} · date4you</title>
+<meta name="description" content="{{ 'Не удалось открыть страницу. Попробуйте ещё раз.' if server_error else 'Этой страницы нет или ссылка больше не действует.' }}">
 {% from "_appearance_assets.html" import appearance_assets %}
 {{ appearance_assets('friends') }}
 <meta name="theme-color" content="#554eae">
@@ -28,13 +29,13 @@
   </div>
 </header>
 <main class="not-found" id="main-content">
-  <p class="not-found__code" aria-hidden="true">404</p>
-  <p class="eyebrow">Здесь ничего нет</p>
-  <h1>Кажется, эта ссылка закончилась</h1>
-  <p>Страница могла быть удалена, а приватная ссылка — отключена организатором. Можно вернуться на главную или войти в свой кабинет.</p>
+  <p class="not-found__code" aria-hidden="true">{{ 500 if server_error else 404 }}</p>
+  <p class="eyebrow">{{ 'Временная ошибка' if server_error else 'Здесь ничего нет' }}</p>
+  <h1>{{ 'Что-то пошло не так' if server_error else 'Кажется, эта ссылка закончилась' }}</h1>
+  <p>{% if server_error %}Мы уже получили сигнал об ошибке. Обновите страницу или вернитесь чуть позже.{% else %}Страница могла быть удалена, а приватная ссылка — отключена организатором. Можно вернуться на главную или войти в свой кабинет.{% endif %}</p>
   <div class="hero__actions">
-    <a class="button button--primary" href="/">На главную</a>
-    <a class="button button--quiet" href="/login">Войти</a>
+    <a class="button button--primary" href="{{ '' if server_error else '/' }}">{{ 'Обновить страницу' if server_error else 'На главную' }}</a>
+    <a class="button button--quiet" href="{{ '/' if server_error else '/login' }}">{{ 'На главную' if server_error else 'Войти' }}</a>
   </div>
   {% if support %}<a class="not-found__support" href="{{ support.url }}" target="_blank" rel="noopener">{{ support.label }}</a>{% endif %}
 </main>

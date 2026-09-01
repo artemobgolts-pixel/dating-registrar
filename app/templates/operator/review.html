@@ -43,7 +43,7 @@
               <span class="identity__avatar" aria-hidden="true">{{ (u['display_name'] or u['tg_username'] or '?')[:1] }}</span>
               <span class="identity__copy">
                 <a class="identity__name" href="/operator/users/{{ u['id'] }}">{{ u['display_name'] or 'Без имени' }}</a>
-                <span class="identity__meta">{% if u['tg_username'] %}@{{ u['tg_username'] }}{% else %}Telegram ID {{ u['telegram_id'] }}{% endif %}</span>
+                <span class="identity__meta">{% if u['tg_username'] %}@{{ u['tg_username'] }}{% elif u['telegram_id'] %}Telegram ID {{ u['telegram_id'] }}{% else %}OAuth-аккаунт{% endif %}</span>
               </span>
             </div>
           </td>

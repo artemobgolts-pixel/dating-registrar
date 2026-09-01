@@ -19,7 +19,8 @@
     <h2 class="profile-hero__name">{{ u['display_name'] or 'Без имени' }}</h2>
     <div class="profile-hero__meta">
       {% if u['tg_username'] %}<span class="badge info no-dot">@{{ u['tg_username'] }}</span>
-      {% else %}<span class="badge neutral no-dot">Telegram ID {{ u['telegram_id'] }}</span>{% endif %}
+      {% elif u['telegram_id'] %}<span class="badge neutral no-dot">Telegram ID {{ u['telegram_id'] }}</span>
+      {% else %}<span class="badge neutral no-dot">OAuth-аккаунт</span>{% endif %}
       {% if not u['is_active'] %}<span class="badge danger">заблокирован</span>
       {% elif u['is_operator'] %}<span class="badge op">администратор</span>
       {% else %}<span class="badge success">активен</span>{% endif %}
@@ -45,7 +46,7 @@
       <div class="detail-grid">
         <div class="detail-item">
           <span class="detail-item__label">Telegram ID</span>
-          <span class="detail-item__value">{{ u['telegram_id'] }}</span>
+          <span class="detail-item__value">{{ u['telegram_id'] or 'Не привязан' }}</span>
         </div>
         <div class="detail-item">
           <span class="detail-item__label">Username</span>
@@ -91,7 +92,7 @@
               {% else %}<span class="badge neutral">выключена</span>{% endif %}
             </td>
             <td data-label="Действие" class="action-cell">
-              <a class="btn small" href="/admin/categories/{{ c['id'] }}?return_to={{ ('/operator/users/' ~ target['id']) | urlencode }}">
+              <a class="btn small" href="/admin/categories/{{ c['id'] }}?return_to={{ ('/operator/users/' ~ u['id']) | urlencode }}">
                 <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-edit"></use></svg>
                 Изменить
               </a>
@@ -207,7 +208,7 @@
             </td>
             <td data-label="Источник" class="muted">{{ 'Гость' if d['origin']=='guest' else 'Владелец' }}</td>
             <td data-label="Действие" class="action-cell">
-              <a class="btn small" href="/admin/dates/{{ d['id'] }}/edit?return_to={{ ('/operator/users/' ~ target['id']) | urlencode }}">
+              <a class="btn small" href="/admin/dates/{{ d['id'] }}/edit?return_to={{ ('/operator/users/' ~ u['id']) | urlencode }}">
                 <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-edit"></use></svg>
                 Изменить
               </a>

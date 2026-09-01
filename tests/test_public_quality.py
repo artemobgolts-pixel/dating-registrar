@@ -36,6 +36,11 @@ from starlette.testclient import TestClient  # noqa: E402
 import main  # noqa: E402
 
 
+@main.app.get("/__test__/unhandled-error")
+def _unhandled_error_fixture():
+    raise RuntimeError("internal error details must stay private")
+
+
 class PublicSeoTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -211,6 +216,45 @@ class SafeHtmlNotFoundTests(unittest.TestCase):
                     response.headers["content-type"].startswith("application/json")
                 )
                 self.assertEqual(response.json(), {"detail": "Not Found"})
+
+
+class SafeHtmlServerErrorTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.client = TestClient(
+            main.app, follow_redirects=False, raise_server_exceptions=False,
+        )
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.client.close()
+
+    def test_browser_receives_safe_branded_html_500(self):
+        response = self.client.get(
+            "/__test__/unhandled-error",
+            headers={"accept": "text/html,application/xhtml+xml"},
+        )
+
+        self.assertEqual(response.status_code, 500)
+        self.assertTrue(response.headers["content-type"].startswith("text/html"))
+        self.assertEqual(response.headers.get("x-robots-tag"), "noindex, nofollow")
+        self.assertIn("default-src 'self'", response.headers["content-security-policy"])
+        self.assertEqual(response.headers.get("x-frame-options"), "DENY")
+        self.assertEqual(response.headers.get("x-content-type-options"), "nosniff")
+        self.assertEqual(response.headers.get("cache-control"), "no-store")
+        self.assertRegex(response.headers.get("x-request-id", ""), r"^[0-9a-f]{32}$")
+        self.assertIn("Что-то пошло не так", response.text)
+        self.assertIn('class="not-found__code"', response.text)
+        self.assertNotIn("internal error details", response.text)
+
+    def test_non_html_client_keeps_compact_500_response(self):
+        response = self.client.get(
+            "/__test__/unhandled-error", headers={"accept": "application/json"},
+        )
+
+        self.assertEqual(response.status_code, 500)
+        self.assertTrue(response.headers["content-type"].startswith("text/plain"))
+        self.assertNotIn("internal error details", response.text)
 
 
 class DeploymentSeoContractTests(unittest.TestCase):
