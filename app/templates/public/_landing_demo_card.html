@@ -1,0 +1,212 @@
+{% from "public/_icons.html" import icon %}
+
+{% macro landing_demo_card(skin, initially_hidden=false) -%}
+{% set romantic = skin == 'romantic' %}
+{% set event_name = 'Кинопоказ на крыше' if romantic else 'Антикафе на Невском' %}
+{% set event_slug = 'rooftop' if romantic else 'anticafe' %}
+{% set image_prefix = 'landing-rooftop' if romantic else 'landing-anticafe' %}
+{% set current_votes = 0 if romantic else 3 %}
+{% set next_votes = 1 if romantic else 4 %}
+{% set total_votes = 1 if romantic else 5 %}
+{% set vote_status_before = 'Ждём ответ одного человека' if romantic else 'Трое уже выбрали событие · ждём ещё двоих' %}
+{% set vote_status_after = 'План выбран' if romantic else 'Четверо уже выбрали событие · ждём ещё одного' %}
+<article class="landing-demo-card landing-demo-card--{{ skin }}"
+         id="demo-card-{{ skin }}"
+         data-demo-card data-demo-skin="{{ skin }}"
+         aria-labelledby="demo-card-{{ skin }}-title"
+         aria-hidden="{{ 'true' if initially_hidden else 'false' }}"
+         {% if initially_hidden %}hidden{% endif %}>
+  <div class="landing-demo-card__gallery"
+       data-demo-gallery data-gallery-index="0"
+       role="region" aria-roledescription="карусель"
+       aria-label="Фотографии события «{{ event_name }}»"
+       tabindex="0">
+    <div class="landing-demo-card__slides" data-demo-gallery-track>
+      <figure class="landing-demo-card__slide is-active"
+              data-demo-slide data-slide-index="0"
+              role="group" aria-roledescription="слайд" aria-label="1 из 3">
+        <img src="{{ asset(image_prefix ~ '-1.webp') }}"
+             alt="{% if romantic %}Крыша с экраном на фоне вечернего города{% else %}Уютный зал антикафе с мягким светом{% endif %}"
+             width="960" height="640" draggable="false"
+             loading="{{ 'lazy' if romantic else 'eager' }}" decoding="async">
+      </figure>
+      <figure class="landing-demo-card__slide"
+              data-demo-slide data-slide-index="1"
+              role="group" aria-roledescription="слайд" aria-label="2 из 3"
+              aria-hidden="true">
+        <img src="{{ asset(image_prefix ~ '-2.webp') }}"
+             alt="{% if romantic %}Пледы и попкорн перед кинопоказом на крыше{% else %}Настольные игры и чай на столе антикафе{% endif %}"
+             width="960" height="640" draggable="false" loading="lazy" decoding="async">
+      </figure>
+      <figure class="landing-demo-card__slide"
+              data-demo-slide data-slide-index="2"
+              role="group" aria-roledescription="слайд" aria-label="3 из 3"
+              aria-hidden="true">
+        <img src="{{ asset(image_prefix ~ '-3.webp') }}"
+             alt="{% if romantic %}Огни вечерней Москвы с высоты крыши{% else %}Компания друзей играет в настольную игру{% endif %}"
+             width="960" height="640" draggable="false" loading="lazy" decoding="async">
+      </figure>
+    </div>
+
+    <span class="landing-demo-card__modifier" aria-label="Оплата: я плачу">
+      <span aria-hidden="true">👌</span> Я плачу
+    </span>
+
+    <button class="landing-demo-card__gallery-button landing-demo-card__gallery-button--prev"
+            type="button" data-demo-gallery-prev
+            aria-label="Предыдущее фото события">
+      <span aria-hidden="true">←</span>
+    </button>
+    <button class="landing-demo-card__gallery-button landing-demo-card__gallery-button--next"
+            type="button" data-demo-gallery-next
+            aria-label="Следующее фото события">
+      <span aria-hidden="true">→</span>
+    </button>
+
+    <div class="landing-demo-card__gallery-dots" aria-hidden="true">
+      <span class="is-active" data-demo-gallery-dot data-gallery-dot-index="0"></span>
+      <span data-demo-gallery-dot data-gallery-dot-index="1"></span>
+      <span data-demo-gallery-dot data-gallery-dot-index="2"></span>
+    </div>
+    <span class="sr-only" data-demo-gallery-status role="status" aria-live="polite" aria-atomic="true">Фото 1 из 3</span>
+  </div>
+
+  <div class="landing-demo-card__body">
+    <header class="landing-demo-card__header">
+      <p class="landing-demo-card__kind">Событие</p>
+      <h3 id="demo-card-{{ skin }}-title">{{ event_name }}</h3>
+    </header>
+
+    <dl class="landing-demo-card__facts">
+      <div class="landing-demo-card__fact landing-demo-card__fact--date">
+        <dt class="sr-only">Дата и время</dt>
+        <dd>
+          <span class="landing-demo-card__fact-icon" aria-hidden="true">{{ icon('calendar') }}</span>
+          <time datetime="{{ '20:30' if romantic else '18:00' }}">
+            {{ 'Пятница · 20:30' if romantic else 'Суббота · 18:00' }}
+          </time>
+          <button type="button" class="landing-demo-card__inline-action" aria-label="Добавить событие в календарь, демонстрация">В календарь</button>
+        </dd>
+      </div>
+      <div class="landing-demo-card__fact landing-demo-card__fact--place">
+        <dt class="sr-only">Место</dt>
+        <dd>
+          <span class="landing-demo-card__fact-icon" aria-hidden="true">{{ icon('pin') }}</span>
+          <span>{{ 'Крыша в центре Москвы' if romantic else 'Антикафе на Невском' }}</span>
+          <button type="button" class="landing-demo-card__inline-action" aria-label="Открыть место на карте, демонстрация">На карте</button>
+        </dd>
+      </div>
+      <div class="landing-demo-card__fact landing-demo-card__fact--capacity">
+        <dt class="sr-only">Вместимость</dt>
+        <dd>
+          <span class="landing-demo-card__fact-icon" aria-hidden="true">{{ icon('user') }}</span>
+          {{ 'Для двоих' if romantic else '5 мест' }}
+        </dd>
+      </div>
+    </dl>
+
+    <p class="landing-demo-card__description">
+      {% if romantic %}Выберем фильм на месте. Пледы и попкорн уже будут.{% else %}Настолки, чай и три часа без спешки.{% endif %}
+    </p>
+
+    <a class="landing-demo-card__venue-link"
+       href="{{ 'https://yandex.ru/maps/?text=%D0%BA%D1%80%D1%8B%D1%88%D0%B0%20%D0%B2%20%D1%86%D0%B5%D0%BD%D1%82%D1%80%D0%B5%20%D0%9C%D0%BE%D1%81%D0%BA%D0%B2%D1%8B' if romantic else 'https://yandex.ru/maps/?text=%D0%B0%D0%BD%D1%82%D0%B8%D0%BA%D0%B0%D1%84%D0%B5%20%D0%BD%D0%B0%20%D0%9D%D0%B5%D0%B2%D1%81%D0%BA%D0%BE%D0%BC' }}"
+       target="_blank" rel="noopener noreferrer"
+       aria-label="Открыть страницу площадки в новой вкладке">
+      {{ icon('link') }} <span>Страница площадки</span>
+    </a>
+
+    <section class="landing-demo-card__people" aria-labelledby="demo-card-{{ skin }}-people-title">
+      <div class="landing-demo-card__section-heading">
+        <h4 id="demo-card-{{ skin }}-people-title">Участники</h4>
+        <span>{{ 'Автор и приглашённый' if romantic else 'Организатор и друзья' }}</span>
+      </div>
+      <ul class="landing-demo-card__participants" aria-label="Список участников">
+        {% if romantic %}
+        <li class="is-confirmed">
+          <span class="landing-demo-card__avatar" aria-hidden="true">А</span>
+          <span><strong>Алексей</strong><small>Организатор</small></span>
+        </li>
+        <li class="is-pending" data-demo-voter data-state="pending">
+          <span class="landing-demo-card__avatar" aria-hidden="true">М</span>
+          <span><strong>Мария</strong><small data-demo-voter-status data-state="pending">Ждём ответ</small></span>
+        </li>
+        {% else %}
+        <li class="is-confirmed">
+          <span class="landing-demo-card__avatar" aria-hidden="true">А</span>
+          <span><strong>Артём</strong><small>Организатор</small></span>
+        </li>
+        <li class="is-confirmed">
+          <span class="landing-demo-card__avatar" aria-hidden="true">М</span>
+          <span><strong>Маша</strong><small>Участвует</small></span>
+        </li>
+        <li class="is-confirmed">
+          <span class="landing-demo-card__avatar" aria-hidden="true">И</span>
+          <span><strong>Илья</strong><small>Участвует</small></span>
+        </li>
+        <li class="is-pending" data-demo-voter data-state="pending">
+          <span class="landing-demo-card__avatar" aria-hidden="true">Л</span>
+          <span><strong>Лена</strong><small data-demo-voter-status data-state="pending">Ждём ответ</small></span>
+        </li>
+        <li class="is-pending">
+          <span class="landing-demo-card__avatar" aria-hidden="true">С</span>
+          <span><strong>Саша</strong><small>Ждём ответ</small></span>
+        </li>
+        {% endif %}
+      </ul>
+    </section>
+
+    <section class="landing-demo-card__vote" aria-labelledby="demo-card-{{ skin }}-vote-title">
+      <div class="landing-demo-card__vote-heading">
+        <div>
+          <h4 id="demo-card-{{ skin }}-vote-title">Голосование</h4>
+          <p data-demo-vote-status role="status" aria-live="polite" aria-atomic="true">{{ vote_status_before }}</p>
+        </div>
+        <strong class="landing-demo-card__vote-count" data-demo-count
+                aria-label="{{ current_votes }} из {{ total_votes }} участников подтвердили участие">
+          <span data-demo-count-current>{{ current_votes }}</span>/<span data-demo-count-total>{{ total_votes }}</span>
+        </strong>
+      </div>
+      <div class="landing-demo-card__progress"
+           data-demo-progress role="progressbar"
+           aria-labelledby="demo-card-{{ skin }}-vote-title"
+           aria-valuemin="0" aria-valuemax="{{ total_votes }}" aria-valuenow="{{ current_votes }}"
+           aria-valuetext="{{ current_votes }} из {{ total_votes }} голосов">
+        <span></span>
+      </div>
+      <button class="button button--primary landing-demo-card__vote-button"
+              type="button" data-demo-vote
+              data-vote-before="{{ current_votes }}" data-vote-after="{{ next_votes }}" data-vote-total="{{ total_votes }}"
+              data-label-before="Я пойду" data-label-after="Я иду"
+              data-status-before="{{ vote_status_before }}" data-status-after="{{ vote_status_after }}"
+              aria-pressed="false">
+        <span data-demo-vote-label>Я пойду</span>
+      </button>
+    </section>
+
+    <section class="landing-demo-card__question" data-demo-question aria-labelledby="demo-card-{{ skin }}-question-title">
+      <button class="button button--quiet landing-demo-card__question-toggle"
+              type="button" data-demo-question-toggle
+              id="demo-card-{{ skin }}-question-title"
+              aria-controls="demo-card-{{ skin }}-question-panel" aria-expanded="false">
+        {{ icon('message') }} <span>Задать вопрос</span>
+      </button>
+      <form class="landing-demo-card__question-panel"
+            id="demo-card-{{ skin }}-question-panel"
+            data-demo-question-panel hidden>
+        <dl class="landing-demo-card__question-example">
+          <div>
+            <dt>{{ 'А если будет дождь?' if romantic else 'Можно принести свою игру?' }}</dt>
+            <dd>{{ 'Перенесём вечер домой.' if romantic else 'Конечно.' }}</dd>
+          </div>
+        </dl>
+        <label for="demo-card-{{ skin }}-question-input">Ваш вопрос организатору</label>
+        <textarea id="demo-card-{{ skin }}-question-input" rows="2" placeholder="Напишите вопрос"></textarea>
+        <button class="button button--compact" type="button" data-demo-question-submit>Отправить вопрос</button>
+        <p class="landing-demo-card__question-status" data-demo-question-status
+           role="status" aria-live="polite" hidden></p>
+      </form>
+    </section>
+  </div>
+</article>
+{%- endmacro %}

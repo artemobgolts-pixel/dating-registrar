@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Регрессии публичного SEO, поддержки и безопасной HTML-страницы 404."""
+"""Регрессии публичного лендинга, SEO и безопасной HTML-страницы 404."""
 
 from __future__ import annotations
 
@@ -77,18 +77,19 @@ class PublicSeoTests(unittest.TestCase):
         self.assertIn('href="https://t.me/artiwayn"', source)
         self.assertIn("logo-standard.png", source)
         self.assertIn("logo-romantic.png", source)
-        self.assertIn("landing-brand-poster.webp", source)
-        self.assertIn("landing-brand-poster-mobile.webp", source)
-        self.assertIn("landing-brand-loop.mp4", source)
-        self.assertIn("landing-brand-loop-mobile.mp4", source)
-        self.assertIn("landing-video.js", source)
-        self.assertIn("autoplay muted loop playsinline", source)
-        self.assertNotIn("ink.js", source)
-        self.assertIn(
-            'class="preview-window__people" role="img" '
-            'aria-label="Участвуют шесть человек"',
-            source,
-        )
+        self.assertIn("ink.js", source)
+        self.assertIn("ink-runtime.js", source)
+        self.assertIn("ink-worker.js", source)
+        self.assertIn("ink-static-friends-light.webp", source)
+        self.assertIn("ink-static-friends-light-portrait.webp", source)
+        self.assertIn("ink-static-romantic-dark.webp", source)
+        self.assertIn("landing-story.js", source)
+        self.assertNotIn("landing-video.js", source)
+        self.assertNotRegex(source, r"<video\b")
+        self.assertNotIn("landing-brand-loop.mp4", source)
+        self.assertNotIn("landing-brand-loop-mobile.mp4", source)
+        self.assertIn('data-demo-skin="friends"', source)
+        self.assertIn('data-demo-skin="romantic"', source)
         self.assertNotRegex(source, r'<[^>]+\sstyle="')
 
         match = re.search(
@@ -156,14 +157,19 @@ class PublicSeoTests(unittest.TestCase):
         self.assertIn("padding: 30px 22px", css)
         self.assertIn("padding: 38px 22px", css)
 
-    def test_landing_video_respects_user_motion_and_data_preferences(self):
-        script = (APP / "static/landing-video.js").read_text("utf-8")
+    def test_landing_story_respects_reduced_motion_without_remote_runtime(self):
+        script = (APP / "static/landing-story.js").read_text("utf-8")
+        css = (APP / "static/landing.css").read_text("utf-8")
 
-        self.assertIn('matchMedia("(max-width: 640px)")', script)
-        self.assertIn('matchMedia("(prefers-reduced-motion: reduce)")', script)
-        self.assertIn("connection.saveData", script)
-        self.assertIn("video.dataset.srcMobile", script)
-        self.assertIn("video.dataset.srcDesktop", script)
+        self.assertRegex(
+            script,
+            r"matchMedia\([\"']\(prefers-reduced-motion:\s*reduce\)[\"']\)",
+        )
+        self.assertIn("is-reduced-motion", script)
+        self.assertIn("requestAnimationFrame", script)
+        self.assertNotRegex(script, r"https?://")
+        self.assertRegex(css, r"@media\s*\(prefers-reduced-motion:\s*reduce\)")
+        self.assertIn(".is-reduced-motion", css)
 
     def test_private_surfaces_keep_noindex(self):
         for relative in (

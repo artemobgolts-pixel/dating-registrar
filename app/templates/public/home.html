@@ -4,45 +4,48 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="index, follow, max-image-preview:large">
-<title>date4you — выберите встречу вместе</title>
+<title>date4you — создан, чтобы встречаться</title>
 <meta name="description" content="{{ description }}">
 <link rel="canonical" href="{{ BASE_URL }}/">
 <meta property="og:type" content="website">
 <meta property="og:locale" content="ru_RU">
 <meta property="og:site_name" content="date4you">
-<meta property="og:title" content="date4you — выберите встречу вместе">
+<meta property="og:title" content="date4you — создан, чтобы встречаться">
 <meta property="og:description" content="{{ description }}">
 <meta property="og:url" content="{{ BASE_URL }}/">
 <meta property="og:image" content="{{ BASE_URL }}{{ asset('og-default.jpg') }}">
 <meta property="og:image:alt" content="date4you — сервис для совместного выбора встреч">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="date4you — выберите встречу вместе">
+<meta name="twitter:title" content="date4you — создан, чтобы встречаться">
 <meta name="twitter:description" content="{{ description }}">
 <meta name="twitter:image" content="{{ BASE_URL }}{{ asset('og-default.jpg') }}">
 {% from "_appearance_assets.html" import appearance_assets %}
 {{ appearance_assets('friends') }}
 <meta name="theme-color" content="#554eae">
 <script src="{{ asset('theme.js') }}"></script>
-<link rel="preload" as="image" href="{{ asset('landing-brand-poster.webp') }}" type="image/webp" media="(min-width: 641px)">
-<link rel="preload" as="image" href="{{ asset('landing-brand-poster-mobile.webp') }}" type="image/webp" media="(max-width: 640px)">
 <link rel="stylesheet" href="{{ asset('landing.css') }}">
-<script src="{{ asset('landing-video.js') }}" defer></script>
+<script src="{{ asset('ink.js') }}"
+        data-runtime-src="{{ asset('ink-runtime.js') }}"
+        data-worker-src="{{ asset('ink-worker.js') }}"
+        data-static-friends-light="{{ asset('ink-static-friends-light.webp') }}"
+        data-static-friends-light-portrait="{{ asset('ink-static-friends-light-portrait.webp') }}"
+        data-static-friends-dark="{{ asset('ink-static-friends-dark.webp') }}"
+        data-static-romantic-light="{{ asset('ink-static-romantic-light.webp') }}"
+        data-static-romantic-dark="{{ asset('ink-static-romantic-dark.webp') }}"
+        defer></script>
+<script src="{{ asset('landing-story.js') }}" defer></script>
 <script type="application/ld+json" nonce="{{ csp_nonce }}">{{ structured_data | tojson }}</script>
 </head>
-<body class="landing-page">
-<div class="brand-motion" data-brand-motion aria-hidden="true">
-  <picture class="brand-motion__poster">
-    <source media="(max-width: 640px)" srcset="{{ asset('landing-brand-poster-mobile.webp') }}">
-    <img src="{{ asset('landing-brand-poster.webp') }}" alt="" width="1672" height="941" fetchpriority="high">
-  </picture>
-  <video class="brand-motion__video"
-         data-brand-video
-         data-src-desktop="{{ asset('landing-brand-loop.mp4') }}"
-         data-src-mobile="{{ asset('landing-brand-loop-mobile.mp4') }}"
-         autoplay muted loop playsinline preload="metadata"
-         tabindex="-1" disablepictureinpicture></video>
-  <span class="brand-motion__scrim"></span>
+<body class="landing-page" data-skin="friends" data-ink-interactive="0">
+<div class="bg-gather landing-skin-decor landing-skin-decor--friends" data-skin-decor="friends" aria-hidden="true">
+  <span class="orbit o1"></span><span class="orbit o2"></span>
+  <span class="dot d1"></span><span class="dot d2"></span><span class="dot d3"></span>
+  <span class="spark s1">✦</span><span class="spark s2">✦</span>
 </div>
+<div class="bg-hearts landing-skin-decor landing-skin-decor--romantic" data-skin-decor="romantic" aria-hidden="true">
+  <span>♥</span><span>♡</span><span>♥</span><span>♡</span><span>♥</span><span>♡</span><span>♥</span>
+</div>
+{% include "public/_bg.html" %}
 <a class="skip-link" href="#main-content">К содержанию</a>
 
 <header class="site-header" aria-label="Основная навигация">
@@ -69,147 +72,165 @@
   </div>
 </header>
 
+{% from "public/_landing_demo_card.html" import landing_demo_card with context %}
 <main id="main-content">
   <section class="hero hero--brand" aria-labelledby="hero-title">
     <div class="hero__copy">
-      <p class="eyebrow"><span aria-hidden="true"></span> Решение, которое выбираете вместе</p>
-      <h1 id="hero-title">Встреча начинается с&nbsp;общего выбора</h1>
-      <p class="hero__lead">Собери идеи в одной подборке, поделись приватной ссылкой и узнай, какой вариант подходит всем — без бесконечной переписки.</p>
+      <h1 id="hero-title">
+        <span class="hero__wordmark">date4you</span>
+        <span class="hero__statement">создан, чтобы встречаться</span>
+      </h1>
       <div class="hero__actions">
         <a class="button button--primary" href="/login">Создать подборку <span aria-hidden="true">→</span></a>
-        <a class="button button--quiet" href="#how-it-works">Посмотреть, как работает</a>
+        <a class="button button--quiet" href="#product-preview">Посмотреть в действии</a>
       </div>
-      <p class="hero__note"><span aria-hidden="true">✓</span> Участники открывают ссылку и голосуют со своего телефона</p>
     </div>
-    <a class="hero__scroll" href="#product-preview" aria-label="Перейти к примеру подборки">
-      <span aria-hidden="true">↓</span> Узнать больше
+    <a class="hero__scroll" href="#product-preview" aria-label="Перейти к интерактивной карточке события">
+      <span aria-hidden="true">↓</span> Смотреть карточку
     </a>
   </section>
 
   <div class="landing-details">
-    <section class="section product-showcase" id="product-preview" aria-labelledby="product-preview-title">
-      <div class="product-showcase__copy">
-        <p class="eyebrow">Одна ссылка для всех</p>
-        <h2 id="product-preview-title">Понятно с первого взгляда</h2>
-        <p>Добавь варианты, отправь друзьям ссылку и смотри, какой план собирает больше голосов.</p>
+    <section class="section landing-story" id="product-preview"
+             data-landing-story data-active-scene="build"
+             aria-labelledby="product-preview-title">
+      <div class="landing-story__intro" id="how-it-works">
+        <p class="eyebrow">Карточка события</p>
+        <h2 id="product-preview-title">От идеи до готового плана</h2>
       </div>
-      <section class="hero-preview" aria-label="Пример подборки событий">
-        <div class="preview-window">
-        <div class="preview-window__top">
-          <span class="preview-window__status">Пример подборки</span>
-          <span class="preview-window__people" role="img" aria-label="Участвуют шесть человек">
-            <span aria-hidden="true">А</span><span aria-hidden="true">М</span><span aria-hidden="true">+4</span>
-          </span>
-        </div>
-        <div class="preview-window__heading">
-          <p>Вечер с друзьями</p>
-          <span>Выберите один или несколько вариантов</span>
-        </div>
-        <div class="preview-options">
-          <article class="preview-option preview-option--selected">
-            <div class="preview-option__icon" aria-hidden="true">🎬</div>
-            <div class="preview-option__body">
-              <div class="preview-option__title"><strong>Кино под открытым небом</strong><span>4 голоса</span></div>
-              <div class="preview-progress preview-progress--67" role="progressbar" aria-label="Голоса за кино под открытым небом" aria-valuemin="0" aria-valuemax="6" aria-valuenow="4" aria-valuetext="4 из 6 голосов"><span></span></div>
-            </div>
-            <span class="preview-option__check" aria-hidden="true">✓</span>
-          </article>
-          <article class="preview-option">
-            <div class="preview-option__icon" aria-hidden="true">🖼️</div>
-            <div class="preview-option__body">
-              <div class="preview-option__title"><strong>Новая выставка</strong><span>3 голоса</span></div>
-              <div class="preview-progress preview-progress--50" role="progressbar" aria-label="Голоса за новую выставку" aria-valuemin="0" aria-valuemax="6" aria-valuenow="3" aria-valuetext="3 из 6 голосов"><span></span></div>
-            </div>
-          </article>
-          <article class="preview-option">
-            <div class="preview-option__icon" aria-hidden="true">🌿</div>
-            <div class="preview-option__body">
-              <div class="preview-option__title"><strong>Прогулка в парке</strong><span>2 голоса</span></div>
-              <div class="preview-progress preview-progress--33" role="progressbar" aria-label="Голоса за прогулку в парке" aria-valuemin="0" aria-valuemax="6" aria-valuenow="2" aria-valuetext="2 из 6 голосов"><span></span></div>
-            </div>
-          </article>
-        </div>
-        <div class="preview-window__footer">
-          <span><i aria-hidden="true"></i> Голос учтён</span>
-          <span>Результат виден сразу</span>
-        </div>
-        </div>
-        <div class="hero-preview__glow" aria-hidden="true"></div>
-      </section>
-    </section>
 
-    <section class="section how" id="how-it-works" aria-labelledby="how-title">
-    <div class="section-heading">
-      <p class="eyebrow">Три простых шага</p>
-      <h2 id="how-title">От идеи до общего плана</h2>
-      <p>Организатор задаёт варианты, а друзья помогают выбрать лучший.</p>
-    </div>
-    <ol class="steps">
-      <li class="step-card">
-        <span class="step-card__number">01</span>
-        <span class="step-card__icon" aria-hidden="true">＋</span>
-        <h3>Создай подборку</h3>
-        <p>Добавь события, даты, фотографии и всё, что поможет определиться.</p>
-      </li>
-      <li class="step-card">
-        <span class="step-card__number">02</span>
-        <span class="step-card__icon" aria-hidden="true">↗</span>
-        <h3>Поделись ссылкой</h3>
-        <p>Отправь приватную ссылку тем, чьё мнение важно для встречи.</p>
-      </li>
-      <li class="step-card">
-        <span class="step-card__number">03</span>
-        <span class="step-card__icon" aria-hidden="true">✓</span>
-        <h3>Выберите вместе</h3>
-        <p>Соберите голоса, сравните варианты и договоритесь без лишнего шума.</p>
-      </li>
-    </ol>
+      <div class="landing-skin-switch" role="group" aria-label="Оформление примера">
+        <button class="landing-skin-switch__button is-active" type="button"
+                data-skin-set="friends" aria-pressed="true">Стандартное</button>
+        <button class="landing-skin-switch__button" type="button"
+                data-skin-set="romantic" aria-pressed="false">Романтическое</button>
+        <span class="sr-only" data-skin-status role="status" aria-live="polite" aria-atomic="true">Стандартное оформление</span>
+      </div>
+
+      <div class="landing-story__layout">
+        <div class="landing-story__stage-wrap">
+          <div class="landing-story__stage" data-story-stage data-scene="build"
+               aria-label="Интерактивная сборка карточки события">
+            <div class="landing-story__feed" data-story-feed aria-hidden="true">
+              <div class="landing-story__feed-bar">
+                <span>Лента событий</span>
+                <span>Санкт-Петербург</span>
+              </div>
+              <div class="landing-story__feed-grid">
+                <article><span class="landing-story__feed-image"></span><strong>Выставка света</strong><small>Сегодня · 19:00</small></article>
+                <article><span class="landing-story__feed-image"></span><strong>Прогулка у воды</strong><small>Воскресенье · 13:00</small></article>
+              </div>
+            </div>
+            <div class="landing-story__camera" data-story-camera>
+              {{ landing_demo_card('friends') }}
+              {{ landing_demo_card('romantic', true) }}
+            </div>
+            <div class="landing-story__stage-glow" aria-hidden="true"></div>
+          </div>
+        </div>
+
+        <ol class="landing-story__steps" aria-label="Как собирается карточка события">
+          <li class="landing-story__step is-active" data-story-step data-scene="build" aria-current="step">
+            <div class="landing-story__step-copy">
+              <span class="landing-story__step-number">01</span>
+              <h3>Идея становится карточкой</h3>
+              <p>Название задаёт будущую встречу.</p>
+            </div>
+          </li>
+          <li class="landing-story__step" data-story-step data-scene="media">
+            <div class="landing-story__step-copy">
+              <span class="landing-story__step-number">02</span>
+              <h3>Добавьте атмосферу</h3>
+              <p>Фотографии можно листать и свайпать.</p>
+            </div>
+          </li>
+          <li class="landing-story__step" data-story-step data-scene="details">
+            <div class="landing-story__step-copy">
+              <span class="landing-story__step-number">03</span>
+              <h3>Все детали — на месте</h3>
+              <p>Дата, место, описание, ссылка и модификаторы.</p>
+            </div>
+          </li>
+          <li class="landing-story__step" data-story-step data-scene="people">
+            <div class="landing-story__step-copy">
+              <span class="landing-story__step-number">04</span>
+              <h3>Видно, кто уже с вами</h3>
+              <p>Организатор, участники и свободные места.</p>
+            </div>
+          </li>
+          <li class="landing-story__step" data-story-step data-scene="choice">
+            <div class="landing-story__step-copy">
+              <span class="landing-story__step-number">05</span>
+              <h3>Решите вместе</h3>
+              <p>Нажмите «Я пойду» и посмотрите, как меняется результат.</p>
+            </div>
+          </li>
+          <li class="landing-story__step" data-story-step data-scene="feed">
+            <div class="landing-story__step-copy">
+              <span class="landing-story__step-number">06</span>
+              <h3>Готовый план остаётся в ленте</h3>
+              <p>К карточке можно вернуться в любой момент.</p>
+            </div>
+          </li>
+        </ol>
+      </div>
     </section>
 
     <section class="section possibilities" id="possibilities" aria-labelledby="possibilities-title">
-    <div class="possibilities__copy">
-      <p class="eyebrow">Всё нужное — в одном месте</p>
-      <h2 id="possibilities-title">Больше ясности, меньше сообщений</h2>
-      <p>Подборка сохраняет варианты и мнения участников в понятном виде. Каждый видит актуальную информацию на удобном ему экране.</p>
-      <a class="text-link" href="/about?return_to=%2F">Подробнее о date4you <span aria-hidden="true">→</span></a>
-    </div>
-    <ul class="feature-list">
-      <li>
-        <span class="feature-list__icon" aria-hidden="true">◇</span>
-        <div><h3>Несколько вариантов</h3><p>Собери разные идеи в одной аккуратной подборке.</p></div>
-      </li>
-      <li>
-        <span class="feature-list__icon" aria-hidden="true">◉</span>
-        <div><h3>Наглядное голосование</h3><p>Результаты обновляются и помогают увидеть общий выбор.</p></div>
-      </li>
-      <li>
-        <span class="feature-list__icon" aria-hidden="true">⌁</span>
-        <div><h3>Удобно на телефоне</h3><p>Открывай ссылку и голосуй без привязки к большому экрану.</p></div>
-      </li>
-      <li>
-        <span class="feature-list__icon" aria-hidden="true">⌾</span>
-        <div><h3>Контроль у организатора</h3><p>Управляй доступом, сроками и содержанием своей подборки.</p></div>
-      </li>
-    </ul>
-    </section>
+      <header class="possibilities__heading">
+        <p class="eyebrow">Возможности</p>
+        <h2 id="possibilities-title">Всё вокруг встречи</h2>
+      </header>
 
-    <section class="section privacy-card" aria-labelledby="privacy-title">
-    <div class="privacy-card__icon" aria-hidden="true">⌁</div>
-    <div>
-      <p class="eyebrow">Личное остаётся личным</p>
-      <h2 id="privacy-title">Встречи доступны по приватной ссылке</h2>
-      <p>Страницы подборок закрыты от поисковой индексации. Организатор решает, когда ссылка активна, а мы не добавляем рекламные вставки в карточки и голосование.</p>
-    </div>
-    <a class="button button--quiet" href="/privacy?return_to=%2F">О конфиденциальности</a>
+      <div class="possibility-stories">
+        <article class="possibility-story possibility-story--feed">
+          <div class="possibility-story__copy">
+            <h3>Лента событий</h3>
+            <p>Нет идей? В ленте событий можно найти идеи пользователей и сохранить понравившиеся события себе.</p>
+          </div>
+          <div class="possibility-story__preview feed-fragment" role="img" aria-label="Пример ленты событий">
+            <div class="feed-fragment__toolbar"><strong>События рядом</strong><span>Смотреть все</span></div>
+            <div class="feed-fragment__cards">
+              <div><span class="feed-fragment__cover feed-fragment__cover--one"></span><strong>Мастерская керамики</strong><small>Суббота · 14:00</small><span>♡ Сохранить</span></div>
+              <div><span class="feed-fragment__cover feed-fragment__cover--two"></span><strong>Летний кинотеатр</strong><small>Пятница · 21:00</small><span>♥ Сохранено</span></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="possibility-story possibility-story--profile">
+          <div class="possibility-story__copy">
+            <h3>Профили</h3>
+            <p>Планы, желания и впечатления — в одном профиле. В нём видны публичные события, раздел «Хочу сходить» и отзывы о прошедших встречах.</p>
+          </div>
+          <div class="possibility-story__preview profile-fragment" role="img" aria-label="Пример профиля пользователя">
+            <div class="profile-fragment__person"><span>А</span><div><strong>Алексей</strong><small>Санкт-Петербург</small></div></div>
+            <div class="profile-fragment__tabs"><span class="is-active">События</span><span>Хочу сходить</span><span>Отзывы</span></div>
+            <div class="profile-fragment__event"><span></span><div><strong>Джаз во дворе</strong><small>В планах · 4 участника</small></div></div>
+          </div>
+        </article>
+
+        <article class="possibility-story possibility-story--settings">
+          <div class="possibility-story__copy">
+            <h3>Тонкая настройка</h3>
+            <p>Дизайн, оформление, доступ, голосование и права гостей.</p>
+          </div>
+          <div class="possibility-story__preview settings-fragment" role="img" aria-label="Пример настроек подборки и события">
+            <div class="settings-fragment__group">
+              <strong>Подборка</strong>
+              <span><i></i> Оформление</span><span><i></i> Доступ по ссылке</span><span><i></i> Правила голосования</span>
+            </div>
+            <div class="settings-fragment__group">
+              <strong>Событие</strong>
+              <span><i></i> Участники</span><span><i></i> Права гостей</span><span><i></i> Видимость в ленте</span>
+            </div>
+          </div>
+        </article>
+      </div>
     </section>
 
     <section class="section final-cta" aria-labelledby="cta-title">
-    <div>
-      <p class="eyebrow">Пора договориться</p>
-      <h2 id="cta-title">Собери вашу следующую встречу</h2>
-      <p>Создай первую подборку и отправь друзьям одну понятную ссылку.</p>
-    </div>
-    <a class="button button--primary button--light" href="/login">Начать <span aria-hidden="true">→</span></a>
+      <h2 id="cta-title">Создайте следующую встречу</h2>
+      <a class="button button--primary button--light" href="/login">Создать подборку <span aria-hidden="true">→</span></a>
     </section>
   </div>
 </main>
@@ -223,7 +244,7 @@
       </span>
       <span>date4you</span>
     </a>
-    <p>Простой способ выбрать встречу вместе.</p>
+    <p>создан, чтобы встречаться</p>
   </div>
   <nav class="site-footer__links" aria-label="Справочная навигация">
     <a href="/about?return_to=%2F">О проекте</a>
