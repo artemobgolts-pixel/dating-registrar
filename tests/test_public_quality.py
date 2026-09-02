@@ -88,8 +88,10 @@ class PublicSeoTests(unittest.TestCase):
         self.assertNotRegex(source, r"<video\b")
         self.assertNotIn("landing-brand-loop.mp4", source)
         self.assertNotIn("landing-brand-loop-mobile.mp4", source)
+        self.assertEqual(source.count("data-demo-card"), 1)
         self.assertIn('data-demo-skin="friends"', source)
-        self.assertIn('data-demo-skin="romantic"', source)
+        self.assertIn('data-demo-slide-skin="friends"', source)
+        self.assertIn('data-demo-slide-skin="romantic"', source)
         self.assertNotRegex(source, r'<[^>]+\sstyle="')
 
         match = re.search(
@@ -160,14 +162,18 @@ class PublicSeoTests(unittest.TestCase):
     def test_landing_story_respects_reduced_motion_without_remote_runtime(self):
         script = (APP / "static/landing-story.js").read_text("utf-8")
         css = (APP / "static/landing.css").read_text("utf-8")
+        home = (APP / "templates/public/home.html").read_text("utf-8")
 
         self.assertRegex(
             script,
             r"matchMedia\([\"']\(prefers-reduced-motion:\s*reduce\)[\"']\)",
         )
         self.assertIn("is-reduced-motion", script)
-        self.assertIn("requestAnimationFrame", script)
         self.assertNotRegex(script, r"https?://")
+        self.assertIn("vendor/gsap-3.15.0.min.js", home)
+        self.assertIn("vendor/ScrollTrigger-3.15.0.min.js", home)
+        self.assertRegex(script, r"gsap\.registerPlugin\(")
+        self.assertRegex(script, r"\bscrollTrigger\s*:")
         self.assertRegex(css, r"@media\s*\(prefers-reduced-motion:\s*reduce\)")
         self.assertIn(".is-reduced-motion", css)
 

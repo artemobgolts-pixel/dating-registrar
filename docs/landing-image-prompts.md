@@ -1,6 +1,6 @@
 # Изображения интерактивного лендинга
 
-Шесть фотографий сгенерированы встроенным генератором изображений (не скриптом),
+Двенадцать изображений сгенерированы встроенным генератором изображений (не скриптом),
 затем сохранены в WebP для карточек лендинга. Ниже приведены точные финальные
 промпты, чтобы галереи можно было воспроизвести или развить в том же направлении.
 
@@ -98,4 +98,82 @@ Lighting/mood: deep blue night, soft burgundy and warm amber accents; romantic, 
 Color palette: deep navy, dusty rose, burgundy, cream, warm amber
 Constraints: exactly two adults, no readable image or text on screen, no logos, no trademarks, no watermark, no hearts, no UI
 Avoid: kissing pose, wedding decoration, excessive candles, fantasy skyline, oversaturation
+```
+
+## `landing-feed-light-exhibition.webp`
+
+```text
+Use case: photorealistic-natural
+Asset type: compact event-feed card cover
+Primary request: immersive contemporary light-art exhibition with translucent sculptural installations and a few adult visitors naturally exploring the space
+Style/medium: refined editorial event photography, realistic materials, subtle film grain
+Composition/framing: wide landscape, central installation, crop-safe for a small 3:2 card
+Lighting/mood: luminous lavender, aqua and warm ivory; atmospheric but credible
+Constraints: no readable text, logos, trademarks, watermark or UI
+Avoid: neon nightclub look, fantasy architecture, oversaturation, posed stock-photo smiles
+```
+
+## `landing-feed-water-walk.webp`
+
+```text
+Use case: photorealistic-natural
+Asset type: compact event-feed card cover
+Primary request: three adult friends taking an unposed walk beside calm city water at early evening, with an elegant embankment and soft skyline in the distance
+Style/medium: natural editorial lifestyle photography with subtle film grain
+Composition/framing: wide landscape, people grouped near the center with crop-safe margins
+Lighting/mood: soft blue hour, muted aqua, cream and restrained warm highlights; relaxed and sociable
+Constraints: no readable text, logos, trademarks, watermark or UI
+Avoid: tourist-advertising poses, harsh HDR, oversaturation
+```
+
+## `landing-feed-ceramics.webp`
+
+```text
+Use case: photorealistic-natural
+Asset type: compact event-feed card cover
+Primary request: candid close view of adult participants shaping clay by hand at a welcoming contemporary ceramics workshop
+Style/medium: tactile editorial lifestyle photography, realistic hands and clay, subtle film grain
+Composition/framing: wide landscape with the handwork centered and enough context to read as a shared workshop
+Lighting/mood: warm daylight, natural wood, clay and restrained teal accents
+Constraints: anatomically natural hands, no readable text, logos, trademarks, watermark or UI
+Avoid: sterile product shot, exaggerated mess, oversaturation
+```
+
+## `landing-feed-summer-cinema.webp`
+
+```text
+Use case: photorealistic-natural
+Asset type: compact event-feed card cover
+Primary request: atmospheric summer courtyard cinema with a blank screen, a small seated audience and warm string lights after sunset
+Style/medium: cinematic editorial event photography with realistic low-light texture and subtle film grain
+Composition/framing: wide landscape, screen and audience centered, crop-safe for a compact card
+Lighting/mood: deep evening blue, warm amber, cream and muted green; communal and calm
+Constraints: blank screen, no readable text, logos, trademarks, watermark or UI
+Avoid: festival crowd, branded cinema, excessive decoration, oversaturation
+```
+
+## `landing-profile-jazz.webp`
+
+```text
+Use case: photorealistic-natural
+Asset type: public-profile event cover
+Primary request: intimate live jazz performance in a leafy historic courtyard, small acoustic ensemble and seated adult audience sharing an unposed summer evening
+Style/medium: refined editorial music photography, natural people and architecture, subtle film grain
+Composition/framing: wide landscape, musicians and listeners balanced around the center with crop-safe margins
+Lighting/mood: warm practical lights under trees at blue hour; welcoming, cultured and understated
+Constraints: no readable text, logos, trademarks, watermark or UI
+Avoid: nightclub stage, celebrity likeness, dramatic concert smoke, oversaturation
+```
+
+## `landing-avatar-alexey.webp`
+
+```text
+Use case: photorealistic-natural
+Asset type: public-profile avatar
+Primary request: approachable head-and-shoulders portrait of a fictional Russian man named Alexey in his early thirties, short brown hair, light stubble and a calm friendly expression
+Style/medium: natural editorial portrait photography with realistic skin texture and subtle film grain
+Composition/framing: square, centered face and shoulders, clean crop-safe background for a circular avatar
+Lighting/mood: soft window light, muted cream and blue-green background; warm, trustworthy and contemporary
+Constraints: fictional person, no text, logos, trademarks, watermark or UI
+Avoid: corporate headshot stiffness, glamour retouching, celebrity resemblance, oversaturation
 ```

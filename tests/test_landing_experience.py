@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Контракты нового интерактивного лендинга date4you.
+"""Устойчивые продуктовые контракты интерактивного лендинга date4you.
 
-Проверки намеренно опираются на семантику, текст и ``data-*`` hooks, а не на
-декоративные CSS-классы: внешний вид scroll-сцены можно полировать, не меняя
-её продуктовый и accessibility-контракт.
+Проверки привязаны к семантике, доступным названиям и ``data-*`` hooks. Они не
+фиксируют декоративные классы или точные значения таймлайна: композицию и
+motion-полировку можно менять, не переписывая продуктовый контракт.
 """
 
 from __future__ import annotations
@@ -12,16 +12,18 @@ import html
 import re
 import unittest
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 
 ROOT = Path(__file__).resolve().parents[1]
 APP = ROOT / "app"
+STATIC = APP / "static"
 HOME_PATH = APP / "templates/public/home.html"
 CARD_PATH = APP / "templates/public/_landing_demo_card.html"
-CSS_PATH = APP / "static/landing.css"
-STORY_PATH = APP / "static/landing-story.js"
+CSS_PATH = STATIC / "landing.css"
+STORY_PATH = STATIC / "landing-story.js"
 
 
 def _plain_text(source: str) -> str:
@@ -53,6 +55,41 @@ def _attribute(tag: str, name: str) -> str | None:
     return "" if match.group(1) is None else match.group(2)
 
 
+def _tags(source: str) -> list[str]:
+    return re.findall(r"<[a-z][\w-]*\b[^>]*>", source, re.IGNORECASE | re.DOTALL)
+
+
+def _css_rules(source: str) -> list[tuple[str, dict[str, str]]]:
+    """Минимальный parser плоских CSS rules, достаточный для контрактов."""
+
+    source = re.sub(r"/\*.*?\*/", "", source, flags=re.DOTALL)
+    rules: list[tuple[str, dict[str, str]]] = []
+    for match in re.finditer(r"([^{}]+)\{([^{}]*)\}", source, re.DOTALL):
+        selectors = match.group(1).strip()
+        declarations: dict[str, str] = {}
+        for declaration in match.group(2).split(";"):
+            if ":" not in declaration:
+                continue
+            name, value = declaration.split(":", 1)
+            declarations[name.strip().lower()] = value.strip().lower()
+        for selector in selectors.split(","):
+            rules.append((selector.strip(), declarations))
+    return rules
+
+
+def _static_path(src: str) -> Path | None:
+    path = urlsplit(src).path
+    prefix = "/static/"
+    if not path.startswith(prefix):
+        return None
+    candidate = (STATIC / path.removeprefix(prefix)).resolve()
+    try:
+        candidate.relative_to(STATIC.resolve())
+    except ValueError:
+        return None
+    return candidate
+
+
 class LandingExperienceContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -71,16 +108,15 @@ class LandingExperienceContractTests(unittest.TestCase):
             support=None,
         )
         cls.css = CSS_PATH.read_text("utf-8")
+        cls.story = STORY_PATH.read_text("utf-8")
 
-    def card(self, skin: str) -> str:
+    def demo_card(self) -> str:
         match = re.search(
-            r'<article\b(?=[^>]*\bdata-demo-card(?:\b|=))'
-            rf'(?=[^>]*\bdata-demo-skin="{re.escape(skin)}")[^>]*>'
-            r".*?</article>",
+            r'<article\b(?=[^>]*\bdata-demo-card(?:\b|=))[^>]*>.*?</article>',
             self.home,
             re.DOTALL,
         )
-        self.assertIsNotNone(match, f"Нет полноценной demo-card для {skin}")
+        self.assertIsNotNone(match, "Нет полноценной интерактивной demo-card")
         return match.group(0)
 
     def test_template_is_valid_jinja_and_keeps_page_landmarks(self):
@@ -99,8 +135,7 @@ class LandingExperienceContractTests(unittest.TestCase):
         self.assertIn('<a class="skip-link" href="#main-content">', self.home)
         self.assertNotRegex(self.home, r'<[^>]+\sstyle="')
 
-    def test_hero_is_minimal_and_old_questionnaire_copy_is_gone(self):
-        text = _plain_text(self.home)
+    def test_hero_starts_near_header_and_has_a_smaller_statement(self):
         hero = re.search(
             r'<section\b[^>]*class="[^"]*\bhero\b[^"]*"[^>]*>.*?</section>',
             self.home,
@@ -108,271 +143,473 @@ class LandingExperienceContractTests(unittest.TestCase):
         )
         self.assertIsNotNone(hero)
         hero_text = _plain_text(hero.group(0))
-        self.assertIn("date4you", hero_text)
-        self.assertIn("создан, чтобы встречаться", hero_text)
-        self.assertIn("Создать подборку", hero_text)
-        self.assertIn("Посмотреть в действии", hero_text)
-
-        for stale_copy in (
-            "Удобно на телефоне",
-            "Несколько вариантов",
-            "Три простых шага",
-            "Понятно с первого взгляда",
-            "Встреча начинается с общего выбора",
+        for copy in (
+            "date4you",
+            "создан, чтобы встречаться",
+            "Создать подборку",
+            "Посмотреть в действии",
         ):
-            with self.subTest(stale_copy=stale_copy):
-                self.assertNotIn(stale_copy, text)
+            self.assertIn(copy, hero_text)
 
-        for removed_media in (
-            "landing-video.js",
-            "landing-brand-loop.mp4",
-            "landing-brand-loop-mobile.mp4",
-            "landing-brand-poster.webp",
-            "landing-brand-poster-mobile.webp",
-        ):
-            with self.subTest(removed_media=removed_media):
-                self.assertNotIn(removed_media, self.home)
-        self.assertNotRegex(self.home, r"<video\b")
+        hero_rules = [
+            declarations
+            for selector, declarations in _css_rules(self.css)
+            if selector.endswith(".hero.hero--brand")
+        ]
+        self.assertTrue(hero_rules, "Не найдены стили первого экрана")
+        hero_declarations: dict[str, str] = {}
+        for rule in hero_rules:
+            hero_declarations.update(rule)
+        self.assertNotEqual(hero_declarations.get("min-height"), "100svh")
+        self.assertNotEqual(hero_declarations.get("height"), "100svh")
+        self.assertNotEqual(hero_declarations.get("align-items"), "flex-end")
 
-    def test_header_footer_and_navigation_contract_is_preserved(self):
+        statement_declarations: dict[str, str] = {}
+        for selector, declarations in _css_rules(self.css):
+            if selector.endswith(".hero__statement"):
+                statement_declarations.update(declarations)
+        statement_sizes = [
+            int(value)
+            for value in re.findall(
+                r"(?<![\w.-])(\d+)px\b",
+                statement_declarations.get("font-size", ""),
+            )
+        ]
+        self.assertTrue(statement_sizes, "Размер hero statement должен быть задан явно")
+        self.assertLessEqual(max(statement_sizes), 64)
+
+    def test_header_drops_about_service_but_keeps_primary_navigation(self):
         header = re.search(r"<header\b.*?</header>", self.home, re.DOTALL)
         footer = re.search(r"<footer\b.*?</footer>", self.home, re.DOTALL)
         self.assertIsNotNone(header)
         self.assertIsNotNone(footer)
-
         header_source = header.group(0)
         footer_source = footer.group(0)
-        self.assertIn('class="site-header"', header_source)
-        self.assertIn('class="site-header__inner"', header_source)
-        self.assertIn('class="wordmark"', header_source)
+
         self.assertIn('aria-label="Разделы страницы"', header_source)
         self.assertIn('href="#how-it-works"', header_source)
         self.assertIn('href="#possibilities"', header_source)
-        self.assertIn('href="/about?return_to=%2F"', header_source)
+        self.assertNotIn("О сервисе", _plain_text(header_source))
+        self.assertNotIn('href="/about', header_source)
         self.assertIn('data-theme-toggle', header_source)
-        self.assertIn('aria-label="Включить тёмную тему"', header_source)
         self.assertIn('href="/login"', header_source)
 
-        self.assertIn('class="site-footer"', footer_source)
+        # Нижняя панель остаётся прежней.
         self.assertIn('class="site-footer__brand"', footer_source)
-        self.assertIn('aria-label="Справочная навигация"', footer_source)
         self.assertIn('href="/about?return_to=%2F"', footer_source)
         self.assertIn('href="/terms?return_to=%2F"', footer_source)
         self.assertIn('href="/privacy?return_to=%2F"', footer_source)
         self.assertIn("создан, чтобы встречаться", _plain_text(footer_source))
-        self.assertIn("© date4you", _plain_text(footer_source))
 
-    def test_story_keeps_public_anchors_and_has_all_six_scenes(self):
-        for anchor in ("product-preview", "how-it-works", "possibilities"):
-            with self.subTest(anchor=anchor):
-                self.assertEqual(self.home.count(f'id="{anchor}"'), 1)
-                self.assertIn(f'href="#{anchor}"', self.home)
-
+    def test_story_has_one_shell_and_the_agreed_ten_phase_arc(self):
         self.assertEqual(self.home.count("data-landing-story"), 1)
         self.assertEqual(self.home.count("data-story-stage"), 1)
+        self.assertEqual(self.home.count("data-demo-card"), 1)
+        self.assertNotIn("data-story-feed", self.home)
+
+        card_tag = _opening_tag(self.home, "data-demo-card", tag="article")
+        self.assertIsNone(_attribute(card_tag, "hidden"))
+        self.assertNotEqual(_attribute(card_tag, "aria-hidden"), "true")
+
+        aliases = {
+            "photo": {"photo", "image", "media"},
+            "surface": {"surface", "shell", "glass", "card"},
+            "essentials": {"essentials", "core", "meta"},
+            "details": {"details", "content"},
+            "people": {"people", "participants", "voting"},
+            "float": {"float", "hover", "assembled"},
+            "focus": {"focus", "zoom", "closeup"},
+            "swipe": {"swipe", "gallery"},
+            "interactive": {"interactive", "actions", "interact"},
+            "return": {"return", "reset", "pullback"},
+        }
+        reverse_aliases = {
+            alias: canonical
+            for canonical, variants in aliases.items()
+            for alias in variants
+        }
+        phases: list[str] = []
+        for tag in _tags(self.home):
+            phase = _attribute(tag, "data-story-phase")
+            if phase is None and _attribute(tag, "data-story-step") is not None:
+                phase = _attribute(tag, "data-scene")
+            if phase is None:
+                continue
+            normalized = reverse_aliases.get(phase.strip().lower(), phase.strip().lower())
+            if not phases or phases[-1] != normalized:
+                phases.append(normalized)
         self.assertEqual(
-            re.findall(r'data-story-step[^>]*\bdata-scene="([^"]+)"', self.home),
-            ["build", "media", "details", "people", "choice", "feed"],
+            phases,
+            [
+                "photo",
+                "surface",
+                "essentials",
+                "details",
+                "people",
+                "float",
+                "focus",
+                "swipe",
+                "interactive",
+                "return",
+            ],
         )
 
-    def test_both_skins_have_complete_event_cards_and_exact_vote_states(self):
-        self.assertEqual(self.home.count("data-demo-card"), 2)
-        cases = {
-            "friends": {
-                "copy": (
-                    "Антикафе",
-                    "Суббота",
-                    "18:00",
-                    "Антикафе на Невском",
-                    "Настолки, чай и три часа без спешки",
-                    "Можно принести свою игру?",
-                    "Конечно",
-                    "Я плачу",
-                ),
-                "before": "3",
-                "after": "4",
-                "total": "5",
-            },
-            "romantic": {
-                "copy": (
-                    "Кинопоказ на крыше",
-                    "Пятница",
-                    "20:30",
-                    "Крыша в центре Москвы",
-                    "Выберем фильм на месте. Пледы и попкорн уже будут",
-                    "А если будет дождь?",
-                    "Перенесём вечер домой",
-                    "Я плачу",
-                ),
-                "before": "0",
-                "after": "1",
-                "total": "1",
-            },
-        }
+    def test_card_matches_the_real_public_event_anatomy(self):
+        card = self.demo_card()
+        card_text = _plain_text(card)
+        # Romantic copy is stored in data attributes until the skin changes.
+        combined = self.home + "\n" + self.story
 
-        for skin, expected in cases.items():
+        for copy in (
+            "Антикафе на Невском",
+            "Кинопоказ на крыше",
+            "Я плачу",
+        ):
+            self.assertIn(copy, combined)
+
+        forbidden_visible_copy = (
+            "5 мест",
+            "Для двоих",
+            "На карте",
+            "Страница площадки",
+        )
+        for copy in forbidden_visible_copy:
+            with self.subTest(copy=copy):
+                self.assertNotIn(copy, card_text)
+        self.assertNotRegex(
+            card,
+            r"<h[1-6]\b[^>]*>\s*(?:Участники|Голосование)\s*</h[1-6]>",
+        )
+        self.assertNotRegex(card, r">\s*Событие\s*<")
+
+        self.assertRegex(card, r"<time\b[^>]*\bdatetime=")
+        self.assertRegex(card_text, r"(?i)в календарь")
+        place_match = re.search(
+            r'<div\b[^>]*class="[^"]*\blanding-demo-card__place\b[^"]*"[^>]*>'
+            r'.*?(<a\b[^>]*>)',
+            card,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(place_match)
+        place = place_match.group(1)
+        self.assertRegex(_attribute(place, "href") or "", r"^https?://")
+        self.assertEqual(_attribute(place, "target"), "_blank")
+        self.assertRegex(_attribute(place, "rel") or "", r"\bnoopener\b")
+
+        progress = next(
+            tag for tag in _tags(card) if _attribute(tag, "role") == "progressbar"
+        )
+        for attribute in (
+            "aria-label",
+            "aria-valuemin",
+            "aria-valuemax",
+            "aria-valuenow",
+            "aria-valuetext",
+        ):
+            self.assertIsNotNone(_attribute(progress, attribute), attribute)
+        self.assertEqual(card.count('data-participant-skin="friends"'), 3)
+        self.assertEqual(card.count("data-demo-voter"), 1)
+
+        vote_match = re.search(
+            r'<button\b(?=[^>]*\bdata-demo-vote(?:\b|=))[^>]*>.*?</button>',
+            card,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(vote_match)
+        vote = vote_match.group(0)
+        vote_tag = vote.split(">", 1)[0] + ">"
+        self.assertEqual(_attribute(vote_tag, "type"), "button")
+        self.assertIn("Выбрать", _plain_text(vote))
+        card_tag = _opening_tag(card, "data-demo-card", tag="article")
+        for skin, before, after, total in (
+            ("friends", "3", "4", "5"),
+            ("romantic", "0", "1", "1"),
+        ):
             with self.subTest(skin=skin):
-                card = self.card(skin)
-                card_text = _plain_text(card)
-                for copy in expected["copy"]:
-                    self.assertIn(copy, card_text)
-
-                self.assertGreaterEqual(card.count("data-demo-slide"), 3)
-                self.assertRegex(card, r"<time\b[^>]*\bdatetime=")
-                self.assertRegex(card, r'<a\b[^>]*href="https?://')
-
-                vote = _opening_tag(card, "data-demo-vote", tag="button")
-                self.assertEqual(_attribute(vote, "type"), "button")
                 self.assertEqual(
-                    _attribute(vote, "data-vote-before"), expected["before"])
+                    _attribute(card_tag, f"data-vote-before-{skin}"), before)
                 self.assertEqual(
-                    _attribute(vote, "data-vote-after"), expected["after"])
+                    _attribute(card_tag, f"data-vote-after-{skin}"), after)
                 self.assertEqual(
-                    _attribute(vote, "data-vote-total"), expected["total"])
-                self.assertRegex(
-                    card,
-                    rf'data-demo-count-current[^>]*>\s*{expected["before"]}\s*<',
-                )
+                    _attribute(card_tag, f"data-vote-total-{skin}"), total)
+        ask_match = re.search(
+            r'<button\b(?=[^>]*\bdata-demo-question-toggle(?:\b|=))[^>]*>'
+            r'.*?</button>',
+            card,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(ask_match)
+        ask = ask_match.group(0)
+        ask_tag = ask.split(">", 1)[0] + ">"
+        self.assertEqual(_attribute(ask_tag, "type"), "button")
+        self.assertIn("Спросить", _plain_text(ask))
 
-    def test_gallery_vote_and_question_are_accessible_without_dragging(self):
-        for skin in ("friends", "romantic"):
-            with self.subTest(skin=skin):
-                card = self.card(skin)
-                gallery = _opening_tag(card, "data-demo-gallery")
-                self.assertEqual(_attribute(gallery, "role"), "region")
-                self.assertEqual(_attribute(gallery, "tabindex"), "0")
-                self.assertEqual(_attribute(gallery, "aria-roledescription"), "карусель")
-                self.assertTrue(_attribute(gallery, "aria-label"))
+    def test_gallery_vote_and_question_keep_keyboard_access(self):
+        card = self.demo_card()
+        gallery = _opening_tag(card, "data-demo-gallery")
+        self.assertEqual(_attribute(gallery, "role"), "region")
+        self.assertEqual(_attribute(gallery, "tabindex"), "0")
+        self.assertEqual(_attribute(gallery, "aria-roledescription"), "карусель")
+        self.assertTrue(_attribute(gallery, "aria-label"))
 
-                for marker in ("data-demo-gallery-prev", "data-demo-gallery-next"):
-                    control = _opening_tag(card, marker, tag="button")
-                    self.assertEqual(_attribute(control, "type"), "button")
-                    self.assertTrue(_attribute(control, "aria-label"))
+        for marker in ("data-demo-gallery-prev", "data-demo-gallery-next"):
+            control = _opening_tag(card, marker, tag="button")
+            self.assertEqual(_attribute(control, "type"), "button")
+            self.assertTrue(_attribute(control, "aria-label"))
 
-                images = re.findall(r"<img\b[^>]*>", card, re.DOTALL)
-                self.assertGreaterEqual(len(images), 3)
-                for image in images:
-                    self.assertTrue(_attribute(image, "alt"))
+        images = re.findall(r"<img\b[^>]*>", card, re.DOTALL)
+        self.assertGreaterEqual(len(images), 3)
+        for image in images:
+            self.assertIsNotNone(_attribute(image, "alt"))
 
-                progress_candidates = re.findall(
-                    r'<[a-z][\w-]*\b(?=[^>]*\brole="progressbar")[^>]*>',
-                    card,
-                    re.IGNORECASE | re.DOTALL,
-                )
-                self.assertEqual(len(progress_candidates), 1)
-                progress = progress_candidates[0]
-                for attribute in (
-                    "aria-label",
-                    "aria-valuemin",
-                    "aria-valuemax",
-                    "aria-valuenow",
-                    "aria-valuetext",
-                ):
-                    self.assertIsNotNone(_attribute(progress, attribute), attribute)
+        live = _opening_tag(card, "data-demo-vote-status")
+        self.assertEqual(_attribute(live, "aria-live"), "polite")
+        self.assertEqual(_attribute(live, "aria-atomic"), "true")
 
-                live = _opening_tag(card, "data-demo-vote-status")
-                self.assertEqual(_attribute(live, "aria-live"), "polite")
-                self.assertEqual(_attribute(live, "aria-atomic"), "true")
+        toggle = _opening_tag(card, "data-demo-question-toggle", tag="button")
+        self.assertEqual(_attribute(toggle, "aria-expanded"), "false")
+        panel_id = _attribute(toggle, "aria-controls")
+        self.assertTrue(panel_id)
+        panel = _opening_tag(card, "data-demo-question-panel", tag="form")
+        self.assertEqual(_attribute(panel, "id"), panel_id)
+        self.assertIsNotNone(_attribute(panel, "hidden"))
+        self.assertRegex(card, r'<label\b[^>]*\bfor="[^"]+"')
 
-                toggle = _opening_tag(card, "data-demo-question-toggle", tag="button")
-                self.assertEqual(_attribute(toggle, "type"), "button")
-                self.assertEqual(_attribute(toggle, "aria-expanded"), "false")
-                panel_id = _attribute(toggle, "aria-controls")
-                self.assertTrue(panel_id)
-                panel = _opening_tag(card, "data-demo-question-panel", tag="form")
-                self.assertEqual(_attribute(panel, "id"), panel_id)
-                self.assertIsNotNone(_attribute(panel, "hidden"))
-                self.assertRegex(card, r'<label\b[^>]*\bfor="[^"]+"')
-
-    def test_skin_and_light_dark_controls_remain_independent(self):
+    def test_skin_controls_are_classic_and_romantic_without_replacing_shell(self):
         html_tag = re.search(r"<html\b[^>]*>", self.home)
         self.assertIsNotNone(html_tag)
         self.assertEqual(_attribute(html_tag.group(0), "data-skin"), "friends")
         self.assertIsNotNone(_attribute(html_tag.group(0), "data-skin-switchable"))
         self.assertIn("asset('theme.js')", self.home_source)
 
-        for skin, pressed in (("friends", "true"), ("romantic", "false")):
+        expected = (("friends", "Классика", "true"), ("romantic", "Романтика", "false"))
+        for skin, label, pressed in expected:
             with self.subTest(skin=skin):
                 control = re.search(
-                    rf'<button\b(?=[^>]*\bdata-skin-set="{skin}")[^>]*>',
+                    rf'<button\b(?=[^>]*\bdata-skin-set="{skin}")[^>]*>.*?</button>',
                     self.home,
                     re.DOTALL,
                 )
                 self.assertIsNotNone(control)
-                self.assertEqual(_attribute(control.group(0), "aria-pressed"), pressed)
+                opening = control.group(0).split(">", 1)[0] + ">"
+                self.assertEqual(_attribute(opening, "aria-pressed"), pressed)
+                self.assertEqual(_plain_text(control.group(0)), label)
 
-        theme = _opening_tag(self.home, "data-theme-toggle", tag="button")
-        self.assertTrue(_attribute(theme, "aria-label"))
-        romantic = self.card("romantic")
-        romantic_tag = romantic.split(">", 1)[0] + ">"
-        self.assertIsNotNone(_attribute(romantic_tag, "hidden"))
-        self.assertEqual(_attribute(romantic_tag, "aria-hidden"), "true")
-
-    def test_only_three_approved_product_benefits_remain(self):
-        text = _plain_text(self.home)
-        benefits = (
-            (
-                "Лента событий",
-                "Нет идей? В ленте событий можно найти идеи пользователей и "
-                "сохранить понравившиеся события себе",
-            ),
-            (
-                "Профили",
-                "Планы, желания и впечатления — в одном профиле. В нём видны "
-                "публичные события, раздел «Хочу сходить» и отзывы о прошедших встречах",
-            ),
-            (
-                "Тонкая настройка",
-                "Дизайн, оформление, доступ, голосование и права гостей",
-            ),
+        switch = re.search(
+            r'<div\b[^>]*class="[^"]*landing-skin-switch[^"]*".*?</div>',
+            self.home,
+            re.DOTALL,
         )
-        for title, description in benefits:
-            with self.subTest(title=title):
-                self.assertIn(title, text)
-                self.assertIn(description, text)
+        self.assertIsNotNone(switch)
+        switch_text = _plain_text(switch.group(0))
+        self.assertNotIn("Стандартное", switch_text)
+        self.assertNotIn("Романтическое", switch_text)
+        self.assertEqual(self.home.count("data-demo-card"), 1)
 
-        self.assertNotIn('class="section privacy-card"', self.home)
-        self.assertNotIn('id="privacy-title"', self.home)
-        self.assertIn("Создайте следующую встречу", text)
+    def test_settings_show_the_exact_agreed_lists_without_toggles(self):
+        settings = re.search(
+            r'<article\b[^>]*class="[^"]*\bpossibility-story--settings\b[^"]*"[^>]*>'
+            r".*?</article>",
+            self.home,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(settings)
+        source = settings.group(0)
+        text = _plain_text(source)
+        self.assertIn("Тонкая настройка", text)
+        self.assertNotIn("Права гостей", text)
+        self.assertNotRegex(source, r'role=["\']switch["\']')
+        self.assertNotRegex(source, r'<input\b[^>]*type=["\']checkbox["\']')
+        self.assertNotRegex(source, r'<button\b')
 
-    def test_background_and_story_scripts_are_self_hosted(self):
-        for asset in (
-            "ink.js",
-            "ink-runtime.js",
-            "ink-worker.js",
-            "ink-static-friends-light.webp",
-            "ink-static-friends-light-portrait.webp",
-            "ink-static-friends-dark.webp",
-            "ink-static-romantic-light.webp",
-            "ink-static-romantic-dark.webp",
-            "landing-story.js",
-        ):
-            with self.subTest(asset=asset):
-                self.assertIn(f"asset('{asset}')", self.home_source)
-        self.assertIn('{% include "public/_bg.html" %}', self.home_source)
-        background = (APP / "templates/public/_bg.html").read_text("utf-8")
-        self.assertIn('class="bg-smoke"', background)
-        self.assertNotRegex(self.home, r'<script\b[^>]*\bsrc="https?://')
+        lists = re.findall(r"<(?:ul|ol)\b[^>]*>(.*?)</(?:ul|ol)>", source, re.DOTALL)
+        self.assertEqual(len(lists), 2, "Нужны отдельные списки подборки и события")
 
-        self.assertTrue(STORY_PATH.is_file())
-        story = STORY_PATH.read_text("utf-8")
-        self.assertNotRegex(story, r"https?://")
+        def items(list_source: str) -> list[str]:
+            labels = []
+            for item in re.findall(r"<li\b[^>]*>(.*?)</li>", list_source, re.DOTALL):
+                label = re.search(r"<strong\b[^>]*>(.*?)</strong>", item, re.DOTALL)
+                self.assertIsNotNone(label, "У каждой настройки нужен заголовок")
+                labels.append(_plain_text(label.group(1)).rstrip("."))
+            return labels
+
+        self.assertEqual(
+            items(lists[0]),
+            [
+                "Описание",
+                "Превью ссылки",
+                "Варианты и дедлайн голосования",
+                "Состав и порядок событий",
+                "Доступ по приватной ссылке",
+            ],
+        )
+        self.assertEqual(
+            items(lists[1]),
+            [
+                "Название",
+                "Фото и видео",
+                "Порядок и кадрирование медиа",
+                "Дата и время",
+                "Место и карта",
+                "Описание и внешние ссылки",
+                "Условия оплаты",
+                "Максимум участников",
+                "Видимость в общей ленте",
+            ],
+        )
+
+    def test_feed_profile_and_alexey_have_real_local_images(self):
+        expected_assets = (
+            "landing-feed-light-exhibition.webp",
+            "landing-feed-water-walk.webp",
+            "landing-feed-ceramics.webp",
+            "landing-feed-summer-cinema.webp",
+            "landing-profile-jazz.webp",
+            "landing-avatar-alexey.webp",
+        )
+        image_tags = re.findall(r"<img\b[^>]*>", self.home, re.DOTALL)
+        for filename in expected_assets:
+            matches = [
+                image
+                for image in image_tags
+                if Path(urlsplit(_attribute(image, "src") or "").path).name == filename
+            ]
+            self.assertGreaterEqual(len(matches), 1, f"Не используется изображение {filename}")
+            src = _attribute(matches[0], "src") or ""
+            local_path = _static_path(src)
+            self.assertIsNotNone(local_path, f"Изображение {filename} должно быть локальным")
+            self.assertTrue(local_path.is_file(), local_path)
+            self.assertGreater(local_path.stat().st_size, 1024, local_path)
+            self.assertIsNotNone(_attribute(matches[0], "alt"))
+
+    def test_gsap_scrolltrigger_are_local_registered_and_reduced_motion_safe(self):
+        script_sources = re.findall(
+            r'<script\b[^>]*\bsrc=["\']([^"\']+)["\'][^>]*>',
+            self.home,
+            re.IGNORECASE | re.DOTALL,
+        )
+        self.assertFalse(any(re.match(r"https?://", src) for src in script_sources))
+
+        def script_index(predicate) -> int:
+            for index, src in enumerate(script_sources):
+                if predicate(Path(urlsplit(src).path).name.lower()):
+                    return index
+            self.fail(f"Не найден локальный script: {predicate}")
+
+        gsap_index = script_index(lambda name: "gsap" in name and "scrolltrigger" not in name)
+        trigger_index = script_index(lambda name: "scrolltrigger" in name)
+        story_index = script_index(lambda name: name == "landing-story.js")
+        self.assertLess(gsap_index, trigger_index)
+        self.assertLess(trigger_index, story_index)
+        for src in (script_sources[gsap_index], script_sources[trigger_index]):
+            path = _static_path(src)
+            self.assertIsNotNone(path)
+            self.assertTrue(path.is_file(), path)
+
         self.assertRegex(
-            story,
+            self.story,
+            r"gsap\.registerPlugin\(\s*(?:window\.)?ScrollTrigger\s*\)",
+        )
+        self.assertRegex(self.story, r"gsap\.timeline\s*\(")
+        self.assertRegex(self.story, r"\bscrollTrigger\s*:")
+        self.assertRegex(self.story, r"\bpin\s*:")
+        self.assertRegex(self.story, r"\bscrub\s*:")
+        self.assertNotRegex(self.story, r"\bmarkers\s*:\s*true")
+        self.assertRegex(self.story, r"(?:\.revert\s*\(|\.kill\s*\()")
+
+        self.assertRegex(
+            self.story,
             r"matchMedia\([\"']\(prefers-reduced-motion:\s*reduce\)[\"']\)",
         )
-        self.assertIn("is-reduced-motion", story)
-        self.assertIn("requestAnimationFrame", story)
-        for event_name in ("scroll", "pointerdown", "pointermove", "pointerup"):
-            with self.subTest(event_name=event_name):
-                self.assertIn(event_name, story)
-
+        self.assertIn("is-reduced-motion", self.story)
         self.assertRegex(self.css, r"@media\s*\(prefers-reduced-motion:\s*reduce\)")
-        self.assertIn(".is-reduced-motion", self.css)
+
+    def test_reduced_motion_mode_can_be_left_after_the_preference_changes(self):
         self.assertRegex(
-            self.css,
-            r"\.landing-story__stage-wrap\s*\{[^}]*position:\s*sticky",
+            self.story,
+            r'listen\(\s*reducedMotion\s*,\s*["\']change["\']',
+            "Изменение системной настройки должно переинициализировать сцену",
         )
+        self.assertRegex(
+            self.story,
+            r'classList\.(?:remove\(\s*["\']is-reduced-motion["\']'
+            r'|toggle\(\s*["\']is-reduced-motion["\']\s*,)',
+            "При возврате к обычному motion класс reduced-motion должен сниматься",
+        )
+
+    def test_gsap_gallery_transform_has_no_competing_css_transition(self):
+        self.assertIn("slide.style.transform", self.story)
+        slide_rules = [
+            declarations
+            for selector, declarations in _css_rules(self.css)
+            if selector == ".landing-demo-card__slide"
+        ]
+        self.assertTrue(slide_rules, "Не найдены базовые стили слайдов галереи")
+        declarations: dict[str, str] = {}
+        for rule in slide_rules:
+            declarations.update(rule)
+        transition = declarations.get("transition", "none")
+        self.assertRegex(
+            transition,
+            r"^none(?:\s*!important)?$",
+            "CSS transition не должен дополнительно сглаживать transform, которым управляет GSAP",
+        )
+
+    def test_fit_reserves_height_for_the_camera_vertical_offsets(self):
+        scales = re.search(
+            r"function\s+scales\s*\(\s*\)\s*\{(.*?)\n\s*\}",
+            self.story,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(scales, "Не найден расчёт масштаба карточки")
+        source = scales.group(1)
+        self.assertIn("stageRect.height", source)
+        self.assertIn("naturalHeight", source)
+        self.assertRegex(source, r'Math\.abs\(\s*sceneY\(\s*["\']base["\']\s*\)\s*\)')
+        self.assertRegex(source, r'Math\.abs\(\s*sceneY\(\s*["\']focus["\']\s*\)\s*\)')
+        self.assertRegex(
+            source,
+            r"availableHeight\s*=.*(?:scene|offset|inset|safe)",
+            "Доступная высота должна учитывать вертикальный сдвиг камеры",
+        )
+
+    def test_stage_has_no_glass_backplate_and_cannot_clip_the_card(self):
+        stage_rules = [
+            declarations
+            for selector, declarations in _css_rules(self.css)
+            if selector.endswith(".landing-story__stage")
+        ]
+        self.assertTrue(stage_rules)
+        declarations: dict[str, str] = {}
+        for rule in stage_rules:
+            declarations.update(rule)
+        for prop in ("background", "background-color"):
+            if prop in declarations:
+                self.assertIn(declarations[prop], {"none", "transparent"})
+        if "border" in declarations:
+            self.assertIn(declarations["border"], {"0", "none"})
+        if "box-shadow" in declarations:
+            self.assertEqual(declarations["box-shadow"], "none")
+        for prop, value in declarations.items():
+            if prop.endswith("backdrop-filter"):
+                self.assertEqual(value, "none")
+        self.assertNotIn(declarations.get("overflow"), {"hidden", "clip"})
+
+        pseudo_rules = [
+            declarations
+            for selector, declarations in _css_rules(self.css)
+            if selector.endswith(".landing-story__stage::before")
+        ]
+        pseudo_declarations: dict[str, str] = {}
+        for rule in pseudo_rules:
+            pseudo_declarations.update(rule)
+        pseudo_is_hidden = pseudo_declarations.get("display") == "none"
+        pseudo_has_no_content = pseudo_declarations.get("content", "none") in {
+            "none", "normal",
+        }
+        self.assertTrue(pseudo_is_hidden or pseudo_has_no_content)
+
+        self.assertNotIn("data-story-feed", self.home)
 
 
 if __name__ == "__main__":

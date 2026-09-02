@@ -28,6 +28,25 @@
     durationFactor: 0.34,
     easing: "cubic-bezier(.18,.62,.2,1)"
   };
+  // The landing presents appearance as part of the product story. Its wave is
+  // deliberately slower and more legible, while authenticated screens keep the
+  // compact timings above for everyday use.
+  var LANDING_SKIN_TIMING = {
+    minDuration: 1080,
+    maxDuration: 1380,
+    durationFactor: 0.78,
+    easing: "cubic-bezier(.72,0,.18,1)"
+  };
+  var LANDING_THEME_TIMING = {
+    minDuration: 760,
+    maxDuration: 1040,
+    durationFactor: 0.58,
+    easing: "cubic-bezier(.68,0,.2,1)"
+  };
+
+  function isLandingAppearance() {
+    return root.dataset.appearanceScope === "landing";
+  }
 
   function savedTheme() {
     var match = document.cookie.match(new RegExp("(?:^|;\\s*)" + COOKIE + "=(light|dark)(?:;|$)"));
@@ -260,7 +279,12 @@
       return;
     }
     animateAppearance(
-      applyDesiredAppearance, source, event, skinChanged ? SKIN_TIMING : null,
+      applyDesiredAppearance,
+      source,
+      event,
+      skinChanged
+        ? (isLandingAppearance() ? LANDING_SKIN_TIMING : SKIN_TIMING)
+        : (isLandingAppearance() ? LANDING_THEME_TIMING : null),
     );
   }
 
@@ -276,7 +300,12 @@
       applyDesiredAppearance();
       return;
     }
-    animateAppearance(applyDesiredAppearance, source, event, SKIN_TIMING);
+    animateAppearance(
+      applyDesiredAppearance,
+      source,
+      event,
+      isLandingAppearance() ? LANDING_SKIN_TIMING : SKIN_TIMING
+    );
   }
 
   // Выполняется синхронно до CSS.
