@@ -5,7 +5,7 @@
   <div class="landing-demo-owner" data-card-owner>
     <span class="landing-demo-owner__avatar" aria-hidden="true">
       <span data-demo-owner-initial>А</span>
-      <img src="{{ asset('landing-avatar-alexey.webp') }}" alt="" width="96" height="96"
+      <img data-deferred-src="{{ asset('landing-avatar-alexey.webp') }}" alt="" width="96" height="96"
            loading="lazy" decoding="async" data-demo-owner-photo hidden>
     </span>
     <span class="landing-demo-owner__copy">
@@ -29,21 +29,21 @@
         <figure class="landing-demo-card__slide is-active" data-demo-slide
                 data-demo-slide-skin="friends" data-slide-index="0"
                 role="group" aria-roledescription="слайд" aria-label="1 из 3">
-          <img src="{{ asset('landing-anticafe-1.webp') }}"
+          <img data-deferred-src="{{ asset('landing-anticafe-1.webp') }}"
                alt="Уютный зал антикафе с мягким светом" width="960" height="640"
-               draggable="false" loading="eager" decoding="async">
+               draggable="false" loading="lazy" decoding="async">
         </figure>
         <figure class="landing-demo-card__slide" data-demo-slide
                 data-demo-slide-skin="friends" data-slide-index="1"
                 role="group" aria-roledescription="слайд" aria-label="2 из 3" aria-hidden="true">
-          <img src="{{ asset('landing-anticafe-2.webp') }}"
+          <img data-deferred-src="{{ asset('landing-anticafe-2.webp') }}"
                alt="Настольные игры и чай на столе антикафе" width="960" height="640"
                draggable="false" loading="lazy" decoding="async">
         </figure>
         <figure class="landing-demo-card__slide" data-demo-slide
                 data-demo-slide-skin="friends" data-slide-index="2"
                 role="group" aria-roledescription="слайд" aria-label="3 из 3" aria-hidden="true">
-          <img src="{{ asset('landing-anticafe-3.webp') }}"
+          <img data-deferred-src="{{ asset('landing-anticafe-3.webp') }}"
                alt="Компания друзей играет в настольную игру" width="960" height="640"
                draggable="false" loading="lazy" decoding="async">
         </figure>
@@ -51,21 +51,21 @@
         <figure class="landing-demo-card__slide" data-demo-slide
                 data-demo-slide-skin="romantic" data-slide-index="0" hidden
                 role="group" aria-roledescription="слайд" aria-label="1 из 3" aria-hidden="true">
-          <img src="{{ asset('landing-rooftop-1.webp') }}"
+          <img data-deferred-src="{{ asset('landing-rooftop-1.webp') }}"
                alt="Крыша с экраном на фоне вечернего города" width="960" height="640"
                draggable="false" loading="lazy" decoding="async">
         </figure>
         <figure class="landing-demo-card__slide" data-demo-slide
                 data-demo-slide-skin="romantic" data-slide-index="1" hidden
                 role="group" aria-roledescription="слайд" aria-label="2 из 3" aria-hidden="true">
-          <img src="{{ asset('landing-rooftop-2.webp') }}"
+          <img data-deferred-src="{{ asset('landing-rooftop-2.webp') }}"
                alt="Пледы и попкорн перед кинопоказом на крыше" width="960" height="640"
                draggable="false" loading="lazy" decoding="async">
         </figure>
         <figure class="landing-demo-card__slide" data-demo-slide
                 data-demo-slide-skin="romantic" data-slide-index="2" hidden
                 role="group" aria-roledescription="слайд" aria-label="3 из 3" aria-hidden="true">
-          <img src="{{ asset('landing-rooftop-3.webp') }}"
+          <img data-deferred-src="{{ asset('landing-rooftop-3.webp') }}"
                alt="Огни вечернего города с высоты крыши" width="960" height="640"
                draggable="false" loading="lazy" decoding="async">
         </figure>
@@ -107,7 +107,11 @@
                 data-romantic-text="Пятница · 20:30–23:00"
                 data-friends-datetime="2026-09-05T18:00"
                 data-romantic-datetime="2026-09-04T20:30">Суббота · 18:00–21:00</time>
-          <button type="button" class="landing-demo-card__calendar">в календарь</button>
+          <a class="landing-demo-card__calendar"
+             href="https://calendar.google.com/calendar/render?action=TEMPLATE&amp;text=%D0%90%D0%BD%D1%82%D0%B8%D0%BA%D0%B0%D1%84%D0%B5%20%D0%BD%D0%B0%20%D0%9D%D0%B5%D0%B2%D1%81%D0%BA%D0%BE%D0%BC&amp;dates=20260905T150000Z%2F20260905T180000Z&amp;location=%D0%9D%D0%B5%D0%B2%D1%81%D0%BA%D0%B8%D0%B9%20%D0%BF%D1%80%D0%BE%D1%81%D0%BF%D0%B5%D0%BA%D1%82%2C%20%D0%A1%D0%B0%D0%BD%D0%BA%D1%82-%D0%9F%D0%B5%D1%82%D0%B5%D1%80%D0%B1%D1%83%D1%80%D0%B3"
+             target="_blank" rel="noopener noreferrer"
+             data-friends-href="https://calendar.google.com/calendar/render?action=TEMPLATE&amp;text=%D0%90%D0%BD%D1%82%D0%B8%D0%BA%D0%B0%D1%84%D0%B5%20%D0%BD%D0%B0%20%D0%9D%D0%B5%D0%B2%D1%81%D0%BA%D0%BE%D0%BC&amp;dates=20260905T150000Z%2F20260905T180000Z&amp;location=%D0%9D%D0%B5%D0%B2%D1%81%D0%BA%D0%B8%D0%B9%20%D0%BF%D1%80%D0%BE%D1%81%D0%BF%D0%B5%D0%BA%D1%82%2C%20%D0%A1%D0%B0%D0%BD%D0%BA%D1%82-%D0%9F%D0%B5%D1%82%D0%B5%D1%80%D0%B1%D1%83%D1%80%D0%B3"
+             data-romantic-href="https://calendar.google.com/calendar/render?action=TEMPLATE&amp;text=%D0%9A%D0%B8%D0%BD%D0%BE%D0%BF%D0%BE%D0%BA%D0%B0%D0%B7%20%D0%BD%D0%B0%20%D0%BA%D1%80%D1%8B%D1%88%D0%B5&amp;dates=20260904T173000Z%2F20260904T200000Z&amp;location=%D0%9A%D1%80%D1%8B%D1%88%D0%B0%20%D0%B2%20%D1%86%D0%B5%D0%BD%D1%82%D1%80%D0%B5%20%D0%9C%D0%BE%D1%81%D0%BA%D0%B2%D1%8B">в календарь</a>
         </div>
         <div class="landing-demo-card__place">
           <span class="landing-demo-card__meta-icon" aria-hidden="true">{{ icon('pin') }}</span>
@@ -190,7 +194,7 @@
         </dl>
         <label for="landing-demo-question-input">Ваш вопрос организатору</label>
         <textarea id="landing-demo-question-input" rows="2" placeholder="Напишите вопрос"></textarea>
-        <button class="button button--compact" type="button" data-demo-question-submit>Отправить</button>
+        <button class="button button--compact" type="submit" data-demo-question-submit>Отправить</button>
         <p class="landing-demo-card__question-status" data-demo-question-status
            role="status" aria-live="polite" hidden></p>
       </form>

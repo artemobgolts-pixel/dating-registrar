@@ -75,8 +75,8 @@ class PublicSeoTests(unittest.TestCase):
             with self.subTest(signal=signal):
                 self.assertIn(signal, source)
         self.assertIn('href="https://t.me/artiwayn"', source)
-        self.assertIn("logo-standard.png", source)
-        self.assertIn("logo-romantic.png", source)
+        self.assertIn("favicon-standard.png", source)
+        self.assertIn("favicon-romantic.png", source)
         self.assertIn("ink.js", source)
         self.assertIn("ink-runtime.js", source)
         self.assertIn("ink-worker.js", source)

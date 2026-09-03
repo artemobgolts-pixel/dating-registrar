@@ -77,6 +77,16 @@ def _css_rules(source: str) -> list[tuple[str, dict[str, str]]]:
     return rules
 
 
+def _merged_css_declarations(source: str, predicate) -> dict[str, str]:
+    """Возвращает каскад деклараций подходящих rules в порядке файла."""
+
+    merged: dict[str, str] = {}
+    for selector, declarations in _css_rules(source):
+        if predicate(selector):
+            merged.update(declarations)
+    return merged
+
+
 def _static_path(src: str) -> Path | None:
     path = urlsplit(src).path
     prefix = "/static/"
@@ -194,14 +204,18 @@ class LandingExperienceContractTests(unittest.TestCase):
         self.assertIn('data-theme-toggle', header_source)
         self.assertIn('href="/login"', header_source)
 
-        # Нижняя панель остаётся прежней.
+        # Структура нижней панели остаётся прежней, но слоган из hero в ней
+        # больше не дублируется.
         self.assertIn('class="site-footer__brand"', footer_source)
         self.assertIn('href="/about?return_to=%2F"', footer_source)
         self.assertIn('href="/terms?return_to=%2F"', footer_source)
         self.assertIn('href="/privacy?return_to=%2F"', footer_source)
-        self.assertIn("создан, чтобы встречаться", _plain_text(footer_source))
+        self.assertNotIn("создан, чтобы встречаться", _plain_text(footer_source))
+        hero = re.search(r"<section\b[^>]*\bhero\b.*?</section>", self.home, re.DOTALL)
+        self.assertIsNotNone(hero)
+        self.assertIn("создан, чтобы встречаться", _plain_text(hero.group(0)))
 
-    def test_story_has_one_shell_and_the_agreed_ten_phase_arc(self):
+    def test_story_has_one_shell_and_the_agreed_six_phase_arc(self):
         self.assertEqual(self.home.count("data-landing-story"), 1)
         self.assertEqual(self.home.count("data-story-stage"), 1)
         self.assertEqual(self.home.count("data-demo-card"), 1)
@@ -218,10 +232,6 @@ class LandingExperienceContractTests(unittest.TestCase):
             "details": {"details", "content"},
             "people": {"people", "participants", "voting"},
             "float": {"float", "hover", "assembled"},
-            "focus": {"focus", "zoom", "closeup"},
-            "swipe": {"swipe", "gallery"},
-            "interactive": {"interactive", "actions", "interact"},
-            "return": {"return", "reset", "pullback"},
         }
         reverse_aliases = {
             alias: canonical
@@ -247,12 +257,90 @@ class LandingExperienceContractTests(unittest.TestCase):
                 "details",
                 "people",
                 "float",
-                "focus",
-                "swipe",
-                "interactive",
-                "return",
             ],
         )
+        self.assertEqual(self.home.count("data-story-step"), 6)
+        self.assertRegex(self.home, r"<span>/0?6</span>")
+
+        step_sources = re.findall(
+            r'<li\b(?=[^>]*\bdata-story-step(?:\b|=))[^>]*>(.*?)</li>',
+            self.home,
+            re.DOTALL,
+        )
+        self.assertEqual(len(step_sources), 6)
+        self.assertEqual(
+            [
+                _plain_text(re.search(r"<h3\b[^>]*>(.*?)</h3>", step, re.DOTALL).group(1))
+                for step in step_sources
+            ],
+            [
+                "Сначала — фотография",
+                "Вокруг появляется карточка",
+                "Название, дата и место",
+                "Все детали внутри",
+                "Видно, кто выбирает",
+                "Карточка готова",
+            ],
+        )
+        for step in step_sources:
+            self.assertNotRegex(step, r"<p\b", "У шага не должно быть нижнего описания")
+        for removed_phase in ("focus", "swipe", "interactive", "return"):
+            self.assertNotRegex(
+                self.story,
+                rf"\.addLabel\(\s*[\"']{removed_phase}[\"']",
+            )
+        final_phase = self.story.split('.addLabel("float"', 1)
+        self.assertEqual(len(final_phase), 2, "Не найден финальный этап float")
+        self.assertIn("scales().focus", final_phase[1])
+        self.assertIn("galleryController.setAutoProgress", final_phase[1])
+
+    def test_feed_show_all_opens_login_and_preview_uses_real_feed_anatomy(self):
+        feed = re.search(
+            r'<article\b[^>]*class="[^"]*\bpossibility-story--feed\b[^"]*"[^>]*>'
+            r"(.*?)(?=<article\b[^>]*class=\"[^\"]*\bpossibility-story--profile\b)",
+            self.home,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(feed)
+        source = feed.group(1)
+        show_all = re.search(
+            r'<a\b[^>]*>(?:\s|<[^>]+>)*Смотреть все(?:\s|<[^>]+>)*</a>',
+            source,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(show_all, "«Смотреть все» должно быть ссылкой")
+        show_all_tag = show_all.group(0).split(">", 1)[0] + ">"
+        self.assertEqual(_attribute(show_all_tag, "href"), "/login")
+
+        preview = re.search(
+            r'<div\b[^>]*class="[^"]*\bfeed-fragment\b[^"]*"[^>]*>',
+            source,
+        )
+        self.assertIsNotNone(preview)
+        self.assertNotEqual(_attribute(preview.group(0), "role"), "img")
+
+        cards = re.findall(
+            r'<article\b(?=[^>]*\bdata-feed-preview-card(?:\b|=))[^>]*>'
+            r"(.*?)</article>",
+            source,
+            re.DOTALL,
+        )
+        self.assertGreaterEqual(len(cards), 2)
+        for card in cards:
+            with self.subTest(card=_plain_text(card)[:40]):
+                self.assertRegex(card, r"<img\b")
+                self.assertRegex(card, r"<h[1-6]\b")
+                self.assertIn("data-feed-preview-owner", card)
+                self.assertIn("data-feed-preview-meta", card)
+                self.assertIn("data-feed-preview-actions", card)
+                text = _plain_text(card)
+                self.assertIn("Добавить", text)
+                self.assertIn("Поделиться", text)
+
+    def test_classic_theme_has_no_extra_orbits_or_dots(self):
+        self.assertNotIn('class="bg-gather', self.home)
+        self.assertNotIn("landing-skin-decor--friends", self.home)
+        self.assertIn("landing-skin-decor--romantic", self.home)
 
     def test_card_matches_the_real_public_event_anatomy(self):
         card = self.demo_card()
@@ -295,6 +383,32 @@ class LandingExperienceContractTests(unittest.TestCase):
         self.assertRegex(_attribute(place, "href") or "", r"^https?://")
         self.assertEqual(_attribute(place, "target"), "_blank")
         self.assertRegex(_attribute(place, "rel") or "", r"\bnoopener\b")
+
+        for class_name in (
+            "landing-demo-card__calendar",
+            "landing-demo-card__links",
+        ):
+            with self.subTest(link=class_name):
+                if class_name == "landing-demo-card__calendar":
+                    match = re.search(
+                        rf'<a\b[^>]*class="[^"]*\b{class_name}\b[^"]*"[^>]*>',
+                        card,
+                        re.DOTALL,
+                    )
+                else:
+                    match = re.search(
+                        rf'<div\b[^>]*class="[^"]*\b{class_name}\b[^"]*"[^>]*>'
+                        r".*?(<a\b[^>]*>)",
+                        card,
+                        re.DOTALL,
+                    )
+                self.assertIsNotNone(match)
+                link = match.group(0) if class_name.endswith("calendar") else match.group(1)
+                href = _attribute(link, "href") or ""
+                self.assertTrue(href and href != "#")
+                self.assertRegex(href, r"^https?://")
+                self.assertEqual(_attribute(link, "target"), "_blank")
+                self.assertRegex(_attribute(link, "rel") or "", r"\bnoopener\b")
 
         progress = next(
             tag for tag in _tags(card) if _attribute(tag, "role") == "progressbar"
@@ -374,6 +488,25 @@ class LandingExperienceContractTests(unittest.TestCase):
         self.assertEqual(_attribute(panel, "id"), panel_id)
         self.assertIsNotNone(_attribute(panel, "hidden"))
         self.assertRegex(card, r'<label\b[^>]*\bfor="[^"]+"')
+        submit = _opening_tag(card, "data-demo-question-submit", tag="button")
+        self.assertEqual(_attribute(submit, "type"), "submit")
+
+        submit_handler = re.search(
+            r"function\s+submitQuestion\s*\([^)]*\)\s*\{"
+            r"(.*?)\n\s*\}\n\s*\n\s*listen\(",
+            self.story,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(submit_handler)
+        handler_source = submit_handler.group(1)
+        self.assertIn(".value.trim()", handler_source)
+        truthy_branch = re.search(
+            r"if\s*\([^)]*\.value\.trim\(\)[^)]*\)\s*\{(.*?)\n\s*\}",
+            handler_source,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(truthy_branch)
+        self.assertIn("closeQuestion()", truthy_branch.group(1))
 
     def test_skin_controls_are_classic_and_romantic_without_replacing_shell(self):
         html_tag = re.search(r"<html\b[^>]*>", self.home)
@@ -430,6 +563,7 @@ class LandingExperienceContractTests(unittest.TestCase):
             for item in re.findall(r"<li\b[^>]*>(.*?)</li>", list_source, re.DOTALL):
                 label = re.search(r"<strong\b[^>]*>(.*?)</strong>", item, re.DOTALL)
                 self.assertIsNotNone(label, "У каждой настройки нужен заголовок")
+                self.assertNotRegex(item, r"<small\b", "Описания настроек нужно убрать")
                 labels.append(_plain_text(label.group(1)).rstrip("."))
             return labels
 
@@ -469,13 +603,21 @@ class LandingExperienceContractTests(unittest.TestCase):
         )
         image_tags = re.findall(r"<img\b[^>]*>", self.home, re.DOTALL)
         for filename in expected_assets:
-            matches = [
-                image
-                for image in image_tags
-                if Path(urlsplit(_attribute(image, "src") or "").path).name == filename
-            ]
+            matches = []
+            for image in image_tags:
+                source = (
+                    _attribute(image, "src")
+                    or _attribute(image, "data-deferred-src")
+                    or ""
+                )
+                if Path(urlsplit(source).path).name == filename:
+                    matches.append(image)
             self.assertGreaterEqual(len(matches), 1, f"Не используется изображение {filename}")
-            src = _attribute(matches[0], "src") or ""
+            src = (
+                _attribute(matches[0], "src")
+                or _attribute(matches[0], "data-deferred-src")
+                or ""
+            )
             local_path = _static_path(src)
             self.assertIsNotNone(local_path, f"Изображение {filename} должно быть локальным")
             self.assertTrue(local_path.is_file(), local_path)
@@ -555,23 +697,43 @@ class LandingExperienceContractTests(unittest.TestCase):
             "CSS transition не должен дополнительно сглаживать transform, которым управляет GSAP",
         )
 
-    def test_fit_reserves_height_for_the_camera_vertical_offsets(self):
+    def test_reverse_scroll_releases_a_manual_gallery_swipe_immediately(self):
+        sync_scene = re.search(
+            r"function\s+syncScene\s*\(\s*trigger\s*\)\s*\{"
+            r"(.*?)\n\s*\}",
+            self.story,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(sync_scene)
+        source = sync_scene.group(1)
+        self.assertRegex(source, r"trigger\.direction\s*<\s*0")
+        self.assertIn("galleryController.releaseToTimeline(autoSwipe.progress)", source)
+
+    def test_story_intro_does_not_inherit_generic_section_whitespace(self):
+        declarations = _merged_css_declarations(
+            self.css,
+            lambda selector: selector.endswith(".landing-story__intro"),
+        )
+        self.assertEqual(declarations.get("padding-block"), "0")
+
+    def test_fit_uses_real_stage_geometry_for_each_camera_offset(self):
         scales = re.search(
-            r"function\s+scales\s*\(\s*\)\s*\{(.*?)\n\s*\}",
+            r"function\s+scales\s*\(\s*\)\s*\{(.*?)\n\s*function\s+clipForBottom",
             self.story,
             re.DOTALL,
         )
         self.assertIsNotNone(scales, "Не найден расчёт масштаба карточки")
         source = scales.group(1)
+        self.assertIn("stageRect.width", source)
         self.assertIn("stageRect.height", source)
         self.assertIn("naturalHeight", source)
-        self.assertRegex(source, r'Math\.abs\(\s*sceneY\(\s*["\']base["\']\s*\)\s*\)')
-        self.assertRegex(source, r'Math\.abs\(\s*sceneY\(\s*["\']focus["\']\s*\)\s*\)')
-        self.assertRegex(
-            source,
-            r"availableHeight\s*=.*(?:scene|offset|inset|safe)",
-            "Доступная высота должна учитывать вертикальный сдвиг камеры",
-        )
+        self.assertIn("function fitAt(offset)", source)
+        self.assertIn("stageCenter + offset", source)
+        self.assertIn("center - safeTop", source)
+        self.assertIn("safeBottom - center", source)
+        self.assertIn('fitAt(sceneY("base"))', source)
+        self.assertIn('fitAt(sceneY("focus"))', source)
+        self.assertNotIn("narrativeRect", source)
 
     def test_stage_has_no_glass_backplate_and_cannot_clip_the_card(self):
         stage_rules = [

@@ -19,6 +19,30 @@
     });
   }
 
+  function hydrateImage(image) {
+    if (!image || !image.dataset.deferredSrc) return;
+    image.src = image.dataset.deferredSrc;
+    delete image.dataset.deferredSrc;
+  }
+
+  function initDeferredMedia(cleaners) {
+    var images = toArray(document.querySelectorAll("#possibilities img[data-deferred-src]"));
+    if (!images.length) return;
+    if (!("IntersectionObserver" in window)) {
+      images.forEach(hydrateImage);
+      return;
+    }
+    var observer = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (!entry.isIntersecting) return;
+        hydrateImage(entry.target);
+        observer.unobserve(entry.target);
+      });
+    }, { rootMargin: "360px 0px" });
+    images.forEach(function (image) { observer.observe(image); });
+    cleaners.push(function () { observer.disconnect(); });
+  }
+
   function createGallery(gallery, gsap, cleaners) {
     var slides = toArray(gallery.querySelectorAll("[data-demo-slide]"));
     var dots = toArray(gallery.querySelectorAll("[data-demo-gallery-dot]"));
@@ -33,13 +57,23 @@
       dragging: false,
       pointerId: null,
       startX: 0,
+      startY: 0,
       startProgress: 0,
-      startedAt: 0
+      startedAt: 0,
+      pendingGesture: false,
+      timelineProgress: 0
     };
 
     function activeSlides() {
       return slides.filter(function (slide) {
         return slide.dataset.demoSlideSkin === state.skin;
+      });
+    }
+
+    function hydrateSlides(indexes) {
+      activeSlides().forEach(function (slide) {
+        if (indexes.indexOf(Number(slide.dataset.slideIndex || 0)) === -1) return;
+        hydrateImage(slide.querySelector("img"));
       });
     }
 
@@ -102,24 +136,41 @@
 
     function moveBy(direction) {
       takeControl();
-      settle(Math.round(state.progress) + direction, true);
+      var target = Math.round(state.progress) + direction;
+      hydrateSlides([target]);
+      settle(target, true);
     }
 
     function onPointerDown(event) {
       if (event.button !== undefined && event.button !== 0) return;
-      if (event.target.closest && event.target.closest("button")) return;
-      takeControl();
-      state.dragging = true;
+      if (event.target.closest && event.target.closest("button, a")) return;
+      state.pendingGesture = true;
       state.pointerId = event.pointerId;
       state.startX = event.clientX;
+      state.startY = event.clientY;
       state.startProgress = state.progress;
       state.startedAt = performance.now();
-      gallery.classList.add("is-dragging");
-      if (gallery.setPointerCapture) gallery.setPointerCapture(event.pointerId);
     }
 
     function onPointerMove(event) {
-      if (!state.dragging || event.pointerId !== state.pointerId) return;
+      if (event.pointerId !== state.pointerId) return;
+      if (state.pendingGesture) {
+        var pendingX = event.clientX - state.startX;
+        var pendingY = event.clientY - state.startY;
+        if (Math.abs(pendingX) < 8 && Math.abs(pendingY) < 8) return;
+        if (Math.abs(pendingX) <= Math.abs(pendingY) * 1.15) {
+          state.pendingGesture = false;
+          state.pointerId = null;
+          return;
+        }
+        takeControl();
+        hydrateSlides([0, 1, 2]);
+        state.pendingGesture = false;
+        state.dragging = true;
+        gallery.classList.add("is-dragging");
+        if (gallery.setPointerCapture) gallery.setPointerCapture(event.pointerId);
+      }
+      if (!state.dragging) return;
       var width = Math.max(1, gallery.getBoundingClientRect().width);
       var maximum = Math.max(0, activeSlides().length - 1);
       var raw = state.startProgress - ((event.clientX - state.startX) / width);
@@ -128,7 +179,13 @@
     }
 
     function finishPointer(event) {
-      if (!state.dragging || event.pointerId !== state.pointerId) return;
+      if (event.pointerId !== state.pointerId) return;
+      if (state.pendingGesture) {
+        state.pendingGesture = false;
+        state.pointerId = null;
+        return;
+      }
+      if (!state.dragging) return;
       var delta = event.clientX - state.startX;
       var elapsed = Math.max(1, performance.now() - state.startedAt);
       var width = Math.max(1, gallery.getBoundingClientRect().width);
@@ -161,20 +218,36 @@
     listen(next, "click", function () { moveBy(1); }, undefined, cleaners);
 
     render(false);
+    hydrateSlides([0, 1]);
 
     return {
       setAutoProgress: function (progress) {
+        state.timelineProgress = clamp(progress, 0, 1);
         if (state.userControlled || state.dragging) return;
-        state.progress = clamp(progress, 0, 1);
+        state.progress = state.timelineProgress;
+        render(false);
+      },
+      releaseToTimeline: function (progress) {
+        stopSettling();
+        state.timelineProgress = clamp(progress, 0, 1);
+        state.progress = state.timelineProgress;
+        state.userControlled = false;
+        state.dragging = false;
+        state.pendingGesture = false;
+        state.pointerId = null;
+        gallery.classList.remove("is-dragging");
         render(false);
       },
       setSkin: function (skin) {
         stopSettling();
         state.skin = skin === "romantic" ? "romantic" : "friends";
-        state.progress = 0;
+        state.progress = state.timelineProgress;
         state.userControlled = false;
         state.dragging = false;
+        state.pendingGesture = false;
+        state.pointerId = null;
         gallery.classList.remove("is-dragging");
+        hydrateSlides([0, 1]);
         render(false);
       },
       destroy: stopSettling
@@ -196,7 +269,6 @@
     var voteButtonLabel = story.querySelector("[data-demo-vote-label]");
     var questionToggle = story.querySelector("[data-demo-question-toggle]");
     var questionPanel = story.querySelector("[data-demo-question-panel]");
-    var questionSubmit = story.querySelector("[data-demo-question-submit]");
     var questionStatus = story.querySelector("[data-demo-question-status]");
     var questionInput = story.querySelector("#landing-demo-question-input");
     var voted = { friends: false, romantic: false };
@@ -266,6 +338,7 @@
 
       ownerInitial.hidden = skin === "romantic";
       ownerPhoto.hidden = skin !== "romantic";
+      if (skin === "romantic") hydrateImage(ownerPhoto);
       gallery.setAttribute("aria-label", skin === "romantic"
         ? "Фотографии события «Кинопоказ на крыше»"
         : "Фотографии события «Антикафе на Невском»");
@@ -291,15 +364,20 @@
 
     function submitQuestion(event) {
       if (event) event.preventDefault();
-      questionStatus.textContent = questionInput.value.trim()
-        ? "Вопрос сохранён в демонстрации"
-        : "Напишите вопрос, чтобы отправить его";
+      if (questionInput.value.trim()) {
+        questionStatus.textContent = "Вопрос сохранён в демонстрации";
+        questionStatus.hidden = false;
+        closeQuestion();
+        questionInput.value = "";
+        questionToggle.focus();
+        return;
+      }
+      questionStatus.textContent = "Напишите вопрос, чтобы отправить его";
       questionStatus.hidden = false;
     }
 
     listen(voteButton, "click", toggleVote, undefined, cleaners);
     listen(questionToggle, "click", toggleQuestion, undefined, cleaners);
-    listen(questionSubmit, "click", submitQuestion, undefined, cleaners);
     listen(questionPanel, "submit", submitQuestion, undefined, cleaners);
     listen(document, "d4y:skinchange", function (event) {
       syncSkin(event.detail && event.detail.skin);
@@ -321,68 +399,70 @@
     var steps = toArray(story.querySelectorAll("[data-story-step]"));
     var counter = story.querySelector("[data-story-counter]");
     var body = story.querySelector("[data-card-body]");
+    var toolbar = story.querySelector(".landing-story__toolbar");
     var autoSwipe = { progress: 0 };
     var galleryController = story._galleryController;
     var sceneNames = steps.map(function (step) { return step.dataset.scene; });
+    var interactiveIndex = Math.max(0, sceneNames.indexOf("float"));
     var activeScene = -1;
+    var timeline;
 
     function sceneY(kind) {
-      var mobile = window.matchMedia("(max-width: 760px)").matches;
-      if (mobile) return kind === "focus" ? -58 : -48;
-      if (window.innerHeight < 720) return kind === "focus" ? 4 : 8;
-      return kind === "focus" ? 20 : 34;
+      if (window.matchMedia("(max-width: 760px)").matches) return kind === "focus" ? 0 : 2;
+      if (window.innerHeight < 720) return kind === "focus" ? 8 : 12;
+      return kind === "focus" ? 20 : 30;
     }
 
     function scales() {
       var stageRect = stage.getBoundingClientRect();
       var pinRect = pin.getBoundingClientRect();
-      var toolbar = story.querySelector(".landing-story__toolbar");
-      var narrative = story.querySelector(".landing-story__narrative");
       var naturalWidth = Math.max(1, experience.offsetWidth);
       var naturalHeight = Math.max(1, experience.offsetHeight);
-      var mobile = window.matchMedia("(max-width: 760px)").matches;
       var stageTop = stageRect.top - pinRect.top;
       var stageBottom = stageTop + stageRect.height;
       var stageCenter = stageTop + (stageRect.height / 2);
-      var safeTop = Math.max(stageTop + 8, 8);
-      var safeBottom = Math.min(stageBottom - 8, window.innerHeight - 12);
-      var largestSceneOffset = Math.max(
-        Math.abs(sceneY("base")),
-        Math.abs(sceneY("focus"))
-      );
+      var safeTop = Math.max(stageTop + 6, 6);
+      var safeBottom = Math.min(stageBottom - 6, pinRect.height - 8);
       var toolbarRect = toolbar && toolbar.getBoundingClientRect();
-      var narrativeRect = narrative && narrative.getBoundingClientRect();
-      safeTop = toolbarRect
-        ? Math.max(safeTop, toolbarRect.bottom - pinRect.top + 10)
-        : safeTop;
-      safeBottom = mobile && narrativeRect
-        ? Math.min(safeBottom, narrativeRect.top - pinRect.top - 10)
-        : safeBottom;
-      var safeHalfHeight = Math.max(1, Math.min(stageCenter - safeTop, safeBottom - stageCenter));
-      var availableWidth = Math.max(1, Math.min(stageRect.width - 16, window.innerWidth - 20));
-      var availableHeight = Math.max(1, (safeHalfHeight - largestSceneOffset) * 2);
-      var fit = Math.min(availableWidth / naturalWidth, availableHeight / naturalHeight);
-      fit = Math.min(fit * 0.98, mobile ? 1 : 1.14);
+      if (toolbarRect) safeTop = Math.max(safeTop, toolbarRect.bottom - pinRect.top + 6);
+      var availableWidth = Math.max(1, Math.min(stageRect.width - 8, window.innerWidth - 12));
+
+      function fitAt(offset) {
+        var center = stageCenter + offset;
+        var availableHeight = Math.max(1, 2 * Math.min(center - safeTop, safeBottom - center));
+        return Math.min(1, availableWidth / naturalWidth, availableHeight / naturalHeight);
+      }
+
+      var baseFit = fitAt(sceneY("base"));
       return {
-        photo: fit * 0.73,
-        surface: fit * 0.84,
-        assembled: fit * 0.90,
-        focus: fit,
-        returned: fit * 0.91
+        photo: baseFit * 0.72,
+        surface: baseFit * 0.82,
+        essentials: baseFit * 0.90,
+        details: baseFit * 0.94,
+        full: baseFit * 0.97,
+        focus: fitAt(sceneY("focus"))
       };
     }
 
-    function clipForBody(visibleBodyHeight) {
-      var hiddenHeight = Math.max(
-        0,
-        card.offsetHeight - gallery.offsetHeight - visibleBodyHeight
-      );
-      return "inset(0px 0px " + hiddenHeight
-        + "px 0px round 26px 26px 26px 26px)";
+    function clipForBottom(revealedBottom) {
+      var hiddenHeight = Math.max(0, card.offsetHeight - revealedBottom);
+      return "inset(0px 0px " + hiddenHeight + "px 0px round 26px)";
+    }
+
+    function clipThrough(nodes, extra) {
+      var revealedBottom = gallery.offsetHeight + 44;
+      nodes.forEach(function (node) {
+        if (!body.contains(node)) return;
+        revealedBottom = Math.max(
+          revealedBottom,
+          body.offsetTop + node.offsetTop + node.offsetHeight + (extra || 0)
+        );
+      });
+      return clipForBottom(revealedBottom);
     }
 
     function photoClip() {
-      return clipForBody(0);
+      return clipForBottom(gallery.offsetHeight);
     }
 
     function setActiveScene(index) {
@@ -390,45 +470,56 @@
       if (index === activeScene) return;
       activeScene = index;
       story.dataset.activeScene = sceneNames[index];
-      story.classList.toggle("is-card-interactive", index >= sceneNames.indexOf("interactive"));
+      story.classList.toggle("is-card-interactive", index >= interactiveIndex);
+      if (index < interactiveIndex) galleryController.releaseToTimeline(autoSwipe.progress);
       steps.forEach(function (step, stepIndex) {
         var active = stepIndex === index;
         step.classList.toggle("is-active", active);
         if (active) step.setAttribute("aria-current", "step");
         else step.removeAttribute("aria-current");
-        gsap.set(step, { autoAlpha: active ? 1 : 0, y: active ? 0 : 14 });
+        gsap.set(step, { autoAlpha: active ? 1 : 0, y: active ? 0 : 12 });
       });
       if (counter) counter.textContent = String(index + 1).padStart(2, "0");
     }
 
+    function syncScene(trigger) {
+      if (trigger && trigger.direction < 0 && activeScene >= interactiveIndex) {
+        galleryController.releaseToTimeline(autoSwipe.progress);
+      }
+      var index = 0;
+      sceneNames.forEach(function (name, sceneIndex) {
+        if (timeline.time() + 0.001 >= timeline.labels[name]) index = sceneIndex;
+      });
+      setActiveScene(index);
+    }
+
     gsap.set(material, { autoAlpha: 0 });
     gsap.set(owner, { autoAlpha: 0, y: 8 });
-    gsap.set(essentials, { autoAlpha: 0, y: 10 });
-    gsap.set(details, { autoAlpha: 0, y: 10 });
-    gsap.set(people, { autoAlpha: 0, y: 10 });
-    gsap.set(actions, { autoAlpha: 0, y: 8 });
+    gsap.set(essentials, { autoAlpha: 0, y: 9 });
+    gsap.set(details, { autoAlpha: 0, y: 9 });
+    gsap.set(people, { autoAlpha: 0, y: 9 });
+    gsap.set(actions, { autoAlpha: 0, y: 7 });
     gsap.set(controls, { autoAlpha: 0 });
+    gsap.set(gallery, { borderRadius: "26px" });
     gsap.set(card, { clipPath: photoClip });
-    gsap.set(experience, { rotationX: 0, rotationY: 0, rotationZ: 0, transformPerspective: 1500 });
+    gsap.set(experience, { rotation: 0, y: 0, transformOrigin: "50% 50%" });
     setActiveScene(0);
 
-    var timeline = gsap.timeline({
-      defaults: { ease: "power2.inOut" },
+    timeline = gsap.timeline({
+      defaults: { ease: "none" },
       scrollTrigger: {
         trigger: pin,
         start: "top top",
-        end: function () { return "+=" + Math.max(6200, window.innerHeight * 8.6); },
+        end: function () { return "+=" + Math.max(3600, window.innerHeight * 4.8); },
         pin: true,
         pinSpacing: true,
-        scrub: 0.62,
+        scrub: true,
         anticipatePin: 1,
         invalidateOnRefresh: true,
-        onUpdate: function () {
-          var index = 0;
-          sceneNames.forEach(function (name, sceneIndex) {
-            if (timeline.time() + 0.001 >= timeline.labels[name]) index = sceneIndex;
-          });
-          setActiveScene(index);
+        onUpdate: syncScene,
+        onLeaveBack: function () {
+          galleryController.releaseToTimeline(0);
+          setActiveScene(0);
         }
       }
     });
@@ -436,59 +527,50 @@
     timeline
       .addLabel("photo", 0)
       .fromTo(gallery,
-        { autoAlpha: 0, scale: 0.94 },
-        { autoAlpha: 1, scale: 1, duration: 1.05, ease: "power3.out" }, 0)
+        { autoAlpha: 0, scale: 0.97 },
+        { autoAlpha: 1, scale: 1, duration: 0.82 }, 0)
       .fromTo(camera,
-        { scale: function () { return scales().photo * 0.94; }, y: function () { return sceneY("base") + 10; } },
-        { scale: function () { return scales().photo; }, y: function () { return sceneY("base"); }, duration: 1.05, ease: "power3.out" }, 0)
+        { scale: function () { return scales().photo * 0.96; }, y: function () { return sceneY("base") + 5; } },
+        { scale: function () { return scales().photo; }, y: function () { return sceneY("base"); }, duration: 0.82 }, 0)
 
-      .addLabel("surface")
-      .to(material, { autoAlpha: 1, duration: 0.7 }, "surface")
-      .to(card, { clipPath: function () { return clipForBody(48); }, duration: 1.18, ease: "power3.inOut" }, "surface+=0.08")
-      .to(camera, { scale: function () { return scales().surface; }, duration: 1.35, ease: "power3.inOut" }, "surface+=0.08")
-      .to(body, { duration: 0.28 }, "surface+=1.18")
+      .addLabel("surface", 0.95)
+      .to(material, { autoAlpha: 1, duration: 0.55 }, "surface")
+      .to(gallery, { borderRadius: "26px 26px 0px 0px", duration: 0.86 }, "surface")
+      .to(card, { clipPath: function () { return clipForBottom(gallery.offsetHeight + 44); }, duration: 0.86 }, "surface")
+      .to(camera, { scale: function () { return scales().surface; }, duration: 0.86 }, "surface")
 
-      .addLabel("essentials")
-      .to(card, { clipPath: function () { return clipForBody(142); }, duration: 0.94, ease: "power3.inOut" }, "essentials")
-      .to(camera, { scale: function () { return scales().assembled; }, duration: 1.05 }, "essentials")
-      .to(experience, { rotationX: 1.2, rotationY: -1.7, y: -2, duration: 1.05 }, "essentials")
-      .to(owner, { autoAlpha: 1, y: 0, duration: 0.48, ease: "power2.out" }, "essentials+=0.12")
-      .to(essentials, { autoAlpha: 1, y: 0, duration: 0.56, stagger: 0.10, ease: "power2.out" }, "essentials+=0.24")
+      .addLabel("essentials", 2.02)
+      .to(card, { clipPath: function () { return clipThrough(essentials, 12); }, duration: 0.82 }, "essentials")
+      .to(camera, { scale: function () { return scales().essentials; }, duration: 0.82 }, "essentials")
+      .to(owner, { autoAlpha: 1, y: 0, duration: 0.42 }, "essentials+=0.08")
+      .to(essentials, { autoAlpha: 1, y: 0, duration: 0.50, stagger: 0.08 }, "essentials+=0.16")
 
-      .addLabel("details")
-      .to(card, { clipPath: function () { return clipForBody(232); }, duration: 0.88, ease: "power3.inOut" }, "details")
-      .to(details, { autoAlpha: 1, y: 0, duration: 0.62, stagger: 0.10, ease: "power2.out" }, "details+=0.08")
-      .to(experience, { rotationX: 0.6, rotationY: -0.8, y: 0, duration: 0.85 }, "details")
+      .addLabel("details", 3.14)
+      .to(card, { clipPath: function () { return clipThrough(details, 12); }, duration: 0.82 }, "details")
+      .to(camera, { scale: function () { return scales().details; }, duration: 0.82 }, "details")
+      .to(details, { autoAlpha: 1, y: 0, duration: 0.54, stagger: 0.08 }, "details+=0.10")
 
-      .addLabel("people")
-      .to(card, { clipPath: "inset(0px 0px 0px 0px round 26px 26px 26px 26px)", duration: 0.92, ease: "power3.inOut" }, "people")
-      .to(people, { autoAlpha: 1, y: 0, duration: 0.68, ease: "power2.out" }, "people+=0.08")
-      .to(actions, { autoAlpha: 1, y: 0, duration: 0.58, ease: "power2.out" }, "people+=0.36")
+      .addLabel("people", 4.24)
+      .to(card, { clipPath: function () { return clipForBottom(card.offsetHeight); }, duration: 0.86 }, "people")
+      .to(camera, { scale: function () { return scales().full; }, duration: 0.86 }, "people")
+      .to(people, { autoAlpha: 1, y: 0, duration: 0.55 }, "people+=0.08")
+      .to(actions, { autoAlpha: 1, y: 0, duration: 0.48 }, "people+=0.30")
 
-      .addLabel("float")
-      .to(experience, { rotationX: 1.15, rotationY: -1.55, rotationZ: 0.12, y: -4, duration: 0.78, ease: "sine.inOut" }, "float")
-      .to(experience, { rotationX: -0.65, rotationY: 1.05, rotationZ: -0.10, y: 3, duration: 0.92, ease: "sine.inOut" })
-      .to(experience, { rotationX: 0.25, rotationY: -0.45, rotationZ: 0, y: 0, duration: 0.68, ease: "sine.inOut" })
-
-      .addLabel("focus")
-      .to(camera, { scale: function () { return scales().focus; }, y: function () { return sceneY("focus"); }, duration: 1.25, ease: "power3.inOut" }, "focus")
-      .to(experience, { rotationX: 0, rotationY: 0, rotationZ: 0, y: 0, duration: 1.05, ease: "power3.inOut" }, "focus")
-      .to(controls, { autoAlpha: 1, duration: 0.42 }, "focus+=0.72")
-
-      .addLabel("swipe")
+      .addLabel("float", 5.34)
+      .to(camera, {
+        scale: function () { return scales().focus; },
+        y: function () { return sceneY("focus"); },
+        duration: 1.18
+      }, "float")
+      .to(controls, { autoAlpha: 1, duration: 0.34 }, "float+=0.55")
       .to(autoSwipe, {
         progress: 1,
-        duration: 1.35,
-        ease: "power2.inOut",
+        duration: 1.18,
         onUpdate: function () { galleryController.setAutoProgress(autoSwipe.progress); }
-      }, "swipe+=0.12")
-
-      .addLabel("interactive")
-      .to(camera, { scale: function () { return scales().focus; }, duration: 1.55, ease: "none" }, "interactive")
-
-      .addLabel("return")
-      .to(camera, { scale: function () { return scales().returned; }, y: function () { return sceneY("base"); }, duration: 1.35, ease: "power3.inOut" }, "return")
-      .to(experience, { rotationX: 0.2, rotationY: -0.35, rotationZ: 0, y: 0, duration: 1.25, ease: "power3.inOut" }, "return");
+      }, "float+=0.10")
+      .to(experience, { rotation: 0.18, y: -2, duration: 0.62, ease: "sine.inOut" }, "float+=1.02")
+      .to(experience, { rotation: -0.12, y: 1, duration: 0.72, ease: "sine.inOut" })
+      .to(experience, { rotation: 0, y: 0, duration: 0.56, ease: "sine.inOut" });
 
     return timeline;
   }
@@ -515,15 +597,21 @@
       return function () {};
     }
 
-    if (gsap && ScrollTrigger) gsap.registerPlugin(ScrollTrigger);
+    if (gsap && ScrollTrigger) {
+      gsap.registerPlugin(ScrollTrigger);
+      if (window.matchMedia("(max-width: 760px), (pointer: coarse)").matches) {
+        ScrollTrigger.config({ ignoreMobileResize: true });
+      }
+    }
 
+    initDeferredMedia(cleaners);
     var galleryController = createGallery(gallery, gsap, cleaners);
     story._galleryController = galleryController;
     createCardInteractions(story, card, galleryController, cleaners);
 
     function showStatic() {
       story.classList.add("is-story-ready", "is-card-interactive");
-      story.dataset.activeScene = "interactive";
+      story.dataset.activeScene = "float";
       card.style.clipPath = "none";
     }
 
@@ -542,6 +630,14 @@
           if (story.isConnected) ScrollTrigger.refresh();
         });
       }
+      var viewportWidth = window.innerWidth;
+      listen(window, "resize", function () {
+        if (Math.abs(window.innerWidth - viewportWidth) < 2) return;
+        viewportWidth = window.innerWidth;
+        window.requestAnimationFrame(function () {
+          if (story.isConnected) ScrollTrigger.refresh();
+        });
+      }, { passive: true }, cleaners);
     }
 
     function onMotionChange() {

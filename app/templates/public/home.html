@@ -22,8 +22,18 @@
 {% from "_appearance_assets.html" import appearance_assets %}
 {{ appearance_assets('friends') }}
 <meta name="theme-color" content="#554eae">
-<script nonce="{{ csp_nonce }}">document.documentElement.classList.add('has-js');</script>
-<script src="{{ asset('theme.js') }}"></script>
+<script nonce="{{ csp_nonce }}">
+(function () {
+  var root = document.documentElement;
+  var theme = document.cookie.match(/(?:^|;\s*)d4y_theme=(light|dark)(?:;|$)/);
+  var skin = document.cookie.match(/(?:^|;\s*)d4y_skin=(friends|romantic)(?:;|$)/);
+  root.classList.add('has-js');
+  root.dataset.theme = theme ? theme[1] : 'light';
+  root.style.colorScheme = root.dataset.theme;
+  if (skin) root.dataset.skin = skin[1];
+})();
+</script>
+<script src="{{ asset('theme.js') }}" defer></script>
 <link rel="stylesheet" href="{{ asset('landing.css') }}">
 <script src="{{ asset('ink.js') }}"
         data-runtime-src="{{ asset('ink-runtime.js') }}"
@@ -40,11 +50,6 @@
 <script type="application/ld+json" nonce="{{ csp_nonce }}">{{ structured_data | tojson }}</script>
 </head>
 <body class="landing-page" data-skin="friends" data-ink-interactive="0">
-<div class="bg-gather landing-skin-decor landing-skin-decor--friends" data-skin-decor="friends" aria-hidden="true">
-  <span class="orbit o1"></span><span class="orbit o2"></span>
-  <span class="dot d1"></span><span class="dot d2"></span><span class="dot d3"></span>
-  <span class="spark s1">✦</span><span class="spark s2">✦</span>
-</div>
 <div class="bg-hearts landing-skin-decor landing-skin-decor--romantic" data-skin-decor="romantic" aria-hidden="true">
   <span>♥</span><span>♡</span><span>♥</span><span>♡</span><span>♥</span><span>♡</span><span>♥</span>
 </div>
@@ -55,8 +60,8 @@
   <div class="site-header__inner">
     <a class="wordmark" href="/" aria-label="date4you — главная">
       <span class="wordmark__mark" aria-hidden="true">
-        <img class="wordmark__logo wordmark__logo--friends" src="{{ asset('logo-standard.png') }}" alt="">
-        <img class="wordmark__logo wordmark__logo--romantic" src="{{ asset('logo-romantic.png') }}" alt="">
+        <img class="wordmark__logo wordmark__logo--friends" src="{{ asset('favicon-standard.png') }}" alt="" width="128" height="128">
+        <img class="wordmark__logo wordmark__logo--romantic" src="{{ asset('favicon-romantic.png') }}" alt="" width="128" height="128">
       </span>
       <span>date4you</span>
     </a>
@@ -124,58 +129,32 @@
 
           <div class="landing-story__narrative">
             <p class="landing-story__counter" aria-hidden="true">
-              <span data-story-counter>01</span><span>/10</span>
+              <span data-story-counter>01</span><span>/06</span>
             </p>
             <ol class="landing-story__steps" aria-label="Как собирается карточка события">
               <li class="landing-story__step is-active" data-story-step data-scene="photo" aria-current="step">
                 <span class="landing-story__step-number">01</span>
                 <h3>Сначала — фотография</h3>
-                <p>Место уже задаёт настроение встречи.</p>
               </li>
               <li class="landing-story__step" data-story-step data-scene="surface">
                 <span class="landing-story__step-number">02</span>
                 <h3>Вокруг появляется карточка</h3>
-                <p>Стеклянная поверхность собирает идею в знакомую форму.</p>
               </li>
               <li class="landing-story__step" data-story-step data-scene="essentials">
                 <span class="landing-story__step-number">03</span>
                 <h3>Название, дата и место</h3>
-                <p>Главное становится видно сразу.</p>
               </li>
               <li class="landing-story__step" data-story-step data-scene="details">
                 <span class="landing-story__step-number">04</span>
                 <h3>Все детали внутри</h3>
-                <p>Описание, ссылки и условия оплаты.</p>
               </li>
               <li class="landing-story__step" data-story-step data-scene="people">
                 <span class="landing-story__step-number">05</span>
                 <h3>Видно, кто выбирает</h3>
-                <p>Голоса, участники и свободные места.</p>
               </li>
               <li class="landing-story__step" data-story-step data-scene="float">
                 <span class="landing-story__step-number">06</span>
                 <h3>Карточка готова</h3>
-                <p>Она остаётся живой, но не мешает читать.</p>
-              </li>
-              <li class="landing-story__step" data-story-step data-scene="focus">
-                <span class="landing-story__step-number">07</span>
-                <h3>Посмотрите ближе</h3>
-                <p>Перед вами настоящий интерфейс Date4You.</p>
-              </li>
-              <li class="landing-story__step" data-story-step data-scene="swipe">
-                <span class="landing-story__step-number">08</span>
-                <h3>Фотографии можно листать</h3>
-                <p>Карточка сама показывает следующий кадр.</p>
-              </li>
-              <li class="landing-story__step" data-story-step data-scene="interactive">
-                <span class="landing-story__step-number">09</span>
-                <h3>Теперь попробуйте сами</h3>
-                <p>Свайпните фото, выберите событие или задайте вопрос.</p>
-              </li>
-              <li class="landing-story__step" data-story-step data-scene="return">
-                <span class="landing-story__step-number">10</span>
-                <h3>Готово к встрече</h3>
-                <p>Камера отходит, а карточка остаётся полностью видна.</p>
               </li>
             </ol>
           </div>
@@ -195,13 +174,25 @@
             <h3>Лента событий</h3>
             <p>Нет идей? В ленте событий можно найти идеи пользователей и сохранить понравившиеся события себе.</p>
           </div>
-          <div class="possibility-story__preview feed-fragment" role="img" aria-label="Пример ленты событий">
-            <div class="feed-fragment__toolbar"><strong>События рядом</strong><span>Смотреть все</span></div>
+          <div class="possibility-story__preview feed-fragment" role="group" aria-label="Пример ленты событий">
+            <div class="feed-fragment__toolbar"><strong>События рядом</strong><a href="/login">Смотреть все</a></div>
             <div class="feed-fragment__cards">
-              <div><img class="feed-fragment__cover" src="{{ asset('landing-feed-light-exhibition.webp') }}" alt="" width="1536" height="1024" loading="lazy" decoding="async"><strong>Выставка света</strong><small>Сегодня · 19:00</small><span>♡ Сохранить</span></div>
-              <div><img class="feed-fragment__cover" src="{{ asset('landing-feed-water-walk.webp') }}" alt="" width="1536" height="1024" loading="lazy" decoding="async"><strong>Прогулка у воды</strong><small>Воскресенье · 13:00</small><span>♡ Сохранить</span></div>
-              <div><img class="feed-fragment__cover" src="{{ asset('landing-feed-ceramics.webp') }}" alt="" width="1536" height="1024" loading="lazy" decoding="async"><strong>Мастерская керамики</strong><small>Суббота · 14:00</small><span>♡ Сохранить</span></div>
-              <div><img class="feed-fragment__cover" src="{{ asset('landing-feed-summer-cinema.webp') }}" alt="" width="1536" height="1024" loading="lazy" decoding="async"><strong>Летний кинотеатр</strong><small>Пятница · 21:00</small><span>♥ Сохранено</span></div>
+              <article class="feed-fragment__card" data-feed-preview-card>
+                <img class="feed-fragment__cover" data-deferred-src="{{ asset('landing-feed-light-exhibition.webp') }}" alt="" width="1536" height="1024" loading="lazy" decoding="async">
+                <div class="feed-fragment__body"><h4>Выставка света</h4><span class="feed-fragment__owner" data-feed-preview-owner><i aria-hidden="true">А</i> Анна</span><div class="feed-fragment__meta" data-feed-preview-meta><span>🕐 Сегодня · 19:00</span><span>📍 Новая Голландия</span></div><div class="feed-fragment__actions" data-feed-preview-actions><span>Добавить</span><span>Поделиться</span></div></div>
+              </article>
+              <article class="feed-fragment__card" data-feed-preview-card>
+                <img class="feed-fragment__cover" data-deferred-src="{{ asset('landing-feed-water-walk.webp') }}" alt="" width="1536" height="1024" loading="lazy" decoding="async">
+                <div class="feed-fragment__body"><h4>Прогулка у воды</h4><span class="feed-fragment__owner" data-feed-preview-owner><i aria-hidden="true">М</i> Михаил</span><div class="feed-fragment__meta" data-feed-preview-meta><span>🕐 Воскресенье · 13:00</span><span>📍 Севкабель Порт</span></div><div class="feed-fragment__actions" data-feed-preview-actions><span>Добавить</span><span>Поделиться</span></div></div>
+              </article>
+              <article class="feed-fragment__card" data-feed-preview-card>
+                <img class="feed-fragment__cover" data-deferred-src="{{ asset('landing-feed-ceramics.webp') }}" alt="" width="1536" height="1024" loading="lazy" decoding="async">
+                <div class="feed-fragment__body"><h4>Мастерская керамики</h4><span class="feed-fragment__owner" data-feed-preview-owner><i aria-hidden="true">К</i> Катя</span><div class="feed-fragment__meta" data-feed-preview-meta><span>🕐 Суббота · 14:00</span><span>📍 Васильевский остров</span></div><div class="feed-fragment__actions" data-feed-preview-actions><span>Добавить</span><span>Поделиться</span></div></div>
+              </article>
+              <article class="feed-fragment__card" data-feed-preview-card>
+                <img class="feed-fragment__cover" data-deferred-src="{{ asset('landing-feed-summer-cinema.webp') }}" alt="" width="1536" height="1024" loading="lazy" decoding="async">
+                <div class="feed-fragment__body"><h4>Летний кинотеатр</h4><span class="feed-fragment__owner" data-feed-preview-owner><i aria-hidden="true">Л</i> Лера</span><div class="feed-fragment__meta" data-feed-preview-meta><span>🕐 Пятница · 21:00</span><span>📍 Двор Гостинки</span></div><div class="feed-fragment__actions" data-feed-preview-actions><span>Добавить</span><span>Поделиться</span></div></div>
+              </article>
             </div>
           </div>
         </article>
@@ -212,9 +203,9 @@
             <p>Планы, желания и впечатления — в одном профиле. В нём видны публичные события, раздел «Хочу сходить» и отзывы о прошедших встречах.</p>
           </div>
           <div class="possibility-story__preview profile-fragment" role="img" aria-label="Пример профиля пользователя">
-            <div class="profile-fragment__person"><img src="{{ asset('landing-avatar-alexey.webp') }}" alt="" width="96" height="96" loading="lazy" decoding="async"><div><strong>Алексей</strong><small>Санкт-Петербург</small></div></div>
+            <div class="profile-fragment__person"><img data-deferred-src="{{ asset('landing-avatar-alexey.webp') }}" alt="" width="96" height="96" loading="lazy" decoding="async"><div><strong>Алексей</strong><small>Санкт-Петербург</small></div></div>
             <div class="profile-fragment__tabs"><span class="is-active">События</span><span>Хочу сходить</span><span>Отзывы</span></div>
-            <div class="profile-fragment__event"><img src="{{ asset('landing-profile-jazz.webp') }}" alt="" width="1536" height="1024" loading="lazy" decoding="async"><div><strong>Джаз во дворе</strong><small>В планах · 4 участника</small></div></div>
+            <div class="profile-fragment__event"><img data-deferred-src="{{ asset('landing-profile-jazz.webp') }}" alt="" width="1536" height="1024" loading="lazy" decoding="async"><div><strong>Джаз во дворе</strong><small>В планах · 4 участника</small></div></div>
           </div>
         </article>
 
@@ -227,25 +218,25 @@
             <section class="settings-fragment__group" aria-labelledby="collection-settings-title">
               <h4 id="collection-settings-title">Подборка</h4>
               <ul>
-                <li><i aria-hidden="true"></i><span><strong>Описание</strong><small>Расскажите, между чем выбираете.</small></span></li>
-                <li><i aria-hidden="true"></i><span><strong>Превью ссылки</strong><small>Изображение и текст для мессенджера.</small></span></li>
-                <li><i aria-hidden="true"></i><span><strong>Варианты и дедлайн голосования</strong><small>Один или несколько вариантов и срок выбора.</small></span></li>
-                <li><i aria-hidden="true"></i><span><strong>Состав и порядок событий</strong><small>Добавляйте варианты и меняйте их очерёдность.</small></span></li>
-                <li><i aria-hidden="true"></i><span><strong>Доступ по приватной ссылке</strong><small>Включайте, отключайте или обновляйте ссылку.</small></span></li>
+                <li><i aria-hidden="true"></i><span><strong>Описание</strong></span></li>
+                <li><i aria-hidden="true"></i><span><strong>Превью ссылки</strong></span></li>
+                <li><i aria-hidden="true"></i><span><strong>Варианты и дедлайн голосования</strong></span></li>
+                <li><i aria-hidden="true"></i><span><strong>Состав и порядок событий</strong></span></li>
+                <li><i aria-hidden="true"></i><span><strong>Доступ по приватной ссылке</strong></span></li>
               </ul>
             </section>
             <section class="settings-fragment__group" aria-labelledby="event-settings-title">
               <h4 id="event-settings-title">Событие</h4>
               <ul>
-                <li><i aria-hidden="true"></i><span><strong>Название</strong><small>Как встреча будет называться.</small></span></li>
-                <li><i aria-hidden="true"></i><span><strong>Фото и видео</strong><small>Атмосфера будущего события.</small></span></li>
-                <li><i aria-hidden="true"></i><span><strong>Порядок и кадрирование медиа</strong><small>Выберите последовательность и фокус кадра.</small></span></li>
-                <li><i aria-hidden="true"></i><span><strong>Дата и время</strong><small>Начало и окончание встречи.</small></span></li>
-                <li><i aria-hidden="true"></i><span><strong>Место и карта</strong><small>Адрес или ссылка на карты.</small></span></li>
-                <li><i aria-hidden="true"></i><span><strong>Описание и внешние ссылки</strong><small>Все детали и полезные страницы.</small></span></li>
-                <li><i aria-hidden="true"></i><span><strong>Условия оплаты</strong><small>Не важно, 50/50, «Я плачу» или «Ты платишь».</small></span></li>
-                <li><i aria-hidden="true"></i><span><strong>Максимум участников</strong><small>От одного до ста человек.</small></span></li>
-                <li><i aria-hidden="true"></i><span><strong>Видимость в общей ленте</strong><small>Публичное событие или доступ только по ссылке.</small></span></li>
+                <li><i aria-hidden="true"></i><span><strong>Название</strong></span></li>
+                <li><i aria-hidden="true"></i><span><strong>Фото и видео</strong></span></li>
+                <li><i aria-hidden="true"></i><span><strong>Порядок и кадрирование медиа</strong></span></li>
+                <li><i aria-hidden="true"></i><span><strong>Дата и время</strong></span></li>
+                <li><i aria-hidden="true"></i><span><strong>Место и карта</strong></span></li>
+                <li><i aria-hidden="true"></i><span><strong>Описание и внешние ссылки</strong></span></li>
+                <li><i aria-hidden="true"></i><span><strong>Условия оплаты</strong></span></li>
+                <li><i aria-hidden="true"></i><span><strong>Максимум участников</strong></span></li>
+                <li><i aria-hidden="true"></i><span><strong>Видимость в общей ленте</strong></span></li>
               </ul>
             </section>
           </div>
@@ -264,12 +255,11 @@
   <div class="site-footer__brand">
     <a class="wordmark" href="/" aria-label="date4you — главная">
       <span class="wordmark__mark" aria-hidden="true">
-        <img class="wordmark__logo wordmark__logo--friends" src="{{ asset('logo-standard.png') }}" alt="">
-        <img class="wordmark__logo wordmark__logo--romantic" src="{{ asset('logo-romantic.png') }}" alt="">
+        <img class="wordmark__logo wordmark__logo--friends" src="{{ asset('favicon-standard.png') }}" alt="" width="128" height="128">
+        <img class="wordmark__logo wordmark__logo--romantic" src="{{ asset('favicon-romantic.png') }}" alt="" width="128" height="128">
       </span>
       <span>date4you</span>
     </a>
-    <p>создан, чтобы встречаться</p>
   </div>
   <nav class="site-footer__links" aria-label="Справочная навигация">
     <a href="/about?return_to=%2F">О проекте</a>
