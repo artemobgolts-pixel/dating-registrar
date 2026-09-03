@@ -485,7 +485,24 @@
 
     function materialClipForBottom(revealedBottom) {
       var clipY = Math.max(0, Math.min(material.offsetHeight, revealedBottom));
-      return "polygon(0px 0px, 100% 0px, 100% " + clipY + "px, 0px " + clipY + "px)";
+      var radius = Math.min(26, clipY / 2, material.offsetWidth / 2);
+      var width = material.offsetWidth;
+      var shoulderY = clipY - radius;
+      var shallowY = clipY - radius * 0.61732;
+      var diagonalY = clipY - radius * 0.29289;
+      var deepY = clipY - radius * 0.07612;
+      var shallowX = radius * 0.07612;
+      var diagonalX = radius * 0.29289;
+      var deepX = radius * 0.61732;
+      return "polygon(0px 0px, 100% 0px, 100% " + shoulderY + "px, "
+        + (width - shallowX) + "px " + shallowY + "px, "
+        + (width - diagonalX) + "px " + diagonalY + "px, "
+        + (width - deepX) + "px " + deepY + "px, "
+        + (width - radius) + "px " + clipY + "px, "
+        + radius + "px " + clipY + "px, "
+        + deepX + "px " + deepY + "px, "
+        + diagonalX + "px " + diagonalY + "px, "
+        + shallowX + "px " + shallowY + "px, 0px " + shoulderY + "px)";
     }
 
     function revealedThrough(nodes, extra) {
