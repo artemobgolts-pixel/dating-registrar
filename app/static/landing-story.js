@@ -484,18 +484,28 @@
       };
     }
 
-    function narrativeStartY() {
+    function narrativeYFor(scale, cameraY, includeOwner) {
       if (!narrative || !window.matchMedia("(max-width: 760px)").matches) return 0;
       var pinRect = pin.getBoundingClientRect();
       var stageRect = stage.getBoundingClientRect();
       var toolbarRect = toolbar && toolbar.getBoundingClientRect();
-      var narrativeRect = narrative.getBoundingClientRect();
-      var photoScale = scales().photo;
-      var photoTop = stageRect.top - pinRect.top
-        + (stageRect.height - (gallery.offsetHeight * photoScale)) / 2;
+      var stageCenter = stageRect.top - pinRect.top + (stageRect.height / 2);
+      var contentTop = includeOwner ? owner.offsetTop : card.offsetTop;
+      var cardTop = stageCenter + cameraY
+        + ((contentTop - (experience.offsetHeight / 2)) * scale);
       var switchBottom = toolbarRect ? toolbarRect.bottom - pinRect.top : 120;
-      var centeredTop = switchBottom + (photoTop - switchBottom - narrativeRect.height) / 2;
+      var centeredTop = switchBottom
+        + (cardTop - switchBottom - narrative.offsetHeight) / 2;
       return Math.max(0, centeredTop - narrative.offsetTop);
+    }
+
+    function narrativePhotoY() {
+      var scale = scales().photo;
+      return narrativeYFor(
+        scale,
+        centeredY(gallery.offsetHeight, scale, false),
+        false
+      );
     }
 
     function materialClipForBottom(revealedBottom) {
@@ -609,8 +619,8 @@
     timeline
       .addLabel("photo", 0)
       .fromTo(narrative,
-        { y: narrativeStartY },
-        { y: 0, duration: 4.10 }, 0.82)
+        { y: narrativePhotoY },
+        { y: narrativePhotoY, duration: 0.82 }, 0)
       .fromTo(steps[0],
         { autoAlpha: 0, y: 12 },
         { autoAlpha: 1, y: 0, duration: 0.82 }, 0)
@@ -647,6 +657,17 @@
         force3D: false,
         duration: 0.82
       }, 0.82)
+      .to(narrative, {
+        y: function () {
+          var scale = scales().surface;
+          return narrativeYFor(
+            scale,
+            centeredY(gallery.offsetHeight + 44, scale, false),
+            false
+          );
+        },
+        duration: 0.82
+      }, 0.82)
 
       .addLabel("essentials", 1.66)
       .to(material, { clipPath: function () { return clipThrough(essentials, 12); }, duration: 0.82 }, "essentials")
@@ -657,6 +678,17 @@
           return centeredY(revealedThrough(essentials, 12), scale, true);
         },
         force3D: false,
+        duration: 0.82
+      }, "essentials")
+      .to(narrative, {
+        y: function () {
+          var scale = scales().essentials;
+          return narrativeYFor(
+            scale,
+            centeredY(revealedThrough(essentials, 12), scale, true),
+            true
+          );
+        },
         duration: 0.82
       }, "essentials")
       .to(owner, { autoAlpha: 1, y: 0, duration: 0.42 }, "essentials+=0.08")
@@ -673,6 +705,17 @@
         force3D: false,
         duration: 0.82
       }, "details")
+      .to(narrative, {
+        y: function () {
+          var scale = scales().details;
+          return narrativeYFor(
+            scale,
+            centeredY(revealedThrough(details, 12), scale, true),
+            true
+          );
+        },
+        duration: 0.82
+      }, "details")
       .to(details, { autoAlpha: 1, y: 0, duration: 0.54, stagger: 0.08 }, "details+=0.10")
 
       .addLabel("people", 3.82)
@@ -686,6 +729,13 @@
         force3D: false,
         duration: 0.86
       }, "people")
+      .to(narrative, {
+        y: function () {
+          var scale = scales().full;
+          return narrativeYFor(scale, sceneY("base"), true);
+        },
+        duration: 0.86
+      }, "people")
       .to(people, { autoAlpha: 1, y: 0, duration: 0.55 }, "people+=0.08")
       .to(actions, { autoAlpha: 1, y: 0, duration: 0.48 }, "people+=0.30")
 
@@ -695,6 +745,13 @@
         scale: function () { return scales().focus; },
         y: function () { return sceneY("focus"); },
         force3D: false,
+        duration: 0.72
+      }, "float")
+      .to(narrative, {
+        y: function () {
+          var scale = scales().focus;
+          return narrativeYFor(scale, sceneY("focus"), true);
+        },
         duration: 0.72
       }, "float")
       .to(narrative, {
