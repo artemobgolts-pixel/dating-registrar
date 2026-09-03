@@ -610,7 +610,7 @@
       .addLabel("photo", 0)
       .fromTo(narrative,
         { y: narrativeStartY },
-        { y: 0, duration: 4.92 }, 0)
+        { y: 0, duration: 4.10 }, 0.82)
       .fromTo(steps[0],
         { autoAlpha: 0, y: 12 },
         { autoAlpha: 1, y: 0, duration: 0.82 }, 0)
