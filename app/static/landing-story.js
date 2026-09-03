@@ -578,6 +578,9 @@
 
     timeline
       .addLabel("photo", 0)
+      .fromTo(steps[0],
+        { autoAlpha: 0, y: 12 },
+        { autoAlpha: 1, y: 0, duration: 0.82 }, 0)
       .fromTo(gallery,
         { autoAlpha: 0, scale: 0.97 },
         { autoAlpha: 1, scale: 1, duration: 0.82 }, 0)
@@ -640,7 +643,10 @@
       .to(details, { autoAlpha: 1, y: 0, duration: 0.54, stagger: 0.08 }, "details+=0.10")
 
       .addLabel("people", 3.82)
-      .to(material, { clipPath: "inset(0px round 26px)", duration: 0.86 }, "people")
+      .to(material, {
+        clipPath: "inset(0px 0px 0px 0px round 26px)",
+        duration: 0.86
+      }, "people")
       .to(camera, {
         scale: function () { return scales().full; },
         y: function () { return sceneY("base"); },

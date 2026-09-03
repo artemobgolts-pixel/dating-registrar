@@ -32,16 +32,16 @@
   // deliberately slower and more legible, while authenticated screens keep the
   // compact timings above for everyday use.
   var LANDING_SKIN_TIMING = {
-    minDuration: 1080,
-    maxDuration: 1380,
-    durationFactor: 0.78,
-    easing: "cubic-bezier(.72,0,.18,1)"
+    minDuration: 1600,
+    maxDuration: 1900,
+    durationFactor: 1.18,
+    easing: "cubic-bezier(.45,0,.55,1)"
   };
   var LANDING_THEME_TIMING = {
-    minDuration: 760,
-    maxDuration: 1040,
-    durationFactor: 0.58,
-    easing: "cubic-bezier(.68,0,.2,1)"
+    minDuration: 1450,
+    maxDuration: 1750,
+    durationFactor: 1.08,
+    easing: "cubic-bezier(.45,0,.55,1)"
   };
 
   function isLandingAppearance() {

@@ -276,9 +276,9 @@ class LandingExperienceContractTests(unittest.TestCase):
             [
                 "Сначала — фотография",
                 "Название, дата и место",
-                "Все детали внутри",
-                "Видно, кто выбирает",
-                "Добавляем участников",
+                "Добавляем детали",
+                "Участники",
+                "Карточка готова",
             ],
         )
         for step in step_sources:
@@ -356,14 +356,41 @@ class LandingExperienceContractTests(unittest.TestCase):
         )
         self.assertIsNotNone(profile)
         source = profile.group(1)
-        tabs = re.findall(r'<button\b(?=[^>]*\bdata-profile-tab=)[^>]*>', source)
+        tabs = re.findall(
+            r'<button\b(?=[^>]*\bdata-profile-tab=)[^>]*>.*?</button>',
+            source,
+            re.DOTALL,
+        )
         panels = re.findall(r'<div\b(?=[^>]*\bdata-profile-panel=)[^>]*>', source)
         self.assertEqual(len(tabs), 3)
         self.assertEqual(len(panels), 3)
         self.assertEqual({_attribute(tab, "role") for tab in tabs}, {"tab"})
         self.assertEqual({_attribute(panel, "role") for panel in panels}, {"tabpanel"})
-        for copy in ("Джаз во дворе", "Кинопоказ на крыше", "Выставка света"):
+        for copy in (
+            "Ночь в планетарии",
+            "Готовим пасту вместе",
+            "SUP-прогулка по каналам",
+            "Мастерская линогравюры",
+            "Концерт в оранжерее",
+            "Вечер на катке",
+        ):
             self.assertIn(copy, _plain_text(source))
+        self.assertEqual(
+            [int(_plain_text(tab).split()[-1]) for tab in tabs],
+            [3, 2, 1],
+        )
+        panel_starts = [
+            source.index(f'data-profile-panel="{name}"')
+            for name in ("events", "want", "reviews")
+        ]
+        panel_sources = [
+            source[start:end]
+            for start, end in zip(panel_starts, panel_starts[1:] + [len(source)])
+        ]
+        self.assertEqual(
+            [len(re.findall(r'<article\b', panel)) for panel in panel_sources],
+            [3, 2, 1],
+        )
         self.assertIn("function initProfilePreview", self.story)
         self.assertIn('event.key === "ArrowRight"', self.story)
         self.assertIn('event.key === "ArrowLeft"', self.story)
@@ -378,6 +405,14 @@ class LandingExperienceContractTests(unittest.TestCase):
             self.story,
             r"\.to\(\s*material\s*,\s*\{[^}]*clipPath",
             "Растущую поверхность нужно анимировать отдельно от фото",
+        )
+        self.assertIn('clipPath: "inset(0px 0px 0px 0px round 26px)"', self.story)
+        self.assertNotIn('clipPath: "inset(0px round 26px)"', self.story)
+        self.assertRegex(
+            self.story,
+            r"\.fromTo\(steps\[0\],\s*\{\s*autoAlpha:\s*0,\s*y:\s*12\s*\},"
+            r"\s*\{\s*autoAlpha:\s*1,\s*y:\s*0,\s*duration:\s*0\.82\s*\},\s*0\)",
+            "Первый текст должен проявляться синхронно с фотографией",
         )
         self.assertNotRegex(self.story, r"rotation\s*:")
         self.assertNotRegex(self.story, r"\.to\(\s*experience\s*,")
@@ -518,9 +553,20 @@ class LandingExperienceContractTests(unittest.TestCase):
         self.assertTrue(_attribute(gallery, "aria-label"))
 
         for marker in ("data-demo-gallery-prev", "data-demo-gallery-next"):
-            control = _opening_tag(card, marker, tag="button")
+            control_match = re.search(
+                rf'<button\b(?=[^>]*\b{marker}(?:\b|=))[^>]*>.*?</button>',
+                card,
+                re.DOTALL,
+            )
+            self.assertIsNotNone(control_match)
+            control_source = control_match.group(0)
+            control = control_source.split(">", 1)[0] + ">"
             self.assertEqual(_attribute(control, "type"), "button")
             self.assertTrue(_attribute(control, "aria-label"))
+            self.assertRegex(
+                control_source,
+                re.compile(r"<svg\b[^>]*>.*?<path\b", re.DOTALL),
+            )
 
         images = re.findall(r"<img\b[^>]*>", card, re.DOTALL)
         self.assertGreaterEqual(len(images), 3)
@@ -646,7 +692,12 @@ class LandingExperienceContractTests(unittest.TestCase):
             "landing-feed-water-walk.webp",
             "landing-feed-ceramics.webp",
             "landing-feed-summer-cinema.webp",
-            "landing-profile-jazz.webp",
+            "landing-profile-planetarium.webp",
+            "landing-profile-pasta.webp",
+            "landing-profile-sup.webp",
+            "landing-profile-linocut.webp",
+            "landing-profile-conservatory.webp",
+            "landing-profile-skating.webp",
             "landing-avatar-alexey.webp",
         )
         image_tags = re.findall(r"<img\b[^>]*>", self.home, re.DOTALL)
