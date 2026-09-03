@@ -2703,7 +2703,7 @@ html[data-theme="dark"] .landing-details {
 
   .landing-story__narrative {
     position: absolute;
-    top: 116px;
+    top: 124px;
     right: 14px;
     bottom: auto;
     left: 14px;
@@ -2723,7 +2723,8 @@ html[data-theme="dark"] .landing-details {
   }
 
   .landing-story__step {
-    padding-left: 58px;
+    padding-inline: 8px;
+    text-align: center;
   }
 
   .landing-story__step-number {
