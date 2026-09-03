@@ -2244,6 +2244,11 @@ html[data-theme="dark"] .landing-details {
   border-radius: 0;
 }
 
+.feed-fragment__media {
+  position: relative;
+  overflow: hidden;
+}
+
 .feed-fragment__body {
   min-width: 0;
   display: flex;
@@ -2308,6 +2313,17 @@ html[data-theme="dark"] .landing-details {
   font-size: 10px;
   font-weight: 680;
   line-height: 1.3;
+}
+
+.feed-fragment__media .feed-fragment__modifier {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 2;
+  color: #fff;
+  background: linear-gradient(135deg, #34b36b, #15734a);
+  border: 1px solid rgba(255, 255, 255, .42);
+  box-shadow: 0 2px 8px rgba(20, 16, 19, .22);
 }
 
 .feed-fragment__link {

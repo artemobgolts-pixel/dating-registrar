@@ -495,7 +495,7 @@
         + (stageRect.height - (gallery.offsetHeight * photoScale)) / 2;
       var switchBottom = toolbarRect ? toolbarRect.bottom - pinRect.top : 120;
       var centeredTop = switchBottom + (photoTop - switchBottom - narrativeRect.height) / 2;
-      return Math.max(0, centeredTop - (narrativeRect.top - pinRect.top));
+      return Math.max(0, centeredTop - narrative.offsetTop);
     }
 
     function materialClipForBottom(revealedBottom) {
