@@ -256,17 +256,17 @@ vec3 pigmentTexture(vec3 col, vec3 bg, vec2 uv, vec2 q, vec2 r, float f){
   float fiber = noise(vec2(uv.x*37.0 + r.y, uv.y*315.0));
   float granStrength = mix(1.0, 0.42, quietFriendsLight);
   float fiberStrength = mix(1.0, 0.25, quietFriendsLight);
-  col *= 0.972 + (gran - 0.5)*0.075*ink*granStrength;
+  col *= 0.972 + (gran - 0.5)*0.1125*ink*granStrength;
   vec3 layered = mix(col*0.74 + bg*0.08,
                      col*1.18 + vec3(0.012), uDark);
-  col = mix(col, layered, strata*ink*0.34);
+  col = mix(col, layered, strata*ink*0.34*(1.0 - uFriends));
   col += vec3((fiber - 0.5)*0.022*ink*(1.0 + 0.5*uDark)*fiberStrength);
   vec2 sp = uv*255.0;
   vec2 cell = floor(sp);
   vec2 local = fract(sp) - 0.5;
-  float mineral = step(mix(0.996, 0.9985, quietFriendsLight), hash(cell + 11.7))
+  float mineral = step(mix(0.982, 0.994, quietFriendsLight), hash(cell + 11.7))
     * (1.0 - smoothstep(0.035, 0.19, length(local)));
-  float mineralStrength = mix(0.30, 0.12, quietFriendsLight);
+  float mineralStrength = mix(0.90, 0.34, quietFriendsLight);
   col = mix(col, vec3(0.985,0.968,0.945), mineral*ink*mineralStrength);
   return clamp(col, 0.0, 1.0);
 }
@@ -470,14 +470,14 @@ float gran=noise(uv*92.0+q*2.1)*.64+noise(uv*231.0-r*2.7)*.36;
 float fiber=noise(vec2(uv.x*37.0+r.y,uv.y*315.0));
 float granStrength=mix(1.0,.42,quietFriendsLight);
 float fiberStrength=mix(1.0,.25,quietFriendsLight);
-col*=.972+(gran-.5)*.075*ink*granStrength;
+col*=.972+(gran-.5)*.1125*ink*granStrength;
 vec3 layered=mix(col*.74+bg*.08,col*1.18+vec3(.012),uDark);
-col=mix(col,layered,strata*ink*.34);
+col=mix(col,layered,strata*ink*.34*(1.0-uFriends));
 col+=vec3((fiber-.5)*.022*ink*(1.0+.5*uDark)*fiberStrength);
 vec2 sp=uv*255.0,cell=floor(sp),local=fract(sp)-.5;
-float mineral=step(mix(.996,.9985,quietFriendsLight),hash(cell+11.7))
+float mineral=step(mix(.982,.994,quietFriendsLight),hash(cell+11.7))
   *(1.0-smoothstep(.035,.19,length(local)));
-float mineralStrength=mix(.30,.12,quietFriendsLight);
+float mineralStrength=mix(.90,.34,quietFriendsLight);
 col=mix(col,vec3(.985,.968,.945),mineral*ink*mineralStrength);
 return clamp(col,0.0,1.0);}
 void main(){

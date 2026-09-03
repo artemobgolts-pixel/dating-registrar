@@ -338,17 +338,17 @@
   desiredTheme = root.dataset.theme || "light";
   desiredSkin = root.dataset.skin || "friends";
 
-  // Профиль хранит skin на сервере, но использует тот же движок волны. API не
-  // меняет cookie и не смешивает оформление с light/dark-настройкой браузера.
+  // Профиль хранит skin на сервере и синхронизирует его с тем же cookie,
+  // который читают лендинг и вход. Light/dark остаётся отдельной настройкой.
   window.d4yAppearance = {
     applySkin: function (skin) {
       skin = skin === "romantic" ? "romantic" : "friends";
       desiredSkin = skin;
-      desiredSkinPersist = false;
-      applySkin(skin, false);
+      desiredSkinPersist = true;
+      applySkin(skin, true);
     },
     animateSkin: function (skin, source, event) {
-      animateSkin(skin, source, event, false);
+      animateSkin(skin, source, event, true);
     }
   };
 
