@@ -553,12 +553,12 @@ html[data-theme="dark"] .brand-motion__scrim {
   backdrop-filter: blur(24px) saturate(1.24);
 }
 
-.wordmark__mark {
-  overflow: hidden;
-  padding: 2px;
-  background: color-mix(in srgb, var(--surface-solid) 82%, transparent);
-  border: 1px solid rgba(255, 255, 255, .6);
-  box-shadow: 0 6px 18px rgba(54, 65, 111, .16);
+.landing-page .wordmark__mark {
+  overflow: visible;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
 }
 
 .landing-page .wordmark__mark::before { content: none; }
@@ -2297,6 +2297,23 @@ html[data-theme="dark"] .landing-details {
   line-height: 1.3;
 }
 
+.feed-fragment__modifier,
+.feed-fragment__link {
+  width: max-content;
+  max-width: 100%;
+  padding: 4px 8px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 680;
+  line-height: 1.3;
+}
+
+.feed-fragment__link {
+  text-decoration: none;
+}
+
 .feed-fragment__actions {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
@@ -2305,7 +2322,8 @@ html[data-theme="dark"] .landing-details {
   padding-top: 3px;
 }
 
-.feed-fragment__actions a {
+.feed-fragment__actions a,
+.feed-fragment__actions .is-added {
   min-width: 0;
   min-height: 34px;
   display: grid;
@@ -2327,6 +2345,12 @@ html[data-theme="dark"] .landing-details {
   color: #fff;
   background: var(--accent-fill);
   border-color: transparent;
+}
+
+.feed-fragment__actions .is-added {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
 .profile-fragment__person > img {
@@ -2742,7 +2766,7 @@ html[data-theme="dark"] .landing-details {
   }
 
   .landing-demo-owner {
-    top: -4px;
+    top: -8px;
     right: auto;
     left: 20px;
   }

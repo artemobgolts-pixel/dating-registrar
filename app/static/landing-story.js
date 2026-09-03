@@ -438,6 +438,7 @@
     var steps = toArray(story.querySelectorAll("[data-story-step]"));
     var body = story.querySelector("[data-card-body]");
     var toolbar = story.querySelector(".landing-story__toolbar");
+    var narrative = story.querySelector(".landing-story__narrative");
     var autoSwipe = { progress: 0 };
     var galleryController = story._galleryController;
     var sceneNames = steps.map(function (step) { return step.dataset.scene; });
@@ -481,6 +482,20 @@
         full: baseFit * 0.97,
         focus: fitAt(sceneY("focus"))
       };
+    }
+
+    function narrativeStartY() {
+      if (!narrative || !window.matchMedia("(max-width: 760px)").matches) return 0;
+      var pinRect = pin.getBoundingClientRect();
+      var stageRect = stage.getBoundingClientRect();
+      var toolbarRect = toolbar && toolbar.getBoundingClientRect();
+      var narrativeRect = narrative.getBoundingClientRect();
+      var photoScale = scales().photo;
+      var photoTop = stageRect.top - pinRect.top
+        + (stageRect.height - (gallery.offsetHeight * photoScale)) / 2;
+      var switchBottom = toolbarRect ? toolbarRect.bottom - pinRect.top : 120;
+      var centeredTop = switchBottom + (photoTop - switchBottom - narrativeRect.height) / 2;
+      return Math.max(0, centeredTop - (narrativeRect.top - pinRect.top));
     }
 
     function materialClipForBottom(revealedBottom) {
@@ -593,6 +608,9 @@
 
     timeline
       .addLabel("photo", 0)
+      .fromTo(narrative,
+        { y: narrativeStartY },
+        { y: 0, duration: 4.92 }, 0)
       .fromTo(steps[0],
         { autoAlpha: 0, y: 12 },
         { autoAlpha: 1, y: 0, duration: 0.82 }, 0)
