@@ -690,6 +690,7 @@
       .to(actions, { autoAlpha: 1, y: 0, duration: 0.48 }, "people+=0.30")
 
       .addLabel("float", 4.92)
+      .set(material, { clipPath: "none" }, "float")
       .to(camera, {
         scale: function () { return scales().focus; },
         y: function () { return sceneY("focus"); },

@@ -6,6 +6,8 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
+from jinja2 import Environment, FileSystemLoader
+
 
 ROOT = Path(__file__).resolve().parents[1]
 APP = ROOT / "app"
@@ -135,6 +137,57 @@ class SkinGeometryContractTests(unittest.TestCase):
         for viewport in ({"width": 390, "height": 844}, {"width": 1100, "height": 900}):
             page = self.page_with_styles(markup, "static/public.css", viewport)
             self.assert_skin_geometry(page, selectors, f"public-{viewport['width']}")
+
+    def test_landing_demo_card_keeps_identical_mobile_geometry_between_skins(self):
+        env = Environment(loader=FileSystemLoader(APP / "templates"))
+        env.globals["asset"] = lambda name: f"/static/{name}"
+        markup = env.from_string(
+            '{% from "public/_landing_demo_card.html" import landing_demo_card with context %}'
+            '{{ landing_demo_card() }}'
+        ).render()
+
+        for viewport in ({"width": 430, "height": 932}, {"width": 390, "height": 667}):
+            page = self.page_with_styles(
+                f'<html data-skin="friends" data-theme="dark"><body class="landing-page">'
+                f'<section class="landing-story is-reduced-motion">{markup}</section>'
+                '</body></html>',
+                "static/landing.css",
+                viewport,
+            )
+            snapshots = {}
+            for skin in ("friends", "romantic"):
+                snapshots[skin] = page.evaluate("""skin => {
+                  document.documentElement.dataset.skin = skin;
+                  document.querySelectorAll('[data-friends-text][data-romantic-text]').forEach(node => {
+                    node.textContent = skin === 'romantic'
+                      ? node.dataset.romanticText : node.dataset.friendsText;
+                  });
+                  document.querySelectorAll('[data-participant-skin]').forEach(node => {
+                    node.hidden = node.dataset.participantSkin !== skin;
+                  });
+                  document.querySelector('[data-demo-vote-empty]').hidden = skin !== 'romantic';
+                  const card = document.querySelector('[data-demo-card]');
+                  const body = document.querySelector('[data-card-body]');
+                  const actions = document.querySelector('[data-card-actions]');
+                  const material = document.querySelector('[data-card-surface]');
+                  const border = getComputedStyle(material);
+                  return {
+                    cardHeight: card.offsetHeight,
+                    bodyHeight: body.offsetHeight,
+                    bottomGap: body.offsetHeight - actions.offsetTop - actions.offsetHeight,
+                    borderWidth: border.borderBottomWidth,
+                    borderShadow: border.boxShadow,
+                    borderShadowLayers: border.boxShadow.split(/,(?![^()]*\\))/).length,
+                  };
+                }""", skin)
+
+            self.assertEqual(snapshots["friends"]["cardHeight"], snapshots["romantic"]["cardHeight"])
+            self.assertEqual(snapshots["friends"]["bodyHeight"], snapshots["romantic"]["bodyHeight"])
+            self.assertGreaterEqual(snapshots["friends"]["bottomGap"], 14)
+            for skin in ("friends", "romantic"):
+                self.assertEqual(snapshots[skin]["borderWidth"], "1px")
+                self.assertNotEqual(snapshots[skin]["borderShadow"], "none")
+                self.assertGreaterEqual(snapshots[skin]["borderShadowLayers"], 2)
 
     def test_admin_event_card_keeps_identical_geometry_between_skins(self):
         markup = f"""
