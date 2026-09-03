@@ -2878,7 +2878,7 @@ html[data-theme="dark"] .landing-details {
   .settings-fragment__group:last-child {
     width: 100%;
     margin-top: -7px;
-    transform: rotate(.35deg);
+    transform: rotate(1.2deg);
   }
 
   .possibilities {
