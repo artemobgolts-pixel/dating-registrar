@@ -2100,6 +2100,7 @@ html[data-theme="dark"] .landing-details {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
+  margin-top: 9px;
 }
 
 .landing-demo-card__actions .button {
@@ -2806,6 +2807,10 @@ html[data-theme="dark"] .landing-details {
     padding: 15px 16px 20px;
   }
 
+  .landing-demo-card__actions {
+    margin-top: 12px;
+  }
+
   .landing-demo-card__description {
     min-height: 36px;
   }
@@ -2912,6 +2917,10 @@ html[data-theme="dark"] .landing-details {
     min-height: 0;
     gap: 3px;
     padding: 10px 13px 14px;
+  }
+
+  .landing-demo-card__actions {
+    margin-top: 11px;
   }
 
   .landing-demo-card__description {
