@@ -696,6 +696,12 @@
         force3D: false,
         duration: 0.72
       }, "float")
+      .to(narrative, {
+        autoAlpha: function () {
+          return window.matchMedia("(max-width: 760px)").matches ? 0 : 1;
+        },
+        duration: 0.42
+      }, "float+=0.36")
       .to(controls, { autoAlpha: 1, duration: 0.30 }, "float+=0.30")
       .to(autoSwipe, {
         progress: 1,
