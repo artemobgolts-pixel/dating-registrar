@@ -386,6 +386,45 @@
     syncSkin(skin);
   }
 
+  function initProfilePreview(cleaners) {
+    toArray(document.querySelectorAll("[data-profile-preview]")).forEach(function (preview) {
+      var tabs = toArray(preview.querySelectorAll("[data-profile-tab]"));
+      var panels = toArray(preview.querySelectorAll("[data-profile-panel]"));
+      if (!tabs.length || tabs.length !== panels.length) return;
+
+      function activate(name, moveFocus) {
+        tabs.forEach(function (tab) {
+          var active = tab.dataset.profileTab === name;
+          tab.classList.toggle("is-active", active);
+          tab.setAttribute("aria-selected", active ? "true" : "false");
+          tab.tabIndex = active ? 0 : -1;
+          if (active && moveFocus) tab.focus();
+        });
+        panels.forEach(function (panel) {
+          var active = panel.dataset.profilePanel === name;
+          panel.hidden = !active;
+          if (active) toArray(panel.querySelectorAll("img[data-deferred-src]")).forEach(hydrateImage);
+        });
+      }
+
+      tabs.forEach(function (tab, index) {
+        listen(tab, "click", function () {
+          activate(tab.dataset.profileTab, false);
+        }, undefined, cleaners);
+        listen(tab, "keydown", function (event) {
+          var nextIndex = null;
+          if (event.key === "ArrowRight") nextIndex = (index + 1) % tabs.length;
+          if (event.key === "ArrowLeft") nextIndex = (index - 1 + tabs.length) % tabs.length;
+          if (event.key === "Home") nextIndex = 0;
+          if (event.key === "End") nextIndex = tabs.length - 1;
+          if (nextIndex === null) return;
+          event.preventDefault();
+          activate(tabs[nextIndex].dataset.profileTab, true);
+        }, undefined, cleaners);
+      });
+    });
+  }
+
   function buildStoryTimeline(story, pin, stage, camera, experience, card, gallery, gsap) {
     var material = story.querySelector("[data-card-surface]");
     var owner = story.querySelector("[data-card-owner]");
@@ -408,7 +447,7 @@
     var timeline;
 
     function sceneY(kind) {
-      if (window.matchMedia("(max-width: 760px)").matches) return kind === "focus" ? 0 : 2;
+      if (window.matchMedia("(max-width: 760px)").matches) return kind === "focus" ? -18 : -16;
       if (window.innerHeight < 720) return kind === "focus" ? 8 : 12;
       return kind === "focus" ? 20 : 30;
     }
@@ -433,23 +472,24 @@
         return Math.min(1, availableWidth / naturalWidth, availableHeight / naturalHeight);
       }
 
+      var widthFit = Math.min(1, availableWidth / naturalWidth);
       var baseFit = fitAt(sceneY("base"));
       return {
-        photo: baseFit * 0.72,
-        surface: baseFit * 0.82,
-        essentials: baseFit * 0.90,
-        details: baseFit * 0.94,
+        photo: Math.min(widthFit, 0.82),
+        surface: Math.min(widthFit, 0.88),
+        essentials: Math.min(widthFit, 0.92),
+        details: Math.min(widthFit, 0.95),
         full: baseFit * 0.97,
         focus: fitAt(sceneY("focus"))
       };
     }
 
-    function clipForBottom(revealedBottom) {
-      var hiddenHeight = Math.max(0, card.offsetHeight - revealedBottom);
+    function materialClipForBottom(revealedBottom) {
+      var hiddenHeight = Math.max(0, material.offsetHeight - revealedBottom);
       return "inset(0px 0px " + hiddenHeight + "px 0px round 26px)";
     }
 
-    function clipThrough(nodes, extra) {
+    function revealedThrough(nodes, extra) {
       var revealedBottom = gallery.offsetHeight + 44;
       nodes.forEach(function (node) {
         if (!body.contains(node)) return;
@@ -458,11 +498,22 @@
           body.offsetTop + node.offsetTop + node.offsetHeight + (extra || 0)
         );
       });
-      return clipForBottom(revealedBottom);
+      return revealedBottom;
+    }
+
+    function clipThrough(nodes, extra) {
+      return materialClipForBottom(revealedThrough(nodes, extra));
+    }
+
+    function centeredY(revealedBottom, scale, includeOwner) {
+      var visualTop = includeOwner ? owner.offsetTop : card.offsetTop;
+      var visualBottom = card.offsetTop + revealedBottom;
+      var visualCenter = (visualTop + visualBottom) / 2;
+      return ((experience.offsetHeight / 2) - visualCenter) * scale;
     }
 
     function photoClip() {
-      return clipForBottom(gallery.offsetHeight);
+      return materialClipForBottom(gallery.offsetHeight);
     }
 
     function setActiveScene(index) {
@@ -493,7 +544,7 @@
       setActiveScene(index);
     }
 
-    gsap.set(material, { autoAlpha: 0 });
+    gsap.set(material, { autoAlpha: 0, clipPath: photoClip });
     gsap.set(owner, { autoAlpha: 0, y: 8 });
     gsap.set(essentials, { autoAlpha: 0, y: 9 });
     gsap.set(details, { autoAlpha: 0, y: 9 });
@@ -501,8 +552,9 @@
     gsap.set(actions, { autoAlpha: 0, y: 7 });
     gsap.set(controls, { autoAlpha: 0 });
     gsap.set(gallery, { borderRadius: "26px" });
-    gsap.set(card, { clipPath: photoClip });
-    gsap.set(experience, { rotation: 0, y: 0, transformOrigin: "50% 50%" });
+    gsap.set(card, { clipPath: "none" });
+    gsap.set(experience, { clearProps: "transform" });
+    gsap.set(camera, { force3D: false });
     setActiveScene(0);
 
     timeline = gsap.timeline({
@@ -510,7 +562,7 @@
       scrollTrigger: {
         trigger: pin,
         start: "top top",
-        end: function () { return "+=" + Math.max(3600, window.innerHeight * 4.8); },
+        end: function () { return "+=" + Math.max(2800, window.innerHeight * 3.9); },
         pin: true,
         pinSpacing: true,
         scrub: true,
@@ -530,47 +582,92 @@
         { autoAlpha: 0, scale: 0.97 },
         { autoAlpha: 1, scale: 1, duration: 0.82 }, 0)
       .fromTo(camera,
-        { scale: function () { return scales().photo * 0.96; }, y: function () { return sceneY("base") + 5; } },
-        { scale: function () { return scales().photo; }, y: function () { return sceneY("base"); }, duration: 0.82 }, 0)
+        {
+          scale: function () { return scales().photo * 0.96; },
+          y: function () {
+            var scale = scales().photo * 0.96;
+            return centeredY(gallery.offsetHeight, scale, false) + 5;
+          }
+        },
+        {
+          scale: function () { return scales().photo; },
+          y: function () {
+            var scale = scales().photo;
+            return centeredY(gallery.offsetHeight, scale, false);
+          },
+          force3D: false,
+          duration: 0.82
+        }, 0)
 
-      .addLabel("surface", 0.95)
-      .to(material, { autoAlpha: 1, duration: 0.55 }, "surface")
-      .to(gallery, { borderRadius: "26px 26px 0px 0px", duration: 0.86 }, "surface")
-      .to(card, { clipPath: function () { return clipForBottom(gallery.offsetHeight + 44); }, duration: 0.86 }, "surface")
-      .to(camera, { scale: function () { return scales().surface; }, duration: 0.86 }, "surface")
+      .to(material, { autoAlpha: 1, duration: 0.50 }, 0.82)
+      .to(material, { clipPath: function () { return materialClipForBottom(gallery.offsetHeight + 44); }, duration: 0.82 }, 0.82)
+      .to(gallery, { borderRadius: "26px 26px 0px 0px", duration: 0.82 }, 0.82)
+      .to(camera, {
+        scale: function () { return scales().surface; },
+        y: function () {
+          var scale = scales().surface;
+          return centeredY(gallery.offsetHeight + 44, scale, false);
+        },
+        force3D: false,
+        duration: 0.82
+      }, 0.82)
 
-      .addLabel("essentials", 2.02)
-      .to(card, { clipPath: function () { return clipThrough(essentials, 12); }, duration: 0.82 }, "essentials")
-      .to(camera, { scale: function () { return scales().essentials; }, duration: 0.82 }, "essentials")
+      .addLabel("essentials", 1.66)
+      .to(material, { clipPath: function () { return clipThrough(essentials, 12); }, duration: 0.82 }, "essentials")
+      .to(camera, {
+        scale: function () { return scales().essentials; },
+        y: function () {
+          var scale = scales().essentials;
+          return centeredY(revealedThrough(essentials, 12), scale, true);
+        },
+        force3D: false,
+        duration: 0.82
+      }, "essentials")
       .to(owner, { autoAlpha: 1, y: 0, duration: 0.42 }, "essentials+=0.08")
       .to(essentials, { autoAlpha: 1, y: 0, duration: 0.50, stagger: 0.08 }, "essentials+=0.16")
 
-      .addLabel("details", 3.14)
-      .to(card, { clipPath: function () { return clipThrough(details, 12); }, duration: 0.82 }, "details")
-      .to(camera, { scale: function () { return scales().details; }, duration: 0.82 }, "details")
+      .addLabel("details", 2.74)
+      .to(material, { clipPath: function () { return clipThrough(details, 12); }, duration: 0.82 }, "details")
+      .to(camera, {
+        scale: function () { return scales().details; },
+        y: function () {
+          var scale = scales().details;
+          return centeredY(revealedThrough(details, 12), scale, true);
+        },
+        force3D: false,
+        duration: 0.82
+      }, "details")
       .to(details, { autoAlpha: 1, y: 0, duration: 0.54, stagger: 0.08 }, "details+=0.10")
 
-      .addLabel("people", 4.24)
-      .to(card, { clipPath: function () { return clipForBottom(card.offsetHeight); }, duration: 0.86 }, "people")
-      .to(camera, { scale: function () { return scales().full; }, duration: 0.86 }, "people")
+      .addLabel("people", 3.82)
+      .to(material, { clipPath: "inset(0px round 26px)", duration: 0.86 }, "people")
+      .to(camera, {
+        scale: function () { return scales().full; },
+        y: function () { return sceneY("base"); },
+        force3D: false,
+        duration: 0.86
+      }, "people")
       .to(people, { autoAlpha: 1, y: 0, duration: 0.55 }, "people+=0.08")
       .to(actions, { autoAlpha: 1, y: 0, duration: 0.48 }, "people+=0.30")
 
-      .addLabel("float", 5.34)
+      .addLabel("float", 4.92)
       .to(camera, {
         scale: function () { return scales().focus; },
         y: function () { return sceneY("focus"); },
-        duration: 1.18
+        force3D: false,
+        duration: 0.72
       }, "float")
-      .to(controls, { autoAlpha: 1, duration: 0.34 }, "float+=0.55")
+      .to(controls, { autoAlpha: 1, duration: 0.30 }, "float+=0.30")
       .to(autoSwipe, {
         progress: 1,
-        duration: 1.18,
+        duration: 0.82,
         onUpdate: function () { galleryController.setAutoProgress(autoSwipe.progress); }
-      }, "float+=0.10")
-      .to(experience, { rotation: 0.18, y: -2, duration: 0.62, ease: "sine.inOut" }, "float+=1.02")
-      .to(experience, { rotation: -0.12, y: 1, duration: 0.72, ease: "sine.inOut" })
-      .to(experience, { rotation: 0, y: 0, duration: 0.56, ease: "sine.inOut" });
+      }, "float+=0.02")
+      .to(autoSwipe, {
+        progress: 1,
+        duration: 0.72,
+        onUpdate: function () { galleryController.setAutoProgress(1); }
+      }, "float+=0.84");
 
     return timeline;
   }
@@ -605,6 +702,7 @@
     }
 
     initDeferredMedia(cleaners);
+    initProfilePreview(cleaners);
     var galleryController = createGallery(gallery, gsap, cleaners);
     story._galleryController = galleryController;
     createCardInteractions(story, card, galleryController, cleaners);
@@ -613,6 +711,8 @@
       story.classList.add("is-story-ready", "is-card-interactive");
       story.dataset.activeScene = "float";
       card.style.clipPath = "none";
+      var material = story.querySelector("[data-card-surface]");
+      if (material) material.style.clipPath = "none";
     }
 
     var staticMode = !gsap || !ScrollTrigger || reducedMotion.matches;

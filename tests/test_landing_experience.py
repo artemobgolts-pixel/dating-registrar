@@ -24,6 +24,7 @@ HOME_PATH = APP / "templates/public/home.html"
 CARD_PATH = APP / "templates/public/_landing_demo_card.html"
 CSS_PATH = STATIC / "landing.css"
 STORY_PATH = STATIC / "landing-story.js"
+THEME_PATH = STATIC / "theme.js"
 
 
 def _plain_text(source: str) -> str:
@@ -119,6 +120,7 @@ class LandingExperienceContractTests(unittest.TestCase):
         )
         cls.css = CSS_PATH.read_text("utf-8")
         cls.story = STORY_PATH.read_text("utf-8")
+        cls.theme = THEME_PATH.read_text("utf-8")
 
     def demo_card(self) -> str:
         match = re.search(
@@ -215,7 +217,7 @@ class LandingExperienceContractTests(unittest.TestCase):
         self.assertIsNotNone(hero)
         self.assertIn("создан, чтобы встречаться", _plain_text(hero.group(0)))
 
-    def test_story_has_one_shell_and_the_agreed_six_phase_arc(self):
+    def test_story_has_one_shell_and_the_agreed_five_phase_arc(self):
         self.assertEqual(self.home.count("data-landing-story"), 1)
         self.assertEqual(self.home.count("data-story-stage"), 1)
         self.assertEqual(self.home.count("data-demo-card"), 1)
@@ -227,7 +229,6 @@ class LandingExperienceContractTests(unittest.TestCase):
 
         aliases = {
             "photo": {"photo", "image", "media"},
-            "surface": {"surface", "shell", "glass", "card"},
             "essentials": {"essentials", "core", "meta"},
             "details": {"details", "content"},
             "people": {"people", "participants", "voting"},
@@ -252,22 +253,21 @@ class LandingExperienceContractTests(unittest.TestCase):
             phases,
             [
                 "photo",
-                "surface",
                 "essentials",
                 "details",
                 "people",
                 "float",
             ],
         )
-        self.assertEqual(self.home.count("data-story-step"), 6)
-        self.assertRegex(self.home, r"<span>/0?6</span>")
+        self.assertEqual(self.home.count("data-story-step"), 5)
+        self.assertRegex(self.home, r"<span>/0?5</span>")
 
         step_sources = re.findall(
             r'<li\b(?=[^>]*\bdata-story-step(?:\b|=))[^>]*>(.*?)</li>',
             self.home,
             re.DOTALL,
         )
-        self.assertEqual(len(step_sources), 6)
+        self.assertEqual(len(step_sources), 5)
         self.assertEqual(
             [
                 _plain_text(re.search(r"<h3\b[^>]*>(.*?)</h3>", step, re.DOTALL).group(1))
@@ -275,11 +275,10 @@ class LandingExperienceContractTests(unittest.TestCase):
             ],
             [
                 "Сначала — фотография",
-                "Вокруг появляется карточка",
                 "Название, дата и место",
                 "Все детали внутри",
                 "Видно, кто выбирает",
-                "Карточка готова",
+                "Добавляем участников",
             ],
         )
         for step in step_sources:
@@ -336,11 +335,63 @@ class LandingExperienceContractTests(unittest.TestCase):
                 text = _plain_text(card)
                 self.assertIn("Добавить", text)
                 self.assertIn("Поделиться", text)
+                action_links = re.findall(
+                    r'<a\b[^>]*href=["\']/login["\'][^>]*>(.*?)</a>',
+                    card,
+                    re.DOTALL,
+                )
+                self.assertEqual(len(action_links), 2)
 
     def test_classic_theme_has_no_extra_orbits_or_dots(self):
         self.assertNotIn('class="bg-gather', self.home)
         self.assertNotIn("landing-skin-decor--friends", self.home)
-        self.assertIn("landing-skin-decor--romantic", self.home)
+        self.assertNotIn("landing-skin-decor--romantic", self.home)
+
+    def test_profile_preview_has_three_keyboard_operable_tabs_and_real_cards(self):
+        profile = re.search(
+            r'<div\b(?=[^>]*\bdata-profile-preview(?:\b|=))[^>]*>(.*?)'
+            r'(?=<article\b[^>]*class="[^"]*\bpossibility-story--settings\b)',
+            self.home,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(profile)
+        source = profile.group(1)
+        tabs = re.findall(r'<button\b(?=[^>]*\bdata-profile-tab=)[^>]*>', source)
+        panels = re.findall(r'<div\b(?=[^>]*\bdata-profile-panel=)[^>]*>', source)
+        self.assertEqual(len(tabs), 3)
+        self.assertEqual(len(panels), 3)
+        self.assertEqual({_attribute(tab, "role") for tab in tabs}, {"tab"})
+        self.assertEqual({_attribute(panel, "role") for panel in panels}, {"tabpanel"})
+        for copy in ("Джаз во дворе", "Кинопоказ на крыше", "Выставка света"):
+            self.assertIn(copy, _plain_text(source))
+        self.assertIn("function initProfilePreview", self.story)
+        self.assertIn('event.key === "ArrowRight"', self.story)
+        self.assertIn('event.key === "ArrowLeft"', self.story)
+
+    def test_photo_is_not_reclipped_and_final_card_has_no_fractional_rotation(self):
+        self.assertNotRegex(
+            self.story,
+            r"\.to\(\s*card\s*,\s*\{[^}]*clipPath",
+            "Раскрытие поверхности не должно повторно обрезать фото вместе со всей карточкой",
+        )
+        self.assertRegex(
+            self.story,
+            r"\.to\(\s*material\s*,\s*\{[^}]*clipPath",
+            "Растущую поверхность нужно анимировать отдельно от фото",
+        )
+        self.assertNotRegex(self.story, r"rotation\s*:")
+        self.assertNotRegex(self.story, r"\.to\(\s*experience\s*,")
+        camera = _merged_css_declarations(
+            self.css,
+            lambda selector: selector.endswith(".landing-story__camera"),
+        )
+        self.assertEqual(camera.get("will-change"), "auto")
+
+    def test_landing_appearance_uses_the_native_reveal_without_a_solid_overlay(self):
+        self.assertIn("document.startViewTransition", self.theme)
+        self.assertIn('pseudoElement: "::view-transition-new(root)"', self.theme)
+        self.assertNotIn("d4y-appearance-wave", self.theme)
+        self.assertNotIn("d4y-appearance-wave", self.css)
 
     def test_card_matches_the_real_public_event_anatomy(self):
         card = self.demo_card()
@@ -570,24 +621,21 @@ class LandingExperienceContractTests(unittest.TestCase):
         self.assertEqual(
             items(lists[0]),
             [
-                "Описание",
                 "Превью ссылки",
                 "Варианты и дедлайн голосования",
-                "Состав и порядок событий",
                 "Доступ по приватной ссылке",
             ],
         )
         self.assertEqual(
             items(lists[1]),
             [
-                "Название",
                 "Фото и видео",
                 "Порядок и кадрирование медиа",
                 "Дата и время",
                 "Место и карта",
-                "Описание и внешние ссылки",
+                "Внешние ссылки",
                 "Условия оплаты",
-                "Максимум участников",
+                "Количество участников",
                 "Видимость в общей ленте",
             ],
         )
@@ -718,7 +766,7 @@ class LandingExperienceContractTests(unittest.TestCase):
 
     def test_fit_uses_real_stage_geometry_for_each_camera_offset(self):
         scales = re.search(
-            r"function\s+scales\s*\(\s*\)\s*\{(.*?)\n\s*function\s+clipForBottom",
+            r"function\s+scales\s*\(\s*\)\s*\{(.*?)\n\s*function\s+materialClipForBottom",
             self.story,
             re.DOTALL,
         )

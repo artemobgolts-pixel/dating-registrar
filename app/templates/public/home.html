@@ -50,9 +50,6 @@
 <script type="application/ld+json" nonce="{{ csp_nonce }}">{{ structured_data | tojson }}</script>
 </head>
 <body class="landing-page" data-skin="friends" data-ink-interactive="0">
-<div class="bg-hearts landing-skin-decor landing-skin-decor--romantic" data-skin-decor="romantic" aria-hidden="true">
-  <span>♥</span><span>♡</span><span>♥</span><span>♡</span><span>♥</span><span>♡</span><span>♥</span>
-</div>
 {% include "public/_bg.html" %}
 <a class="skip-link" href="#main-content">К содержанию</a>
 
@@ -92,9 +89,6 @@
         <a class="button button--quiet" href="#product-preview">Посмотреть в действии</a>
       </div>
     </div>
-    <a class="hero__scroll" href="#product-preview" aria-label="Перейти к интерактивной карточке события">
-      <span aria-hidden="true">↓</span> Смотреть карточку
-    </a>
   </section>
 
   <div class="landing-details">
@@ -129,32 +123,28 @@
 
           <div class="landing-story__narrative">
             <p class="landing-story__counter" aria-hidden="true">
-              <span data-story-counter>01</span><span>/06</span>
+              <span data-story-counter>01</span><span>/05</span>
             </p>
             <ol class="landing-story__steps" aria-label="Как собирается карточка события">
               <li class="landing-story__step is-active" data-story-step data-scene="photo" aria-current="step">
                 <span class="landing-story__step-number">01</span>
                 <h3>Сначала — фотография</h3>
               </li>
-              <li class="landing-story__step" data-story-step data-scene="surface">
-                <span class="landing-story__step-number">02</span>
-                <h3>Вокруг появляется карточка</h3>
-              </li>
               <li class="landing-story__step" data-story-step data-scene="essentials">
-                <span class="landing-story__step-number">03</span>
+                <span class="landing-story__step-number">02</span>
                 <h3>Название, дата и место</h3>
               </li>
               <li class="landing-story__step" data-story-step data-scene="details">
-                <span class="landing-story__step-number">04</span>
+                <span class="landing-story__step-number">03</span>
                 <h3>Все детали внутри</h3>
               </li>
               <li class="landing-story__step" data-story-step data-scene="people">
-                <span class="landing-story__step-number">05</span>
+                <span class="landing-story__step-number">04</span>
                 <h3>Видно, кто выбирает</h3>
               </li>
               <li class="landing-story__step" data-story-step data-scene="float">
-                <span class="landing-story__step-number">06</span>
-                <h3>Карточка готова</h3>
+                <span class="landing-story__step-number">05</span>
+                <h3>Добавляем участников</h3>
               </li>
             </ol>
           </div>
@@ -179,19 +169,19 @@
             <div class="feed-fragment__cards">
               <article class="feed-fragment__card" data-feed-preview-card>
                 <img class="feed-fragment__cover" data-deferred-src="{{ asset('landing-feed-light-exhibition.webp') }}" alt="" width="1536" height="1024" loading="lazy" decoding="async">
-                <div class="feed-fragment__body"><h4>Выставка света</h4><span class="feed-fragment__owner" data-feed-preview-owner><i aria-hidden="true">А</i> Анна</span><div class="feed-fragment__meta" data-feed-preview-meta><span>🕐 Сегодня · 19:00</span><span>📍 Новая Голландия</span></div><div class="feed-fragment__actions" data-feed-preview-actions><span>Добавить</span><span>Поделиться</span></div></div>
+                <div class="feed-fragment__body"><h4>Выставка света</h4><span class="feed-fragment__owner" data-feed-preview-owner><i aria-hidden="true">А</i> Анна</span><div class="feed-fragment__meta" data-feed-preview-meta><span>🕐 Сегодня · 19:00</span><span>📍 Новая Голландия</span></div><div class="feed-fragment__actions" data-feed-preview-actions><a href="/login">Добавить</a><a href="/login">Поделиться</a></div></div>
               </article>
               <article class="feed-fragment__card" data-feed-preview-card>
                 <img class="feed-fragment__cover" data-deferred-src="{{ asset('landing-feed-water-walk.webp') }}" alt="" width="1536" height="1024" loading="lazy" decoding="async">
-                <div class="feed-fragment__body"><h4>Прогулка у воды</h4><span class="feed-fragment__owner" data-feed-preview-owner><i aria-hidden="true">М</i> Михаил</span><div class="feed-fragment__meta" data-feed-preview-meta><span>🕐 Воскресенье · 13:00</span><span>📍 Севкабель Порт</span></div><div class="feed-fragment__actions" data-feed-preview-actions><span>Добавить</span><span>Поделиться</span></div></div>
+                <div class="feed-fragment__body"><h4>Прогулка у воды</h4><span class="feed-fragment__owner" data-feed-preview-owner><i aria-hidden="true">М</i> Михаил</span><div class="feed-fragment__meta" data-feed-preview-meta><span>🕐 Воскресенье · 13:00</span><span>📍 Севкабель Порт</span></div><div class="feed-fragment__actions" data-feed-preview-actions><a href="/login">Добавить</a><a href="/login">Поделиться</a></div></div>
               </article>
               <article class="feed-fragment__card" data-feed-preview-card>
                 <img class="feed-fragment__cover" data-deferred-src="{{ asset('landing-feed-ceramics.webp') }}" alt="" width="1536" height="1024" loading="lazy" decoding="async">
-                <div class="feed-fragment__body"><h4>Мастерская керамики</h4><span class="feed-fragment__owner" data-feed-preview-owner><i aria-hidden="true">К</i> Катя</span><div class="feed-fragment__meta" data-feed-preview-meta><span>🕐 Суббота · 14:00</span><span>📍 Васильевский остров</span></div><div class="feed-fragment__actions" data-feed-preview-actions><span>Добавить</span><span>Поделиться</span></div></div>
+                <div class="feed-fragment__body"><h4>Мастерская керамики</h4><span class="feed-fragment__owner" data-feed-preview-owner><i aria-hidden="true">К</i> Катя</span><div class="feed-fragment__meta" data-feed-preview-meta><span>🕐 Суббота · 14:00</span><span>📍 Васильевский остров</span></div><div class="feed-fragment__actions" data-feed-preview-actions><a href="/login">Добавить</a><a href="/login">Поделиться</a></div></div>
               </article>
               <article class="feed-fragment__card" data-feed-preview-card>
                 <img class="feed-fragment__cover" data-deferred-src="{{ asset('landing-feed-summer-cinema.webp') }}" alt="" width="1536" height="1024" loading="lazy" decoding="async">
-                <div class="feed-fragment__body"><h4>Летний кинотеатр</h4><span class="feed-fragment__owner" data-feed-preview-owner><i aria-hidden="true">Л</i> Лера</span><div class="feed-fragment__meta" data-feed-preview-meta><span>🕐 Пятница · 21:00</span><span>📍 Двор Гостинки</span></div><div class="feed-fragment__actions" data-feed-preview-actions><span>Добавить</span><span>Поделиться</span></div></div>
+                <div class="feed-fragment__body"><h4>Летний кинотеатр</h4><span class="feed-fragment__owner" data-feed-preview-owner><i aria-hidden="true">Л</i> Лера</span><div class="feed-fragment__meta" data-feed-preview-meta><span>🕐 Пятница · 21:00</span><span>📍 Двор Гостинки</span></div><div class="feed-fragment__actions" data-feed-preview-actions><a href="/login">Добавить</a><a href="/login">Поделиться</a></div></div>
               </article>
             </div>
           </div>
@@ -202,10 +192,22 @@
             <h3>Профили</h3>
             <p>Планы, желания и впечатления — в одном профиле. В нём видны публичные события, раздел «Хочу сходить» и отзывы о прошедших встречах.</p>
           </div>
-          <div class="possibility-story__preview profile-fragment" role="img" aria-label="Пример профиля пользователя">
+          <div class="possibility-story__preview profile-fragment" role="region" aria-label="Пример профиля пользователя" data-profile-preview>
             <div class="profile-fragment__person"><img data-deferred-src="{{ asset('landing-avatar-alexey.webp') }}" alt="" width="96" height="96" loading="lazy" decoding="async"><div><strong>Алексей</strong><small>Санкт-Петербург</small></div></div>
-            <div class="profile-fragment__tabs"><span class="is-active">События</span><span>Хочу сходить</span><span>Отзывы</span></div>
-            <div class="profile-fragment__event"><img data-deferred-src="{{ asset('landing-profile-jazz.webp') }}" alt="" width="1536" height="1024" loading="lazy" decoding="async"><div><strong>Джаз во дворе</strong><small>В планах · 4 участника</small></div></div>
+            <div class="profile-fragment__tabs" role="tablist" aria-label="Разделы профиля">
+              <button class="is-active" id="landing-profile-tab-events" type="button" role="tab" aria-selected="true" aria-controls="landing-profile-panel-events" data-profile-tab="events">События <b>1</b></button>
+              <button id="landing-profile-tab-want" type="button" role="tab" aria-selected="false" aria-controls="landing-profile-panel-want" tabindex="-1" data-profile-tab="want">Хочу сходить <b>1</b></button>
+              <button id="landing-profile-tab-reviews" type="button" role="tab" aria-selected="false" aria-controls="landing-profile-panel-reviews" tabindex="-1" data-profile-tab="reviews">Отзывы <b>1</b></button>
+            </div>
+            <div class="profile-fragment__panel" id="landing-profile-panel-events" role="tabpanel" aria-labelledby="landing-profile-tab-events" data-profile-panel="events">
+              <article class="profile-fragment__event"><img data-deferred-src="{{ asset('landing-profile-jazz.webp') }}" alt="" width="1536" height="1024" loading="lazy" decoding="async"><div><strong>Джаз во дворе</strong><small>🕐 Суббота · 19:30</small><small>📍 Новая Голландия</small></div></article>
+            </div>
+            <div class="profile-fragment__panel" id="landing-profile-panel-want" role="tabpanel" aria-labelledby="landing-profile-tab-want" data-profile-panel="want" hidden>
+              <article class="profile-fragment__event"><img data-deferred-src="{{ asset('landing-rooftop-1.webp') }}" alt="" width="960" height="640" loading="lazy" decoding="async"><div><strong>Кинопоказ на крыше</strong><small>🕐 Пятница · 20:30</small><small>📍 Центр Москвы</small></div></article>
+            </div>
+            <div class="profile-fragment__panel" id="landing-profile-panel-reviews" role="tabpanel" aria-labelledby="landing-profile-tab-reviews" data-profile-panel="reviews" hidden>
+              <article class="profile-fragment__review"><img data-deferred-src="{{ asset('landing-feed-light-exhibition.webp') }}" alt="" width="1536" height="1024" loading="lazy" decoding="async"><div><strong>Выставка света</strong><span class="profile-fragment__stars" aria-label="Оценка 5 из 5">★★★★★</span><p>Очень красиво и хочется вернуться.</p></div></article>
+            </div>
           </div>
         </article>
 
@@ -216,27 +218,24 @@
           </div>
           <div class="possibility-story__preview settings-fragment" aria-label="Настройки подборки и события">
             <section class="settings-fragment__group" aria-labelledby="collection-settings-title">
-              <h4 id="collection-settings-title">Подборка</h4>
+              <h4 id="collection-settings-title"><span aria-hidden="true">01</span><span>Подборка<small>3 параметра</small></span></h4>
               <ul>
-                <li><i aria-hidden="true"></i><span><strong>Описание</strong></span></li>
-                <li><i aria-hidden="true"></i><span><strong>Превью ссылки</strong></span></li>
-                <li><i aria-hidden="true"></i><span><strong>Варианты и дедлайн голосования</strong></span></li>
-                <li><i aria-hidden="true"></i><span><strong>Состав и порядок событий</strong></span></li>
-                <li><i aria-hidden="true"></i><span><strong>Доступ по приватной ссылке</strong></span></li>
+                <li><i aria-hidden="true">A</i><strong>Превью ссылки</strong></li>
+                <li><i aria-hidden="true">B</i><strong>Варианты и дедлайн голосования</strong></li>
+                <li><i aria-hidden="true">C</i><strong>Доступ по приватной ссылке</strong></li>
               </ul>
             </section>
             <section class="settings-fragment__group" aria-labelledby="event-settings-title">
-              <h4 id="event-settings-title">Событие</h4>
+              <h4 id="event-settings-title"><span aria-hidden="true">02</span><span>Событие<small>8 параметров</small></span></h4>
               <ul>
-                <li><i aria-hidden="true"></i><span><strong>Название</strong></span></li>
-                <li><i aria-hidden="true"></i><span><strong>Фото и видео</strong></span></li>
-                <li><i aria-hidden="true"></i><span><strong>Порядок и кадрирование медиа</strong></span></li>
-                <li><i aria-hidden="true"></i><span><strong>Дата и время</strong></span></li>
-                <li><i aria-hidden="true"></i><span><strong>Место и карта</strong></span></li>
-                <li><i aria-hidden="true"></i><span><strong>Описание и внешние ссылки</strong></span></li>
-                <li><i aria-hidden="true"></i><span><strong>Условия оплаты</strong></span></li>
-                <li><i aria-hidden="true"></i><span><strong>Максимум участников</strong></span></li>
-                <li><i aria-hidden="true"></i><span><strong>Видимость в общей ленте</strong></span></li>
+                <li><i aria-hidden="true">01</i><strong>Фото и видео</strong></li>
+                <li><i aria-hidden="true">02</i><strong>Порядок и кадрирование медиа</strong></li>
+                <li><i aria-hidden="true">03</i><strong>Дата и время</strong></li>
+                <li><i aria-hidden="true">04</i><strong>Место и карта</strong></li>
+                <li><i aria-hidden="true">05</i><strong>Внешние ссылки</strong></li>
+                <li><i aria-hidden="true">06</i><strong>Условия оплаты</strong></li>
+                <li><i aria-hidden="true">07</i><strong>Количество участников</strong></li>
+                <li><i aria-hidden="true">08</i><strong>Видимость в общей ленте</strong></li>
               </ul>
             </section>
           </div>

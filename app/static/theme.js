@@ -14,7 +14,6 @@
   var transitionBusy = false;
   var activeTransition = null;
   var activeRevealAnimation = null;
-  var activeAppearanceOverlay = null;
   var appearanceGeneration = 0;
   // Желаемое состояние хранится отдельно от DOM: если новая команда прерывает
   // активную волну, следующий callback применяет обе последние координаты
@@ -171,7 +170,8 @@
   }
 
   function canAnimateAppearance() {
-    return typeof root.animate === "function"
+    return typeof document.startViewTransition === "function"
+      && typeof root.animate === "function"
       && !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   }
 
@@ -190,20 +190,6 @@
     if (themeChanged || persistTheme) applyTheme(theme, persistTheme);
   }
 
-  function appearanceWaveColor() {
-    var theme = desiredTheme || root.dataset.theme || "light";
-    var skin = desiredSkin || root.dataset.skin || "friends";
-    if (theme === "dark") return skin === "romantic" ? "#211a20" : "#15182a";
-    return skin === "romantic" ? "#fff4f2" : "#edf8f5";
-  }
-
-  function useCompositedWave() {
-    return typeof document.startViewTransition !== "function" || (
-      isLandingAppearance()
-      && window.matchMedia("(max-width: 900px), (pointer: coarse)").matches
-    );
-  }
-
   function announceAppearanceTransition(started) {
     document.dispatchEvent(new CustomEvent(
       started ? "d4y:appearance-transition-start" : "d4y:appearance-transition-end"
@@ -212,53 +198,11 @@
 
   function finishAppearance(generation) {
     if (generation !== appearanceGeneration) return;
-    if (activeAppearanceOverlay) activeAppearanceOverlay.remove();
-    activeAppearanceOverlay = null;
     activeRevealAnimation = null;
     activeTransition = null;
     transitionBusy = false;
     root.classList.remove("d4y-theme-transition");
     announceAppearanceTransition(false);
-  }
-
-  function animateCompositedWave(change, point, radius, duration, timing, generation) {
-    var overlay = document.createElement("span");
-    var diameter = radius * 2;
-    overlay.className = "d4y-appearance-wave";
-    overlay.setAttribute("aria-hidden", "true");
-    overlay.style.width = diameter + "px";
-    overlay.style.height = diameter + "px";
-    overlay.style.left = (point.x - radius) + "px";
-    overlay.style.top = (point.y - radius) + "px";
-    overlay.style.background = appearanceWaveColor();
-    document.body.appendChild(overlay);
-    activeAppearanceOverlay = overlay;
-
-    activeRevealAnimation = overlay.animate(
-      { transform: ["scale(0)", "scale(1)"] },
-      {
-        duration: Math.round(duration * 0.72),
-        easing: timing.easing || "cubic-bezier(.22,.72,.24,1)",
-        fill: "both"
-      }
-    );
-    activeRevealAnimation.finished.then(function () {
-      if (generation !== appearanceGeneration) return;
-      change();
-      activeRevealAnimation = overlay.animate(
-        { opacity: [1, 0] },
-        {
-          duration: Math.max(180, Math.round(duration * 0.28)),
-          easing: "cubic-bezier(.2,.7,.2,1)",
-          fill: "both"
-        }
-      );
-      return activeRevealAnimation.finished;
-    }).then(function () {
-      finishAppearance(generation);
-    }).catch(function () {
-      // interruptAppearance уже снял слой и восстановил фон.
-    });
   }
 
   function animateAppearance(change, source, event, timing) {
@@ -288,11 +232,6 @@
     var generation = ++appearanceGeneration;
     root.classList.add("d4y-theme-transition");
     announceAppearanceTransition(true);
-
-    if (useCompositedWave()) {
-      animateCompositedWave(change, point, radius, duration, timing, generation);
-      return;
-    }
 
     var transition;
     try {
@@ -342,8 +281,6 @@
     }
     activeRevealAnimation = null;
     activeTransition = null;
-    if (activeAppearanceOverlay) activeAppearanceOverlay.remove();
-    activeAppearanceOverlay = null;
     transitionBusy = false;
     root.classList.remove("d4y-theme-transition");
     if (wasBusy) announceAppearanceTransition(false);
