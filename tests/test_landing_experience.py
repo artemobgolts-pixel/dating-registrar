@@ -260,7 +260,9 @@ class LandingExperienceContractTests(unittest.TestCase):
             ],
         )
         self.assertEqual(self.home.count("data-story-step"), 5)
-        self.assertRegex(self.home, r"<span>/0?5</span>")
+        self.assertNotIn("data-story-counter", self.home)
+        self.assertNotIn("landing-story__counter", self.home)
+        self.assertNotIn("landing-story__counter", self.css)
 
         step_sources = re.findall(
             r'<li\b(?=[^>]*\bdata-story-step(?:\b|=))[^>]*>(.*?)</li>',
@@ -377,7 +379,7 @@ class LandingExperienceContractTests(unittest.TestCase):
             self.assertIn(copy, _plain_text(source))
         self.assertEqual(
             [int(_plain_text(tab).split()[-1]) for tab in tabs],
-            [3, 2, 1],
+            [2, 3, 1],
         )
         panel_starts = [
             source.index(f'data-profile-panel="{name}"')
@@ -389,7 +391,7 @@ class LandingExperienceContractTests(unittest.TestCase):
         ]
         self.assertEqual(
             [len(re.findall(r'<article\b', panel)) for panel in panel_sources],
-            [3, 2, 1],
+            [2, 3, 1],
         )
         self.assertIn("function initProfilePreview", self.story)
         self.assertIn('event.key === "ArrowRight"', self.story)
@@ -406,8 +408,23 @@ class LandingExperienceContractTests(unittest.TestCase):
             r"\.to\(\s*material\s*,\s*\{[^}]*clipPath",
             "Растущую поверхность нужно анимировать отдельно от фото",
         )
-        self.assertIn('clipPath: "inset(0px 0px 0px 0px round 26px)"', self.story)
-        self.assertNotIn('clipPath: "inset(0px round 26px)"', self.story)
+        clip_builder = re.search(
+            r"function\s+materialClipForBottom\s*\(\s*revealedBottom\s*\)\s*\{"
+            r"(.*?)\n\s*\}",
+            self.story,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(clip_builder)
+        clip_source = clip_builder.group(1)
+        self.assertIn("polygon(0px 0px, 100% 0px, 100% ", clip_source)
+        self.assertEqual(clip_source.count(' + clipY + "px'), 2)
+        self.assertNotIn("inset(", clip_source)
+        self.assertNotIn("round", clip_source)
+        self.assertNotIn('clipPath: "inset(', self.story)
+        self.assertIn(
+            "clipPath: function () { return materialClipForBottom(material.offsetHeight); }",
+            self.story,
+        )
         self.assertRegex(
             self.story,
             r"\.fromTo\(steps\[0\],\s*\{\s*autoAlpha:\s*0,\s*y:\s*12\s*\},"

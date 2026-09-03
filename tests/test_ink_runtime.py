@@ -246,6 +246,33 @@ class InkRuntimeBrowserTests(unittest.TestCase):
         finally:
             context.close()
 
+    def test_background_keeps_rendering_the_new_palette_during_appearance_wave(self):
+        context, page = self.make_page(force_main=True)
+        try:
+            self.inject_controller(page)
+            page.wait_for_selector(".bg-smoke.has-ink .ink-canvas")
+            draws_before = page.evaluate("window.__glProbe.draws")
+
+            page.evaluate("""() => {
+              document.dispatchEvent(new CustomEvent(
+                'd4y:appearance-transition-start'));
+              document.documentElement.dataset.theme = 'dark';
+              document.dispatchEvent(new CustomEvent('d4y:themechange', {
+                detail: {theme: 'dark'},
+              }));
+            }""")
+            page.wait_for_function(
+                "before => window.__glProbe.draws > before", arg=draws_before)
+
+            self.assertGreater(
+                page.evaluate("window.__glProbe.draws"),
+                draws_before,
+                "Живой фон нельзя останавливать до снимка новой темы: иначе "
+                "он меняется целиком только после завершения волны",
+            )
+        finally:
+            context.close()
+
     def test_reduced_motion_uses_decoded_poster_without_webgl(self):
         context, page = self.make_page(reduced=True)
         try:

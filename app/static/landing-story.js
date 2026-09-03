@@ -436,7 +436,6 @@
       "[data-demo-gallery-prev], [data-demo-gallery-next], .landing-demo-card__gallery-dots"
     ));
     var steps = toArray(story.querySelectorAll("[data-story-step]"));
-    var counter = story.querySelector("[data-story-counter]");
     var body = story.querySelector("[data-card-body]");
     var toolbar = story.querySelector(".landing-story__toolbar");
     var autoSwipe = { progress: 0 };
@@ -485,8 +484,8 @@
     }
 
     function materialClipForBottom(revealedBottom) {
-      var hiddenHeight = Math.max(0, material.offsetHeight - revealedBottom);
-      return "inset(0px 0px " + hiddenHeight + "px 0px round 26px)";
+      var clipY = Math.max(0, Math.min(material.offsetHeight, revealedBottom));
+      return "polygon(0px 0px, 100% 0px, 100% " + clipY + "px, 0px " + clipY + "px)";
     }
 
     function revealedThrough(nodes, extra) {
@@ -530,7 +529,6 @@
         else step.removeAttribute("aria-current");
         gsap.set(step, { autoAlpha: active ? 1 : 0, y: active ? 0 : 12 });
       });
-      if (counter) counter.textContent = String(index + 1).padStart(2, "0");
     }
 
     function syncScene(trigger) {
@@ -644,7 +642,7 @@
 
       .addLabel("people", 3.82)
       .to(material, {
-        clipPath: "inset(0px 0px 0px 0px round 26px)",
+        clipPath: function () { return materialClipForBottom(material.offsetHeight); },
         duration: 0.86
       }, "people")
       .to(camera, {

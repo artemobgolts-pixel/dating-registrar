@@ -2156,20 +2156,6 @@ html[data-theme="dark"] .landing-details {
   pointer-events: none;
 }
 
-.landing-story__counter {
-  display: flex;
-  gap: 4px;
-  margin: 0 0 14px;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 730;
-  letter-spacing: .08em;
-}
-
-.landing-story__counter span:first-child {
-  color: var(--accent);
-}
-
 .landing-story__steps {
   position: relative;
   min-height: 112px;
@@ -2732,15 +2718,6 @@ html[data-theme="dark"] .landing-details {
     backdrop-filter: none;
   }
 
-  .landing-story__counter {
-    position: absolute;
-    top: 4px;
-    left: 4px;
-    margin: 0;
-    font-size: 9px;
-    line-height: 1.2;
-  }
-
   .landing-story__steps {
     min-height: 34px;
   }
@@ -3039,10 +3016,6 @@ html.d4y-theme-transition::view-transition-new(root) {
   margin: 28px auto 0;
   padding: 0;
   pointer-events: auto;
-}
-
-.landing-story.is-reduced-motion .landing-story__counter {
-  display: none;
 }
 
 .landing-story.is-reduced-motion .landing-story__steps {

@@ -678,8 +678,6 @@
   window.addEventListener("resize", refresh, {passive: true});
   document.addEventListener("d4y:themechange", refresh);
   document.addEventListener("d4y:skinchange", refresh);
-  document.addEventListener("d4y:appearance-transition-start", pause);
-  document.addEventListener("d4y:appearance-transition-end", resume);
   document.addEventListener("turbo:load", refresh);
   document.addEventListener("visibilitychange", function () {
     if (document.hidden) pause(); else resume();
