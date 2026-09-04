@@ -8,7 +8,7 @@
   <meta name="robots" content="noindex, nofollow">
   <title>{{ d.name }} · date4you</title>
   <meta property="og:title" content="Событие: {{ d.name }}">
-  <meta property="og:description" content="{{ 'Открой и выбери удобный вариант' if active_skin == 'friends' else 'Тебе предлагают событие — открой ♥' }}">
+  <meta property="og:description" content="{{ 'Открой подробности события' if active_skin == 'friends' else 'Тебе предлагают событие — открой ♥' }}">
   <meta property="og:image" content="{{ BASE_URL }}/d/{{ token }}/og-image?skin={{ active_skin }}&amp;v={{ d.og_preview_revision }}">
   <meta property="og:type" content="website">
   <meta name="theme-color" content="{{ '#554eae' if active_skin == 'friends' else '#b65f6f' }}">
@@ -37,7 +37,6 @@
 <body class="public-event-page public-share-page"
       data-token="{{ token }}" data-name="{{ guest_name or '' }}"
       data-auth="{{ '1' if me else '' }}" data-action-base="/d/{{ token }}"
-      data-withdraw-url="/d/{{ token }}/withdraw"
       data-csrf="{{ csrf }}"
       data-skin="{{ active_skin }}"
       data-ink-interactive="{{ '1' if me and me['cursor_effects'] else '0' }}">
@@ -127,23 +126,12 @@
     </p>
   </header>
 
-  {% if vote_state and vote_state.status != 'unconfigured' %}
-  <section class="vote-summary vote-{{ vote_state.status }}">
-    {% if vote_state.status == 'open' %}<div class="vote-countdown" role="timer"><span class="vote-countdown-label" data-countdown-label>До конца голосования</span><b data-vote-countdown data-deadline="{{ vote_state.voting_deadline }}+03:00">считаем…</b></div><span class="vote-rule">{% if vote_state.choice_mode == 'multiple' %}Можно выбрать несколько вариантов; каждый выбор можно снять до дедлайна.{% else %}Можно выбрать один вариант; новый выбор заменит предыдущий.{% endif %}</span>
-    {% elif vote_state.status == 'tie' %}<b>Ничья</b><span>Организатор вручную выбирает победителя среди лидеров.</span>
-    {% elif vote_state.status == 'no_winner' %}<b>Никто не выбрал</b><span>Голосование завершено без победителя.</span>
-    {% else %}<b>Голосование завершено</b><span>{% if d.is_winner %}Это общий выбор участников.{% else %}Победил другой вариант подборки.{% endif %}</span>{% endif %}
-  </section>
-  {% endif %}
-
   <section class="cards">
-    <article class="card{% if d.booked_by_me %} booked-me{% endif %}{% if d.is_winner %} vote-winner{% elif d.is_loser %} vote-loser{% endif %}{% if not d.images and not d.videos %} nophoto{% endif %}"
+    <article class="card{% if not d.images and not d.videos %} nophoto{% endif %}"
              id="date-{{ d.id }}">
       {% if d.images or d.videos %}
       <div class="gal-wrap">
-        {% if not d.is_winner %}<div class="seal"{% if not d.booked_by_me %} hidden{% endif %}>{{ icon('check') }}</div>{% endif %}
         {% if d.pay_split %}<div class="badges media-badges"><span class="badge pay media-badge media-badge--pay">{{ d.pay_split | pay_label }}</span></div>{% endif %}
-        {% if d.is_winner %}<div class="winner-ribbon">{% if d.booked_by_me %}{{ icon('check', 'winner-check') }}{% endif %}<span>Общий выбор</span></div>{% endif %}
         {% if not is_mine %}
         <details class="event-card-menu event-card-menu--media">
           <summary aria-label="Действия с событием «{{ d.name }}»">
@@ -193,7 +181,6 @@
         <div class="badges media-badges media-badges--inflow inflow"><span class="badge pay media-badge media-badge--pay">{{ d.pay_split | pay_label }}</span></div>
         {% endif %}
         <h2 class="title">{{ d.name }}</h2>
-        {% if not d.images and not d.videos and d.is_winner %}<div class="winner-ribbon inflow">{% if d.booked_by_me %}{{ icon('check', 'winner-check') }}{% endif %}<span>Общий выбор</span></div>{% endif %}
         <div class="meta">
           {% if d.starts_at %}
           <div class="when"><span class="meta-icon" aria-hidden="true">{{ icon('clock') }}</span>
@@ -222,43 +209,8 @@
         </div>
         {% endif %}
 
-        {% if vote_state %}
-        {% set hide_empty_single_counter = d.capacity == 1 and d.vote_count == 0 %}
-        <div class="vote-progress{% if d.is_full %} full{% endif %}">
-          <div class="vote-progress-head"{% if hide_empty_single_counter %} hidden{% endif %}><b>{{ d.vote_count }}/{{ d.capacity }}</b><span>участников</span></div>
-          <div class="vote-progress-track" role="progressbar" aria-valuemin="0"
-               aria-valuemax="{{ d.capacity }}" aria-valuenow="{{ d.vote_count }}"
-               aria-label="Заполненность события «{{ d.name }}»"
-               aria-valuetext="{{ d.vote_count }} из {{ d.capacity }} участников"{% if hide_empty_single_counter %} hidden{% endif %}>
-            <i style="--vote-width:{{ [100, (d.vote_count * 100 / d.capacity)] | min }}%"></i>
-          </div>
-          {% if d.participants %}<div class="participants" aria-label="Участники">
-            {% for person in d.participants %}<span class="participant{% if person['participation_withdrawn_at'] %} withdrawn{% endif %}">
-              {% if person['avatar_path'] and person['user_id'] %}<img src="/d/{{ token }}/participant-avatar/{{ person['user_id'] }}?w=64"
-                   srcset="/d/{{ token }}/participant-avatar/{{ person['user_id'] }}?w=64 64w,
-                           /d/{{ token }}/participant-avatar/{{ person['user_id'] }}?w=96 96w,
-                           /d/{{ token }}/participant-avatar/{{ person['user_id'] }}?w=128 128w"
-                   sizes="26px" alt="" width="26" height="26" loading="lazy" decoding="async">
-              {% else %}<span class="participant-ph" aria-hidden="true">{{ person['name'][:1] | upper }}</span>{% endif %}
-              <span>{{ person['name'] }}{% if person['is_me'] %} · ты{% endif %}</span>
-            </span>{% endfor %}
-            {% if d.participant_hidden_count %}<span class="participants-more">ещё {{ d.participant_hidden_count }}</span>{% endif %}
-          </div>{% else %}<p class="vote-empty">Пока без голосов.</p>{% endif %}
-        </div>
-        {% endif %}
-
         {% if not is_mine and can_question %}
         <div class="actions">
-          {% if can_vote and voting_accepts_votes %}
-            {% if d.booked_by_me %}<button class="btn book on" data-id="{{ d.id }}">{{ icon('check') }} Выбрано</button>
-            {% elif can_cast_vote and d.is_full %}<button class="btn book" data-id="{{ d.id }}" disabled>Набрано {{ d.vote_count }}/{{ d.capacity }}</button>
-            {% elif can_cast_vote %}<button class="btn book" data-id="{{ d.id }}">{{ icon('check') }} Выбрать</button>{% endif %}
-          {% elif can_vote and can_cast_vote and vote_state and vote_state.status != 'unconfigured' %}
-            <button class="btn book vote-ended" type="button" disabled>Голосование завершено</button>
-          {% elif can_vote and vote_state and vote_state.status == 'unconfigured' and d.booked_by_me %}
-            <button class="btn book on" data-id="{{ d.id }}">Снять старый выбор</button>
-          {% endif %}
-          {% if d.is_winner and d.booked_by_me and not d.participation_withdrawn %}<button class="btn ghost withdraw-vote" type="button">Отказаться от участия</button>{% endif %}
           <button class="btn ghost ask" data-id="{{ d.id }}" data-name="{{ d.name }}">{{ icon('message') }} Спросить</button>
         </div>
         {% endif %}
@@ -284,24 +236,14 @@
     {% elif me %}
     {% if want_action_available %}
     <div class="share-choice-block" id="plans">
-      <p>Добавь событие в планы. По умолчанию отметку видишь только ты; публичность можно выбрать явно.</p>
+      <p>Добавь событие в планы — оно появится в публичном разделе «Хочу сходить» твоего профиля.</p>
+      {% if not wanted_by_me %}
       <form method="post" action="/d/{{ token }}/want" class="want-form">
         <input type="hidden" name="csrf" value="{{ csrf }}">
-        <fieldset class="want-visibility">
-          <legend>Кто увидит отметку</legend>
-          <label><input type="radio" name="visibility" value="private"
-                        {% if want_visibility != 'public' or not can_publish_want %}checked{% endif %}>
-            <span><b>Только я</b><small>Приватно в твоём профиле</small></span></label>
-          <label{% if not can_publish_want %} class="disabled"{% endif %}><input type="radio" name="visibility" value="public"
-                        {% if want_visibility == 'public' and can_publish_want %}checked{% endif %}
-                        {% if not can_publish_want %}disabled{% endif %}>
-            <span><b>В публичном профиле</b><small>{% if can_publish_want %}Другие увидят название события{% else %}Недоступно для приватного события{% endif %}</small></span></label>
-        </fieldset>
-        <button type="submit" class="btn {{ 'ghost want-on' if wanted_by_me else 'book' }}">
-          {{ icon('heart') }} {{ 'Сохранить видимость' if wanted_by_me else 'Хочу сходить' }}
-        </button>
+        <button type="submit" class="btn book">{{ icon('heart') }} Хочу сходить</button>
       </form>
-      {% if wanted_by_me %}
+      {% else %}
+      <p class="want-saved-state">{{ icon('check') }} Уже в «Хочу сходить»</p>
       <form method="post" action="/d/{{ token }}/want" class="want-remove-form">
         <input type="hidden" name="csrf" value="{{ csrf }}">
         <button type="submit" class="btn ghost">Убрать из «Хочу сходить»</button>
@@ -310,26 +252,29 @@
     </div>
     <div class="share-choice-sep" aria-hidden="true"></div>
     {% endif %}
+    {% if can_copy_event %}
     <p>Нравится? Сохрани это событие к себе — потом добавишь в свои подборки.</p>
     <form method="post" action="/d/{{ token }}/add">
       <input type="hidden" name="csrf" value="{{ csrf }}">
       <button type="submit" class="btn book">{{ icon('plus') }} Сохранить к себе</button>
     </form>
     {% else %}
-    <p>Войди, чтобы выбрать это событие или сохранить к себе.</p>
+    <p>Организатор отключил копирование этого события.</p>
+    {% endif %}
+    {% else %}
+    <p>Войди, чтобы добавить событие в свои планы{% if can_copy_event %} или сохранить копию себе{% endif %}.</p>
     <button type="button" class="btn book" data-login-open>Войти</button>
     {% endif %}
   </div>
 
-  {% set voting_finished = vote_state and vote_state.status in ('tie', 'resolved', 'no_winner') %}
   {% if bot and not is_mine and (not me or not me['bot_linked']) %}
   <section class="notify-cta tg-connect" data-return-to="/d/{{ token }}"
            aria-label="Уведомления в Telegram"
-           {% if not (wanted_by_me or d.booked_by_me or voting_finished) %}hidden data-deferred-notify{% endif %}>
+           {% if not wanted_by_me %}hidden data-deferred-notify{% endif %}>
     <div class="notify-cta-icon" aria-hidden="true">{{ icon('bell') }}</div>
     <div class="notify-cta-copy">
       <b>Не пропусти продолжение</b>
-      <span>Telegram сообщит о результате, важных изменениях и напомнит о событии.</span>
+      <span>Telegram сообщит о важных изменениях события.</span>
       <span data-tg-hint hidden>Нажми <b>Start</b>, затем <b>Подтвердить</b> в боте и вернись сюда.</span>
       <span data-tg-error class="err" hidden></span>
     </div>
@@ -392,7 +337,7 @@
 
 <!-- Вход прямо со страницы события (модалка с Telegram Login Widget) -->
 {% from "auth/_login_module.html" import login_module with context %}
-{{ login_module('dialog', 'Войти, чтобы выбрать или сохранить событие', 'Вход через Telegram — быстро и без пароля', "/d/" ~ token) }}
+{{ login_module('dialog', 'Войти, чтобы добавить событие в планы', 'Вход через Telegram — быстро и без пароля', "/d/" ~ token) }}
 
 <!-- Вопрос -->
 <dialog id="askDlg" aria-labelledby="askDlgTitle" aria-describedby="askDlgDescription">

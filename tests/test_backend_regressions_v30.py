@@ -365,7 +365,7 @@ class BackendV30RegressionTests(unittest.TestCase):
             (self.viewer_id, date_id),
         ).fetchone()[0], "review_deleted")
 
-    def test_archive_prompt_has_one_idempotency_key(self):
+    def test_archive_does_not_prompt_for_want_only_user(self):
         date_id = self._date(
             self.owner_id, "Архивный prompt",
             ends_at="2030-01-02T20:00:00", share_token="archive-prompt",
@@ -380,19 +380,14 @@ class BackendV30RegressionTests(unittest.TestCase):
             self.conn, date_id, self.viewer_id,
             now=datetime(2030, 1, 3, 13, 0, 0),
         )
-        self.assertEqual(first, second)
+        self.assertIsNone(first)
+        self.assertIsNone(second)
         rows = self.conn.execute(
             "SELECT id,event_key,kind,send_at FROM notification_outbox"
         ).fetchall()
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(
-            rows[0]["event_key"],
-            social_events.archive_prompt_key(date_id, self.viewer_id),
-        )
-        self.assertEqual(rows[0]["kind"], "review_prompt")
-        self.assertEqual(rows[0]["send_at"], "2030-01-03T13:00:00")
+        self.assertEqual(rows, [])
 
-    def test_autoarchive_creates_review_queue_and_prompt_once(self):
+    def test_autoarchive_creates_review_queue_without_want_prompt(self):
         date_id = self._date(
             self.owner_id, "Давно завершилось",
             starts_at="2000-01-01T18:00:00",
@@ -416,10 +411,7 @@ class BackendV30RegressionTests(unittest.TestCase):
         prompts = self.conn.execute(
             "SELECT event_key FROM notification_outbox WHERE kind='review_prompt'"
         ).fetchall()
-        self.assertEqual(
-            [row["event_key"] for row in prompts],
-            [social_events.archive_prompt_key(date_id, self.viewer_id)],
-        )
+        self.assertEqual(prompts, [])
 
         self.assertEqual(tasks.autoarchive_once(self.conn), 0)
         self.assertEqual(
@@ -431,7 +423,7 @@ class BackendV30RegressionTests(unittest.TestCase):
                 "SELECT COUNT(*) FROM notification_outbox "
                 "WHERE kind='review_prompt'"
             ).fetchone()[0],
-            1,
+            0,
         )
 
     def test_bulk_action_deduplicates_ids_and_rejects_foreign_dates(self):

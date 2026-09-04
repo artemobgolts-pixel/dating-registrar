@@ -92,6 +92,9 @@
   v34 — дата рождения и пол показываются в публичном профиле, если заполнены;
         имена и аватары участников всегда видны по активной секретной ссылке.
         Устаревшие переключатели видимости удалены из схемы.
+  v35 — приватность подборок: опциональный PIN, приватные ссылки на профили и
+        запрет копирования; отметки «Хочу сходить» всегда публичны. Копии
+        событий помнят источник, а стандартная квота личных событий равна 100.
 
 Свежая база создаётся сразу по последней схеме. Существующая —
 докатывается миграциями при старте приложения.
@@ -105,7 +108,7 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "app.db"
 
-LATEST_VERSION = 34
+LATEST_VERSION = 35
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -119,7 +122,7 @@ CREATE TABLE IF NOT EXISTS users (
     is_active INTEGER NOT NULL DEFAULT 1,    -- 0 = забанен
     is_operator INTEGER NOT NULL DEFAULT 0,  -- суперадмин (модерация/баны/лимиты)
     is_reviewed INTEGER NOT NULL DEFAULT 1,  -- 0 = новый, ждёт проверки админом (мягкая очередь)
-    date_limit INTEGER NOT NULL DEFAULT 30,  -- квота событий; оператор поднимает вручную
+    date_limit INTEGER NOT NULL DEFAULT 100, -- квота лично созданных событий; оператор поднимает вручную
     bot_linked INTEGER NOT NULL DEFAULT 0,   -- 1 = запускал бота → можно слать уведомления
     cursor_effects INTEGER NOT NULL DEFAULT 0, -- 1 = декоративные эффекты курсора включены
     admin_skin TEXT NOT NULL DEFAULT 'friends'
@@ -207,6 +210,13 @@ CREATE TABLE IF NOT EXISTS categories (
     link_token TEXT UNIQUE,
     link_enabled INTEGER NOT NULL DEFAULT 1,
     moderate_proposals INTEGER NOT NULL DEFAULT 0,
+    private_profiles INTEGER NOT NULL DEFAULT 0
+        CHECK(private_profiles IN (0, 1)), -- 1 = участники без ссылок на профили
+    prevent_copying INTEGER NOT NULL DEFAULT 0
+        CHECK(prevent_copying IN (0, 1)), -- 1 = скрыть и запретить копирование карточек
+    pin_enabled INTEGER NOT NULL DEFAULT 0
+        CHECK(pin_enabled IN (0, 1)), -- 1 = гостевая ссылка требует PIN
+    access_pin_hash TEXT,       -- salted PBKDF2; исходный четырёхзначный PIN не храним
     is_reviewed INTEGER NOT NULL DEFAULT 1,  -- 0 = новая, ждёт проверки админом (мягкая очередь)
     description TEXT,          -- видно всем гостям под заголовком страницы
     og_title TEXT,             -- заголовок превью ссылки (NULL = дефолт)
@@ -233,13 +243,15 @@ CREATE TABLE IF NOT EXISTS dates (
     starts_at TEXT,            -- "YYYY-MM-DDTHH:MM", время МСК
     ends_at TEXT,              -- "YYYY-MM-DDTHH:MM", время МСК (конец диапазона)
     comment TEXT,
-    origin TEXT NOT NULL DEFAULT 'admin',   -- 'admin' | 'guest'
+    origin TEXT NOT NULL DEFAULT 'admin',   -- 'admin' | 'guest' | 'copy'
     guest_token TEXT,          -- кто предложил (если гость)
     proposed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,  -- автор предложения (для уведомления о публикации)
     is_draft INTEGER NOT NULL DEFAULT 0,    -- черновик / на модерации: гостям не виден
     pay_split INTEGER NOT NULL DEFAULT 0,   -- бейдж «оплата 50/50»
     place_url TEXT,            -- если «место» вставили ссылкой на карты
     share_token TEXT,          -- секретная ссылка на это событие (/d/<токен>) для «добавить себе»
+    source_date_id INTEGER,    -- исходник пользовательской копии; намеренно без FK:
+                               -- provenance сохраняется и после удаления оригинала
     is_public INTEGER NOT NULL DEFAULT 0,   -- 1 = видно в общей ленте комьюнити
     capacity INTEGER NOT NULL DEFAULT 1 CHECK(capacity BETWEEN 1 AND 100),
     archived_at TEXT,          -- NULL = активно
@@ -252,7 +264,7 @@ CREATE TABLE IF NOT EXISTS dates (
 CREATE TABLE IF NOT EXISTS date_wants (
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     date_id INTEGER NOT NULL REFERENCES dates(id) ON DELETE CASCADE,
-    is_public INTEGER NOT NULL DEFAULT 0 CHECK(is_public IN (0, 1)),
+    is_public INTEGER NOT NULL DEFAULT 1 CHECK(is_public IN (0, 1)),
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     PRIMARY KEY (user_id, date_id)
@@ -409,6 +421,8 @@ CREATE INDEX IF NOT EXISTS idx_categories_winner_date
     ON categories(winner_date_id)
     WHERE voting_status='resolved' AND winner_date_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_dates_owner ON dates(owner_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_dates_owner_source
+    ON dates(owner_id, source_date_id) WHERE source_date_id IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_dates_share ON dates(share_token);
 -- лента комьюнити на главной: свежие публичные активные события
 CREATE INDEX IF NOT EXISTS idx_dates_public ON dates(is_public, is_draft, archived_at, id);
@@ -1423,6 +1437,86 @@ MIGRATIONS: dict[int, str] = {
         ALTER TABLE users DROP COLUMN birth_date_public;
         ALTER TABLE users DROP COLUMN gender_public;
         ALTER TABLE categories DROP COLUMN show_participants;
+    """,
+    35: """
+        -- Настройки приватности новых и существующих подборок безопасно
+        -- выключены. PIN хранится только как salted PBKDF2-хеш.
+        ALTER TABLE categories ADD COLUMN private_profiles INTEGER NOT NULL DEFAULT 0
+            CHECK(private_profiles IN (0, 1));
+        ALTER TABLE categories ADD COLUMN prevent_copying INTEGER NOT NULL DEFAULT 0
+            CHECK(prevent_copying IN (0, 1));
+        ALTER TABLE categories ADD COLUMN pin_enabled INTEGER NOT NULL DEFAULT 0
+            CHECK(pin_enabled IN (0, 1));
+        ALTER TABLE categories ADD COLUMN access_pin_hash TEXT;
+
+        -- Копия события помнит исходник. Это делает повторное добавление
+        -- идемпотентным и позволяет убрать уже добавленное из общей ленты.
+        ALTER TABLE dates ADD COLUMN source_date_id INTEGER;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_dates_owner_source
+            ON dates(owner_id, source_date_id) WHERE source_date_id IS NOT NULL;
+
+        -- Ручные квоты оператора сохраняем, а прежний стандарт 30 поднимаем.
+        -- Таблицу users не пересобираем: при внешних ключах ON её DROP может
+        -- каскадно удалить пользовательские данные. Триггер компенсирует
+        -- старый schema-default=30 для будущих регистраций на мигрировавшей БД.
+        UPDATE users SET date_limit=100 WHERE date_limit=30;
+        CREATE TRIGGER IF NOT EXISTS trg_users_default_date_limit_100
+        AFTER INSERT ON users
+        WHEN NEW.date_limit=30
+        BEGIN
+            UPDATE users SET date_limit=100 WHERE id=NEW.id;
+        END;
+
+        -- Все отметки «Хочу сходить», включая существующие, публичны. Само
+        -- приватное событие по-прежнему не раскрывается публичным профилем.
+        CREATE TABLE date_wants_public_default (
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            date_id INTEGER NOT NULL REFERENCES dates(id) ON DELETE CASCADE,
+            is_public INTEGER NOT NULL DEFAULT 1 CHECK(is_public IN (0, 1)),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (user_id, date_id)
+        );
+        INSERT INTO date_wants_public_default(
+            user_id, date_id, is_public, created_at, updated_at
+        )
+        SELECT user_id, date_id, 1, created_at, updated_at FROM date_wants;
+        DROP TABLE date_wants;
+        ALTER TABLE date_wants_public_default RENAME TO date_wants;
+        CREATE INDEX IF NOT EXISTS idx_date_wants_profile
+            ON date_wants(user_id, is_public, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_date_wants_user_updated
+            ON date_wants(user_id, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_date_wants_date
+            ON date_wants(date_id, user_id);
+
+        -- До v35 простая отметка «Хочу сходить» могла поставить отложенный
+        -- Telegram-вопрос об итогах посещения. Отменяем только want-only
+        -- сообщения; подтверждённые участники победившего варианта сохраняют
+        -- уведомление и право оставить отзыв.
+        UPDATE notification_outbox AS n
+        SET cancelled_at=CURRENT_TIMESTAMP,
+            claimed_at=NULL,
+            last_error='want_only_no_review_prompt',
+            updated_at=CURRENT_TIMESTAMP
+        WHERE n.kind='review_prompt'
+          AND n.sent_at IS NULL
+          AND n.cancelled_at IS NULL
+          AND EXISTS (
+              SELECT 1 FROM date_wants w
+              WHERE w.user_id=n.user_id
+                AND n.event_key LIKE
+                    ('review:date:' || w.date_id || ':user:' || w.user_id || ':%')
+                AND NOT EXISTS (
+                    SELECT 1 FROM bookings b
+                    JOIN categories c ON c.id=b.category_id
+                    WHERE b.user_id=w.user_id
+                      AND b.date_id=w.date_id
+                      AND b.participation_withdrawn_at IS NULL
+                      AND c.voting_status='resolved'
+                      AND c.winner_date_id=b.date_id
+                )
+          );
     """,
 }
 

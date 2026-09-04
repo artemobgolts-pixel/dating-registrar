@@ -129,6 +129,22 @@ def review_user_ids(conn: sqlite3.Connection, date_id: int) -> list[int]:
     ).fetchall()]
 
 
+def review_notification_user_ids(conn: sqlite3.Connection, date_id: int) -> list[int]:
+    """Получатели Telegram-вопроса об итогах посещения.
+
+    Простое «Хочу сходить» не подтверждает участие и потому даёт право вручную
+    оставить отзыв после события, но никогда не инициирует уведомление.
+    """
+    return [int(row["user_id"]) for row in conn.execute(
+        "SELECT DISTINCT b.user_id FROM bookings b "
+        "JOIN categories c ON c.id=b.category_id "
+        "WHERE b.date_id=? AND b.user_id IS NOT NULL "
+        "AND b.participation_withdrawn_at IS NULL "
+        "AND c.voting_status='resolved' AND c.winner_date_id=b.date_id",
+        (date_id,),
+    ).fetchall()]
+
+
 def mark_review_waiting(conn: sqlite3.Connection, date_id: int, user_id: int,
                         reason: str = "due", *, now: datetime | None = None,
                         require_available: bool = True) -> bool:
@@ -203,8 +219,8 @@ def cancel_review_prompt(conn: sqlite3.Connection, date_id: int, user_id: int,
 
 def queue_review_prompt(conn: sqlite3.Connection, date_id: int,
                         user_id: int) -> int | None:
-    """Создаёт/переносит prompt для желающего или участника-победителя."""
-    if not _review_entitled(conn, date_id, user_id):
+    """Создаёт/переносит prompt только подтверждённому участнику-победителю."""
+    if not _review_notification_entitled(conn, date_id, user_id):
         cancel_review_prompt(conn, date_id, user_id, "review_not_available")
         return None
     row = conn.execute(
@@ -252,10 +268,12 @@ def queue_archive_review_prompt(conn: sqlite3.Connection, date_id: int,
     """Ставит отдельное уведомление именно после перехода события в архив.
 
     Обычный prompt мог быть доставлен сразу после времени встречи. Отдельный
-    idempotency-key гарантирует понятную реакцию на исчезновение из «Хочу
-    сходить» и при этом не размножается на повторных фоновых проходах.
+    idempotency-key гарантирует уведомление подтверждённому участнику после
+    архивации и не размножается на повторных фоновых проходах.
     """
     current = (now or now_naive()).replace(tzinfo=None, microsecond=0)
+    if not _review_notification_entitled(conn, date_id, user_id):
+        return None
     # Не отправляем кнопку раньше, чем по ней действительно откроется форма.
     # Это особенно важно для поздних starts-only событий и старых импортов.
     if not review_available(conn, date_id, user_id, now=current):
@@ -364,10 +382,10 @@ def _queue_review_prompt_fanout(conn: sqlite3.Connection, date_id: int,
 
 
 def queue_review_prompts_for_date(conn: sqlite3.Connection, date_id: int) -> int:
-    """Пересчитывает prompt желающих и участников победившего варианта."""
+    """Пересчитывает prompt подтверждённых участников-победителей."""
     return _queue_review_prompt_fanout(
         conn, date_id,
-        {user_id: True for user_id in review_user_ids(conn, date_id)},
+        {user_id: True for user_id in review_notification_user_ids(conn, date_id)},
     )
 
 
@@ -385,7 +403,9 @@ def reconcile_review_prompts_for_date(conn: sqlite3.Connection, date_id: int) ->
         int(row["user_id"]): bool(row["entitled"])
         for row in conn.execute(
             "SELECT candidates.user_id, MAX(candidates.entitled) AS entitled FROM ("
-            " SELECT user_id, 1 AS entitled FROM date_wants WHERE date_id=? "
+            # Прежние версии могли поставить want-пользователю prompt. Держим
+            # его в наборе как не имеющего notification-права, чтобы отменить.
+            " SELECT user_id, 0 AS entitled FROM date_wants WHERE date_id=? "
             " UNION ALL "
             " SELECT b.user_id, CASE WHEN b.participation_withdrawn_at IS NULL "
             "  AND c.voting_status='resolved' AND c.winner_date_id=b.date_id "
@@ -460,6 +480,10 @@ def queue_archive_review_fanout(conn: sqlite3.Connection, date_id: int, *,
             ),
         )
 
+    notification_users = set(review_notification_user_ids(conn, date_id))
+    notification_eligible = [
+        user_id for user_id in eligible if user_id in notification_users
+    ]
     notifications = []
     if event["share_token"]:
         text = notify.card(
@@ -479,7 +503,7 @@ def queue_archive_review_fanout(conn: sqlite3.Connection, date_id: int, *,
                 "expires_at": current + REVIEW_PROMPT_TTL,
                 "now": current,
             }
-            for user_id in eligible
+            for user_id in notification_eligible
         ]
     return notification_outbox.enqueue_many(conn, notifications), len(eligible)
 
@@ -505,6 +529,17 @@ def _review_entitled(conn: sqlite3.Connection, date_id: int, user_id: int) -> bo
         (user_id, date_id),
     ).fetchone():
         return True
+    return conn.execute(
+        "SELECT 1 FROM bookings b JOIN categories c ON c.id=b.category_id "
+        "WHERE b.user_id=? AND b.date_id=? "
+        "AND b.participation_withdrawn_at IS NULL "
+        "AND c.voting_status='resolved' AND c.winner_date_id=b.date_id LIMIT 1",
+        (user_id, date_id),
+    ).fetchone() is not None
+
+
+def _review_notification_entitled(conn: sqlite3.Connection, date_id: int,
+                                  user_id: int) -> bool:
     return conn.execute(
         "SELECT 1 FROM bookings b JOIN categories c ON c.id=b.category_id "
         "WHERE b.user_id=? AND b.date_id=? "

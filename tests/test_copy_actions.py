@@ -69,7 +69,7 @@ def login(client: TestClient, telegram_id: int) -> str:
 
 def category_card_fragment(html: str, category_id: int) -> str:
     """Вернуть одну карточку категории из серверного списка."""
-    marker = f'href="/admin/categories/{category_id}"'
+    marker = f'href="/admin/categories/{category_id}'
     opening = r'<div class="card cat-card has-thumb"[^>]*>'
     for fragment in re.split(opening, html)[1:]:
         if marker in fragment:
@@ -344,22 +344,25 @@ class CopyActionTests(unittest.TestCase):
         )
 
     def test_public_selection_seals_use_theme_neutral_check_icon(self):
-        for relative in (
-            "templates/public/category.html",
-            "templates/public/share.html",
-        ):
-            template = (APP / relative).read_text(encoding="utf-8")
-            seals = re.findall(r'<div class="seal".*?</div>', template, re.S)
-            self.assertEqual(len(seals), 1, relative)
-            seal = seals[0]
-            self.assertIn("{{ icon('check') }}", seal, relative)
-            self.assertNotIn("active_skin", seal, relative)
-            self.assertNotIn("icon('heart')", seal, relative)
-            self.assertNotIn("♥", seal, relative)
-
-        category = (APP / "templates/public/category.html").read_text(
+        category_template = (APP / "templates/public/category.html").read_text(
             encoding="utf-8",
         )
+        seals = re.findall(r'<div class="seal".*?</div>', category_template, re.S)
+        self.assertEqual(len(seals), 1)
+        seal = seals[0]
+        self.assertIn("{{ icon('check') }}", seal)
+        self.assertNotIn("active_skin", seal)
+        self.assertNotIn("icon('heart')", seal)
+        self.assertNotIn("♥", seal)
+
+        # Прямая ссылка на событие больше не показывает контекст
+        # голосования, включая печать победителя.
+        share_template = (APP / "templates/public/share.html").read_text(
+            encoding="utf-8",
+        )
+        self.assertNotIn('<div class="seal"', share_template)
+
+        category = category_template
         past_choice_marks = re.findall(
             r'<span class="av me">.*?</span>', category, re.S,
         )

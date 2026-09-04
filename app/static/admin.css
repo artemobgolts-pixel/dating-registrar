@@ -2514,7 +2514,7 @@ html[data-theme="dark"][data-skin="friends"] .share-qr {
 .og-preview.editable .og-img-hint {
   position: absolute; inset: 0; z-index: 4; display: flex; align-items: center; justify-content: center;
   background: rgba(30, 20, 24, .42); color: #fff; font-size: 13px; font-weight: 600; text-align: center;
-  padding: 0 14px; opacity: 0; transition: opacity .15s;
+  padding: 0 14px; opacity: 0; transition: opacity .15s; pointer-events: none;
 }
 .og-preview.editable .og-img-wrap:hover .og-img-hint { opacity: 1; }
 .og-preview.editable .og-img-wrap:hover .og-img-badge { opacity: 0; }
@@ -2915,6 +2915,7 @@ html[data-theme="dark"][data-skin="friends"] .share-qr {
 }
 
 /* ---------- профиль: кликабельная аватарка по центру ---------- */
+.profile-header { margin-bottom: 18px; }
 .avatar-field {
   display: flex; flex-direction: column; align-items: center; gap: 12px;
 }
@@ -2951,6 +2952,7 @@ html[data-theme="dark"][data-skin="friends"] .share-qr {
   cursor: pointer; box-shadow: 0 3px 9px rgba(112, 29, 43, .32);
   transition: transform .15s ease, background .15s ease, box-shadow .15s ease;
 }
+.avatar-wrap .avatar-delete { min-inline-size: 34px; min-block-size: 34px; }
 .avatar-delete::before,
 .avatar-delete::after {
   content: ""; position: absolute; left: 50%; top: 50%;
@@ -3735,14 +3737,24 @@ html[data-theme="dark"] .og-warn { background: #3d3122; border-color: #655437; c
   display: grid; place-items: center; padding: 0; border: 0;
   background: transparent; color: var(--rose-2); cursor: pointer;
   font-size: 24px; font-weight: 500; line-height: 1;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
 }
 .capacity-step:hover:not(:disabled) { background: var(--rose-soft); }
+.capacity-step:active:not(:disabled) {
+  transform: scale(.92);
+  transition: transform 80ms var(--ease-press);
+}
 .capacity-step:disabled {
   background: rgba(70,55,62,.08); color: var(--muted);
   cursor: default; opacity: .42;
 }
 html[data-theme="dark"] .capacity-stepper { background: rgba(38,31,37,.9); }
 html[data-theme="dark"] .capacity-step:disabled { background: rgba(16,13,16,.32); }
+@media (prefers-reduced-motion: reduce) {
+  .capacity-step.capacity-step:active:not(:disabled) { transform: none; transition: none; }
+}
 .deadline-picker [data-picker-only] {
   cursor: pointer; caret-color: auto;
 }
@@ -5203,6 +5215,8 @@ html[data-theme] .badge.media-badge,
   letter-spacing: .015em; text-shadow: none;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+.pcard .pay.media-badge[hidden],
+.ed-gallery-pay.media-badge[hidden] { display: none; }
 .media-badge::before {
   content: ""; width: 3px; height: 14px; flex: none;
   border-radius: 3px; background: var(--media-badge-mark);

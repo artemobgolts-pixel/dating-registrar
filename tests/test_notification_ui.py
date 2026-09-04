@@ -287,9 +287,9 @@ class NotificationUiTests(unittest.TestCase):
         )
         self.assertNotIn("Участники и прогресс видны всем.", category)
         self.assertIn('class="vote-countdown" role="timer"', category)
-        self.assertIn('class="vote-countdown" role="timer"', share)
+        self.assertNotIn('class="vote-countdown" role="timer"', share)
         self.assertIn('class="vote-countdown-label" data-countdown-label', category)
-        self.assertIn('class="vote-countdown-label" data-countdown-label', share)
+        self.assertNotIn('class="vote-countdown-label" data-countdown-label', share)
 
         self.assertIn('parts.push(secs + " сек.")', ui)
         self.assertNotIn('if (!days) parts.push(secs + " сек.")', ui)

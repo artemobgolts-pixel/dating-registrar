@@ -3,22 +3,52 @@
 {% block title %}События{% endblock %}
 {# Список меняется после каждой правки (активные/архив). Запрещаем Turbo
    показывать устаревший кэш-снимок после мутаций. #}
-{% block head %}<meta name="turbo-cache-control" content="no-cache">{% endblock %}
+{% block head %}
+<meta name="turbo-cache-control" content="no-cache">
+<style nonce="{{ csp_nonce }}">
+  .admin-list-search{display:flex;gap:10px;align-items:center;margin:16px 0 20px;max-width:680px}
+  .admin-search-input{position:relative;display:flex;align-items:center;min-width:0;flex:1}
+  .admin-search-input svg{position:absolute;left:14px;width:17px;height:17px;color:var(--muted);pointer-events:none}
+  .admin-search-input input{width:100%;height:44px;padding:0 44px 0 42px;border-radius:14px;background:var(--material-control);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}
+  .admin-search-clear{position:absolute;right:7px;display:grid;place-items:center;width:30px;height:30px;border-radius:50%;color:var(--muted);text-decoration:none;font-size:14px}
+  .admin-search-clear:active{transform:scale(.92)}
+  .admin-list-search .btn{min-height:44px;flex:none}
+  @media(max-width:520px){.admin-list-search{align-items:stretch}.admin-list-search .btn{padding-inline:15px}}
+  @media(prefers-reduced-motion:reduce){.admin-search-clear:active{transform:none}}
+</style>
+{% endblock %}
 {% block content %}
 <div class="bar">
   <h1 class="serif" style="margin:0">События</h1>
   <a class="btn primary" href="/admin/dates/new?{{ editor_return_query }}" data-tour="dates-create">+ Новое событие</a>
 </div>
 
+<form class="admin-list-search" method="get" action="/admin/dates" role="search">
+  <input type="hidden" name="view" value="{{ view }}">
+  {% if sort != 'new' %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
+  {% if flt %}<input type="hidden" name="f" value="{{ flt }}">{% endif %}
+  {% if cat %}<input type="hidden" name="cat" value="{{ cat }}">{% endif %}
+  <label class="admin-search-input">
+    <span class="sr-only">Поиск по событиям</span>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg>
+    <input type="search" name="q" value="{{ q }}" maxlength="200"
+           placeholder="Название, место или подборка" autocomplete="off">
+    {% if q %}<a class="admin-search-clear" href="{{ clear_search_url }}" aria-label="Очистить поиск">✕</a>{% endif %}
+  </label>
+  <button class="btn primary" type="submit">Найти</button>
+</form>
+
 <div class="controls">
   <div class="tabs dates-status-tabs" data-tour="dates-statuses"
-       data-glass-key="dates-status">
+       data-glass-key="dates-status" aria-label="Раздел событий">
     <a href="/admin/dates?view=active{{ qs_keep }}" class="{{ 'on' if view == 'active' else '' }}">Активные{% if active_n %} <span class="pill count-badge count-badge--tab">{{ active_n }}</span>{% endif %}</a>
     <a href="/admin/dates?view=archived{{ qs_keep }}" class="{{ 'on' if view == 'archived' else '' }}">Архив{% if archived_n %} <span class="pill count-badge count-badge--tab">{{ archived_n }}</span>{% endif %}</a>
+    <a href="/admin/dates?view=proposed{{ qs_keep }}" class="{{ 'on' if view == 'proposed' else '' }}">Предложенные{% if proposed_n %} <span class="pill count-badge count-badge--tab">{{ proposed_n }}</span>{% endif %}</a>
   </div>
 
   <form method="get" action="/admin/dates" class="filters" data-tour="dates-controls">
     <input type="hidden" name="view" value="{{ view }}">
+    {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
     <select name="sort" data-autosubmit>
       <option value="new" {{ 'selected' if sort == 'new' }}>Сначала новые</option>
       <option value="when" {{ 'selected' if sort == 'when' }}>По дате события</option>
@@ -28,7 +58,6 @@
       <option value="">Все события</option>
       <option value="public" {{ 'selected' if flt == 'public' }}>Публичные</option>
       <option value="private" {{ 'selected' if flt == 'private' }}>Непубличные</option>
-      <option value="guest" {{ 'selected' if flt == 'guest' }}>Только предложенные</option>
       <option value="booked" {{ 'selected' if flt == 'booked' }}>С голосами</option>
       <option value="nodate" {{ 'selected' if flt == 'nodate' }}>Без даты</option>
     </select>
@@ -258,6 +287,12 @@
     {% if view == 'archived' %}
     <div class="big">🗄</div>
     <p>Архив пуст. Сюда уезжают прошедшие события.</p>
+    {% elif view == 'proposed' %}
+    <div class="big">💡</div>
+    <p>{% if q %}Среди предложений по запросу «{{ q }}» ничего не найдено.{% else %}Пока никто не предложил событие.{% endif %}</p>
+    {% elif q %}
+    <div class="big">⌕</div>
+    <p>По запросу «{{ q }}» ничего не найдено.</p>
     {% else %}
     <div class="big">{% if user['admin_skin'] == 'friends' %}{% with icon='gather' %}{% include "admin/_icon.html" %}{% endwith %}{% else %}{% with icon='heart' %}{% include "admin/_icon.html" %}{% endwith %}{% endif %}</div>
     <p>Пока нет ни одного события — давай создадим первое.</p>

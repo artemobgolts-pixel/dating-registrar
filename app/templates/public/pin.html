@@ -1,0 +1,48 @@
+{% from "public/_icons.html" import icon %}
+{% set active_skin = category_skin if category_skin is defined else 'friends' %}
+<!doctype html>
+<html lang="ru" data-skin="{{ active_skin }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Закрытая подборка · date4you</title>
+  <meta name="theme-color" content="{{ '#554eae' if active_skin == 'friends' else '#b65f6f' }}">
+  <script src="{{ asset('theme.js') }}"></script>
+  {% from "_appearance_assets.html" import appearance_assets %}
+  {{ appearance_assets(active_skin) }}
+  <link rel="stylesheet" href="{{ asset('public.css') }}">
+</head>
+<body class="public-event-page pin-access-page">
+  {% if active_skin == 'friends' %}
+  <div class="bg-gather" aria-hidden="true">
+    <span class="orbit o1"></span><span class="orbit o2"></span>
+    <span class="dot d1"></span><span class="dot d2"></span><span class="dot d3"></span>
+  </div>
+  {% else %}
+  <div class="bg-hearts" aria-hidden="true">
+    <span>♥</span><span>♡</span><span>♥</span><span>♡</span><span>♥</span>
+  </div>
+  {% endif %}
+
+  <main class="pin-access-shell">
+    <section class="pin-access-card" aria-labelledby="pinTitle">
+      <div class="pin-access-icon" aria-hidden="true">{{ icon('lock') }}</div>
+      <h1 id="pinTitle">Закрытая подборка</h1>
+      <p>Организатор защитил ссылку. Введи PIN-код из четырёх цифр.</p>
+      <form method="post" action="/c/{{ token }}/unlock" class="pin-access-form">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <label for="collectionPin" class="sr-only">PIN-код</label>
+        <input id="collectionPin" name="pin" type="password" inputmode="numeric"
+               pattern="[0-9]{4}" minlength="4" maxlength="4" autocomplete="one-time-code"
+               enterkeyhint="done" placeholder="••••" required autofocus
+               aria-describedby="pinHint{% if error %} pinError{% endif %}"
+               {% if error %}aria-invalid="true"{% endif %}>
+        <span id="pinHint" class="pin-access-hint">Только четыре цифры</span>
+        {% if error %}<p id="pinError" class="pin-access-error" role="alert">{{ error }}</p>{% endif %}
+        <button type="submit" class="btn book">Открыть подборку</button>
+      </form>
+    </section>
+  </main>
+</body>
+</html>

@@ -207,15 +207,15 @@ class FrontendMediaContractTests(unittest.TestCase):
         self.assertNotIn('card.classList.add("glow")', vote_block)
         self.assertNotIn("location.reload", vote_block)
 
-        for filename in ("category.html", "share.html"):
-            template = (
-                APP / f"templates/public/{filename}"
-            ).read_text(encoding="utf-8")
-            self.assertIn(
-                "d.capacity == 1 and d.vote_count == 0",
-                template,
-                filename,
-            )
+        category = (APP / "templates/public/category.html").read_text(
+            encoding="utf-8",
+        )
+        share = (APP / "templates/public/share.html").read_text(
+            encoding="utf-8",
+        )
+        self.assertIn("d.capacity == 1 and d.vote_count == 0", category)
+        self.assertNotIn("d.capacity", share)
+        self.assertNotIn("d.vote_count", share)
 
     def test_persisted_videos_have_lazy_source_and_poster(self):
         templates = (
@@ -238,7 +238,6 @@ class FrontendMediaContractTests(unittest.TestCase):
     def test_small_avatar_srcsets_are_used(self):
         templates = (
             APP / "templates/public/category.html",
-            APP / "templates/public/share.html",
             APP / "templates/admin/_community_cards.html",
             APP / "templates/admin/_community_widget.html",
         )
@@ -247,6 +246,11 @@ class FrontendMediaContractTests(unittest.TestCase):
             self.assertIn("?w=64", text, path.name)
             self.assertIn("?w=96 96w", text, path.name)
             self.assertIn("?w=128 128w", text, path.name)
+
+        # На прямой ссылке список проголосовавших скрыт целиком, поэтому
+        # маленькие аватары участников там не должны появляться.
+        share = (APP / "templates/public/share.html").read_text(encoding="utf-8")
+        self.assertNotIn("d.participants", share)
 
         # Автор одинаково узнаваем в карточке ленты и открытом виджете.
         feed_card = (APP / "templates/admin/_community_cards.html").read_text(

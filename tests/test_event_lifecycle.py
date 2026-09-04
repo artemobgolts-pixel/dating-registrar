@@ -87,10 +87,16 @@ class EventLifecycleTests(unittest.TestCase):
             "INSERT INTO date_categories(date_id,category_id) VALUES(?,?)",
             (conflict, category),
         )
-        # Свежая фикстура уже содержит объекты v30/v31; убираем их, чтобы версия
+        # Свежая фикстура уже содержит объекты v30–v35; убираем их, чтобы версия
         # 28 честно прогнала все последующие миграции.
         conn.execute("DROP TABLE review_queue")
         conn.execute("ALTER TABLE categories DROP COLUMN use_default_preview")
+        conn.execute("ALTER TABLE categories DROP COLUMN private_profiles")
+        conn.execute("ALTER TABLE categories DROP COLUMN prevent_copying")
+        conn.execute("ALTER TABLE categories DROP COLUMN pin_enabled")
+        conn.execute("ALTER TABLE categories DROP COLUMN access_pin_hash")
+        conn.execute("DROP INDEX idx_dates_owner_source")
+        conn.execute("ALTER TABLE dates DROP COLUMN source_date_id")
         conn.execute("PRAGMA user_version=28")
         conn.commit()
         conn.close()
@@ -268,7 +274,7 @@ class EventLifecycleTests(unittest.TestCase):
         conn.close()
         self.conn = None
 
-    def test_late_start_waits_three_hours_before_archive_and_review_prompt(self):
+    def test_late_start_waits_three_hours_and_does_not_prompt_want_user(self):
         conn = db.connect()
         self.conn = conn
         owner = self._user(conn, 85001, "Организатор")
@@ -306,7 +312,7 @@ class EventLifecycleTests(unittest.TestCase):
             "SELECT COUNT(*) FROM notification_outbox "
             "WHERE user_id=? AND kind='review_prompt'",
             (viewer,),
-        ).fetchone()[0], 1)
+        ).fetchone()[0], 0)
         conn.close()
         self.conn = None
 

@@ -1,7 +1,21 @@
 {% extends "admin/base.html" %}
 {% from "admin/_entity_status.html" import category_voting, event_lifecycle, event_tone, event_visibility, status %}
 {% block title %}{{ cat['name'] }}{% endblock %}
-{% block head %}<meta name="turbo-cache-control" content="no-cache">{% endblock %}
+{% block head %}
+<meta name="turbo-cache-control" content="no-cache">
+<style nonce="{{ csp_nonce }}">
+  .category-privacy-card{display:grid;gap:16px}
+  .category-privacy-head h2{font-size:20px;margin:0 0 4px}
+  .category-privacy-head p{margin:0}
+  .category-privacy-options{display:grid;gap:10px}
+  .category-privacy-options .toggle{margin:0;min-height:58px}
+  .category-pin-field{display:grid;gap:6px;margin:2px 0 0;padding:14px;border:1px solid var(--line);border-radius:14px;background:var(--material-control)}
+  .category-pin-field input{max-width:220px;height:44px;font-variant-numeric:tabular-nums;letter-spacing:.22em}
+  .category-privacy-form:not(:has(input[name="pin_enabled"]:checked)) .category-pin-field{display:none}
+  .category-privacy-actions{display:flex;justify-content:flex-end}
+  @media(max-width:520px){.category-privacy-actions .btn{width:100%}}
+</style>
+{% endblock %}
 {% block content %}
 <a class="btn editor-back" href="{{ editor_return_url | default('/admin/categories', true) }}">← Назад</a>
 {% if operator_context %}
@@ -158,6 +172,7 @@
         <button type="button" disabled>Ссылка отключена</button>
         <button type="button" data-tour="category-share-copy" disabled>Скопировать ссылку</button>
         {% endif %}
+        <button type="submit" form="regenerateCategoryLinkForm">Перегенерировать ссылку</button>
         <div class="sepa" aria-hidden="true"></div>
         <button type="submit" form="defaultPreviewForm">
           {{ 'Убрать стандартное превью' if cat['use_default_preview'] else 'Установить стандартное превью' }}
@@ -174,6 +189,11 @@
 
   <form id="defaultPreviewForm" method="post"
         action="/admin/categories/{{ cat['id'] }}/default_preview?return_to={{ editor_return_url | urlencode }}" hidden>
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+  </form>
+  <form id="regenerateCategoryLinkForm" method="post"
+        action="/admin/categories/{{ cat['id'] }}/regenerate?return_to={{ editor_return_url | urlencode }}" hidden
+        data-confirm="Сгенерировать новую ссылку? Старая перестанет работать, но все голоса и вопросы сохранятся.">
     <input type="hidden" name="csrf" value="{{ csrf }}">
   </form>
   <form id="deleteCategoryForm" method="post"
@@ -335,6 +355,53 @@
 </div>
 
 {{ category_voting_section }}
+
+<section class="card category-privacy-card" id="categoryPrivacy" aria-labelledby="categoryPrivacyTitle">
+  <div class="category-privacy-head">
+    <h2 id="categoryPrivacyTitle">Приватность</h2>
+    <p class="muted">Управляй тем, что смогут увидеть и сделать люди по гостевой ссылке.</p>
+  </div>
+  <form class="category-privacy-form" method="post"
+        action="/admin/categories/{{ cat['id'] }}/privacy?return_to={{ editor_return_url | urlencode }}">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="category-privacy-options">
+      <label class="toggle">
+        <input type="checkbox" name="private_profiles" value="1"{% if cat['private_profiles'] %} checked{% endif %}>
+        <span class="sw" aria-hidden="true"></span>
+        <span class="tcol">
+          <span class="t">Приватные профили участников</span>
+          <span class="d">Имена и аватары останутся видны, но ссылки на профили будут отключены.</span>
+        </span>
+      </label>
+      <label class="toggle">
+        <input type="checkbox" name="prevent_copying" value="1"{% if cat['prevent_copying'] %} checked{% endif %}>
+        <span class="sw" aria-hidden="true"></span>
+        <span class="tcol">
+          <span class="t">Запретить копирование событий</span>
+          <span class="d">Скроет с карточек действия «Скопировать ссылку» и «Скопировать событие».</span>
+        </span>
+      </label>
+      <label class="toggle">
+        <input type="checkbox" name="pin_enabled" value="1"{% if cat['pin_enabled'] %} checked{% endif %}>
+        <span class="sw" aria-hidden="true"></span>
+        <span class="tcol">
+          <span class="t">Вход по PIN-коду</span>
+          <span class="d">Перед открытием подборки у невладельца будут запрошены 4 цифры.</span>
+        </span>
+      </label>
+      <label class="category-pin-field" for="categoryAccessPin">
+        <span class="field-label">PIN-код из 4 цифр</span>
+        <input id="categoryAccessPin" name="access_pin" type="password" inputmode="numeric"
+               pattern="[0-9]{4}" minlength="4" maxlength="4" autocomplete="new-password"
+               placeholder="{% if cat['access_pin_hash'] %}Новый PIN{% else %}0000{% endif %}">
+        <span class="muted tiny">{% if cat['access_pin_hash'] %}PIN уже задан. Оставь поле пустым, чтобы не менять его.{% else %}Введи PIN при первом включении защиты.{% endif %}</span>
+      </label>
+    </div>
+    <div class="category-privacy-actions">
+      <button class="btn primary" type="submit">Сохранить приватность</button>
+    </div>
+  </form>
+</section>
 
 <section class="card category-share-card" id="categoryShare" data-tour="category-actions" aria-labelledby="categoryShareTitle">
   <div>

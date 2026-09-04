@@ -22,6 +22,7 @@
       data-token="{{ token }}" data-name="{{ guest_name or '' }}" data-auth="{{ '1' if me else '' }}"
       data-max-photos="{{ max_photos }}" data-max-videos="{{ max_videos }}"
       data-csrf="{{ csrf }}"
+      data-private-profiles="{{ '1' if cat['private_profiles'] else '0' }}"
       data-skin="{{ active_skin }}"
       data-ink-interactive="{{ '1' if me and me['cursor_effects'] else '0' }}">
 
@@ -150,7 +151,8 @@
     {% if vote_state.status == 'open' %}
       <div class="vote-countdown" role="timer">
         <span class="vote-countdown-label" data-countdown-label>До конца голосования</span>
-        <b data-vote-countdown data-deadline="{{ vote_state.voting_deadline }}+03:00">считаем…</b>
+        <b data-vote-countdown data-countdown-compact
+           data-deadline="{{ vote_state.voting_deadline }}+03:00">считаем…</b>
       </div>
       <span class="vote-rule">{% if vote_state.choice_mode == 'multiple' %}Можно выбрать несколько вариантов; каждый выбор можно снять до дедлайна.{% else %}Можно выбрать один вариант; новый выбор заменит предыдущий.{% endif %}</span>
     {% elif vote_state.status == 'tie' %}
@@ -166,13 +168,35 @@
   </section>
   {% endif %}
 
+  {% macro eventmenu(d, surface) -%}
+  {% set can_report = not viewer_is_owner and not d.past and not d.pending and not d.editable %}
+  {% set can_copy = not cat['prevent_copying'] and not d.pending and d.share_token %}
+  {% if can_report or can_copy %}
+  <details class="event-card-menu event-card-menu--{{ surface }}">
+    <summary aria-label="Действия с событием «{{ d.name }}»">
+      <svg class="event-card-menu-dots" viewBox="0 0 20 6" aria-hidden="true"><circle cx="3" cy="3" r="1.5"/><circle cx="10" cy="3" r="1.5"/><circle cx="17" cy="3" r="1.5"/></svg>
+    </summary>
+    <div class="event-card-menu-popover">
+      {% if can_copy %}
+      <button type="button" class="copy-event-link" data-copy-link="/d/{{ d.share_token }}">Скопировать ссылку</button>
+      <form method="post" action="/d/{{ d.share_token }}/add" class="copy-event-form" data-copy-event-form>
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="source_category_token" value="{{ token }}">
+        <button type="submit" class="copy-event-button">Скопировать событие</button>
+      </form>
+      {% endif %}
+      {% if can_report %}<button type="button" class="report-link" data-id="{{ d.id }}" data-name="{{ d.name }}">Пожаловаться</button>{% endif %}
+    </div>
+  </details>
+  {% endif %}
+  {%- endmacro %}
+
   {% macro datecard(d, priority=false) -%}
   {% set badges %}
     {%- if d.pending %}<span class="badge wait media-badge media-badge--pending">⏳ ждёт проверки</span>
     {%- elif d.origin == 'guest' and not d.past %}<span class="badge guest media-badge media-badge--guest">💡 идея гостя</span>{% endif -%}
     {%- if d.pay_split %}<span class="badge pay media-badge media-badge--pay">{{ d.pay_split | pay_label }}</span>{% endif -%}
   {% endset %}
-  {% set can_report = not viewer_is_owner and not d.past and not d.pending and not d.editable %}
   <article class="card{% if d.past %} past{% endif %}{% if d.booked_by_me and not d.past %} booked-me{% endif %}{% if d.is_winner %} vote-winner{% elif d.is_loser %} vote-loser{% elif d.is_tie_leader %} vote-tie-leader{% endif %}{% if not d.images and not d.videos %} nophoto{% endif %}"
            id="date-{{ d.id }}">
     {% if d.images or d.videos %}
@@ -180,16 +204,7 @@
       {% if not d.past and not d.is_winner %}<div class="seal"{% if not d.booked_by_me %} hidden{% endif %}>{{ icon('check') }}</div>{% endif %}
       {% if badges | trim %}<div class="badges media-badges">{{ badges }}</div>{% endif %}
       {% if d.is_winner %}<div class="winner-ribbon">{% if d.booked_by_me %}{{ icon('check', 'winner-check') }}{% endif %}<span>Общий выбор</span></div>{% elif d.is_tie_leader %}<div class="winner-ribbon tie">Лидер при ничьей</div>{% endif %}
-      {% if can_report %}
-      <details class="event-card-menu event-card-menu--media">
-        <summary aria-label="Действия с событием «{{ d.name }}»">
-          <svg class="event-card-menu-dots" viewBox="0 0 20 6" aria-hidden="true"><circle cx="3" cy="3" r="1.5"/><circle cx="10" cy="3" r="1.5"/><circle cx="17" cy="3" r="1.5"/></svg>
-        </summary>
-        <div class="event-card-menu-popover">
-          <button type="button" class="report-link" data-id="{{ d.id }}" data-name="{{ d.name }}">Пожаловаться</button>
-        </div>
-      </details>
-      {% endif %}
+      {{ eventmenu(d, 'media') }}
       <div class="gallery">
         {% for im in d.images %}
         <img src="/c/{{ token }}/image/{{ im['filename'] }}?w=960"
@@ -216,16 +231,7 @@
     </div>
     {% endif %}
     <div class="body">
-      {% if not d.images and not d.videos and can_report %}
-      <details class="event-card-menu event-card-menu--body">
-        <summary aria-label="Действия с событием «{{ d.name }}»">
-          <svg class="event-card-menu-dots" viewBox="0 0 20 6" aria-hidden="true"><circle cx="3" cy="3" r="1.5"/><circle cx="10" cy="3" r="1.5"/><circle cx="17" cy="3" r="1.5"/></svg>
-        </summary>
-        <div class="event-card-menu-popover">
-          <button type="button" class="report-link" data-id="{{ d.id }}" data-name="{{ d.name }}">Пожаловаться</button>
-        </div>
-      </details>
-      {% endif %}
+      {% if not d.images and not d.videos %}{{ eventmenu(d, 'body') }}{% endif %}
       {# карточка без фото/видео — без заглушки: только бейджи, заголовок и параметры #}
       {% if not d.images and not d.videos and badges | trim %}<div class="badges media-badges media-badges--inflow inflow">{{ badges }}</div>{% endif %}
       <h2 class="title">{{ d.name }}</h2>
@@ -277,7 +283,13 @@
         {% if d.participants %}
         <div class="participants" aria-label="Участники">
           {% for person in d.participants %}
+          {% if person['profile_url'] %}
+          <a class="participant{% if person['participation_withdrawn_at'] %} withdrawn{% endif %}"
+             href="{{ person['profile_url'] }}"
+             aria-label="Открыть профиль: {{ person['name'] }}">
+          {% else %}
           <span class="participant{% if person['participation_withdrawn_at'] %} withdrawn{% endif %}">
+          {% endif %}
             {% if person['avatar_path'] and person['user_id'] %}
             <img src="/c/{{ token }}/participant-avatar/{{ person['user_id'] }}?w=64"
                  srcset="/c/{{ token }}/participant-avatar/{{ person['user_id'] }}?w=64 64w,
@@ -288,7 +300,7 @@
             {% else %}<span class="participant-ph" aria-hidden="true">{{ person['name'][:1] | upper }}</span>{% endif %}
             <span>{{ person['name'] }}{% if person['is_me'] %} · ты{% endif %}</span>
             {% if person['participation_withdrawn_at'] %}<small>отказался(-ась)</small>{% endif %}
-          </span>
+          {% if person['profile_url'] %}</a>{% else %}</span>{% endif %}
           {% endfor %}
           {% if d.participant_hidden_count %}
           <span class="participants-more">ещё {{ d.participant_hidden_count }}</span>

@@ -142,12 +142,25 @@ class SocialEventsTests(unittest.TestCase):
             self.conn, 4, 2, now=now,
         ))
 
-    def test_one_prompt_per_user_and_date_is_rescheduled_and_cancelled_by_review(self):
+    def test_want_has_no_prompt_but_winner_prompt_is_idempotent_and_cancelled(self):
         self._category(1, "2030-01-02T10:00:00")
         self._date(1, starts="2030-01-03T18:00:00", ends="2030-01-03T20:00:00")
         self.conn.execute("INSERT INTO date_categories(date_id,category_id) VALUES(1,1)")
         self._want(1)
 
+        self.assertIsNone(social_events.queue_review_prompt(self.conn, 1, 2))
+        self.assertEqual(self.conn.execute(
+            "SELECT COUNT(*) FROM notification_outbox"
+        ).fetchone()[0], 0)
+
+        self.conn.execute(
+            "INSERT INTO bookings(date_id,category_id,guest_token,user_id,created_at) "
+            "VALUES(1,1,'winner-user-2',2,'2030-01-01T00:00:00')"
+        )
+        self.conn.execute(
+            "UPDATE categories SET voting_status='resolved',winner_date_id=1 "
+            "WHERE id=1"
+        )
         first = social_events.queue_review_prompt(self.conn, 1, 2)
         second = social_events.queue_review_prompt(self.conn, 1, 2)
         self.assertEqual(first, second)
@@ -195,7 +208,7 @@ class SocialEventsTests(unittest.TestCase):
         traced: list[str] = []
         self.conn.set_trace_callback(traced.append)
         self.assertEqual(
-            social_events.queue_review_prompts_for_date(self.conn, 10), 100,
+            social_events.queue_review_prompts_for_date(self.conn, 10), 0,
         )
         self.conn.set_trace_callback(None)
         selects = sum(sql.lstrip().upper().startswith("SELECT") for sql in traced)
@@ -203,8 +216,8 @@ class SocialEventsTests(unittest.TestCase):
             sql.lstrip().upper().startswith("INSERT INTO NOTIFICATION_OUTBOX")
             for sql in traced
         )
-        self.assertEqual(selects, 3)
-        self.assertEqual(outbox_inserts, 2)  # 80 + 20 rows
+        self.assertEqual(selects, 1)
+        self.assertEqual(outbox_inserts, 0)
 
         traced.clear()
         self.conn.set_trace_callback(traced.append)
@@ -212,14 +225,14 @@ class SocialEventsTests(unittest.TestCase):
             self.conn, 11, now=datetime(2030, 1, 4, 12, 0),
         )
         self.conn.set_trace_callback(None)
-        self.assertEqual((queued, waiting), (100, 100))
+        self.assertEqual((queued, waiting), (0, 100))
         self.assertEqual(
-            sum(sql.lstrip().upper().startswith("SELECT") for sql in traced), 4,
+            sum(sql.lstrip().upper().startswith("SELECT") for sql in traced), 5,
         )
         self.assertEqual(
             sum(sql.lstrip().upper().startswith(
                 "INSERT INTO NOTIFICATION_OUTBOX") for sql in traced),
-            2,
+            0,
         )
         self.assertEqual(
             sum(sql.lstrip().upper().startswith(

@@ -135,7 +135,7 @@ class TimeAndDeadlineBrowserTests(unittest.TestCase):
         page.locator('[data-dur="2"]').click()
         self.assertEqual(page.locator("#end").input_value(), "2030-05-08T01:30")
 
-    def test_compact_countdown_uses_only_rounded_days_or_hours(self):
+    def test_compact_countdown_uses_the_smallest_useful_deadline_unit(self):
         page = self.browser.new_page()
         self.addCleanup(page.close)
         page.set_content("""
@@ -154,6 +154,11 @@ class TimeAndDeadlineBrowserTests(unittest.TestCase):
               <span data-countdown-label>До конца</span>
               <b id="compact-under-hour" data-vote-countdown data-countdown-compact
                  data-deadline="2030-05-07T12:59:00+00:00"></b>
+            </div>
+            <div role="timer">
+              <span data-countdown-label>До конца</span>
+              <b id="compact-under-minute" data-vote-countdown data-countdown-compact
+                 data-deadline="2030-05-07T12:00:45+00:00"></b>
             </div>
             <div role="timer">
               <span data-countdown-label>До конца голосования</span>
@@ -176,7 +181,8 @@ class TimeAndDeadlineBrowserTests(unittest.TestCase):
 
         self.assertEqual(page.locator("#compact-days").inner_text(), "3 дн.")
         self.assertEqual(page.locator("#compact-hours").inner_text(), "23 ч.")
-        self.assertEqual(page.locator("#compact-under-hour").inner_text(), "1 ч.")
+        self.assertEqual(page.locator("#compact-under-hour").inner_text(), "59 мин.")
+        self.assertEqual(page.locator("#compact-under-minute").inner_text(), "45 сек.")
         self.assertEqual(
             page.locator("#detailed").inner_text(),
             "2 дн. 0 ч. 0 мин. 1 сек.",

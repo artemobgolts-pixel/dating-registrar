@@ -334,15 +334,28 @@ class LandingExperienceContractTests(unittest.TestCase):
                 self.assertIn("data-feed-preview-owner", card)
                 self.assertIn("data-feed-preview-meta", card)
                 self.assertIn("data-feed-preview-actions", card)
-                text = _plain_text(card)
-                self.assertIn("Добавить", text)
-                self.assertIn("Поделиться", text)
-                action_links = re.findall(
-                    r'<a\b[^>]*href=["\']/login["\'][^>]*>(.*?)</a>',
+                actions = re.search(
+                    r'<div\b[^>]*\bdata-feed-preview-actions(?:\b|=)[^>]*>'
+                    r'(.*?)</div>',
                     card,
                     re.DOTALL,
                 )
-                self.assertEqual(len(action_links), 2)
+                self.assertIsNotNone(actions)
+                actions_source = actions.group(1)
+                actions_text = _plain_text(actions_source)
+                self.assertIn("Поделиться", actions_text)
+                self.assertTrue(
+                    "Добавить" in actions_text or "Уже добавлено" in actions_text,
+                )
+                action_links = re.findall(
+                    r'<a\b[^>]*href=["\']/login["\'][^>]*>(.*?)</a>',
+                    actions_source,
+                    re.DOTALL,
+                )
+                self.assertEqual(
+                    len(action_links),
+                    1 if "Уже добавлено" in actions_text else 2,
+                )
 
     def test_classic_theme_has_no_extra_orbits_or_dots(self):
         self.assertNotIn('class="bg-gather', self.home)
@@ -693,7 +706,7 @@ class LandingExperienceContractTests(unittest.TestCase):
             items(lists[1]),
             [
                 "Фото и видео",
-                "Порядок и кадрирование медиа",
+                "Кадрирование медиа",
                 "Дата и время",
                 "Место и карта",
                 "Внешние ссылки",

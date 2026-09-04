@@ -771,7 +771,7 @@ window.UI = (() => {
         var payVal = payChecked ? payChecked.value : "0";
         var PAY = { "1": "💸 50/50", "2": "👌 Я плачу", "3": "🫵 Ты платишь" };
         if (PAY[payVal]) { pv.pay.textContent = PAY[payVal]; pv.pay.hidden = false; }
-        else { pv.pay.hidden = true; }
+        else { pv.pay.textContent = ""; pv.pay.hidden = true; }
       }
 
       // мета: когда (🕐) + место (📍)
@@ -1442,13 +1442,15 @@ window.UI = (() => {
           stop();
           return false;
         }
-        // На компактном превью главной важен порядок величины, а не секундомер:
-        // от суток показываем только округлённые вверх дни, внутри суток — часы.
-        // Публичные страницы без атрибута сохраняют подробный живой отсчёт.
+        // На компактных превью оставляем одну, самую полезную величину. По мере
+        // приближения дедлайна точность естественно растёт: дни → часы → минуты
+        // → секунды. Публичные страницы без атрибута сохраняют полный отсчёт.
         if (el.hasAttribute("data-countdown-compact")) {
-          var compactValue = seconds >= day
-            ? Math.ceil(seconds / day) + " дн."
-            : Math.max(1, Math.ceil(seconds / 3600)) + " ч.";
+          var compactValue;
+          if (seconds >= day) compactValue = Math.ceil(seconds / day) + " дн.";
+          else if (seconds >= 3600) compactValue = Math.ceil(seconds / 3600) + " ч.";
+          else if (seconds >= 60) compactValue = Math.ceil(seconds / 60) + " мин.";
+          else compactValue = seconds + " сек.";
           el.textContent = compactValue;
           if (wrapper) {
             wrapper.setAttribute("aria-label", "До конца голосования осталось: " + compactValue);

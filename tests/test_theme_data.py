@@ -208,12 +208,13 @@ class ThemePreviewTests(unittest.TestCase):
             path for path in templates
             if "<html" in path.read_text("utf-8")
         ]
-        self.assertEqual(len(documents), 13)
+        self.assertEqual(len(documents), 14)
         relative_documents = {
             path.relative_to(APP / "templates").as_posix() for path in documents
         }
         self.assertIn("public/home.html", relative_documents)
         self.assertIn("public/not_found.html", relative_documents)
+        self.assertIn("public/pin.html", relative_documents)
         for path in documents:
             with self.subTest(template=path.relative_to(APP).as_posix()):
                 source = path.read_text("utf-8")

@@ -62,16 +62,21 @@ class PublicDialogAccessibilityTests(unittest.TestCase):
         auth = (APP / "static/auth.js").read_text("utf-8")
         self.assertIn('iframe.setAttribute("title", "Войти через Telegram")', auth)
 
-        for relative in ("templates/public/category.html", "templates/public/share.html"):
-            source = (APP / relative).read_text("utf-8")
-            with self.subTest(template=relative):
-                self.assertIn(
-                    'aria-label="Заполненность события «{{ d.name }}»"', source,
-                )
-                self.assertIn(
-                    'aria-valuetext="{{ d.vote_count }} из {{ d.capacity }} участников"',
-                    source,
-                )
+        category = (APP / "templates/public/category.html").read_text("utf-8")
+        self.assertIn(
+            'aria-label="Заполненность события «{{ d.name }}»"', category,
+        )
+        self.assertIn(
+            'aria-valuetext="{{ d.vote_count }} из {{ d.capacity }} участников"',
+            category,
+        )
+
+        # Прямая ссылка на событие намеренно не раскрывает голосование и
+        # привязанную подборку.
+        share = (APP / "templates/public/share.html").read_text("utf-8")
+        self.assertNotIn('role="progressbar"', share)
+        self.assertNotIn("d.vote_count", share)
+        self.assertNotIn("d.capacity", share)
 
         dashboard = (APP / "templates/admin/dashboard.html").read_text("utf-8")
         self.assertIn(
@@ -103,20 +108,26 @@ class PublicDialogAccessibilityTests(unittest.TestCase):
         self.assertNotIn("if (!authenticated)", script)
 
     def test_event_report_is_an_accessible_overflow_action_not_title_content(self):
-        for name in ("category.html", "share.html"):
-            template = (APP / "templates/public" / name).read_text("utf-8")
-            with self.subTest(template=name):
-                self.assertNotIn('class="title-row"', template)
-                self.assertIn(
-                    'class="event-card-menu event-card-menu--media"', template,
-                )
-                self.assertIn(
-                    'class="event-card-menu event-card-menu--body"', template,
-                )
-                self.assertIn(
-                    'aria-label="Действия с событием «{{ d.name }}»"', template,
-                )
-                self.assertEqual(template.count(">Пожаловаться</button>"), 2)
+        category = (APP / "templates/public/category.html").read_text("utf-8")
+        self.assertNotIn('class="title-row"', category)
+        self.assertIn(
+            'class="event-card-menu event-card-menu--{{ surface }}"', category,
+        )
+        self.assertIn("{{ eventmenu(d, 'media') }}", category)
+        self.assertIn("{{ eventmenu(d, 'body') }}", category)
+        self.assertIn(
+            'aria-label="Действия с событием «{{ d.name }}»"', category,
+        )
+        self.assertEqual(category.count(">Пожаловаться</button>"), 1)
+
+        share = (APP / "templates/public/share.html").read_text("utf-8")
+        self.assertNotIn('class="title-row"', share)
+        self.assertIn('class="event-card-menu event-card-menu--media"', share)
+        self.assertIn('class="event-card-menu event-card-menu--body"', share)
+        self.assertIn(
+            'aria-label="Действия с событием «{{ d.name }}»"', share,
+        )
+        self.assertEqual(share.count(">Пожаловаться</button>"), 2)
 
 
 class FluidInteractionContractTests(unittest.TestCase):
@@ -216,12 +227,12 @@ class PublicPrivacyNavigationContractTests(unittest.TestCase):
         self.assertIn('aria-label="Редактировать событие «{{ d.name }}»"', self.share)
 
     def test_roster_is_always_visible_in_markup_and_live_updates(self):
-        for name, source in (("category", self.category), ("share", self.share)):
-            with self.subTest(template=name):
-                self.assertNotIn("show_roster", source)
-                self.assertNotIn("show_participants", source)
-                self.assertIn("if d.participants", source)
-                self.assertIn("<span>участников</span>", source)
+        self.assertNotIn("show_roster", self.category)
+        self.assertNotIn("show_participants", self.category)
+        self.assertIn("if d.participants", self.category)
+        self.assertIn("<span>участников</span>", self.category)
+        self.assertNotIn("d.participants", self.share)
+        self.assertNotIn("<span>участников</span>", self.share)
         self.assertNotIn("show_participants", self.script)
         self.assertIn('rosterLabel.textContent = "участников";', self.script)
         self.assertNotIn("показан участникам этой подборки", self.script)
@@ -244,17 +255,17 @@ class PublicPrivacyNavigationContractTests(unittest.TestCase):
         )
         self.assertIsNotNone(save_form)
         self.assertIsNotNone(remove_form)
-        self.assertIn('name="visibility" value="private"', save_form.group(1))
-        self.assertIn('name="visibility" value="public"', save_form.group(1))
+        self.assertNotIn('name="visibility"', save_form.group(1))
         self.assertNotIn('name="visibility"', remove_form.group(1))
+        self.assertIn("публичном профиле", self.share)
         self.assertIn("Убрать из «Хочу сходить»", remove_form.group(1))
 
     def test_winner_ribbon_owns_the_selected_check_without_a_second_seal(self):
-        for name, source in (("category", self.category), ("share", self.share)):
-            with self.subTest(template=name):
-                self.assertIn("not d.is_winner", source)
-                self.assertIn("icon('check', 'winner-check')", source)
-                self.assertIn('class="winner-ribbon"', source)
+        self.assertIn("not d.is_winner", self.category)
+        self.assertIn("icon('check', 'winner-check')", self.category)
+        self.assertIn('class="winner-ribbon"', self.category)
+        self.assertNotIn("d.is_winner", self.share)
+        self.assertNotIn('class="winner-ribbon"', self.share)
 
     def test_telegram_prompt_is_deferred_then_revealed_without_focus_theft(self):
         self.assertIn("not viewer_has_vote %}hidden data-deferred-notify", self.category)

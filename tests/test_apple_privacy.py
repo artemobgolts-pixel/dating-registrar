@@ -52,7 +52,7 @@ def add_user(conn: sqlite3.Connection, user_id: int, name: str) -> sqlite3.Row:
 
 
 class SchemaVisibilityTests(unittest.TestCase):
-    def test_fresh_schema_has_no_profile_or_roster_visibility_switches(self):
+    def test_fresh_schema_has_collection_privacy_and_public_wants_defaults(self):
         conn = memory_db()
         try:
             user_columns = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
@@ -61,7 +61,10 @@ class SchemaVisibilityTests(unittest.TestCase):
             }
             self.assertNotIn("birth_date_public", user_columns)
             self.assertNotIn("gender_public", user_columns)
-            self.assertNotIn("show_participants", category_columns)
+            self.assertIn("private_profiles", category_columns)
+            self.assertIn("prevent_copying", category_columns)
+            self.assertIn("pin_enabled", category_columns)
+            self.assertIn("access_pin_hash", category_columns)
 
             add_user(conn, 1, "Автор")
             conn.execute(
@@ -74,10 +77,11 @@ class SchemaVisibilityTests(unittest.TestCase):
                 "VALUES(1,1,?,?)",
                 (STAMP, STAMP),
             )
-            # Публичность общей ленты и личной отметки остаётся отдельным выбором.
+            # Публичность общей ленты и отметки в «Хочу сходить» больше не
+            # связаны: сама отметка всегда видна в публичном профиле.
             self.assertEqual(conn.execute("SELECT is_public FROM dates").fetchone()[0], 0)
             self.assertEqual(
-                conn.execute("SELECT is_public FROM date_wants").fetchone()[0], 0,
+                conn.execute("SELECT is_public FROM date_wants").fetchone()[0], 1,
             )
         finally:
             conn.close()
@@ -103,7 +107,7 @@ class SchemaVisibilityTests(unittest.TestCase):
                 INSERT INTO users VALUES(1, 'Алина', '1995-06-15', 'f', 0, 0);
                 INSERT INTO categories VALUES(1, 'Планы', 0);
             """)
-            self.assertEqual(db.LATEST_VERSION, 34)
+            self.assertGreaterEqual(db.LATEST_VERSION, 35)
             conn.executescript(db.MIGRATIONS[34])
 
             user_columns = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
@@ -211,26 +215,26 @@ class WantsAndRosterVisibilityTests(unittest.TestCase):
 
     @patch.object(public_routes, "guest_throttle", lambda *args, **kwargs: None)
     @patch.object(
-        public_routes.social_events, "queue_review_prompt", lambda *args, **kwargs: None,
-    )
-    @patch.object(
         public_routes.social_events, "cancel_review_prompt", lambda *args, **kwargs: 0,
     )
-    def test_want_defaults_private_and_explicit_visibility_can_change(self):
-        response = public_routes.shared_date_want(
-            "date-token", self.request, visibility=None, conn=self.conn,
-        )
+    def test_want_is_always_public_and_does_not_queue_review_prompt(self):
+        with patch.object(public_routes.social_events, "queue_review_prompt") as queued:
+            response = public_routes.shared_date_want(
+                "date-token", self.request, visibility=None, conn=self.conn,
+            )
         payload = json.loads(response.body)
         self.assertTrue(payload["wanted"])
-        self.assertEqual(payload["want_visibility"], "private")
-
-        response = public_routes.shared_date_want(
-            "date-token", self.request, visibility="public", conn=self.conn,
-        )
-        payload = json.loads(response.body)
+        self.assertEqual(payload["want_visibility"], "public")
         self.assertTrue(payload["want_is_public"])
+        queued.assert_not_called()
+        self.assertEqual(
+            self.conn.execute(
+                "SELECT is_public FROM date_wants WHERE user_id=2 AND date_id=1",
+            ).fetchone()[0],
+            1,
+        )
 
-    def test_roster_identities_are_always_returned_and_have_no_setting(self):
+    def test_roster_identities_are_returned_with_private_profile_setting(self):
         updates = public_routes._vote_card_updates(self.conn, 1, [1], "u2")
         self.assertEqual(updates[0]["vote_count"], 1)
         self.assertTrue(updates[0]["mine"])
@@ -244,14 +248,13 @@ class WantsAndRosterVisibilityTests(unittest.TestCase):
             "templates/public/share.html",
             "static/guest.js",
         ))
-        self.assertNotIn("show_participants", sources)
-        self.assertNotIn("category_participants_visibility", sources)
-        self.assertNotIn("participant-privacy-setting", sources)
-        self.assertIn("имена и\n  аватары участников во всех вариантах", (
+        self.assertIn("private_profiles", sources)
+        self.assertIn("Приватные профили участников", sources)
+        self.assertIn("имена и\n  аватары участников", (
             APP / "templates/public/_privacy.html"
         ).read_text("utf-8"))
 
-    def test_roster_avatars_stay_available_for_ties_and_finished_options(self):
+    def test_roster_avatars_stay_on_category_but_not_direct_event_link(self):
         self.conn.execute(
             "UPDATE users SET avatar_path='guest-avatar.webp' WHERE id=2",
         )
@@ -267,11 +270,11 @@ class WantsAndRosterVisibilityTests(unittest.TestCase):
             category_avatar = public_routes.public_participant_avatar(
                 "category-token", 2, conn=self.conn,
             )
-            shared_avatar = public_routes.shared_participant_avatar(
-                "date-token", 2, conn=self.conn,
-            )
         self.assertEqual(category_avatar.status_code, 200)
-        self.assertEqual(shared_avatar.status_code, 200)
+        self.assertNotIn(
+            "/d/{token}/participant-avatar/{user_id}",
+            {route.path for route in public_routes.router.routes},
+        )
 
     def test_shared_date_keeps_category_context_internal_to_voting(self):
         self.conn.executemany(
@@ -298,8 +301,10 @@ class WantsAndRosterVisibilityTests(unittest.TestCase):
             response = public_routes.shared_date("date-token", request, conn=self.conn)
         self.assertNotIn("active_category", response.context)
         self.assertNotIn("active_category_event_count", response.context)
-        self.assertTrue(response.context["can_act"])
-        self.assertIsNotNone(response.context["vote_state"])
+        self.assertFalse(response.context["can_act"])
+        self.assertFalse(response.context["can_vote"])
+        self.assertIsNone(response.context["vote_state"])
+        self.assertEqual(response.context["d"]["participants"], [])
 
 
 if __name__ == "__main__":

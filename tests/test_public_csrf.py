@@ -221,6 +221,7 @@ class PublicCsrfTests(unittest.TestCase):
             body = ast.unparse(node)
             if ("acting_user(" not in body
                     and "report_identity(" not in body
+                    and "require_same_origin(" not in body
                     and "users.current_user" not in decorators):
                 unguarded.append(node.name)
         self.assertEqual(unguarded, [])

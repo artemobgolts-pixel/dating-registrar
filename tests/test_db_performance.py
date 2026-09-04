@@ -128,6 +128,12 @@ class DatabasePerformanceMigrationTests(unittest.TestCase):
                 conn.execute("DROP TABLE notification_preferences")
                 conn.execute("DROP TABLE review_queue")
                 conn.execute("ALTER TABLE categories DROP COLUMN use_default_preview")
+                conn.execute("ALTER TABLE categories DROP COLUMN private_profiles")
+                conn.execute("ALTER TABLE categories DROP COLUMN prevent_copying")
+                conn.execute("ALTER TABLE categories DROP COLUMN pin_enabled")
+                conn.execute("ALTER TABLE categories DROP COLUMN access_pin_hash")
+                conn.execute("DROP INDEX idx_dates_owner_source")
+                conn.execute("ALTER TABLE dates DROP COLUMN source_date_id")
                 # В реальной v24 колонка is_public имела DEFAULT 1. Свежая
                 # фикстура уже использует приватный default, поэтому
                 # восстанавливаем историческое состояние до миграции.

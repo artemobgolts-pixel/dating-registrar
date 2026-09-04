@@ -26,6 +26,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit
 
 import appearance
 import backup
+import category_access
 import db
 import images
 import notify
@@ -149,7 +150,7 @@ def actx(request: Request, conn, **extra) -> dict:
 def logout(request: Request):
     """Выход только по POST с CSRF: logout по GET можно навязать ссылкой."""
     request.session.clear()
-    return RedirectResponse("/login", status_code=303)
+    return RedirectResponse("/", status_code=303)
 
 
 @router.get("/profile", response_class=HTMLResponse)
@@ -412,9 +413,14 @@ def _qr_svg(data: str, skin: str = "friends") -> str:
 def _community_cards(conn, viewer_id: int, cursor: int | None):
     """Возвращает (dates, next_cursor) для ленты. dates — события с медиа и
     именем/аватаром владельца. Курсор — id, строго меньше которого берём дальше."""
-    where = ("d.is_public=1 AND d.is_draft=0 AND d.archived_at IS NULL "
-             "AND d.owner_id<>?")
-    params: list = [viewer_id]
+    where = (
+        "d.is_public=1 AND d.is_draft=0 AND d.archived_at IS NULL "
+        "AND d.owner_id<>? AND NOT EXISTS ("
+        "SELECT 1 FROM dates copied WHERE copied.owner_id=? "
+        "AND copied.origin='copy' "
+        "AND copied.source_date_id=COALESCE(d.source_date_id,d.id))"
+    )
+    params: list = [viewer_id, viewer_id]
     if cursor:
         where += " AND d.id<?"
         params.append(cursor)
@@ -497,9 +503,6 @@ def _event_widget_response(request: Request, conn, row, *, viewer=None,
         request, "admin/_community_widget.html",
         {"request": request, "d": d, "me": viewer,
          "is_mine": is_mine, "wanted_by_me": wanted_by_me,
-         "want_is_public": bool(want and want["is_public"]),
-         "want_visibility": (("public" if want["is_public"] else "private")
-                             if want else None),
          "want_action_available": want_action_available,
          "admin_skin": appearance.normalize_skin(widget_skin)})
 
@@ -828,10 +831,34 @@ async def import_json(request: Request, file: UploadFile = File(...),
 
 @router.get("/categories", response_class=HTMLResponse)
 def categories_list(request: Request, conn=Depends(get_db)):
-    cats = _categories_list_data(conn, int(request.state.user["id"]))
+    query = _search_query(request.query_params.get("q", ""))
+    cats = _categories_list_data(
+        conn, int(request.state.user["id"]), query=query,
+    )
+    current_list_url = "/admin/categories"
+    if query:
+        current_list_url += f"?{urlencode({'q': query})}"
     return templates.TemplateResponse(
         request, "admin/categories.html",
-        actx(request, conn, active="cats", cats=cats))
+        actx(
+            request, conn, active="cats", cats=cats, q=query,
+            current_list_url=current_list_url,
+        ))
+
+
+def _search_query(value: object, *, limit: int = 200) -> str:
+    """Короткая поисковая строка без управляющих символов.
+
+    Это не SQL-санитайзер: значения всё равно передаются только параметрами.
+    Ограничение длины не даёт случайному URL превращать LIKE в дорогой запрос.
+    """
+    return " ".join(str(value or "").split())[:limit]
+
+
+def _like_pattern(value: str) -> str:
+    """Экранирует метасимволы LIKE, чтобы запрос искал буквальную строку."""
+    escaped = value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
 
 
 def _category_deadline_state(deadline: str | None, *, now: datetime) -> str:
@@ -850,13 +877,22 @@ def _category_deadline_state(deadline: str | None, *, now: datetime) -> str:
     return "active" if now < parsed else "expired"
 
 
-def _categories_list_data(conn, owner_id: int) -> list[dict]:
+def _categories_list_data(conn, owner_id: int, *, query: str = "") -> list[dict]:
     """Готовит карточки категорий двумя SELECT независимо от их количества."""
+    where = "c.owner_id=?"
+    params: list[object] = [owner_id]
+    if query:
+        where += (
+            " AND (c.name LIKE ? ESCAPE '\\' COLLATE NOCASE "
+            "OR COALESCE(c.description, '') LIKE ? ESCAPE '\\' COLLATE NOCASE)"
+        )
+        pattern = _like_pattern(query)
+        params.extend((pattern, pattern))
     rows = conn.execute(
         "SELECT c.*, "
         "(SELECT COUNT(*) FROM date_categories dc WHERE dc.category_id=c.id) AS dcount "
-        "FROM categories c WHERE c.owner_id=? ORDER BY c.created_at DESC",
-        (owner_id,)
+        f"FROM categories c WHERE {where} ORDER BY c.created_at DESC",
+        params,
     ).fetchall()
 
     # Default и живая custom-картинка полностью определяют revision/has_og:
@@ -1028,14 +1064,17 @@ def category_clone(cid: int, request: Request, conn=Depends(get_db)):
             "owner_id, name, category_skin, link_token, link_enabled, "
             "moderate_proposals, is_reviewed, description, og_title, og_desc, "
             "og_image, og_focus, use_default_preview, choice_mode, "
-            "voting_deadline, voting_status, created_at"
-            ") VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "voting_deadline, voting_status, private_profiles, prevent_copying, "
+            "pin_enabled, access_pin_hash, created_at"
+            ") VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (owner_id, name, src["category_skin"], new_link_token(),
              0, src["moderate_proposals"], reviewed,
              src["description"], src["og_title"], src["og_desc"], og_image,
              src["og_focus"] if og_image else None, src["use_default_preview"],
              src["choice_mode"],
              copied_deadline, voting.STATUS_UNCONFIGURED,
+             src["private_profiles"], src["prevent_copying"],
+             src["pin_enabled"], src["access_pin_hash"],
              now_iso()),
         )
         new_cid = int(cursor.lastrowid)
@@ -1261,6 +1300,11 @@ def _safe_category_editor_return(raw: str, owner_id: int,
         operator_target = _safe_operator_editor_return(raw, owner_id)
         if operator_target:
             return operator_target
+    parsed = urlsplit(raw)
+    if not parsed.scheme and not parsed.netloc and parsed.path == "/admin/categories":
+        query = dict(parse_qsl(parsed.query, keep_blank_values=False))
+        search = _search_query(query.get("q", ""))
+        return parsed.path + (f"?{urlencode({'q': search})}" if search else "")
     return "/admin/categories"
 
 
@@ -1413,6 +1457,52 @@ def category_rename(cid: int, request: Request, name: str = Form(...),
         images.delete_file(old_image)
     return _category_editor_redir(
         request, cid, int(cat["owner_id"]), "Сохранено",
+    )
+
+
+@router.post("/categories/{cid}/privacy")
+def category_privacy_save(
+    cid: int,
+    request: Request,
+    private_profiles: str | None = Form(None),
+    prevent_copying: str | None = Form(None),
+    pin_enabled: str | None = Form(None),
+    access_pin: str = Form(""),
+    conn=Depends(get_db),
+):
+    """Сохраняет защиту гостевой подборки, не раскрывая текущий PIN.
+
+    Пустое поле оставляет уже заданный хеш без изменений. При первом включении
+    PIN обязателен; проверка формата и дорогое хеширование живут в общем модуле,
+    которым пользуется и публичный экран разблокировки.
+    """
+    cat = _cat_or_404(conn, cid, request.state.user)
+    enable_pin = pin_enabled == "1"
+    raw_pin = access_pin
+    pin_hash = cat["access_pin_hash"]
+    if raw_pin:
+        try:
+            pin_hash = category_access.hash_pin(raw_pin)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+    elif enable_pin and not pin_hash:
+        raise HTTPException(400, "Введи PIN-код из 4 цифр")
+
+    conn.execute(
+        "UPDATE categories SET private_profiles=?, prevent_copying=?, "
+        "pin_enabled=?, access_pin_hash=? WHERE id=?",
+        (
+            1 if private_profiles == "1" else 0,
+            1 if prevent_copying == "1" else 0,
+            1 if enable_pin else 0,
+            pin_hash,
+            cid,
+        ),
+    )
+    conn.commit()
+    return _category_editor_redir(
+        request, cid, int(cat["owner_id"]), "Настройки приватности сохранены",
+        fragment="categoryPrivacy",
     )
 
 
@@ -1707,15 +1797,15 @@ def category_detach(cid: int, request: Request, date_id: int = Form(...),
 # ----- События -------------------------------------------------------------
 
 VIEW_WHERE = {
-    # Ожидающие модерации предложения остаются в общем рабочем списке, но
-    # публичные выборки по-прежнему отсекают их через is_draft=0.
-    "active": "d.archived_at IS NULL",
-    "archived": "d.archived_at IS NOT NULL",
+    # Предложения — отдельный входящий поток. Они не смешиваются с личной
+    # коллекцией владельца даже после архивации и всегда доступны в своей вкладке.
+    "active": "d.archived_at IS NULL AND d.origin<>'guest'",
+    "archived": "d.archived_at IS NOT NULL AND d.origin<>'guest'",
+    "proposed": "d.origin='guest'",
 }
 FLT_WHERE = {
     "public": "d.is_public=1",
     "private": "d.is_public=0",
-    "guest": "d.origin='guest'",
     "booked": "EXISTS (SELECT 1 FROM bookings b WHERE b.date_id=d.id)",
     "nodate": "d.starts_at IS NULL AND d.ends_at IS NULL",
 }
@@ -1733,8 +1823,12 @@ def dates_list(request: Request, conn=Depends(get_db)):
     qp = request.query_params
     view = qp.get("view") if qp.get("view") in VIEW_WHERE else "active"
     sort = qp.get("sort") if qp.get("sort") in SORT_ORDER else "new"
+    # Старые сохранённые URL с f=guest ведём в новую самостоятельную вкладку.
+    if qp.get("f") == "guest":
+        view = "proposed"
     flt = qp.get("f") if qp.get("f") in FLT_WHERE else ""
     cat = qp.get("cat", "")
+    query = _search_query(qp.get("q", ""))
 
     where = VIEW_WHERE[view]
     params: list = [request.state.user["id"]]
@@ -1744,6 +1838,18 @@ def dates_list(request: Request, conn=Depends(get_db)):
     if cat.isdigit():
         where += " AND d.id IN (SELECT date_id FROM date_categories WHERE category_id=?)"
         params.append(int(cat))
+    if query:
+        pattern = _like_pattern(query)
+        where += (
+            " AND (d.name LIKE ? ESCAPE '\\' COLLATE NOCASE "
+            "OR COALESCE(d.place, '') LIKE ? ESCAPE '\\' COLLATE NOCASE "
+            "OR COALESCE(d.comment, '') LIKE ? ESCAPE '\\' COLLATE NOCASE "
+            "OR EXISTS (SELECT 1 FROM date_categories sdc "
+            "JOIN categories sc ON sc.id=sdc.category_id "
+            "WHERE sdc.date_id=d.id "
+            "AND sc.name LIKE ? ESCAPE '\\' COLLATE NOCASE))"
+        )
+        params.extend((pattern, pattern, pattern, pattern))
 
     total = conn.execute(
         f"SELECT COUNT(*) FROM dates d WHERE {where}", params).fetchone()[0]
@@ -1770,10 +1876,15 @@ def dates_list(request: Request, conn=Depends(get_db)):
         params).fetchall()
 
     active_n = conn.execute(
-        "SELECT COUNT(*) FROM dates WHERE owner_id=? AND archived_at IS NULL",
+        "SELECT COUNT(*) FROM dates WHERE owner_id=? AND archived_at IS NULL "
+        "AND origin<>'guest'",
         (request.state.user["id"],)).fetchone()[0]
     archived_n = conn.execute(
-        "SELECT COUNT(*) FROM dates WHERE owner_id=? AND archived_at IS NOT NULL",
+        "SELECT COUNT(*) FROM dates WHERE owner_id=? AND archived_at IS NOT NULL "
+        "AND origin<>'guest'",
+        (request.state.user["id"],)).fetchone()[0]
+    proposed_n = conn.execute(
+        "SELECT COUNT(*) FROM dates WHERE owner_id=? AND origin='guest'",
         (request.state.user["id"],)).fetchone()[0]
 
     keep = [("sort", sort)] if sort != "new" else []
@@ -1781,6 +1892,11 @@ def dates_list(request: Request, conn=Depends(get_db)):
         keep.append(("f", flt))
     if cat.isdigit():
         keep.append(("cat", cat))
+    clear_search_url = f"/admin/dates?view={view}"
+    if keep:
+        clear_search_url += "&" + urlencode(keep)
+    if query:
+        keep.append(("q", query))
     qs_keep = ("&" + urlencode(keep)) if keep else ""
     current_list_url = f"/admin/dates?view={view}{qs_keep}"
     if page > 1:
@@ -1795,8 +1911,10 @@ def dates_list(request: Request, conn=Depends(get_db)):
         request, "admin/dates.html",
         actx(request, conn, active="dates", rows=rows, view=view, sort=sort,
              flt=flt, cat=cat, cats=_all_cats(conn, request.state.user["id"]),
-             active_n=active_n, archived_n=archived_n,
+             q=query, active_n=active_n, archived_n=archived_n,
+             proposed_n=proposed_n,
              qs_keep=qs_keep, current_list_url=current_list_url,
+             clear_search_url=clear_search_url,
              editor_return_query=editor_return_query,
              page=page, pages=pages, layout=layout))
 
@@ -1808,17 +1926,37 @@ def _all_cats(conn, uid: int):
         (uid,)).fetchall()
 
 
-def enforce_date_quota(conn, user) -> None:
-    """Отказ, если у пользователя уже date_limit активных (не архивных) событий.
-    Архивные не считаем — это «история», она не растёт бесконтрольно."""
+class DateQuotaExceeded(HTTPException):
+    """Ожидаемый отказ, который endpoint превращает во flash с background."""
+
+
+def enforce_date_quota(conn, user, bg: BackgroundTasks | None = None) -> None:
+    """Отказ, если исчерпана квота лично созданных активных событий.
+
+    Гостевые предложения принадлежат подборке владельца, но не расходуют его
+    личную квоту. Архивные записи — история и тоже не считаются.
+    """
     limit = user["date_limit"]
-    used = conn.execute(
-        "SELECT COUNT(*) FROM dates WHERE owner_id=? AND archived_at IS NULL",
-        (user["id"],)).fetchone()[0]
+    used = public_routes.personal_date_quota_used(conn, int(user["id"]))
     if used >= limit:
-        contact = f" Напиши в поддержку {SUPPORT_CONTACT}" if SUPPORT_CONTACT \
-                  else " Контакт поддержки — на странице «О проекте»."
-        raise HTTPException(400, f"Достигнут лимит {limit} событий.{contact}")
+        contact = (
+            f"Чтобы увеличить лимит, напиши в поддержку {SUPPORT_CONTACT}."
+            if SUPPORT_CONTACT
+            else "Увеличить лимит можно через поддержку — контакт есть на странице «О проекте»."
+        )
+        if bg is not None:
+            notify_admin(
+                bg, conn, int(user["id"]),
+                notify.card(
+                    "⚠️ Достигнут лимит событий",
+                    f"Использовано: {used} из {limit}",
+                    f"Пользователь ID: {user['id']}",
+                ),
+            )
+        raise DateQuotaExceeded(
+            400,
+            f"Достигнут лимит {limit} событий. {contact}",
+        )
 
 
 def parse_pay(value) -> int:
@@ -1874,7 +2012,15 @@ def date_create(request: Request, bg: BackgroundTasks,
                 conn=Depends(get_db)):
     uid = request.state.user["id"]
     user_throttle("datecreate", uid, request)        # анти-всплеск
-    enforce_date_quota(conn, request.state.user)      # общая квота аккаунта
+    try:
+        enforce_date_quota(conn, request.state.user, bg)  # общая квота аккаунта
+    except DateQuotaExceeded as exc:
+        # У HTTPException нет background hook. Возвращаем тот же понятный текст
+        # flash-сообщением и прикрепляем очередь к ответу, чтобы уведомление
+        # платформенному администратору действительно отправилось.
+        response = redir("/admin/dates", str(exc.detail))
+        response.background = bg
+        return response
     name = clean_text(name, 200, "Название", required=True)
     place, place_url, needs_resolve = places.split_place(clean_text(place, 500, "Место"))
     comment = clean_text(comment, 2000, "Комментарий")
@@ -2017,7 +2163,7 @@ def _safe_date_editor_return(raw: str, owner_id: int,
         return target + ("#categoryDates" if parsed.fragment == "categoryDates" else "")
     if parsed.path == "/admin/dates":
         clean_dates = []
-        if query.get("view") in {"active", "archived"}:
+        if query.get("view") in VIEW_WHERE:
             clean_dates.append(("view", query["view"]))
         if query.get("sort") in SORT_ORDER:
             clean_dates.append(("sort", query["sort"]))
@@ -2025,6 +2171,8 @@ def _safe_date_editor_return(raw: str, owner_id: int,
             clean_dates.append(("f", query["f"]))
         if query.get("cat", "").isdigit():
             clean_dates.append(("cat", str(int(query["cat"]))))
+        if query.get("q"):
+            clean_dates.append(("q", _search_query(query["q"])))
         if query.get("page", "").isdigit() and int(query["page"]) > 1:
             clean_dates.append(("page", str(int(query["page"]))))
         return parsed.path + (f"?{urlencode(clean_dates)}" if clean_dates else "")
@@ -2521,13 +2669,20 @@ def date_delete(did: int, request: Request, bg: BackgroundTasks,
 
 
 @router.post("/dates/{did}/clone")
-def date_clone(did: int, request: Request, next: str = Form("/admin/dates"),
+def date_clone(did: int, request: Request, bg: BackgroundTasks,
+               next: str = Form("/admin/dates"),
                conn=Depends(get_db)):
     """Дубль события: копируем запись, ссылки и файлы (с новыми именами на
     диске). Категории, голоса и вопросы НЕ переносим. Клон сразу активен в
     коллекции, но остаётся непубличным до явного решения владельца. Карта
     (place_url) уже распознана."""
     src = _date_or_404(conn, did, request.state.user)
+    try:
+        enforce_date_quota(conn, request.state.user, bg)
+    except DateQuotaExceeded as exc:
+        response = redir("/admin/dates", str(exc.detail))
+        response.background = bg
+        return response
     suffix = " (копия)"
     clone_name = src["name"][:200 - len(suffix)].rstrip() + suffix
     copied_files: list[str] = []

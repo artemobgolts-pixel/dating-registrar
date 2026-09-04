@@ -6,6 +6,7 @@
 """
 
 import json
+import hashlib
 import re
 import secrets
 import sqlite3
@@ -22,6 +23,7 @@ from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
 
 import auth_routes
 import appearance
+import category_access
 import db
 import guests as legacy_guests
 import images
@@ -370,10 +372,87 @@ def category_og_sources_batch(
     return result
 
 
-def active_cat_or_410(conn, token: str):
+_PIN_GRANTS_KEY = "category_pin_grants"
+_PIN_VISITOR_KEY = "category_pin_visitor"
+
+
+def _pin_grant_fingerprint(cat) -> str:
+    value = (
+        f"{int(cat['id'])}:{cat['link_token'] or ''}:"
+        f"{cat['access_pin_hash'] or ''}"
+    )
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()[:32]
+
+
+def category_access_granted(conn, request: Request | None, cat) -> bool:
+    """Владелец и сессия, успешно открывшая текущую версию PIN, имеют доступ.
+
+    В cookie не кладём ни PIN, ни его хеш: только короткий fingerprint. При
+    смене PIN сохранённый grant автоматически перестаёт совпадать.
+    """
+    if not bool(cat["pin_enabled"]):
+        return True
+    if request is None:
+        return False
+    current = viewer(request, conn)
+    if current and int(current["id"]) == int(cat["owner_id"]):
+        return True
+    session = getattr(request, "session", {})
+    grants = session.get(_PIN_GRANTS_KEY, {})
+    return bool(
+        isinstance(grants, dict)
+        and grants.get(str(int(cat["id"]))) == _pin_grant_fingerprint(cat)
+    )
+
+
+def _remember_category_access(request: Request, cat) -> None:
+    raw = request.session.get(_PIN_GRANTS_KEY, {})
+    grants = dict(raw) if isinstance(raw, dict) else {}
+    category_id = str(int(cat["id"]))
+    grants.pop(category_id, None)
+    grants[category_id] = _pin_grant_fingerprint(cat)
+    # Не раздуваем подписанную cookie после просмотра множества подборок.
+    request.session[_PIN_GRANTS_KEY] = dict(list(grants.items())[-12:])
+
+
+def _pin_visitor(request: Request) -> str:
+    token = str(request.session.get(_PIN_VISITOR_KEY) or "")
+    if not re.fullmatch(r"[A-Za-z0-9_-]{24,64}", token):
+        token = secrets.token_urlsafe(24)
+        request.session[_PIN_VISITOR_KEY] = token
+    return token
+
+
+def _pin_page(request: Request, cat, token: str, *, error: str | None = None,
+              status_code: int = 200):
+    response = templates.TemplateResponse(
+        request,
+        "public/pin.html",
+        {
+            "cat": {"name": cat["name"]},
+            "token": token,
+            "category_skin": appearance.normalize_skin(cat["category_skin"]),
+            "csrf": request.session.get("csrf", ""),
+            "error": error,
+            "attempts_remaining": None,
+        },
+        status_code=status_code,
+    )
+    response.headers["X-Robots-Tag"] = "noindex"
+    return response
+
+
+def require_category_access(conn, request: Request | None, cat) -> None:
+    if not category_access_granted(conn, request, cat):
+        raise HTTPException(403, "Подборка защищена PIN-кодом")
+
+
+def active_cat_or_410(conn, token: str, request: Request | None = None):
     cat = cat_by_token(conn, token)
     if not cat or not cat["link_enabled"]:
         raise HTTPException(410, "Ссылка больше не активна")
+    if request is not None:
+        require_category_access(conn, request, cat)
     return cat
 
 
@@ -504,7 +583,7 @@ def first_existing_og_image(rows):
 
 def insert_date(conn, *, name, place, starts, ends, comment, origin, guest_token,
                 owner_id, draft=0, pay_split=0, place_url=None, proposed_by=None,
-                is_public=0, capacity=1) -> int:
+                is_public=0, capacity=1, source_date_id=None) -> int:
     # Каждое событие получает стабильную секретную ссылку /d/<share_token>
     # сразу при создании — через неё им можно поделиться, чтобы другой
     # пользователь добавил копию себе. Генерим здесь, чтобы ВСЕ пути создания
@@ -513,12 +592,25 @@ def insert_date(conn, *, name, place, starts, ends, comment, origin, guest_token
     cur = conn.execute(
         "INSERT INTO dates(owner_id, name, place, place_url, starts_at, ends_at, comment, "
         "origin, guest_token, proposed_by, is_draft, pay_split, share_token, is_public, "
-        "capacity, created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "capacity, source_date_id, created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (owner_id, name, place, place_url, starts, ends, comment, origin, guest_token,
          proposed_by, draft, pay_split, share_token, 1 if is_public else 0,
-         capacity, now_iso()),
+         capacity, source_date_id, now_iso()),
     )
     return cur.lastrowid
+
+
+def personal_date_quota_used(conn, owner_id: int) -> int:
+    """Активные события, созданные владельцем лично.
+
+    Гостевые предложения и независимые пользовательские копии не расходуют
+    квоту — у них есть явный provenance вместо ненадёжного сравнения названий.
+    """
+    return int(conn.execute(
+        "SELECT COUNT(*) FROM dates WHERE owner_id=? AND archived_at IS NULL "
+        "AND origin='admin' AND source_date_id IS NULL",
+        (owner_id,),
+    ).fetchone()[0])
 
 
 def parse_capacity(value) -> int:
@@ -781,6 +873,14 @@ def _vote_card_updates(conn, category_id: int, date_ids, guest: str) -> list[dic
     ids = sorted({int(date_id) for date_id in date_ids})
     if not ids:
         return []
+    category = conn.execute(
+        "SELECT private_profiles, category_skin FROM categories WHERE id=?",
+        (category_id,),
+    ).fetchone()
+    profiles_clickable = bool(category and not category["private_profiles"])
+    category_skin = appearance.normalize_skin(
+        category["category_skin"] if category else None,
+    )
     ph = ",".join("?" * len(ids))
     capacities = {
         int(row["id"]): int(row["capacity"] or 1)
@@ -805,13 +905,18 @@ def _vote_card_updates(conn, category_id: int, date_ids, guest: str) -> list[dic
         totals[date_id] += 1
         if row["guest_token"] == guest:
             mine[date_id] = True
-        participants[date_id].append({
+        participant = {
             "name": row["name"],
             "user_id": row["user_id"],
             "has_avatar": bool(row["user_id"] and row["avatar_path"]),
             "is_me": row["guest_token"] == guest,
             "withdrawn": bool(row["participation_withdrawn_at"]),
-        })
+        }
+        participant["profile_url"] = (
+            f"/u/{int(row['user_id'])}?skin={category_skin}"
+            if row["user_id"] and profiles_clickable else None
+        )
+        participants[date_id].append(participant)
 
     updates = []
     for date_id in ids:
@@ -826,6 +931,7 @@ def _vote_card_updates(conn, category_id: int, date_ids, guest: str) -> list[dic
             "is_full": total >= capacity,
             "participants": people,
             "hidden_count": hidden_count,
+            "profiles_clickable": profiles_clickable,
         })
     return updates
 
@@ -995,6 +1101,8 @@ def public_category(token: str, request: Request, conn=Depends(get_db)):
     cat = cat_by_token(conn, token)
     if not cat or not cat["link_enabled"]:
         return templates.TemplateResponse(request, "public/gone.html", status_code=404)
+    if not category_access_granted(conn, request, cat):
+        return _pin_page(request, cat, token)
 
     # Архивация и закрытие дедлайнов выполняются фоновыми циклами. Публичный GET
     # остаётся read-only и не захватывает writer-lock SQLite.
@@ -1064,6 +1172,12 @@ def public_category(token: str, request: Request, conn=Depends(get_db)):
         participant_rows = [dict(e) for e in entries]
         d["participants"], d["participant_hidden_count"] = \
             _visible_participants(participant_rows)
+        for participant in d["participants"]:
+            participant["profile_url"] = (
+                f"/u/{int(participant['user_id'])}?skin={appearance.normalize_skin(cat['category_skin'])}"
+                if participant.get("user_id") and not cat["private_profiles"]
+                else None
+            )
         d["vote_count"] = len(entries)
         d["capacity"] = int(d.get("capacity") or 1)
         d["is_full"] = d["vote_count"] >= d["capacity"]
@@ -1149,16 +1263,42 @@ def public_category(token: str, request: Request, conn=Depends(get_db)):
     return resp
 
 
+@router.post("/c/{token}/unlock", response_class=HTMLResponse)
+def public_category_unlock(token: str, request: Request,
+                           pin: Annotated[str, Form()],
+                           conn=Depends(get_db)):
+    """Открывает защищённую подборку в этой подписанной browser-сессии."""
+    cat = cat_by_token(conn, token)
+    if not cat or not cat["link_enabled"]:
+        return templates.TemplateResponse(request, "public/gone.html", status_code=404)
+    users.require_same_origin(request)
+    if not cat["pin_enabled"]:
+        return RedirectResponse(f"/c/{token}", status_code=303)
+    if category_access_granted(conn, request, cat):
+        return RedirectResponse(f"/c/{token}", status_code=303)
+    guest_throttle("pin", _pin_visitor(request), request)
+    if not category_access.verify_pin(pin, cat["access_pin_hash"] or ""):
+        return _pin_page(
+            request, cat, token,
+            error="Неверный PIN-код. Проверь четыре цифры и попробуй снова.",
+            status_code=403,
+        )
+    _remember_category_access(request, cat)
+    return RedirectResponse(f"/c/{token}", status_code=303)
+
+
 @router.get("/c/{token}/owner-avatar")
-def public_owner_avatar(token: str, w: int | None = None, conn=Depends(get_db)):
+def public_owner_avatar(token: str, request: Request = None,
+                        w: int | None = None, conn=Depends(get_db)):
     """Аватар владельца категории — для шапки гостевой страницы. Без логина:
     гость (в т.ч. анонимный) должен видеть фото автора. Отдаём только по активной
     ссылке и только аватар владельца этой категории (чужой файл не утечёт)."""
+    cat = active_cat_or_410(conn, token, request)
     row = conn.execute(
         "SELECT u.avatar_path FROM categories c "
         "JOIN users u ON u.id=c.owner_id AND u.is_active=1 "
-        "WHERE c.link_token=? AND c.link_enabled=1",
-        (token,)).fetchone()
+        "WHERE c.id=?",
+        (cat["id"],)).fetchone()
     fn = row["avatar_path"] if row else None
     if not fn or not images.SAFE_FILENAME.match(fn):
         raise HTTPException(404)
@@ -1172,19 +1312,20 @@ def public_owner_avatar(token: str, w: int | None = None, conn=Depends(get_db)):
 
 @router.get("/c/{token}/participant-avatar/{user_id}")
 def public_participant_avatar(token: str, user_id: int, w: int | None = None,
-                              conn=Depends(get_db)):
+                              conn=Depends(get_db), request: Request = None):
     """Аватар участника виден только внутри активной гостевой категории.
 
     Идентификаторы/Telegram-контакты в HTML не выводятся; маршрут проверяет,
     что пользователь действительно голосовал именно в этой категории.
     """
+    cat = active_cat_or_410(conn, token, request)
     row = conn.execute(
         "SELECT u.avatar_path FROM categories c "
         "JOIN bookings b ON b.category_id=c.id "
         "JOIN users u ON u.id=b.user_id AND u.is_active=1 "
-        "WHERE c.link_token=? AND c.link_enabled=1 AND u.id=? "
+        "WHERE c.id=? AND u.id=? "
         "LIMIT 1",
-        (token, user_id),
+        (cat["id"], user_id),
     ).fetchone()
     fn = row["avatar_path"] if row else None
     if not fn or not images.SAFE_FILENAME.match(fn):
@@ -1199,15 +1340,19 @@ def public_participant_avatar(token: str, user_id: int, w: int | None = None,
 
 @router.get("/c/{token}/og-image")
 def public_og_image(token: str, skin: str | None = None,
-                    v: str | None = None, conn=Depends(get_db)):
-    """Картинка превью ссылки (og:image) — её запрашивают краулеры мессенджеров
-    (Telegram, WhatsApp) без cookie, поэтому отдаём публично по активной ссылке.
-    Своя og_image категории в приоритете; иначе — коллаж из фото её событий
+                    v: str | None = None, conn=Depends(get_db),
+                    request: Request = None):
+    """Картинка превью ссылки; для PIN-подборки тоже требуется browser-grant.
+
+    Это намеренно отключает богатое превью у защищённой ссылки: иначе картинка
+    раскрывала бы содержимое мессенджеру до ввода PIN. Своя og_image категории
+    в приоритете; иначе — коллаж из фото её событий
     (сетка 2×2 или 4×2). Пользовательские фото отдаются без накладываемых лого;
     если фото нет, endpoint отдаёт единый приложенный default preview."""
     cat = cat_by_token(conn, token)
     if not cat or not cat["link_enabled"]:
         raise HTTPException(404)
+    require_category_access(conn, request, cat)
     preview_skin = appearance.normalize_skin(skin, default=cat["category_skin"])
     if cat["use_default_preview"]:
         return FileResponse(
@@ -1247,6 +1392,7 @@ def public_image(token: str, filename: str, request: Request,
     черновики — только их автору."""
     if not images.SAFE_FILENAME.match(filename):
         raise HTTPException(404)
+    active_cat_or_410(conn, token, request)
     uid = request.session.get("user_id") or 0
     ok = conn.execute(
         "SELECT 1 FROM date_images di "
@@ -1313,6 +1459,7 @@ def public_video(token: str, filename: str, request: Request, conn=Depends(get_d
     """Видео — по тем же правилам доступа, что и фото."""
     if not images.SAFE_FILENAME.match(filename):
         raise HTTPException(404)
+    active_cat_or_410(conn, token, request)
     ext = filename.rsplit(".", 1)[-1]
     if ext not in VIDEO_TYPES:
         raise HTTPException(404)
@@ -1347,20 +1494,6 @@ def date_by_share(conn, token: str):
         "SELECT * FROM dates WHERE share_token=?", (token,)).fetchone()
 
 
-def share_action_cat(conn, d):
-    """Однозначный контекст голосования по share-ссылке.
-
-    Одно событие может состоять в нескольких независимых опросах. Без токена
-    категории нельзя угадывать, куда положить голос, поэтому разрешаем его по
-    /d только при ровно одной активной категории.
-    """
-    rows = conn.execute(
-        "SELECT c.* FROM categories c JOIN date_categories dc ON dc.category_id=c.id "
-        "WHERE dc.date_id=? AND c.link_enabled=1 ORDER BY c.id LIMIT 2",
-        (d["id"],)).fetchall()
-    return rows[0] if len(rows) == 1 else None
-
-
 @router.get("/d/{token}", response_class=HTMLResponse)
 def shared_date(token: str, request: Request, conn=Depends(get_db)):
     d = date_by_share(conn, token)
@@ -1370,6 +1503,15 @@ def shared_date(token: str, request: Request, conn=Depends(get_db)):
     owner = users.get_user(conn, d["owner_id"])
     owner_name = (owner["display_name"] or owner["tg_username"] or "Автор") if owner else "Автор"
     is_mine = bool(me and me["id"] == d["owner_id"])
+    # Без токена конкретной подборки нельзя доказать, что её владелец разрешил
+    # копирование. Если событие есть хотя бы в одной защищённой подборке,
+    # прямая ссылка остаётся страницей просмотра без действия «Сохранить».
+    can_copy_event = not bool(conn.execute(
+        "SELECT 1 FROM categories c "
+        "JOIN date_categories dc ON dc.category_id=c.id "
+        "WHERE dc.date_id=? AND c.link_enabled=1 AND c.prevent_copying=1 LIMIT 1",
+        (d["id"],),
+    ).fetchone())
     has_want = False
     wanted_by_me = False
     want_is_public = False
@@ -1400,26 +1542,15 @@ def shared_date(token: str, request: Request, conn=Depends(get_db)):
         wanted_by_me = has_want and want_action_available
 
     payload = date_payload(conn, d)
-    # Гостю (не автору) показываем полноценную карточку с действиями. Контекст
-    # выбора существует только при ровно одной активной категории события, но
-    # остаётся внутренней деталью голосования: отдельная ссылка /d/ не ведёт в
-    # закрытую подборку целиком.
-    act_cat = share_action_cat(conn, d)
-    category_skin = appearance.normalize_skin(
-        act_cat["category_skin"] if act_cat else None)
+    # Прямая ссылка — самостоятельная карточка события. Она намеренно не
+    # раскрывает, в какой подборке событие участвует, её голоса и результат.
+    category_skin = appearance.FRIENDS
     first_og_image = first_existing_og_image(payload["images"])
     payload["og_preview_revision"] = images.og_preview_revision(
         [], category_skin,
         custom_image=first_og_image["filename"] if first_og_image else None,
         custom_focus=first_og_image["focus"] if first_og_image else None,
         use_default=not first_og_image,
-    )
-    vote_state = voting.get_category_state(conn, act_cat["id"]) if act_cat else None
-    voting_accepts_votes = bool(
-        vote_state
-        and vote_state.status == voting.STATUS_OPEN
-        and vote_state.closed_at is None
-        and proposal_changes_open(vote_state)
     )
     guest = guest_name = None
     if me and not is_mine:
@@ -1440,33 +1571,8 @@ def shared_date(token: str, request: Request, conn=Depends(get_db)):
     payload["is_winner"] = False
     payload["is_loser"] = False
     payload["participation_withdrawn"] = False
-    if act_cat:
-        entries = view_booking_rows(
-            _booking_rows(conn, act_cat["id"]), request, me, act_cat)
-        mine = [
-            e for e in entries
-            if e["date_id"] == d["id"] and e["is_me"]
-        ]
-        date_entries = [e for e in entries if e["date_id"] == d["id"]]
-        others = [e["name"] for e in date_entries if not e["is_me"]]
-        payload["booked_by_me"] = bool(mine)
-        payload["booked_others_list"] = others
-        payload["booked_others"] = ", ".join(others)
-        participant_rows = [dict(e) for e in date_entries]
-        payload["participants"], payload["participant_hidden_count"] = \
-            _visible_participants(participant_rows)
-        payload["vote_count"] = len(date_entries)
-        payload["is_full"] = payload["vote_count"] >= payload["capacity"]
-        payload["is_winner"] = bool(
-            vote_state and vote_state.status == voting.STATUS_RESOLVED
-            and vote_state.winner_date_id == d["id"])
-        payload["is_loser"] = bool(
-            vote_state and vote_state.status == voting.STATUS_RESOLVED
-            and vote_state.winner_date_id != d["id"])
-        payload["participation_withdrawn"] = bool(
-            mine and mine[0]["participation_withdrawn_at"])
     if guest:
-        # Вопросы по share-ссылке видны и без однозначной категории голосования.
+        # Вопросы по share-ссылке принадлежат самому событию, не голосованию.
         payload["my_questions"] = conn.execute(
             "SELECT text, answer FROM questions WHERE date_id=? AND guest_token=? "
             "ORDER BY created_at", (d["id"], guest)).fetchall()
@@ -1487,18 +1593,18 @@ def shared_date(token: str, request: Request, conn=Depends(get_db)):
         "wanted_by_me": wanted_by_me,
         "want_is_public": want_is_public,
         "want_visibility": want_visibility,
-        "can_publish_want": bool(d["is_public"] and not d["is_draft"]),
+        "can_publish_want": True,
+        "can_copy_event": can_copy_event,
         "want_action_available": want_action_available,
         "my_review": my_review,
         "can_review": can_review,
         "csrf": request.session.get("csrf", ""),
-        "can_act": bool(act_cat),     # совместимость старой разметки
-        "can_vote": bool(act_cat) and not is_mine,
-        "can_cast_vote": (bool(act_cat) and not is_mine
-                          and not payload["past"] and not bool(d["is_draft"])),
+        "can_act": False,
+        "can_vote": False,
+        "can_cast_vote": False,
         "can_question": not is_mine,
-        "vote_state": vote_state,
-        "voting_accepts_votes": voting_accepts_votes,
+        "vote_state": None,
+        "voting_accepts_votes": False,
         "category_skin": category_skin,
         "bot": auth_routes.BOT_USERNAME,
         "oauth": auth_routes._oauth_buttons(),
@@ -1604,12 +1710,11 @@ def shared_profile_review(token: str, review_id: int, request: Request,
 def shared_date_want(token: str, request: Request,
                      visibility: Annotated[str | None, Form()] = None,
                      conn=Depends(get_db)):
-    """Создаёт приватную по умолчанию отметку и управляет её видимостью.
+    """Переключает публичную отметку «Хочу сходить».
 
-    POST без ``visibility`` сохраняет прежний toggle-контракт: существующая
-    отметка удаляется, новая создаётся приватной. Явное ``private|public`` у
-    существующей строки меняет только видимость и не удаляет пользовательский
-    выбор.
+    Старое поле ``visibility`` принимаем для совместимости кэшированных
+    клиентов, но отметка теперь всегда публична. Приватное исходное событие
+    всё равно не попадает в публичный профиль благодаря фильтру самого события.
     """
     d = date_by_share(conn, token)
     if not d:
@@ -1619,13 +1724,6 @@ def shared_date_want(token: str, request: Request,
         raise HTTPException(400, "Это твоё событие")
     if visibility not in {None, "private", "public"}:
         raise HTTPException(400, "Видимость должна быть private или public")
-    requested_visibility = visibility or "private"
-    requested_public = requested_visibility == "public"
-    if requested_public and (not d["is_public"] or d["is_draft"]):
-        raise HTTPException(
-            400,
-            "Приватное событие нельзя показывать в публичном профиле",
-        )
     guest_throttle("want", viewer_token(user), request)
     existing = conn.execute(
         "SELECT is_public FROM date_wants WHERE user_id=? AND date_id=?",
@@ -1635,14 +1733,13 @@ def shared_date_want(token: str, request: Request,
     if existing and visibility is not None:
         stamp = now_iso()
         conn.execute(
-            "UPDATE date_wants SET is_public=?, updated_at=? "
+            "UPDATE date_wants SET is_public=1, updated_at=? "
             "WHERE user_id=? AND date_id=?",
-            (1 if requested_public else 0, stamp, user["id"], d["id"]),
+            (stamp, user["id"], d["id"]),
         )
-        msg = ("Отметка видна в публичном профиле"
-               if requested_public else "Отметку видишь только ты")
+        msg = "Отметка видна в публичном профиле"
         wanted = True
-        want_public = requested_public
+        want_public = True
     elif existing:
         conn.execute(
             "DELETE FROM date_wants WHERE user_id=? AND date_id=?",
@@ -1665,14 +1762,13 @@ def shared_date_want(token: str, request: Request,
         conn.execute(
             "INSERT INTO date_wants(user_id, date_id, is_public, created_at, updated_at) "
             "VALUES(?,?,?,?,?)",
-            (user["id"], d["id"], 1 if requested_public else 0, stamp, stamp),
+            (user["id"], d["id"], 1, stamp, stamp),
         )
-        social_events.queue_review_prompt(conn, d["id"], user["id"])
-        msg = ("Добавлено в «Хочу сходить» и показано в публичном профиле"
-               if requested_public
-               else "Добавлено в «Хочу сходить»; отметку видишь только ты")
+        # Отметка — это план, а не подтверждение посещения. Поэтому она не
+        # создаёт Telegram-вопрос «Удалось ли сходить?».
+        msg = "Добавлено в «Хочу сходить» и показано в публичном профиле"
         wanted = True
-        want_public = requested_public
+        want_public = True
     conn.commit()
     if request.headers.get("x-requested-with") == "fetch":
         return JSONResponse({
@@ -1766,130 +1862,19 @@ def shared_date_review_decline(token: str, request: Request,
     return redir(f"/d/{token}", "Событие добавлено в «Ждут отзыва»")
 
 
-def _share_act_or_410(conn, token: str):
-    """Событие по share-токену + его категория-контекст для действий.
-    410, если ссылки нет; 409-логику (нет категории) обрабатывает вызывающий."""
+def _shared_event_or_404(conn, token: str):
+    """Событие по прямой ссылке без неявного контекста подборки."""
     d = date_by_share(conn, token)
     if not d:
         raise HTTPException(404, "Событие не найдено")
-    return d, share_action_cat(conn, d)
-
-
-@router.get("/d/{token}/participant-avatar/{user_id}")
-def shared_participant_avatar(token: str, user_id: int, w: int | None = None,
-                              conn=Depends(get_db)):
-    d, cat = _share_act_or_410(conn, token)
-    if not cat:
-        raise HTTPException(404)
-    row = conn.execute(
-        "SELECT u.avatar_path FROM users u JOIN bookings b ON b.user_id=u.id "
-        "WHERE u.id=? AND u.is_active=1 AND b.date_id=? AND b.category_id=? LIMIT 1",
-        (user_id, d["id"], cat["id"]),
-    ).fetchone()
-    fn = row["avatar_path"] if row else None
-    if not fn or not images.SAFE_FILENAME.match(fn):
-        raise HTTPException(404)
-    try:
-        path = images.responsive_image(fn, w)
-    except (FileNotFoundError, ValueError):
-        raise HTTPException(404)
-    return FileResponse(path, media_type="image/webp",
-                        headers={"Cache-Control": "private, max-age=3600"})
-
-
-@router.post("/d/{token}/book")
-def shared_date_book(token: str, request: Request, bg: BackgroundTasks,
-                     conn=Depends(get_db)):
-    """Выбор по share-ссылке в единственной активной категории события."""
-    d, cat = _share_act_or_410(conn, token)
-    if not cat:
-        raise HTTPException(400, "Это событие пока нельзя выбрать")
-    user = acting_user(request, conn)
-    if user["id"] == d["owner_id"]:
-        raise HTTPException(400, "Это твоё событие")
-    guest, name = ensure_guest_name(conn, user)
-    claim_legacy_votes(conn, request, user, cat["id"])
-    guest_throttle("book", guest, request)
-
-    mine = conn.execute(
-        "SELECT id FROM bookings WHERE date_id=? AND category_id=? AND guest_token=?",
-        (d["id"], cat["id"], guest)).fetchone()
-    try:
-        if mine:
-            result = voting.remove_vote(conn, cat["id"], d["id"], user["id"])
-            booked = False
-        else:
-            result = voting.cast_vote(conn, cat["id"], d["id"], user["id"])
-            booked = True
-    except voting.VotingError as exc:
-        if exc.code == "voting_deadline_passed":
-            voting_events.close_due_once(conn, category_id=cat["id"])
-        raise _voting_http_error(exc)
-
-    if booked:
-        voting_events.queue_deadline_reminder(conn, cat["id"], user["id"])
-    elif not result.current_date_ids:
-        voting_events.cancel_deadline_reminder(conn, cat["id"], user["id"])
-
-    card = notify.card(
-        "💝 Новый голос" if booked else "🤍 Голос снят",
-        f"«{esc(d['name'])}» · {esc(cat['name'])}", f"Кто: {esc(name)}")
-    action_url = f"{BASE_URL}/admin/categories/{cat['id']}"
-    notify_owner(bg, conn, d["owner_id"], card, preference="votes",
-                 action_url=action_url, action_label="Открыть категорию")
-    notify_admin(bg, conn, d["owner_id"], card, action_url=action_url,
-                 action_label="Открыть категорию")
-    updates = _vote_card_updates(conn, cat["id"], (d["id"],), guest)
-    conn.commit()
-    return JSONResponse({"ok": True, "booked": booked, "name": name,
-                         "choices": list(result.current_date_ids),
-                         "updates": updates,
-                         "voting_status": cat["voting_status"]})
-
-
-@router.post("/d/{token}/withdraw")
-def shared_date_withdraw(token: str, request: Request, bg: BackgroundTasks,
-                         conn=Depends(get_db)):
-    d, cat = _share_act_or_410(conn, token)
-    if not cat:
-        raise HTTPException(409, "У события нет однозначного контекста голосования")
-    state = voting.get_category_state(conn, cat["id"])
-    if state.status != voting.STATUS_RESOLVED or state.winner_date_id != d["id"]:
-        raise HTTPException(409, "Отказаться можно только по ссылке победившего события")
-    user = acting_user(request, conn)
-    guest, name = ensure_guest_name(conn, user)
-    guest_throttle("withdraw", guest, request)
-    try:
-        result = voting.withdraw_participation(conn, cat["id"], user["id"])
-    except voting.VotingError as exc:
-        raise _voting_http_error(exc)
-    voting_events.cancel_user_winner_reminders(conn, cat["id"], user["id"])
-    if not result.already_withdrawn:
-        voting_events.queue_participant_withdrawal(
-            conn,
-            booking_id=result.booking_id,
-            owner_id=cat["owner_id"],
-            participant_name=name,
-            category_name=cat["name"],
-            date_name=d["name"],
-            category_id=cat["id"],
-        )
-    conn.commit()
-    if not result.already_withdrawn:
-        card = notify.card("↩️ Участник отказался от события",
-                           f"«{esc(d['name'])}» · {esc(cat['name'])}",
-                           f"Кто: {esc(name)}", "Итог голосования не изменился.")
-        notify_admin(bg, conn, cat["owner_id"], card)
-    return JSONResponse({"ok": True, "withdrawn": True,
-                         "already_withdrawn": result.already_withdrawn})
+    return d
 
 
 @router.post("/d/{token}/question")
 def shared_date_question(token: str, request: Request, bg: BackgroundTasks,
                          text: str = Form(...), conn=Depends(get_db)):
-    """Вопрос по событию с share-ссылки. category_id берём из активной категории
-    (колонка nullable — но контекст полезен автору)."""
-    d, cat = _share_act_or_410(conn, token)
+    """Вопрос по событию с прямой ссылки, независимо от подборок."""
+    d = _shared_event_or_404(conn, token)
     user = acting_user(request, conn)
     guest, name = ensure_guest_name(conn, user)
     guest_throttle("question", guest, request)
@@ -1897,7 +1882,7 @@ def shared_date_question(token: str, request: Request, bg: BackgroundTasks,
     conn.execute(
         "INSERT INTO questions(date_id, category_id, guest_token, user_id, text, created_at) "
         "VALUES(?,?,?,?,?,?)",
-        (d["id"], cat["id"] if cat else None, guest, user["id"], text, now_iso()))
+        (d["id"], None, guest, user["id"], text, now_iso()))
     conn.commit()
     card = notify.card("❓ Новый вопрос", f"«{esc(d['name'])}»",
                        f"Кто: {esc(name)}", f"\n{esc(text)}")
@@ -1914,7 +1899,7 @@ def shared_date_suggest(token: str, request: Request, bg: BackgroundTasks,
                         starts_at: str = Form(""), ends_at: str = Form(""),
                         conn=Depends(get_db)):
     """Гость предлагает время для события без даты по share-ссылке."""
-    d, cat = _share_act_or_410(conn, token)
+    d = _shared_event_or_404(conn, token)
     user = acting_user(request, conn)
     guest, name = ensure_guest_name(conn, user)
     guest_throttle("question", guest, request)
@@ -1927,7 +1912,7 @@ def shared_date_suggest(token: str, request: Request, bg: BackgroundTasks,
     conn.execute(
         "INSERT INTO questions(date_id, category_id, guest_token, user_id, text, "
         "suggest_starts, suggest_ends, created_at) VALUES(?,?,?,?,?,?,?,?)",
-        (d["id"], cat["id"] if cat else None, guest, user["id"], text, starts, ends, now_iso()))
+        (d["id"], None, guest, user["id"], text, starts, ends, now_iso()))
     conn.commit()
     card = notify.card("📅 Предложено время", f"«{esc(d['name'])}»",
                        f"Кто: {esc(name)}", f"Когда: {fmt_when(starts, ends)} (мск)")
@@ -1980,6 +1965,7 @@ def shared_date_video(token: str, filename: str, request: Request, conn=Depends(
 
 @router.post("/d/{token}/add")
 def shared_date_add(token: str, request: Request, csrf: str = Form(""),
+                    source_category_token: str = Form(""),
                     conn=Depends(get_db)):
     """Добавить копию события себе в коллекцию (нужен вход).
 
@@ -1995,19 +1981,68 @@ def shared_date_add(token: str, request: Request, csrf: str = Form(""),
     if user["id"] == d["owner_id"]:
         raise HTTPException(400, "Это твоё событие — оно уже в твоей коллекции")
 
-    # квота получателя: активные (не архивные) события не должны превышать лимит
-    used = conn.execute(
-        "SELECT COUNT(*) FROM dates WHERE owner_id=? AND archived_at IS NULL",
-        (user["id"],)).fetchone()[0]
-    if used >= user["date_limit"]:
-        raise HTTPException(400, f"Достигнут лимит {user['date_limit']} событий — "
-                                 "удали или заархивируй лишние и попробуй снова")
+    # Контекст подборки приходит только от её карточки. Проверяем и саму
+    # привязку события, и настройку на сервере: скрытой кнопки недостаточно.
+    source_category_token = (source_category_token or "").strip()
+    if source_category_token:
+        source_cat = active_cat_or_410(conn, source_category_token, request)
+        linked = conn.execute(
+            "SELECT 1 FROM date_categories WHERE category_id=? AND date_id=?",
+            (source_cat["id"], d["id"]),
+        ).fetchone()
+        if not linked:
+            raise HTTPException(404, "Событие не найдено в этой подборке")
+        if source_cat["prevent_copying"]:
+            raise HTTPException(403, "Владелец подборки запретил копирование событий")
+    elif conn.execute(
+        "SELECT 1 FROM categories c "
+        "JOIN date_categories dc ON dc.category_id=c.id "
+        "WHERE dc.date_id=? AND c.link_enabled=1 AND c.prevent_copying=1 LIMIT 1",
+        (d["id"],),
+    ).fetchone():
+        # Иначе настройку можно было обойти ручным POST без hidden-поля.
+        raise HTTPException(403, "Владелец запретил копирование этого события")
 
-    new_id = insert_date(
-        conn, name=d["name"], place=d["place"], starts=d["starts_at"], ends=d["ends_at"],
-        comment=d["comment"], origin="admin", guest_token=None, owner_id=user["id"],
-        draft=0, pay_split=d["pay_split"], place_url=d["place_url"],
-        capacity=d["capacity"])
+    source_id = int(d["source_date_id"] or d["id"])
+
+    # Повторный тап/повтор fetch после сетевого таймаута возвращает уже созданную
+    # копию. Это происходит до файловых операций и потому не плодит медиа.
+    existing = conn.execute(
+        "SELECT id FROM dates WHERE owner_id=? AND source_date_id=? "
+        "ORDER BY id DESC LIMIT 1",
+        (user["id"], source_id),
+    ).fetchone()
+    if existing:
+        edit_url = f"/admin/dates/{int(existing['id'])}/edit"
+        if request.headers.get("x-requested-with") == "fetch":
+            return JSONResponse({"ok": True, "edit_url": edit_url,
+                                 "already_added": True})
+        return redir(edit_url, "Это событие уже есть в твоей коллекции")
+
+    try:
+        new_id = insert_date(
+            conn, name=d["name"], place=d["place"], starts=d["starts_at"],
+            ends=d["ends_at"], comment=d["comment"], origin="copy",
+            guest_token=None, owner_id=user["id"], draft=0,
+            pay_split=d["pay_split"], place_url=d["place_url"],
+            capacity=d["capacity"], source_date_id=source_id,
+        )
+    except sqlite3.IntegrityError:
+        # Уникальный индекс закрывает гонку двух одновременных тапов. После
+        # освобождения writer-lock возвращаем уже созданную конкурентом копию.
+        conn.rollback()
+        existing = conn.execute(
+            "SELECT id FROM dates WHERE owner_id=? AND source_date_id=? "
+            "ORDER BY id DESC LIMIT 1",
+            (user["id"], source_id),
+        ).fetchone()
+        if not existing:
+            raise
+        edit_url = f"/admin/dates/{int(existing['id'])}/edit"
+        if request.headers.get("x-requested-with") == "fetch":
+            return JSONResponse({"ok": True, "edit_url": edit_url,
+                                 "already_added": True})
+        return redir(edit_url, "Это событие уже есть в твоей коллекции")
     try:
         copy_date_media_and_links(conn, d["id"], new_id)
     except Exception:
@@ -2043,10 +2078,9 @@ def _ics_fold(line: str) -> str:
 
 
 @router.get("/c/{token}/ics/{date_id}")
-def public_ics(token: str, date_id: int, conn=Depends(get_db)):
-    cat = cat_by_token(conn, token)
-    if not cat or not cat["link_enabled"]:
-        raise HTTPException(404)
+def public_ics(token: str, date_id: int, request: Request,
+               conn=Depends(get_db)):
+    cat = active_cat_or_410(conn, token, request)
     d = date_in_category(conn, cat["id"], date_id)
     if not d or not d["starts_at"]:
         raise HTTPException(404, "У этого события нет даты")
@@ -2104,7 +2138,7 @@ def _ics_response(conn, d, uid: str) -> Response:
 def public_book(token: str, request: Request, bg: BackgroundTasks,
                 date_id: int = Form(...), conn=Depends(get_db)):
     """Голос за вариант; режим single/multiple задаёт владелец категории."""
-    cat = active_cat_or_410(conn, token)
+    cat = active_cat_or_410(conn, token, request)
     user = acting_user(request, conn)
     guest, name = ensure_guest_name(conn, user)
     legacy_date_ids = legacy_vote_date_ids(conn, request, user, cat["id"])
@@ -2170,7 +2204,7 @@ def public_book(token: str, request: Request, bg: BackgroundTasks,
 def public_withdraw(token: str, request: Request, bg: BackgroundTasks,
                     conn=Depends(get_db)):
     """Участник победившего варианта может отказаться без пересчёта итога."""
-    cat = active_cat_or_410(conn, token)
+    cat = active_cat_or_410(conn, token, request)
     user = acting_user(request, conn)
     guest, name = ensure_guest_name(conn, user)
     guest_throttle("withdraw", guest, request)
@@ -2213,7 +2247,7 @@ def public_suggest_time(token: str, request: Request, bg: BackgroundTasks,
     Хранится как обычный вопрос: появляется у админа во «Вопросах»
     с кнопками «Принять/Отказаться», автор видит его (и ответ) под карточкой.
     """
-    cat = active_cat_or_410(conn, token)
+    cat = active_cat_or_410(conn, token, request)
     user = acting_user(request, conn)
     guest, name = ensure_guest_name(conn, user)
     guest_throttle("question", guest, request)
@@ -2250,7 +2284,7 @@ def public_suggest_time(token: str, request: Request, bg: BackgroundTasks,
 def public_question(token: str, request: Request, bg: BackgroundTasks,
                     date_id: int = Form(...), text: str = Form(...),
                     conn=Depends(get_db)):
-    cat = active_cat_or_410(conn, token)
+    cat = active_cat_or_410(conn, token, request)
     user = acting_user(request, conn)
     guest, name = ensure_guest_name(conn, user)
     guest_throttle("question", guest, request)
@@ -2290,9 +2324,9 @@ def public_propose(token: str, request: Request, bg: BackgroundTasks,
                    videos: list[UploadFile] = File(default=[], alias="videos"),
                    video: UploadFile | None = File(None),  # legacy singular client
                    conn=Depends(get_db)):
-    cat = active_cat_or_410(conn, token)
+    cat = active_cat_or_410(conn, token, request)
     conn.execute("UPDATE categories SET id=id WHERE id=?", (cat["id"],))
-    cat = active_cat_or_410(conn, token)
+    cat = active_cat_or_410(conn, token, request)
     ensure_category_editable(conn, cat)
     user = acting_user(request, conn)
     guest, author = ensure_guest_name(conn, user)
@@ -2371,13 +2405,13 @@ def public_propose_edit(token: str, date_id: int, request: Request, bg: Backgrou
                         videos: list[UploadFile] = File(default=[], alias="videos"),
                         video: UploadFile | None = File(None),  # legacy singular client
                         conn=Depends(get_db)):
-    cat = active_cat_or_410(conn, token)
+    cat = active_cat_or_410(conn, token, request)
     ensure_category_editable(conn, cat)
     user = acting_user(request, conn)
     guest, author = ensure_guest_name(conn, user)
     d = own_proposal_or_403(conn, cat, date_id, guest)
     conn.execute("UPDATE dates SET id=id WHERE id=?", (date_id,))
-    cat = active_cat_or_410(conn, token)
+    cat = active_cat_or_410(conn, token, request)
     ensure_category_editable(conn, cat)
     d = own_proposal_or_403(conn, cat, date_id, guest)
     for linked_cat in conn.execute(
@@ -2526,13 +2560,13 @@ def public_propose_edit(token: str, date_id: int, request: Request, bg: Backgrou
 @router.post("/c/{token}/propose/{date_id}/delete")
 def public_propose_delete(token: str, date_id: int, request: Request, bg: BackgroundTasks,
                           conn=Depends(get_db)):
-    cat = active_cat_or_410(conn, token)
+    cat = active_cat_or_410(conn, token, request)
     ensure_category_editable(conn, cat)
     user = acting_user(request, conn)
     guest, author = ensure_guest_name(conn, user)
     d = own_proposal_or_403(conn, cat, date_id, guest)
     conn.execute("UPDATE dates SET id=id WHERE id=?", (date_id,))
-    cat = active_cat_or_410(conn, token)
+    cat = active_cat_or_410(conn, token, request)
     ensure_category_editable(conn, cat)
     d = own_proposal_or_403(conn, cat, date_id, guest)
     guest_throttle("prop", guest, request)
@@ -2595,7 +2629,7 @@ def public_report(token: str, request: Request, bg: BackgroundTasks,
     жалобы на чужой/скрытый id). Для анонима в БД попадает только случайный
     per-browser токен, не IP или fingerprint.
     """
-    cat = active_cat_or_410(conn, token)
+    cat = active_cat_or_410(conn, token, request)
     reporter = report_identity(request, conn, csrf)
     guest_throttle("report", reporter, request)
 

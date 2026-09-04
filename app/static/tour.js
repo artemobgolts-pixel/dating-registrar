@@ -104,8 +104,11 @@
     if (screenId() !== id) {
       try { sessionStorage.setItem(REQUEST_KEY, id); } catch (_) {}
       var route = ROUTES[id] || "/admin/";
-      if (window.Turbo && window.Turbo.visit) window.Turbo.visit(route);
-      else location.assign(route);
+      // Хеш — явный и переживающий Turbo маркер запуска. sessionStorage
+      // остаётся запасным каналом для браузеров/переходов, которые убирают hash.
+      var destination = route + "#tour=" + encodeURIComponent(id);
+      if (window.Turbo && window.Turbo.visit) window.Turbo.visit(destination);
+      else location.assign(destination);
       return;
     }
     start(id, true);
@@ -164,6 +167,19 @@
 
     function extraTarget(step) {
       return step.extra ? document.querySelector(step.extra) : null;
+    }
+
+    function revealTarget(step) {
+      var target = document.querySelector(step.sel);
+      if (!target) return null;
+      // Поля оформления живут в свёрнутом details. Раскрываем только тогда,
+      // когда тур действительно дошёл до них, до измерения spotlight.
+      var details = target.closest("details:not([open])");
+      while (details) {
+        details.open = true;
+        details = details.parentElement && details.parentElement.closest("details:not([open])");
+      }
+      return target;
     }
 
     function stepRect(step, target) {
@@ -305,7 +321,7 @@
       if (aborting || !running) return;
       if (placing) { placeAgain = true; return; }
       var step = steps[index];
-      var target = document.querySelector(step.sel);
+      var target = revealTarget(step);
       if (!target) { advance(); return; }
       var extra = extraTarget(step);
       observeStep(target, extra);

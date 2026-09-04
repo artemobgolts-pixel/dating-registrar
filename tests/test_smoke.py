@@ -633,16 +633,20 @@ with TestClient(main.app, follow_redirects=False) as c:
     # ---------- бронь: toggle и /vote больше нет ----------
     r = ga.post(f"/c/{tok}/book", data={"date_id": did})
     vote_json = r.json()
+    anna_id = db_one(
+        "SELECT id FROM users WHERE telegram_id=700101"
+    )["id"]
     assert vote_json["booked"] is True
     assert vote_json["updates"] == [{
         "date_id": did, "mine": True, "vote_count": 1, "capacity": 1,
         "is_full": True,
         "participants": [{
-            "name": "Аня", "user_id": db_one(
-                "SELECT id FROM users WHERE telegram_id=700101"
-            )["id"], "has_avatar": False, "is_me": True, "withdrawn": False,
+            "name": "Аня", "user_id": anna_id, "has_avatar": False,
+            "is_me": True, "withdrawn": False,
+            "profile_url": f"/u/{anna_id}?skin=friends",
         }],
         "hidden_count": 0,
+        "profiles_clickable": True,
     }]
     r = ga.post(f"/c/{tok}/book", data={"date_id": did})
     vote_json = r.json()
@@ -937,7 +941,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     other_page = g2.get(f"/c/{tok}").text
     assert "Тайное место" not in other_page
     assert g2.get(f"/c/{tok}/image/{fn2}").status_code == 404
-    assert "На модерации" in c.get("/admin/dates?view=active").text
+    assert "На модерации" in c.get("/admin/dates?view=proposed").text
 
     r = apost(c, f"/admin/dates/{pid2}/publish", {"next": "/admin/dates?view=active"})
     assert "Тайное место" in g2.get(f"/c/{tok}").text
@@ -946,11 +950,11 @@ with TestClient(main.app, follow_redirects=False) as c:
 
     # ---------- архив виден гостям, брони считаются по активным ----------
     # блок статистики убран с главной; счётчики событий переехали в пилюли
-    # вкладок на странице «События» (Активные/Архив).
+    # вкладок на странице «События» (Активные/Архив/Предложенные).
     dash = c.get("/admin/").text
     assert "dcount-row" not in dash and "броней сейчас" not in dash
     dpage = c.get("/admin/dates?view=active").text
-    assert "Активные" in dpage and "Архив" in dpage
+    assert all(label in dpage for label in ("Активные", "Архив", "Предложенные"))
     assert db_one("SELECT COUNT(*) FROM bookings b JOIN dates d ON d.id=b.date_id "
                   "WHERE d.archived_at IS NULL")[0] == 2   # Аня + Борис на «Ужине»
     r = apost(c, f"/admin/dates/{did}/archive", {"next": "/admin/dates"})
@@ -1019,7 +1023,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     apost(c, f"/admin/categories/{cid}/toggle", {})
     r = ga.get(f"/c/{tok}")
     assert r.status_code == 404 and "не действует" in r.text
-    assert ga.get(f"/c/{tok}/image/{fn_did}").status_code == 404
+    assert ga.get(f"/c/{tok}/image/{fn_did}").status_code == 410
     assert ga.post(f"/c/{tok}/book", data={"date_id": did}).status_code == 410
     apost(c, f"/admin/categories/{cid}/toggle", {})
 
@@ -1404,8 +1408,8 @@ with TestClient(main.app, follow_redirects=False) as c:
     shared_card = re.search(
         r'<article[^>]*id="date-%d".*?</article>' % shared["id"], pg.text, re.S,
     ).group(0)
-    assert re.search(r'class="vote-progress-head"[^>]*\bhidden\b', shared_card)
-    assert re.search(r'class="vote-progress-track"[^>]*\bhidden\b', shared_card)
+    assert "vote-progress" not in shared_card
+    assert "До конца голосования" not in pg.text
     assert pg.headers.get("x-robots-tag") == "noindex"
     # фото события отдаётся по share-ссылке
     a_photo = db_one("SELECT filename FROM date_images WHERE date_id=?", (shared["id"],))
@@ -1414,25 +1418,21 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert anon.get("/d/нет-такого").status_code == 404
     assert anon.post("/d/нет-такого/add").status_code == 404
 
-    # пользователь B логинится, видит карточку с «Выбрать» и форму «Сохранить к себе»
+    # Пользователь B видит форму «Сохранить к себе», но прямая
+    # ссылка не раскрывает голосование и связанную подборку.
     cb = guest_client(700621, vtok, "Получатель")
     bp = cb.get(f"/d/{stok}")
     assert bp.status_code == 200
     assert f'action="/d/{stok}/add"' in bp.text and "Сохранить к себе" in bp.text
-    assert "Выбрать" in bp.text and "Выбрать ♥" not in bp.text
+    assert "Выбрать" not in bp.text and "vote-progress" not in bp.text
     assert 'data-skin="friends"' in bp.text           # полноценный дружеский UI
     b_uid = db_one("SELECT id FROM users WHERE telegram_id=?", (700621,))["id"]
 
-    # B может выбрать событие прямо со страницы шаринга (контекст — категория)
-    rb = cb.post(f"/d/{stok}/book")
-    assert rb.status_code == 200 and rb.json()["booked"] is True
-    assert db_one("SELECT 1 FROM bookings WHERE date_id=? AND user_id=?",
-                  (shared["id"], b_uid))
-    # повторный тап снимает выбор
-    rb = cb.post(f"/d/{stok}/book")
-    assert rb.status_code == 200 and rb.json()["booked"] is False
-    # автор своё же событие выбрать не может
-    assert c.post(f"/d/{stok}/book").status_code == 400
+    # Старая direct-ручка голоса больше не существует.
+    assert cb.post(f"/d/{stok}/book").status_code == 404
+    assert c.post(f"/d/{stok}/book").status_code == 404
+    assert not db_one("SELECT 1 FROM bookings WHERE date_id=? AND user_id=?",
+                      (shared["id"], b_uid))
 
     # добавляем себе → 303 в редактор нового события B
     r = cb.post(f"/d/{stok}/add")
@@ -1656,9 +1656,9 @@ with TestClient(main.app, follow_redirects=False) as c:
     # ---------- выход только по POST ----------
     assert c.get("/admin/logout").status_code == 405
     r = apost(c, "/admin/logout", {})
-    assert r.status_code == 303 and "/login" in r.headers["location"]
+    assert r.status_code == 303 and r.headers["location"] == "/"
     assert c.get("/admin/").status_code == 303
-    step("logout — POST с CSRF; GET отклоняется (405)")
+    step("logout — POST с CSRF и переходом на лендинг; GET отклоняется (405)")
 
     # после logout снова логинимся, чтобы дальнейшие блоки шли под сессией
     tg_login(c, 555001, username="boss")
@@ -3037,7 +3037,7 @@ with TestClient(main.app, follow_redirects=False) as cnata, \
                   "WHERE telegram_id=771002) AND name='Пикник на закате'")[0] == 1
 
     # «Хочу сходить» независимо от копии в коллекции: хранится связь с
-    # оригиналом, появляется в профиле и получает один review-prompt.
+    # оригиналом и появляется в профиле, но не создаёт Telegram-prompt.
     gc = _csrf(cgosha)
     shared = cgosha.get(f"/d/{pub['share_token']}").text
     assert "Хочу сходить" in shared
@@ -3052,11 +3052,11 @@ with TestClient(main.app, follow_redirects=False) as cnata, \
     )
     assert "Пикник на закате" in cgosha.get(f"/u/{gosha_id}?tab=want").text
     prompt = db_one(
-        "SELECT kind,action_label FROM notification_outbox "
+        "SELECT 1 FROM notification_outbox "
         "WHERE event_key=?",
         (social.prompt_key(pub["id"], gosha_id),),
     )
-    assert prompt["kind"] == "review_prompt" and prompt["action_label"] == "Оставить отзыв"
+    assert prompt is None
 
     # Имитируем прошедшее событие. Review due следует реальному окончанию, а
     # не более раннему дедлайну голосования; пересчёт сохраняет тот же key.

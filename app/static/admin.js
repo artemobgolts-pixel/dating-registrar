@@ -282,7 +282,8 @@
     }
 
     // --- время: день + ЧЧ:ММ–ЧЧ:ММ ---------------------------------------------
-    if (UI.timeRange) UI.timeRange(document.getElementById("edWhen"));
+    var timeRangeRoot = document.getElementById("edWhen");
+    if (UI.timeRange && timeRangeRoot) UI.timeRange(timeRangeRoot);
 
     // --- оплата: отражаем модификатор пилюлей на карточке ----------------------
     // D4: если есть фото — бейдж ПОВЕРХ фото (.ed-gallery-pay); если фото нет —
@@ -297,12 +298,13 @@
       var label = PAY[v] || "";
       var onPhoto = galleryHasMedia && !!label;
       if (payPhoto) {
-        if (onPhoto) { payPhoto.textContent = label; payPhoto.hidden = false; }
-        else payPhoto.hidden = true;
+        payPhoto.textContent = onPhoto ? label : "";
+        payPhoto.hidden = !onPhoto;
       }
       if (payPill) {
-        if (label && !onPhoto) { payPill.textContent = label; payPill.hidden = false; }
-        else payPill.hidden = true;
+        var inHeader = !!label && !onPhoto;
+        payPill.textContent = inHeader ? label : "";
+        payPill.hidden = !inHeader;
       }
     }
     form.querySelectorAll('[data-bind="pay"]').forEach(function (r) {
@@ -1134,7 +1136,34 @@
     if (dl && svg) {
       var markup = new XMLSerializer().serializeToString(svg);
       if (!/^<\?xml/.test(markup)) markup = '<?xml version="1.0" encoding="UTF-8"?>\n' + markup;
-      dl.href = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(markup);
+      var qrBlob = new Blob([markup], { type: "image/svg+xml;charset=utf-8" });
+      if (dl._qrObjectUrl) URL.revokeObjectURL(dl._qrObjectUrl);
+      dl._qrObjectUrl = URL.createObjectURL(qrBlob);
+      dl.href = dl._qrObjectUrl;
+
+      // Safari на iPhone часто игнорирует download для data:-URL. Для
+      // поддерживающих отправку файлов устройств системный sheet надёжнее;
+      // остальные браузеры скачивают обычный Blob URL по ссылке.
+      var qrFile = null;
+      try { qrFile = new File([qrBlob], "date4you-qr.svg", { type: qrBlob.type }); }
+      catch (_) {}
+      var coarsePointer = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
+      var canShareFile = false;
+      try {
+        canShareFile = !!(coarsePointer && qrFile && navigator.share && navigator.canShare &&
+          navigator.canShare({ files: [qrFile] }));
+      } catch (_) {}
+      if (canShareFile) {
+        dl.addEventListener("click", function (event) {
+          event.preventDefault();
+          navigator.share({ files: [qrFile], title: "QR-код date4you" }).catch(function (error) {
+            if (error && error.name === "AbortError") return;
+            // Если системный sheet недоступен в конкретном webview, открываем
+            // SVG как файл: его можно сохранить штатным меню браузера.
+            window.open(dl._qrObjectUrl, "_blank", "noopener");
+          });
+        });
+      }
     }
     var share = document.getElementById("qrShare");
     if (share) {

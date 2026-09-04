@@ -7,6 +7,7 @@
   const CSRF = document.body.dataset.csrf || "";
   let MYNAME = document.body.dataset.name || "";
   const AUTH = document.body.dataset.auth === "1";   // залогинен ли посетитель
+  const PRIVATE_PROFILES = document.body.dataset.privateProfiles === "1";
   const FRIENDS = (document.body.dataset.skin ||
     document.documentElement.dataset.skin) === "friends";
   const CHECK_ICON =
@@ -256,8 +257,64 @@
       toast(typeof d === "string" ? d : (d && d.msg) || "Что-то пошло не так");
       return { ok: false, status: r.status, j };
     }
-    return { ok: true, j };
+    return { ok: true, j, response: r };
   }
+
+  /* --- копирование из компактного меню карточки ---------------------------*/
+  async function copyText(value) {
+    const absolute = new URL(value, location.href).href;
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(absolute);
+      return;
+    }
+    const field = document.createElement("textarea");
+    field.value = absolute;
+    field.setAttribute("readonly", "");
+    field.style.position = "fixed";
+    field.style.opacity = "0";
+    document.body.append(field);
+    field.select();
+    const copied = document.execCommand("copy");
+    field.remove();
+    if (!copied) throw new Error("copy_failed");
+  }
+
+  document.querySelectorAll("[data-copy-link]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const disclosure = button.closest(".event-card-menu");
+      if (disclosure) disclosure.open = false;
+      try {
+        await copyText(button.dataset.copyLink);
+        toast("Ссылка скопирована");
+      } catch (_) {
+        toast("Не удалось скопировать ссылку");
+      }
+    });
+  });
+
+  document.querySelectorAll("[data-copy-event-form]").forEach((form) => {
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const button = event.submitter || form.querySelector('[type="submit"]');
+      requireAuth(async () => {
+        if (button && button.getAttribute("aria-busy") === "true") return;
+        setControlBusy(button, true);
+        const result = await post(form.action, new FormData(form));
+        if (!result.ok) {
+          setControlBusy(button, false);
+          return;
+        }
+        const target = (result.j && (result.j.edit_url || result.j.redirect_url)) ||
+          (result.response && result.response.redirected ? result.response.url : "");
+        if (target && new URL(target, location.href).pathname !== location.pathname) {
+          location.assign(target);
+          return;
+        }
+        setControlBusy(button, false);
+        toast("Событие скопировано");
+      }, "manage", button);
+    });
+  });
 
   /* --- выбор события: обновляем карточки на месте, без перезагрузки -------*/
   function setCardState(card, mine) {
@@ -290,9 +347,19 @@
     roster.className = "participants";
     roster.setAttribute("aria-label", "Участники");
     people.forEach((person) => {
-      const item = document.createElement("span");
+      const profileUrl = !PRIVATE_PROFILES && (
+        person.profile_url || (person.user_id
+          ? `/u/${encodeURIComponent(person.user_id)}?skin=${FRIENDS ? "friends" : "romantic"}`
+          : "")
+      );
+      const profileIsLinked = Boolean(profileUrl);
+      const item = document.createElement(profileIsLinked ? "a" : "span");
       item.className = "participant" + (person.withdrawn ? " withdrawn" : "");
       if (person.is_me) item.dataset.currentUser = "1";
+      if (profileIsLinked) {
+        item.href = profileUrl;
+        item.setAttribute("aria-label", `Открыть профиль: ${person.name || "Участник"}`);
+      }
 
       if (person.has_avatar && person.user_id) {
         const base = `${ACT}/participant-avatar/${encodeURIComponent(person.user_id)}`;
