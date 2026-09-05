@@ -8,7 +8,7 @@
 <a class="btn ghost editor-back date-editor-back" href="{{ editor_return_url | default('/admin/dates', true) }}">← Назад</a>
 <div class="crumb">События › {{ 'Редактирование' if date else 'Новое' }}</div>
 <div class="bar">
-  <h1 class="serif" style="margin:0">{{ 'Редактировать событие' if date else 'Новое событие' }}</h1>
+  <h1 class="serif" style="margin:0"><span class="display-ink">{{ 'Редактировать событие' if date else 'Новое событие' }}</span></h1>
 </div>
 
 {% if operator_context %}

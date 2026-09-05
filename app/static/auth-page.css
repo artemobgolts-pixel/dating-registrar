@@ -449,10 +449,22 @@ html[data-theme="dark"][data-skin="friends"] .auth-module--page.login-card {
    через правило friends h1. Сохраняем ту же отделку и контраст локально. */
 html[data-skin="friends"] .auth-module__brand {
   color: var(--rose-2);
+  background: none;
+  -webkit-text-fill-color: currentColor;
+}
+html[data-skin="friends"] .auth-module__brand > .display-ink {
   background: linear-gradient(110deg, var(--rose-2), var(--rose) 62%, var(--friends-teal));
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
+}
+
+@media (forced-colors: active) {
+  .auth-module__brand > .display-ink {
+    background: none !important;
+    color: CanvasText !important;
+    -webkit-text-fill-color: CanvasText !important;
+  }
 }
 
 html[data-skin="friends"] .bg-smoke .turb {

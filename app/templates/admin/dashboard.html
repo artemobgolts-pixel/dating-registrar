@@ -2,7 +2,7 @@
 {% block title %}Главная{% endblock %}
 {% block head %}<meta name="turbo-cache-control" content="no-cache">{% endblock %}
 {% block content %}
-<h1 class="serif">Главная</h1>
+<h1 class="serif"><span class="display-ink">Главная</span></h1>
 
 {% set has_event = stats.active or stats.archived %}
 {% set setup_done = has_event and stats.cats and share %}

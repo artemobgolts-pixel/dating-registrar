@@ -731,6 +731,44 @@ label.chk {
   margin-bottom: 14px;
 }
 
+/* Общий поиск списков. Иконка имеет отдельный слой: иначе следующий за ней
+   непрозрачный input перекрывает SVG в обычном порядке отрисовки. */
+.admin-list-search {
+  display: flex; align-items: center; gap: 10px;
+  max-width: 680px; margin: 16px 0 20px;
+}
+.admin-search-input {
+  position: relative; display: flex; align-items: center;
+  min-width: 0; flex: 1;
+}
+.admin-search-input > svg {
+  position: absolute; z-index: 1; inset-inline-start: 14px;
+  width: 17px; height: 17px; overflow: visible;
+  color: var(--muted); pointer-events: none;
+}
+.admin-search-input > input {
+  width: 100%; height: 44px; padding: 0 44px 0 42px;
+  border-radius: 14px; background: var(--material-control);
+  -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
+}
+.admin-search-clear {
+  position: absolute; z-index: 1; inset-inline-end: 7px;
+  display: grid; place-items: center; width: 30px; height: 30px;
+  border-radius: 50%; color: var(--muted); text-decoration: none; font-size: 14px;
+}
+.admin-search-clear:active { transform: scale(.92); }
+.admin-list-search .btn { min-height: 44px; flex: none; }
+@media (max-width: 520px) {
+  .admin-list-search { align-items: stretch; }
+  .admin-list-search .btn { padding-inline: 15px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .admin-search-clear:active { transform: none; }
+}
+@media (forced-colors: active) {
+  .admin-search-input > svg { color: CanvasText; forced-color-adjust: auto; }
+}
+
 /* Возврат из длинных редакторов всегда остаётся у левого края. На широком
    экране кнопка живёт в свободном поле рядом с контентом; на узком становится
    sticky внутри колонки и не перекрывает форму. */
@@ -973,6 +1011,7 @@ span.oauth-ico { display: grid; place-items: center; font-weight: 700; font-size
 .tour-course-actions {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px;
 }
+.profile-support-card .tour-course-actions { margin-top: 10px; }
 .tour-course-actions .btn {
   display: inline-flex; align-items: center; justify-content: center;
   width: 100%; min-width: 0; text-align: center;
@@ -1430,13 +1469,24 @@ body {
 .top nav { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
 h1 {
+  --display-ink-gradient: linear-gradient(120deg, #8f4a58, #b65f6f 60%, #cf8a78);
+  --display-ink-fallback: #8f4a58;
   font-family: var(--sans);
   font-weight: 600;
   font-size: 30px;
   letter-spacing: .01em;
-  background: linear-gradient(120deg, #8f4a58, #b65f6f 60%, #cf8a78);
+  background: none;
+  -webkit-text-fill-color: currentColor;
+  color: var(--display-ink-fallback);
+}
+/* У inline-фрагмента область background-clip следует реальным метрикам
+   глифов. В отличие от block h1 она не срезает нижние хвосты g, j, y и у. */
+h1 > .display-ink {
+  display: inline;
+  background: var(--display-ink-gradient);
   -webkit-background-clip: text; background-clip: text;
-  -webkit-text-fill-color: transparent; color: #8f4a58;
+  -webkit-text-fill-color: transparent;
+  color: var(--display-ink-fallback);
 }
 
 .card { border-radius: 16px; box-shadow: 0 4px 16px rgba(120, 70, 80, .06); }
@@ -2915,7 +2965,6 @@ html[data-theme="dark"][data-skin="friends"] .share-qr {
 }
 
 /* ---------- профиль: кликабельная аватарка по центру ---------- */
-.profile-header { margin-bottom: 18px; }
 .avatar-field {
   display: flex; flex-direction: column; align-items: center; gap: 12px;
 }
@@ -2946,22 +2995,26 @@ html[data-theme="dark"][data-skin="friends"] .share-qr {
 .avatar-pick:hover .avatar-cam { transform: scale(1.06); }
 .avatar-delete {
   position: absolute; z-index: 3; top: 2px; right: 2px;
+  box-sizing: border-box;
   width: 34px; height: 34px; padding: 0; margin: 0;
   border: 2px solid var(--card); border-radius: 50%;
   background: linear-gradient(135deg, #c94c5a, #9f2938); color: #fff;
   cursor: pointer; box-shadow: 0 3px 9px rgba(112, 29, 43, .32);
   transition: transform .15s ease, background .15s ease, box-shadow .15s ease;
 }
-.avatar-wrap .avatar-delete { min-inline-size: 34px; min-block-size: 34px; }
+.avatar-wrap .avatar-delete {
+  min-inline-size: 34px; max-inline-size: 34px;
+  min-block-size: 34px; max-block-size: 34px;
+}
 .avatar-delete::before,
 .avatar-delete::after {
   content: ""; position: absolute; left: 50%; top: 50%;
-  width: 18px; height: 2.5px; border-radius: 999px; background: currentColor;
+  width: 15px; height: 2px; border-radius: 999px; background: currentColor;
 }
 .avatar-delete::before { transform: translate(-50%, -50%) rotate(45deg); }
 .avatar-delete::after { transform: translate(-50%, -50%) rotate(-45deg); }
 .avatar-delete:hover {
-  transform: scale(1.1); color: #fff;
+  transform: scale(1.06); color: #fff;
   background: linear-gradient(135deg, #d65a67, #a92335);
   box-shadow: 0 5px 13px rgba(112, 29, 43, .4);
 }
@@ -3911,6 +3964,7 @@ html[data-theme="dark"] .login-skin-pick { background: rgba(42,33,40,.78); }
   border: 0;
 }
 .profile-skin-setting { margin-top: 20px; }
+.profile-skin-setting .skin-pick { margin-top: 10px; }
 .skin-setting legend {
   padding: 0;
   color: var(--ink);
@@ -4167,11 +4221,8 @@ html[data-theme="dark"][data-skin="friends"] .brand .d4 {
   background-clip: text;
 }
 html[data-skin="friends"] h1 {
-  background: linear-gradient(110deg, var(--rose-2), var(--rose) 62%, var(--friends-teal));
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: var(--rose-2);
+  --display-ink-gradient: linear-gradient(110deg, var(--rose-2), var(--rose) 62%, var(--friends-teal));
+  --display-ink-fallback: var(--rose-2);
 }
 html[data-skin="friends"] table th { color: var(--rose-2); }
 html[data-skin="friends"] .avatar-pick .avatar-img,
@@ -4889,9 +4940,10 @@ dialog:is(.is-closing, [data-closing="true"]) {
 }
 .category-events-card { order: 1; }
 .category-editor-sections > .voting-settings { order: 2; }
-.category-share-card { order: 3; }
-.category-appearance-card { order: 4; }
-:where(#categoryDates, #categoryVoting, #categoryShare, #categoryAppearance) { scroll-margin-top: 96px; }
+.category-privacy-card { order: 3; }
+.category-share-card { order: 4; }
+.category-appearance-card { order: 5; }
+:where(#categoryDates, #categoryVoting, #categoryPrivacy, #categoryShare, #categoryAppearance) { scroll-margin-top: 96px; }
 
 .category-appearance-card { padding: 0; overflow: clip; }
 .category-appearance-summary {
@@ -5323,6 +5375,11 @@ html :is(.dcard, .drow).archived[data-status-tone="neutral"]:hover {
 }
 
 @media (forced-colors: active) {
+  h1 > .display-ink {
+    background: none !important;
+    color: CanvasText !important;
+    -webkit-text-fill-color: CanvasText !important;
+  }
   html :is(.dcard.dcard, .drow.drow, .cat-card.cat-card)[data-status-tone],
   .category-events-card tbody tr[data-status-tone] {
     border-inline-start-color: CanvasText;

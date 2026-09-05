@@ -7,6 +7,7 @@
   .category-privacy-card{display:grid;gap:16px}
   .category-privacy-head h2{font-size:20px;margin:0 0 4px}
   .category-privacy-head p{margin:0}
+  .category-privacy-form{display:grid;gap:16px}
   .category-privacy-options{display:grid;gap:10px}
   .category-privacy-options .toggle{margin:0;min-height:58px}
   .category-pin-field{display:grid;gap:6px;margin:2px 0 0;padding:14px;border:1px solid var(--line);border-radius:14px;background:var(--material-control)}
@@ -26,7 +27,7 @@
 </aside>
 {% endif %}
 <div class="bar">
-  <h1 style="margin:0">{{ cat['name'] }}</h1>
+  <h1 style="margin:0"><span class="display-ink">{{ cat['name'] }}</span></h1>
 </div>
 
 <div class="category-editor-sections">

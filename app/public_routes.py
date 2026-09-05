@@ -425,6 +425,10 @@ def _pin_visitor(request: Request) -> str:
 
 def _pin_page(request: Request, cat, token: str, *, error: str | None = None,
               status_code: int = 200):
+    csrf = str(request.session.get("csrf") or "")
+    if not csrf:
+        csrf = secrets.token_urlsafe(16)
+        request.session["csrf"] = csrf
     response = templates.TemplateResponse(
         request,
         "public/pin.html",
@@ -432,7 +436,7 @@ def _pin_page(request: Request, cat, token: str, *, error: str | None = None,
             "cat": {"name": cat["name"]},
             "token": token,
             "category_skin": appearance.normalize_skin(cat["category_skin"]),
-            "csrf": request.session.get("csrf", ""),
+            "csrf": csrf,
             "error": error,
             "attempts_remaining": None,
         },
@@ -1266,12 +1270,13 @@ def public_category(token: str, request: Request, conn=Depends(get_db)):
 @router.post("/c/{token}/unlock", response_class=HTMLResponse)
 def public_category_unlock(token: str, request: Request,
                            pin: Annotated[str, Form()],
+                           csrf: Annotated[str, Form()] = "",
                            conn=Depends(get_db)):
     """Открывает защищённую подборку в этой подписанной browser-сессии."""
     cat = cat_by_token(conn, token)
     if not cat or not cat["link_enabled"]:
         return templates.TemplateResponse(request, "public/gone.html", status_code=404)
-    users.require_same_origin(request)
+    users.require_csrf(request, csrf, allow_header=False)
     if not cat["pin_enabled"]:
         return RedirectResponse(f"/c/{token}", status_code=303)
     if category_access_granted(conn, request, cat):

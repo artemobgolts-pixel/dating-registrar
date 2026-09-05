@@ -86,7 +86,8 @@ html[data-skin="romantic"] .auth-module__logo-romantic { display: block; }
   -webkit-text-fill-color: currentColor;
 }
 
-.auth-module__brand span {
+.auth-module__brand > .display-ink { display: inline; }
+.auth-module__brand .d4 {
   display: inline;
   color: inherit;
   background: none;

@@ -51,15 +51,17 @@ def require_csrf(request: Request, token: str = "", *,
             403, "Сессия устарела — обнови страницу и попробуй ещё раз",
         )
 
-    require_same_origin(request)
+    require_same_origin(request, csrf_token_validated=True)
 
 
-def require_same_origin(request: Request) -> None:
+def require_same_origin(request: Request, *,
+                        csrf_token_validated: bool = False) -> None:
     """Отклоняет браузерный POST с чужого сайта без требования аккаунта.
 
     Нужна для неперсональных анонимных действий вроде жалобы: CSRF-секрета у
     посетителя ещё нет, но браузер всё равно сообщает Origin/Sec-Fetch-Site.
-    Отсутствующие заголовки допускаем для обычных клиентов и старых браузеров.
+    Валидный синхронизирующий CSRF-токен разрешает отсутствующий/непрозрачный
+    Origin из sandboxed WebView. Явный чужой HTTP(S)-origin отклоняется всегда.
     """
 
     # Origin присутствует у современных браузеров на POST. Отсутствие не
@@ -75,6 +77,13 @@ def require_same_origin(request: Request) -> None:
         ) if key is not None
     }
     if origin:
+        # Sandboxed iframes serialize their opaque origin as the literal
+        # ``null`` and mark even a form back to the embedded app cross-site.
+        # The per-session synchronizer token is sufficient authentication for
+        # that browser compatibility case; an explicit foreign origin below
+        # remains forbidden even when the token is valid.
+        if origin == "null" and csrf_token_validated:
+            return
         # Origin names the exact initiating origin and is the authoritative
         # browser signal. Telegram Web/WebView may still label a same-origin
         # form inside its cross-site frame as Sec-Fetch-Site: cross-site.
@@ -83,7 +92,8 @@ def require_same_origin(request: Request) -> None:
         if _origin_key(origin) not in expected_origins:
             raise HTTPException(403, "Запрос с другого сайта отклонён")
         return
-    if request.headers.get("sec-fetch-site", "").lower() == "cross-site":
+    if (not csrf_token_validated
+            and request.headers.get("sec-fetch-site", "").lower() == "cross-site"):
         raise HTTPException(403, "Запрос с другого сайта отклонён")
 
 

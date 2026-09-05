@@ -240,11 +240,11 @@ class PublicPrivacyCopyRegressionTests(unittest.TestCase):
 
         with patch.object(public_routes, "guest_throttle", lambda *args, **kwargs: None):
             wrong = public_routes.public_category_unlock(
-                "collection-token", anonymous, "1111", conn=self.conn,
+                "collection-token", anonymous, "1111", csrf="csrf-test", conn=self.conn,
             )
             self.assertEqual(wrong.status_code, 403)
             opened = public_routes.public_category_unlock(
-                "collection-token", anonymous, "0427", conn=self.conn,
+                "collection-token", anonymous, "0427", csrf="csrf-test", conn=self.conn,
             )
         self.assertEqual(opened.status_code, 303)
         self.assertIn("Секретная прогулка", self._render_category_with_request(

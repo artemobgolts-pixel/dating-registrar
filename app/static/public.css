@@ -232,14 +232,23 @@ body::after {
 /* --- шапка --------------------------------------------------------------- */
 .hero { text-align: center; margin: 18px 0 32px; animation: fade-down .7s var(--ease) both; }
 .hero h1 {
+  --display-ink-gradient: linear-gradient(120deg, var(--rose-2), var(--rose) 55%, #cf8a78);
+  --display-ink-fallback: var(--rose);
   font-family: var(--serif);
   font-weight: 600;
   font-size: clamp(36px, 9vw, 50px);
   line-height: 1.1;
   margin: 0;
-  background: linear-gradient(120deg, var(--rose-2), var(--rose) 55%, #cf8a78);
+  background: none;
+  -webkit-text-fill-color: currentColor;
+  color: var(--display-ink-fallback);
+}
+:is(.hero h1, .home-card h1) > .display-ink {
+  display: inline;
+  background: var(--display-ink-gradient);
   -webkit-background-clip: text; background-clip: text;
-  -webkit-text-fill-color: transparent; color: var(--rose);
+  -webkit-text-fill-color: transparent;
+  color: var(--display-ink-fallback);
 }
 .hero .hearts { letter-spacing: 12px; color: var(--rose); opacity: .65; margin-top: 10px; font-size: 13px; }
 .hero .hearts span { display: inline-block; animation: beat 2.6s ease-in-out infinite; }
@@ -1455,14 +1464,16 @@ details.endtime[open] summary { margin-bottom: 10px; }
   animation: beat 2.6s ease-in-out infinite;
 }
 .home-card h1 {
+  --display-ink-gradient: linear-gradient(120deg, var(--rose-2), var(--rose) 55%, #cf8a78);
+  --display-ink-fallback: var(--rose);
   font-family: var(--serif);
   font-weight: 600;
   font-size: clamp(34px, 8vw, 46px);
   line-height: 1.1;
   margin: 0 0 10px;
-  background: linear-gradient(120deg, var(--rose-2), var(--rose) 55%, #cf8a78);
-  -webkit-background-clip: text; background-clip: text;
-  -webkit-text-fill-color: transparent; color: var(--rose);
+  background: none;
+  -webkit-text-fill-color: currentColor;
+  color: var(--display-ink-fallback);
 }
 .home-card p { margin: 0; color: var(--muted); font-size: 15.5px; }
 /* цифра «4» в date4you чуть приподнята — смотрится эстетичнее.
@@ -2363,9 +2374,8 @@ html[data-skin="friends"] .bg-smoke span:nth-child(4) {
 /* Шапка и фирменный gather-mark. Орнамент меняется внутри общего слота, а
    заголовок и весь следующий поток сохраняют координаты. */
 html[data-skin="friends"] .hero h1 {
-  background: linear-gradient(118deg, #302c70, #5851b1 54%, #0d827e);
-  -webkit-background-clip: text; background-clip: text;
-  color: var(--friends-indigo);
+  --display-ink-gradient: linear-gradient(118deg, #302c70, #5851b1 54%, #0d827e);
+  --display-ink-fallback: var(--friends-indigo);
 }
 .hero-ornament {
   width: 100%; height: 32px; margin-top: 10px;
@@ -2571,8 +2581,7 @@ html[data-skin="friends"][data-theme="dark"] body::before {
     radial-gradient(46% 42% at 72% 92%, rgba(180, 126, 36, .12), transparent 73%);
 }
 html[data-skin="friends"][data-theme="dark"] .hero h1 {
-  background: linear-gradient(118deg, #d1ceff, #9b96ed 52%, #67ccc4);
-  -webkit-background-clip: text; background-clip: text;
+  --display-ink-gradient: linear-gradient(118deg, #d1ceff, #9b96ed 52%, #67ccc4);
 }
 html[data-skin="friends"][data-theme="dark"] .cat-desc { color: #c5c5d1; }
 html[data-skin="friends"][data-theme="dark"] .card,
@@ -3631,6 +3640,11 @@ html[data-skin="friends"] .media-badge--pending { --media-badge-mark: var(--frie
 html[data-skin="friends"] .media-badge--booking { --media-badge-mark: var(--rose); }
 
 @media (forced-colors: active) {
+  :is(.hero h1, .home-card h1) > .display-ink {
+    background: none !important;
+    color: CanvasText !important;
+    -webkit-text-fill-color: CanvasText !important;
+  }
   .media-badge,
   .badge.media-badge {
     color: CanvasText; background: Canvas; border: 1px solid CanvasText;

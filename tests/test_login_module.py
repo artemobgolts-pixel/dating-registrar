@@ -236,12 +236,14 @@ class LoginGeometryBrowserTests(unittest.TestCase):
                 )
                 styles = page.evaluate("""() => {
                   const brand = getComputedStyle(document.querySelector('.auth-module__brand'));
-                  const digit = getComputedStyle(document.querySelector('.auth-module__brand span'));
+                  const ink = getComputedStyle(document.querySelector('.auth-module__brand > .display-ink'));
+                  const digit = getComputedStyle(document.querySelector('.auth-module__brand .d4'));
                   return {
                     color: brand.color,
-                    background: brand.backgroundImage,
-                    clip: brand.backgroundClip,
-                    fill: brand.webkitTextFillColor,
+                    background: ink.backgroundImage,
+                    clip: ink.backgroundClip,
+                    fill: ink.webkitTextFillColor,
+                    inkColor: ink.color,
                     digitColor: digit.color,
                     digitFill: digit.webkitTextFillColor,
                   };
@@ -252,6 +254,7 @@ class LoginGeometryBrowserTests(unittest.TestCase):
                 self.assertEqual(styles["fill"], "rgba(0, 0, 0, 0)")
                 for stop in wanted["stops"]:
                     self.assertIn(stop, styles["background"])
+                self.assertEqual(styles["inkColor"], wanted["color"])
                 self.assertEqual(styles["digitColor"], wanted["color"])
                 self.assertEqual(styles["digitFill"], wanted["color"])
 

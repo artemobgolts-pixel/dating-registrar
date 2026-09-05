@@ -197,12 +197,19 @@ class PublicCsrfTests(unittest.TestCase):
         self.assertEqual(rows[0]["reason"], "Проверить без входа")
 
     def test_anonymous_report_rejects_cross_site_browser_post(self):
-        response = self.anonymous.post(
-            "/c/csrf-category/report",
-            data={"target_type": "date", "target_id": self.date_id},
-            headers={"Origin": "https://evil.example"},
+        metadata_cases = (
+            {"Origin": "https://evil.example"},
+            {"Origin": "null", "Sec-Fetch-Site": "cross-site"},
+            {"Sec-Fetch-Site": "cross-site"},
         )
-        self.assertEqual(response.status_code, 403)
+        for headers in metadata_cases:
+            with self.subTest(headers=headers):
+                response = self.anonymous.post(
+                    "/c/csrf-category/report",
+                    data={"target_type": "date", "target_id": self.date_id},
+                    headers=headers,
+                )
+                self.assertEqual(response.status_code, 403)
 
     def test_withdraw_has_a_rate_rule(self):
         self.assertIn("withdraw", ratelimit.RATE_RULES)
@@ -221,6 +228,7 @@ class PublicCsrfTests(unittest.TestCase):
             body = ast.unparse(node)
             if ("acting_user(" not in body
                     and "report_identity(" not in body
+                    and "require_csrf(" not in body
                     and "require_same_origin(" not in body
                     and "users.current_user" not in decorators):
                 unguarded.append(node.name)

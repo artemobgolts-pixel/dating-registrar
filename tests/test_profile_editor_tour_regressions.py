@@ -12,9 +12,15 @@ APP = ROOT / "app"
 
 
 class ProfileContractTests(unittest.TestCase):
-    def test_profile_heading_has_its_own_stable_spacing_hook(self):
+    def test_profile_heading_uses_the_shared_spacing_and_sections_have_room(self):
         profile = (APP / "templates/admin/profile.html").read_text("utf-8")
-        self.assertIn('class="bar profile-header"', profile)
+        css = (APP / "static/admin.css").read_text("utf-8")
+
+        self.assertIn('<div class="bar">', profile)
+        self.assertNotIn("profile-header", profile)
+        self.assertNotIn(".profile-header", css)
+        self.assertIn(".profile-skin-setting .skin-pick", css)
+        self.assertIn(".profile-support-card .tour-course-actions", css)
 
 
 class ProfileEditorTourBrowserTests(unittest.TestCase):
@@ -39,12 +45,12 @@ class ProfileEditorTourBrowserTests(unittest.TestCase):
         if getattr(cls, "playwright", None):
             cls.playwright.stop()
 
-    def test_avatar_delete_matches_camera_control_and_profile_gap_is_visible(self):
+    def test_avatar_delete_matches_camera_control_and_profile_section_gaps(self):
         page = self.browser.new_page(viewport={"width": 390, "height": 720})
         self.addCleanup(page.close)
         page.set_content("""
           <main class="wrap">
-            <div class="bar profile-header" id="profileHeader"><h1>Мой профиль</h1></div>
+            <div class="bar" id="profileHeader"><h1>Мой профиль</h1></div>
             <div class="card" id="profileContent">
               <div class="avatar-field"><div class="avatar-wrap">
                 <label class="avatar-pick">
@@ -53,6 +59,14 @@ class ProfileEditorTourBrowserTests(unittest.TestCase):
                 </label>
                 <button class="avatar-delete" id="deleteAvatar" type="button"></button>
               </div></div>
+              <fieldset class="skin-setting profile-skin-setting">
+                <legend id="appearanceTitle">Оформление кабинета</legend>
+                <div class="skin-pick" id="appearanceContent"><span></span><span></span></div>
+              </fieldset>
+            </div>
+            <div class="card profile-support-card">
+              <b id="helpTitle">Помощь</b>
+              <div class="tour-course-actions" id="helpContent"><button>Основы</button></div>
             </div>
           </main>
         """)
@@ -63,18 +77,38 @@ class ProfileEditorTourBrowserTests(unittest.TestCase):
           const content = document.querySelector('#profileContent').getBoundingClientRect();
           const camera = document.querySelector('#camera').getBoundingClientRect();
           const remove = document.querySelector('#deleteAvatar').getBoundingClientRect();
+          const appearanceTitle = document.querySelector('#appearanceTitle').getBoundingClientRect();
+          const appearanceContent = document.querySelector('#appearanceContent').getBoundingClientRect();
+          const helpTitle = document.querySelector('#helpTitle').getBoundingClientRect();
+          const helpContent = document.querySelector('#helpContent').getBoundingClientRect();
           return {
             gap: content.top - header.bottom,
             cameraWidth: camera.width,
             cameraHeight: camera.height,
             removeWidth: remove.width,
             removeHeight: remove.height,
+            appearanceGap: appearanceContent.top - appearanceTitle.bottom,
+            helpGap: helpContent.top - helpTitle.bottom,
           };
         }""")
-        self.assertAlmostEqual(geometry["gap"], 18, delta=0.1)
+        self.assertAlmostEqual(geometry["gap"], 14, delta=0.1)
         self.assertAlmostEqual(geometry["removeWidth"], geometry["cameraWidth"], delta=0.1)
         self.assertAlmostEqual(geometry["removeHeight"], geometry["cameraHeight"], delta=0.1)
         self.assertEqual(geometry["removeWidth"], 34)
+        self.assertGreaterEqual(geometry["appearanceGap"], 9.5)
+        self.assertGreaterEqual(geometry["helpGap"], 9.5)
+
+        page.locator(".avatar-pick").hover(position={"x": 18, "y": 18})
+        page.wait_for_timeout(180)
+        camera_scale = page.locator("#camera").evaluate(
+            "node => new DOMMatrix(getComputedStyle(node).transform).a"
+        )
+        page.locator("#deleteAvatar").hover()
+        page.wait_for_timeout(180)
+        delete_scale = page.locator("#deleteAvatar").evaluate(
+            "node => new DOMMatrix(getComputedStyle(node).transform).a"
+        )
+        self.assertAlmostEqual(delete_scale, camera_scale, delta=.01)
 
     def test_capacity_stepper_prevents_double_tap_zoom_but_keeps_press_feedback(self):
         page = self.browser.new_page(viewport={"width": 390, "height": 720})
