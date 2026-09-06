@@ -319,7 +319,10 @@ def close_due_once(conn: sqlite3.Connection | None = None, *,
         conn = db.connect()
     assert conn is not None
     current = (now or now_naive()).replace(tzinfo=None, microsecond=0)
-    where = "voting_status='open' AND closed_at IS NULL AND voting_deadline<=?"
+    where = (
+        "voting_status='open' AND closed_at IS NULL "
+        "AND operator_review_pending=0 AND voting_deadline<=?"
+    )
     args: list[object] = [current.isoformat(sep="T")]
     if category_id is not None:
         where += " AND id=?"

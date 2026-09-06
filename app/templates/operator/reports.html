@@ -1,7 +1,7 @@
 {% extends "operator/base.html" %}
 {% block title %}Жалобы{% endblock %}
 {% block page_eyebrow %}Безопасность{% endblock %}
-{% block page_title %}Жалобы <span class="count">{{ items|length }}</span>{% endblock %}
+{% block page_title %}Жалобы <span class="count">{{ total }}</span>{% endblock %}
 {% block page_intro %}
 <p class="op-page-intro">Обращения пользователей о подборках и событиях, требующих внимания.</p>
 {% endblock %}
@@ -11,9 +11,35 @@
   <nav class="segmented" aria-label="Статус жалоб">
     {% for s, lbl in [('open','Открытые'),('resolved','Обработанные'),('dismissed','Отклонённые'),('all','Все')] %}
     <a class="{{ 'on' if status==s else '' }}" {% if status==s %}aria-current="page"{% endif %}
-       href="/operator/reports?status={{ s }}">{{ lbl }}</a>
+       href="/operator/reports?status={{ s }}&amp;target={{ target }}{% if q %}&amp;q={{ q | urlencode }}{% endif %}">{{ lbl }}</a>
     {% endfor %}
   </nav>
+  <form class="filter-form" method="get" action="/operator/reports" aria-label="Фильтр по объекту">
+    <input type="hidden" name="status" value="{{ status }}">
+    <input type="hidden" name="q" value="{{ q }}">
+    <label>
+      <span class="sr-only">Тип объекта</span>
+      <select name="target" aria-label="Тип объекта">
+        <option value="">Все объекты</option>
+        <option value="date" {% if target == 'date' %}selected{% endif %}>События</option>
+        <option value="category" {% if target == 'category' %}selected{% endif %}>Подборки</option>
+      </select>
+    </label>
+    <button class="btn" type="submit">Применить</button>
+  </form>
+  <form class="search-form" method="get" action="/operator/reports" role="search">
+    <input type="hidden" name="status" value="{{ status }}">
+    <input type="hidden" name="target" value="{{ target }}">
+    <label class="search-field">
+      <span class="sr-only">Поиск жалоб</span>
+      <svg class="op-icon" aria-hidden="true"><use href="#op-i-search"></use></svg>
+      <input type="search" name="q" value="{{ q }}" placeholder="Причина, объект или владелец"
+             autocomplete="off" data-op-search>
+      <span class="search-shortcut" aria-hidden="true">/</span>
+    </label>
+    <button class="btn primary" type="submit">Найти</button>
+    {% if q %}<a class="btn" href="/operator/reports?status={{ status }}&amp;target={{ target }}">Сбросить поиск</a>{% endif %}
+  </form>
 </div>
 
 <section class="panel">
@@ -22,7 +48,7 @@
       <h2 class="panel__title">
         {{ {'open':'Открытые жалобы','resolved':'Обработанные жалобы','dismissed':'Отклонённые жалобы','all':'Все жалобы'}.get(status, 'Жалобы') }}
       </h2>
-      <span class="panel__hint">В текущем разделе: {{ items|length }}</span>
+      <span class="panel__hint">Найдено: {{ total }}</span>
     </div>
   </div>
   <div class="table-scroll">
@@ -40,7 +66,10 @@
             </span>
             <span class="cell-secondary">{{ 'Подборка' if r['target_type']=='category' else 'Событие' }} · жалоба #{{ r['id'] }}</span>
           </td>
-          <td data-label="Владелец" class="muted">{{ t['owner'] if t else '—' }}</td>
+          <td data-label="Владелец" class="muted">
+            {% if t and t['owner_id'] %}<a class="link" href="/operator/users/{{ t['owner_id'] }}">{{ t['owner'] or 'Без имени' }}</a>
+            {% else %}—{% endif %}
+          </td>
           <td data-label="Причина">{{ r['reason'] or 'Причина не указана' }}</td>
           <td data-label="Когда" class="muted">{{ r['created_at'][:16].replace('T',' ') }}</td>
           <td data-label="Статус">
@@ -95,4 +124,22 @@
     </table>
   </div>
 </section>
+
+{% if pages > 1 %}
+<nav class="pagination" aria-label="Пагинация">
+  {% if page > 1 %}
+  <a class="btn" href="/operator/reports?status={{ status }}&amp;target={{ target }}&amp;q={{ q | urlencode }}&amp;page={{ page-1 }}">
+    <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-arrow-left"></use></svg>
+    Назад
+  </a>
+  {% else %}<span></span>{% endif %}
+  <span class="pagination__status">Страница {{ page }} из {{ pages }}</span>
+  {% if page < pages %}
+  <a class="btn" href="/operator/reports?status={{ status }}&amp;target={{ target }}&amp;q={{ q | urlencode }}&amp;page={{ page+1 }}">
+    Вперёд
+    <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-arrow-right"></use></svg>
+  </a>
+  {% else %}<span></span>{% endif %}
+</nav>
+{% endif %}
 {% endblock %}

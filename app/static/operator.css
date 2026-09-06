@@ -1066,6 +1066,32 @@ form.inline { display: inline-flex; }
   flex: 1;
 }
 
+.filter-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.filter-form label {
+  min-width: 150px;
+  flex: 1 1 150px;
+}
+
+.active-filter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: -4px 0 14px;
+  padding: 9px 12px;
+  border: 1px solid var(--op-line);
+  border-radius: 11px;
+  color: var(--op-muted);
+  background: rgba(255,255,255,.48);
+  font-size: 12.5px;
+}
+
 .search-field {
   position: relative;
   min-width: 0;
@@ -1453,6 +1479,12 @@ textarea:focus {
   color: var(--op-muted);
   font-size: 12.5px;
   text-align: center;
+}
+
+.panel-pagination {
+  margin: 0;
+  padding: 14px 16px 16px;
+  border-top: 1px solid var(--op-line);
 }
 
 /* ---------- дашборд ---------- */
@@ -2060,6 +2092,19 @@ html[data-skin="friends"] .op-nav a.on {
   .search-form {
     width: 100%;
     min-width: 0;
+  }
+
+  .filter-form {
+    width: 100%;
+  }
+
+  .filter-form label {
+    min-width: min(100%, 180px);
+  }
+
+  .active-filter {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .segmented {

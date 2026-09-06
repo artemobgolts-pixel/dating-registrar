@@ -10,17 +10,29 @@
 <div class="toolbar">
   <nav class="segmented" aria-label="Фильтр пользователей">
     {% for value, label in [('', 'Все'), ('active', 'Активные'), ('blocked', 'Заблокированные')] %}
-    <a class="{{ 'on' if state == value and not role else '' }}"
-       {% if state == value and not role %}aria-current="page"{% endif %}
-       href="/operator/users{% if value or q %}?{% if value %}state={{ value }}{% endif %}{% if value and q %}&amp;{% endif %}{% if q %}q={{ q | urlencode }}{% endif %}{% endif %}">{{ label }}</a>
+    <a class="{{ 'on' if state == value else '' }}"
+       {% if state == value %}aria-current="page"{% endif %}
+       href="/operator/users?state={{ value }}&amp;role={{ role }}&amp;risk={{ risk }}{% if q %}&amp;q={{ q | urlencode }}{% endif %}">{{ label }}</a>
     {% endfor %}
-    <a class="{{ 'on' if role == 'operator' else '' }}"
-       {% if role == 'operator' %}aria-current="page"{% endif %}
-       href="/operator/users?role=operator{% if q %}&amp;q={{ q | urlencode }}{% endif %}">Администраторы</a>
+  </nav>
+  <nav class="segmented" aria-label="Фильтр по роли">
+    {% for value, label in [('', 'Все роли'), ('member', 'Пользователи'), ('operator', 'Администраторы')] %}
+    <a class="{{ 'on' if role == value else '' }}"
+       {% if role == value %}aria-current="page"{% endif %}
+       href="/operator/users?state={{ state }}&amp;role={{ value }}&amp;risk={{ risk }}{% if q %}&amp;q={{ q | urlencode }}{% endif %}">{{ label }}</a>
+    {% endfor %}
+  </nav>
+  <nav class="segmented" aria-label="Фильтр по премодерации">
+    {% for value, label in [('', 'Любой риск'), ('regular', 'Обычные'), ('suspicious', 'Подозрительные')] %}
+    <a class="{{ 'on' if risk == value else '' }}"
+       {% if risk == value %}aria-current="page"{% endif %}
+       href="/operator/users?state={{ state }}&amp;role={{ role }}&amp;risk={{ value }}{% if q %}&amp;q={{ q | urlencode }}{% endif %}">{{ label }}</a>
+    {% endfor %}
   </nav>
   <form class="search-form" method="get" action="/operator/users" role="search">
     <input type="hidden" name="state" value="{{ state }}">
     <input type="hidden" name="role" value="{{ role }}">
+    <input type="hidden" name="risk" value="{{ risk }}">
     <label class="search-field">
       <span class="sr-only">Поиск пользователей</span>
       <svg class="op-icon" aria-hidden="true"><use href="#op-i-search"></use></svg>
@@ -30,7 +42,7 @@
       <span class="search-shortcut" aria-hidden="true">/</span>
     </label>
     <button class="btn primary" type="submit">Найти</button>
-    {% if q %}<a class="btn" href="/operator/users{% if state or role %}?{% if state %}state={{ state }}{% else %}role={{ role }}{% endif %}{% endif %}">Сбросить поиск</a>{% endif %}
+    {% if q %}<a class="btn" href="/operator/users?state={{ state }}&amp;role={{ role }}&amp;risk={{ risk }}">Сбросить поиск</a>{% endif %}
   </form>
 </div>
 
@@ -40,6 +52,7 @@
       <h2 class="panel__title">
         {% if q %}Результаты поиска
         {% elif role == 'operator' %}Администраторы
+        {% elif role == 'member' %}Пользователи
         {% elif state == 'active' %}Активные пользователи
         {% elif state == 'blocked' %}Заблокированные пользователи
         {% else %}Все пользователи{% endif %}
@@ -73,6 +86,7 @@
             {% if not u['is_active'] %}<span class="badge danger">заблокирован</span>
             {% elif u['is_operator'] %}<span class="badge op">администратор</span>
             {% else %}<span class="badge success">активен</span>{% endif %}
+            {% if u['is_suspicious'] %}<span class="badge warning">подозрительный</span>{% endif %}
           </td>
           <td data-label="Подборки" class="number-cell">{{ u['n_cats'] }}</td>
           <td data-label="События" class="number-cell">{{ u['n_dates'] }}</td>
@@ -105,14 +119,14 @@
 {% if pages > 1 %}
 <nav class="pagination" aria-label="Пагинация">
   {% if page > 1 %}
-  <a class="btn" href="/operator/users?q={{ q | urlencode }}&amp;state={{ state }}&amp;role={{ role }}&amp;page={{ page-1 }}">
+  <a class="btn" href="/operator/users?q={{ q | urlencode }}&amp;state={{ state }}&amp;role={{ role }}&amp;risk={{ risk }}&amp;page={{ page-1 }}">
     <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-arrow-left"></use></svg>
     Назад
   </a>
   {% else %}<span></span>{% endif %}
   <span class="pagination__status">Страница {{ page }} из {{ pages }}</span>
   {% if page < pages %}
-  <a class="btn" href="/operator/users?q={{ q | urlencode }}&amp;state={{ state }}&amp;role={{ role }}&amp;page={{ page+1 }}">
+  <a class="btn" href="/operator/users?q={{ q | urlencode }}&amp;state={{ state }}&amp;role={{ role }}&amp;risk={{ risk }}&amp;page={{ page+1 }}">
     Вперёд
     <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-arrow-right"></use></svg>
   </a>

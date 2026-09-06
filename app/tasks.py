@@ -108,14 +108,16 @@ def autoarchive_once(conn: sqlite3.Connection | None = None, *,
     rows = conn.execute(
         "SELECT d.id, d.starts_at, d.ends_at FROM dates d "
         "INDEXED BY idx_dates_autoarchive_ends_due "
-        "WHERE d.archived_at IS NULL AND d.ends_at IS NOT NULL "
+        "WHERE d.operator_review_pending=0 "
+        "AND d.archived_at IS NULL AND d.ends_at IS NOT NULL "
         f"AND d.ends_at<?{scope}",
         (n.isoformat(sep="T"), *scope_params),
     ).fetchall()
     rows += conn.execute(
         "SELECT d.id, d.starts_at, d.ends_at FROM dates d "
         "INDEXED BY idx_dates_autoarchive_starts_due "
-        "WHERE d.archived_at IS NULL AND d.ends_at IS NULL "
+        "WHERE d.operator_review_pending=0 "
+        "AND d.archived_at IS NULL AND d.ends_at IS NULL "
         "AND d.starts_at IS NOT NULL "
         f"AND d.starts_at<?{scope}",
         (start_cutoff.isoformat(sep="T"), *scope_params),
@@ -127,7 +129,8 @@ def autoarchive_once(conn: sqlite3.Connection | None = None, *,
     rows += conn.execute(
         "SELECT d.id, d.starts_at, d.ends_at FROM dates d "
         "INDEXED BY idx_dates_autoarchive_end_fallback_start "
-        "WHERE d.archived_at IS NULL AND d.ends_at IS NOT NULL "
+        "WHERE d.operator_review_pending=0 "
+        "AND d.archived_at IS NULL AND d.ends_at IS NOT NULL "
         "AND d.starts_at IS NOT NULL AND d.starts_at<? AND d.ends_at>=?"
         f"{scope}",
         (start_cutoff.isoformat(sep="T"), n.isoformat(sep="T"), *scope_params),
@@ -155,7 +158,8 @@ def autoarchive_once(conn: sqlite3.Connection | None = None, *,
     # чужое событие своим обзором.
     completed_where = (
         "c.voting_status='resolved' AND c.winner_date_id IS NOT NULL "
-        "AND d.archived_at IS NULL "
+        "AND c.operator_review_pending=0 "
+        "AND d.archived_at IS NULL AND d.operator_review_pending=0 "
         "AND EXISTS ("
         " SELECT 1 FROM bookings b "
         " JOIN date_reviews r ON r.date_id=b.date_id AND r.user_id=b.user_id "
@@ -169,6 +173,7 @@ def autoarchive_once(conn: sqlite3.Connection | None = None, *,
         " SELECT 1 FROM date_categories pending_dc "
         " JOIN categories pending_c ON pending_c.id=pending_dc.category_id "
         " WHERE pending_dc.date_id=d.id "
+        " AND pending_c.operator_review_pending=0 "
         " AND pending_c.voting_status IN ('open','tie')"
         ")"
     )

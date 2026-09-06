@@ -18,6 +18,12 @@
   <a class="btn small" href="/operator/users/{{ date['owner_id'] }}">Открыть владельца</a>
 </aside>
 {% endif %}
+{% if date and date['operator_review_pending'] %}
+<aside class="operator-edit-context" role="status">
+  <span class="operator-edit-context-icon">⏳</span>
+  <span><strong>Событие ждёт проверки администратора</strong><small>Его публичная страница станет доступна после одобрения.</small></span>
+</aside>
+{% endif %}
 
 {% if date and date['origin'] == 'guest' %}
 <div class="card" style="background:rgba(253,248,241,.8);border-color:#f1e2c8">

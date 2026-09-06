@@ -8,7 +8,32 @@
 
 {% block content %}
 <div class="toolbar">
+  <form class="filter-form" method="get" action="/operator/bookings" aria-label="Фильтры голосов">
+    <input type="hidden" name="q" value="{{ q }}">
+    {% if voter_id %}<input type="hidden" name="voter_id" value="{{ voter_id }}">{% endif %}
+    <label>
+      <span class="sr-only">Тип участника</span>
+      <select name="kind" aria-label="Тип участника">
+        <option value="">Все участники</option>
+        <option value="account" {% if kind == 'account' %}selected{% endif %}>С аккаунтом</option>
+        <option value="legacy" {% if kind == 'legacy' %}selected{% endif %}>Без аккаунта</option>
+      </select>
+    </label>
+    <label>
+      <span class="sr-only">Состояние участия</span>
+      <select name="state" aria-label="Состояние участия">
+        <option value="">Любое участие</option>
+        <option value="active" {% if state == 'active' %}selected{% endif %}>Участвует</option>
+        <option value="withdrawn" {% if state == 'withdrawn' %}selected{% endif %}>Отказался</option>
+      </select>
+    </label>
+    <button class="btn" type="submit">Применить</button>
+    {% if kind or state %}<a class="btn" href="/operator/bookings?q={{ q | urlencode }}{% if voter_id %}&amp;voter_id={{ voter_id }}{% endif %}">Сбросить фильтры</a>{% endif %}
+  </form>
   <form class="search-form" method="get" action="/operator/bookings" role="search">
+    <input type="hidden" name="kind" value="{{ kind }}">
+    <input type="hidden" name="state" value="{{ state }}">
+    {% if voter_id %}<input type="hidden" name="voter_id" value="{{ voter_id }}">{% endif %}
     <label class="search-field">
       <span class="sr-only">Поиск голосов</span>
       <svg class="op-icon" aria-hidden="true"><use href="#op-i-search"></use></svg>
@@ -18,9 +43,16 @@
       <span class="search-shortcut" aria-hidden="true">/</span>
     </label>
     <button class="btn primary" type="submit">Найти</button>
-    {% if q %}<a class="btn" href="/operator/bookings">Сбросить</a>{% endif %}
+    {% if q %}<a class="btn" href="/operator/bookings?kind={{ kind }}&amp;state={{ state }}{% if voter_id %}&amp;voter_id={{ voter_id }}{% endif %}">Сбросить поиск</a>{% endif %}
   </form>
 </div>
+
+{% if voter_id %}
+<div class="active-filter">
+  <span>Показаны голоса пользователя #{{ voter_id }}</span>
+  <a class="link" href="/operator/bookings?q={{ q | urlencode }}&amp;kind={{ kind }}&amp;state={{ state }}">Показать всех</a>
+</div>
+{% endif %}
 
 <section class="panel">
   <div class="panel__head">
@@ -43,8 +75,11 @@
             <div class="identity">
               <span class="identity__avatar" aria-hidden="true">{{ (b['guest'] or '?')[:1] }}</span>
               <span class="identity__copy">
-                <span class="identity__name">{{ b['guest'] }}</span>
-                <span class="identity__meta">участник голосования</span>
+                {% if b['user_id'] %}<a class="identity__name" href="/operator/users/{{ b['user_id'] }}">{{ b['guest'] }}</a>
+                {% else %}<span class="identity__name">{{ b['guest'] }}</span>{% endif %}
+                <span class="identity__meta">
+                  {% if b['participation_withdrawn_at'] %}отказался от участия{% elif b['user_id'] %}аккаунт{% else %}без аккаунта{% endif %}
+                </span>
               </span>
             </div>
           </td>
@@ -53,7 +88,10 @@
           <td data-label="Владелец">
             <a class="link" href="/operator/users/{{ b['owner_id'] }}">{{ b['owner'] or 'Без имени' }}</a>
           </td>
-          <td data-label="Когда" class="muted">{{ b['created_at'][:16].replace('T',' ') }}</td>
+          <td data-label="Когда" class="muted">
+            {{ b['created_at'][:16].replace('T',' ') }}
+            {% if b['participation_withdrawn_at'] %}<span class="badge neutral">отказался</span>{% endif %}
+          </td>
           <td data-label="Действие" class="action-cell">
             <form class="inline" method="post" action="/operator/bookings/{{ b['id'] }}/delete"
                   data-confirm="Снять голос «{{ b['guest'] }} → {{ b['date_name'] }}»? Освободится одно место.">
@@ -86,14 +124,14 @@
 {% if pages > 1 %}
 <nav class="pagination" aria-label="Пагинация">
   {% if page > 1 %}
-  <a class="btn" href="/operator/bookings?q={{ q }}&page={{ page-1 }}">
+  <a class="btn" href="/operator/bookings?q={{ q | urlencode }}&amp;kind={{ kind }}&amp;state={{ state }}{% if voter_id %}&amp;voter_id={{ voter_id }}{% endif %}&amp;page={{ page-1 }}">
     <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-arrow-left"></use></svg>
     Назад
   </a>
   {% else %}<span></span>{% endif %}
   <span class="pagination__status">Страница {{ page }} из {{ pages }}</span>
   {% if page < pages %}
-  <a class="btn" href="/operator/bookings?q={{ q }}&page={{ page+1 }}">
+  <a class="btn" href="/operator/bookings?q={{ q | urlencode }}&amp;kind={{ kind }}&amp;state={{ state }}{% if voter_id %}&amp;voter_id={{ voter_id }}{% endif %}&amp;page={{ page+1 }}">
     Вперёд
     <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-arrow-right"></use></svg>
   </a>

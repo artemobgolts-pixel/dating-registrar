@@ -91,7 +91,8 @@ def _review_event_context(conn: sqlite3.Connection, date_id: int):
         "c.voting_deadline FROM dates d "
         "LEFT JOIN date_categories dc ON dc.date_id=d.id "
         "LEFT JOIN categories c ON c.id=dc.category_id "
-        "WHERE d.id=?",
+        "AND c.operator_review_pending=0 "
+        "WHERE d.id=? AND d.operator_review_pending=0",
         (date_id,),
     ).fetchall()
     if not rows:
@@ -119,9 +120,13 @@ def review_user_ids(conn: sqlite3.Connection, date_id: int) -> list[int]:
     бронь — только участнику победившего варианта, который не отказался.
     """
     return [int(row["user_id"]) for row in conn.execute(
-        "SELECT user_id FROM date_wants WHERE date_id=? "
+        "SELECT w.user_id FROM date_wants w "
+        "JOIN dates wd ON wd.id=w.date_id AND wd.operator_review_pending=0 "
+        "WHERE w.date_id=? "
         "UNION "
-        "SELECT b.user_id FROM bookings b JOIN categories c ON c.id=b.category_id "
+        "SELECT b.user_id FROM bookings b "
+        "JOIN dates bd ON bd.id=b.date_id AND bd.operator_review_pending=0 "
+        "JOIN categories c ON c.id=b.category_id AND c.operator_review_pending=0 "
         "WHERE b.date_id=? AND b.user_id IS NOT NULL "
         "AND b.participation_withdrawn_at IS NULL "
         "AND c.voting_status='resolved' AND c.winner_date_id=b.date_id",
@@ -137,7 +142,8 @@ def review_notification_user_ids(conn: sqlite3.Connection, date_id: int) -> list
     """
     return [int(row["user_id"]) for row in conn.execute(
         "SELECT DISTINCT b.user_id FROM bookings b "
-        "JOIN categories c ON c.id=b.category_id "
+        "JOIN dates d ON d.id=b.date_id AND d.operator_review_pending=0 "
+        "JOIN categories c ON c.id=b.category_id AND c.operator_review_pending=0 "
         "WHERE b.date_id=? AND b.user_id IS NOT NULL "
         "AND b.participation_withdrawn_at IS NULL "
         "AND c.voting_status='resolved' AND c.winner_date_id=b.date_id",
@@ -408,9 +414,11 @@ def reconcile_review_prompts_for_date(conn: sqlite3.Connection, date_id: int) ->
             " SELECT user_id, 0 AS entitled FROM date_wants WHERE date_id=? "
             " UNION ALL "
             " SELECT b.user_id, CASE WHEN b.participation_withdrawn_at IS NULL "
+            "  AND d.operator_review_pending=0 AND c.operator_review_pending=0 "
             "  AND c.voting_status='resolved' AND c.winner_date_id=b.date_id "
             "  THEN 1 ELSE 0 END AS entitled "
-            " FROM bookings b JOIN categories c ON c.id=b.category_id "
+            " FROM bookings b JOIN dates d ON d.id=b.date_id "
+            " JOIN categories c ON c.id=b.category_id "
             " WHERE b.date_id=? AND b.user_id IS NOT NULL"
             ") candidates GROUP BY candidates.user_id",
             (date_id, date_id),
@@ -533,6 +541,7 @@ def _review_entitled(conn: sqlite3.Connection, date_id: int, user_id: int) -> bo
         "SELECT 1 FROM bookings b JOIN categories c ON c.id=b.category_id "
         "WHERE b.user_id=? AND b.date_id=? "
         "AND b.participation_withdrawn_at IS NULL "
+        "AND c.operator_review_pending=0 "
         "AND c.voting_status='resolved' AND c.winner_date_id=b.date_id LIMIT 1",
         (user_id, date_id),
     ).fetchone() is not None
@@ -541,9 +550,12 @@ def _review_entitled(conn: sqlite3.Connection, date_id: int, user_id: int) -> bo
 def _review_notification_entitled(conn: sqlite3.Connection, date_id: int,
                                   user_id: int) -> bool:
     return conn.execute(
-        "SELECT 1 FROM bookings b JOIN categories c ON c.id=b.category_id "
+        "SELECT 1 FROM bookings b "
+        "JOIN dates d ON d.id=b.date_id AND d.operator_review_pending=0 "
+        "JOIN categories c ON c.id=b.category_id "
         "WHERE b.user_id=? AND b.date_id=? "
         "AND b.participation_withdrawn_at IS NULL "
+        "AND c.operator_review_pending=0 "
         "AND c.voting_status='resolved' AND c.winner_date_id=b.date_id LIMIT 1",
         (user_id, date_id),
     ).fetchone() is not None
@@ -555,6 +567,11 @@ def review_available(conn: sqlite3.Connection, date_id: int, user_id: int,
     # право вернуться к отзыву, даже если затем пользователь снял «Хочу
     # сходить»/отказался от участия. Для review_deleted это также доказательство,
     # что отзыв об этом событии ранее действительно существовал.
+    if not conn.execute(
+        "SELECT 1 FROM dates WHERE id=? AND operator_review_pending=0",
+        (date_id,),
+    ).fetchone():
+        return False
     if conn.execute(
         "SELECT 1 FROM review_queue WHERE user_id=? AND date_id=?",
         (user_id, date_id),
@@ -584,6 +601,7 @@ def review_waiting_rows(conn: sqlite3.Connection, user_id: int, *,
         " SELECT b.date_id FROM bookings b "
         " JOIN categories winner ON winner.id=b.category_id "
         " WHERE b.user_id=? AND b.participation_withdrawn_at IS NULL "
+        " AND winner.operator_review_pending=0 "
         " AND winner.voting_status='resolved' "
         " AND winner.winner_date_id=b.date_id"
         " UNION "
@@ -603,7 +621,9 @@ def review_waiting_rows(conn: sqlite3.Connection, user_id: int, *,
         "LEFT JOIN date_reviews dr ON dr.user_id=? AND dr.date_id=d.id "
         "LEFT JOIN date_categories dc ON dc.date_id=d.id "
         "LEFT JOIN categories c ON c.id=dc.category_id "
-        "WHERE dr.id IS NULL AND rq.dismissed_at IS NULL "
+        "AND c.operator_review_pending=0 "
+        "WHERE d.operator_review_pending=0 "
+        "AND dr.id IS NULL AND rq.dismissed_at IS NULL "
         "GROUP BY d.id",
         (user_id, user_id, user_id, user_id, user_id),
     ).fetchall()
@@ -679,7 +699,9 @@ def current_want_date_ids(conn: sqlite3.Connection, user_id: int, date_ids,
             f"c.voting_deadline FROM dates d "
             f"LEFT JOIN date_categories dc ON dc.date_id=d.id "
             f"LEFT JOIN categories c ON c.id=dc.category_id "
-            f"WHERE d.id IN ({placeholders})",
+            f"AND c.operator_review_pending=0 "
+            f"WHERE d.operator_review_pending=0 "
+            f"AND d.id IN ({placeholders})",
             tuple(batch),
         ):
             date_id = int(row["id"])
@@ -720,7 +742,8 @@ def want_action_available(conn: sqlite3.Connection, date_id: int, user_id: int,
         "SELECT d.starts_at, d.ends_at, d.archived_at, c.voting_deadline FROM dates d "
         "LEFT JOIN date_categories dc ON dc.date_id=d.id "
         "LEFT JOIN categories c ON c.id=dc.category_id "
-        "WHERE d.id=?",
+        "AND c.operator_review_pending=0 "
+        "WHERE d.id=? AND d.operator_review_pending=0",
         (date_id,),
     ).fetchall()
     if not rows:

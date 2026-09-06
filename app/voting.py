@@ -200,7 +200,8 @@ def _candidate(conn: sqlite3.Connection, category_id: int, date_id: int):
         "SELECT d.* FROM dates d "
         "JOIN date_categories dc ON dc.date_id=d.id "
         "WHERE d.id=? AND dc.category_id=? "
-        "AND d.archived_at IS NULL AND d.is_draft=0",
+        "AND d.archived_at IS NULL AND d.is_draft=0 "
+        "AND d.operator_review_pending=0",
         (date_id, category_id),
     ).fetchone()
     if not row:
@@ -220,7 +221,10 @@ def _counts(conn: sqlite3.Connection, category_id: int) -> dict[int, int]:
     }
     # Нулевые варианты полезны UI и обязательны для корректного no_winner.
     for row in conn.execute(
-        "SELECT date_id FROM date_categories WHERE category_id=?", (category_id,)
+        "SELECT dc.date_id FROM date_categories dc "
+        "JOIN dates d ON d.id=dc.date_id "
+        "WHERE dc.category_id=? AND d.operator_review_pending=0",
+        (category_id,),
     ):
         counts.setdefault(int(row["date_id"]), 0)
     return dict(sorted(counts.items()))
@@ -301,7 +305,8 @@ def configure_category(conn: sqlite3.Connection, category_id: int, owner_id: int
             "SELECT d.id, d.name FROM bookings b "
             "JOIN dates d ON d.id=b.date_id "
             "WHERE b.category_id=? "
-            "AND (d.archived_at IS NOT NULL OR d.is_draft=1) "
+            "AND (d.archived_at IS NOT NULL OR d.is_draft=1 "
+            "OR d.operator_review_pending=1) "
             "ORDER BY d.id LIMIT 1",
             (category_id,),
         ).fetchone()
@@ -320,6 +325,7 @@ def configure_category(conn: sqlite3.Connection, category_id: int, owner_id: int
         "SELECT d.id, d.name, d.starts_at FROM dates d "
         "JOIN date_categories dc ON dc.date_id=d.id "
         "WHERE dc.category_id=? AND d.archived_at IS NULL AND d.is_draft=0 "
+        "AND d.operator_review_pending=0 "
         "AND d.starts_at IS NOT NULL ORDER BY d.starts_at, d.id", (category_id,)
     ):
         try:

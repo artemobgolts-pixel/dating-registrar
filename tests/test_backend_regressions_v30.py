@@ -850,7 +850,8 @@ class BackendV30RegressionTests(unittest.TestCase):
             )
             self.conn.set_trace_callback(None)
             self.assertEqual(
-                sum(sql.lstrip().upper().startswith("SELECT") for sql in traced), 1,
+                sum(sql.lstrip().upper().startswith("SELECT") for sql in traced), 2,
+                "пагинация делает один COUNT и один JOIN-запрос без N+1",
             )
             self.assertEqual(len(reports_context["items"]), 2)
             self.assertTrue(all(

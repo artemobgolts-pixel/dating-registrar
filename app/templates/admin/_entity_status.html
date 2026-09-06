@@ -10,7 +10,9 @@
 {%- endmacro %}
 
 {% macro event_lifecycle(event) -%}
-  {%- if event['archived_at'] -%}
+  {%- if event['operator_review_pending'] -%}
+    {{ status('Ждёт проверки администратора', 'warning') }}
+  {%- elif event['archived_at'] -%}
     {{ status('В архиве', 'neutral') }}
   {%- elif event['is_draft'] -%}
     {{ status('На модерации' if event['origin'] == 'guest' else 'Нужно исправить', 'warning') }}
@@ -20,7 +22,7 @@
 {%- endmacro %}
 
 {% macro event_visibility(event) -%}
-  {%- if not event['archived_at'] and not event['is_draft'] -%}
+  {%- if not event['operator_review_pending'] and not event['archived_at'] and not event['is_draft'] -%}
     {{ status('В общей ленте' if event['is_public'] else 'Не в общей ленте', 'info' if event['is_public'] else 'neutral') }}
   {%- endif -%}
 {%- endmacro %}
@@ -29,7 +31,8 @@
    представления одной сущности (карточка, список и таблица) используют один
    приоритет, а вторичный признак видимости не перекрашивает всю карточку. #}
 {% macro event_tone(event) -%}
-  {%- if event['archived_at'] -%}neutral
+  {%- if event['operator_review_pending'] -%}warning
+  {%- elif event['archived_at'] -%}neutral
   {%- elif event['is_draft'] -%}warning
   {%- else -%}success
   {%- endif -%}

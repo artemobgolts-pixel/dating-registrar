@@ -8,7 +8,32 @@
 
 {% block content %}
 <div class="toolbar">
+  <form class="filter-form" method="get" action="/operator/categories" aria-label="Фильтры подборок">
+    <input type="hidden" name="q" value="{{ q }}">
+    <label>
+      <span class="sr-only">Состояние ссылки</span>
+      <select name="link" aria-label="Состояние ссылки">
+        <option value="">Все ссылки</option>
+        <option value="enabled" {% if link == 'enabled' %}selected{% endif %}>Ссылка включена</option>
+        <option value="disabled" {% if link == 'disabled' %}selected{% endif %}>Ссылка выключена</option>
+      </select>
+    </label>
+    <label>
+      <span class="sr-only">Статус проверки</span>
+      <select name="review" aria-label="Статус проверки">
+        <option value="">Любая проверка</option>
+        <option value="pending" {% if review == 'pending' %}selected{% endif %}>Все ожидающие</option>
+        <option value="operator" {% if review == 'operator' %}selected{% endif %}>Скрыты до решения</option>
+        <option value="soft" {% if review == 'soft' %}selected{% endif %}>Мягкая очередь</option>
+        <option value="approved" {% if review == 'approved' %}selected{% endif %}>Проверены</option>
+      </select>
+    </label>
+    <button class="btn" type="submit">Применить</button>
+    {% if link or review %}<a class="btn" href="/operator/categories{% if q %}?q={{ q | urlencode }}{% endif %}">Сбросить фильтры</a>{% endif %}
+  </form>
   <form class="search-form" method="get" action="/operator/categories" role="search">
+    <input type="hidden" name="link" value="{{ link }}">
+    <input type="hidden" name="review" value="{{ review }}">
     <label class="search-field">
       <span class="sr-only">Поиск подборок</span>
       <svg class="op-icon" aria-hidden="true"><use href="#op-i-search"></use></svg>
@@ -17,7 +42,7 @@
       <span class="search-shortcut" aria-hidden="true">/</span>
     </label>
     <button class="btn primary" type="submit">Найти</button>
-    {% if q %}<a class="btn" href="/operator/categories">Сбросить</a>{% endif %}
+    {% if q %}<a class="btn" href="/operator/categories?link={{ link }}&amp;review={{ review }}">Сбросить поиск</a>{% endif %}
   </form>
 </div>
 
@@ -40,14 +65,16 @@
         <tr>
           <td data-label="Подборка">
             <span class="cell-primary">{{ c['name'] }}</span>
-            <span class="cell-secondary">ID {{ c['id'] }}</span>
+            <span class="cell-secondary">ID {{ c['id'] }}{% if c['operator_review_pending'] %} · скрыта до решения{% elif not c['is_reviewed'] %} · мягкая проверка{% endif %}</span>
           </td>
           <td data-label="Владелец">
             <a class="link" href="/operator/users/{{ c['owner_id'] }}">{{ c['owner'] or 'Без имени' }}</a>
           </td>
           <td data-label="События" class="number-cell">{{ c['n'] }}</td>
           <td data-label="Ссылка">
-            {% if c['link_enabled'] and c['link_token'] %}
+            {% if c['operator_review_pending'] %}
+            <span class="badge warning">на проверке</span>
+            {% elif c['link_enabled'] and c['link_token'] %}
             <a class="badge success no-dot" href="{{ base_url }}/c/{{ c['link_token'] }}"
                target="_blank" rel="noopener">
               <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-arrow-up-right"></use></svg>
@@ -97,14 +124,14 @@
 {% if pages > 1 %}
 <nav class="pagination" aria-label="Пагинация">
   {% if page > 1 %}
-  <a class="btn" href="/operator/categories?q={{ q }}&page={{ page-1 }}">
+  <a class="btn" href="/operator/categories?q={{ q | urlencode }}&amp;link={{ link }}&amp;review={{ review }}&amp;page={{ page-1 }}">
     <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-arrow-left"></use></svg>
     Назад
   </a>
   {% else %}<span></span>{% endif %}
   <span class="pagination__status">Страница {{ page }} из {{ pages }}</span>
   {% if page < pages %}
-  <a class="btn" href="/operator/categories?q={{ q }}&page={{ page+1 }}">
+  <a class="btn" href="/operator/categories?q={{ q | urlencode }}&amp;link={{ link }}&amp;review={{ review }}&amp;page={{ page+1 }}">
     Вперёд
     <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-arrow-right"></use></svg>
   </a>

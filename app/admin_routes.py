@@ -29,6 +29,7 @@ import backup
 import category_access
 import db
 import images
+import moderation
 import notify
 import places
 import public_routes
@@ -341,6 +342,7 @@ def dashboard(request: Request, conn=Depends(get_db)):
         "use_default_preview, choice_mode, voting_deadline, voting_status "
         "FROM categories "
         "WHERE owner_id=? AND link_enabled=1 AND link_token IS NOT NULL "
+        "AND operator_review_pending=0 "
         "ORDER BY created_at DESC", (uid,)).fetchall()
     sel = request.query_params.get("share")
     share = next((c for c in share_cats if str(c["id"]) == sel), None) \
@@ -414,7 +416,8 @@ def _community_cards(conn, viewer_id: int, cursor: int | None):
     """Возвращает (dates, next_cursor) для ленты. dates — события с медиа и
     именем/аватаром владельца. Курсор — id, строго меньше которого берём дальше."""
     where = (
-        "d.is_public=1 AND d.is_draft=0 AND d.archived_at IS NULL "
+        "d.is_public=1 AND d.is_draft=0 AND d.operator_review_pending=0 "
+        "AND d.archived_at IS NULL "
         "AND d.owner_id<>? AND NOT EXISTS ("
         "SELECT 1 FROM dates copied WHERE copied.owner_id=? "
         "AND copied.origin='copy' "
@@ -463,7 +466,8 @@ def community_widget(did: int, request: Request, conn=Depends(get_db)):
         "SELECT d.*, u.display_name AS owner_name, u.tg_username AS owner_username, "
         "u.avatar_path AS owner_avatar "
         "FROM dates d JOIN users u ON u.id=d.owner_id "
-        "WHERE d.id=? AND d.is_public=1 AND d.is_draft=0 AND d.archived_at IS NULL",
+        "WHERE d.id=? AND d.is_public=1 AND d.is_draft=0 "
+        "AND d.operator_review_pending=0 AND d.archived_at IS NULL",
         (did,)).fetchone()
     if not r:
         raise HTTPException(404, "Событие не найдено")
@@ -786,7 +790,7 @@ async def import_json(request: Request, file: UploadFile = File(...),
         did = insert_date(
             conn, name=name, place=d.get("place"), starts=d.get("starts_at"),
             ends=d.get("ends_at"), comment=d.get("comment"),
-            origin="admin", guest_token=None, owner_id=uid,
+            origin="admin", guest_token=None, owner_id=uid, actor_id=uid,
             draft=0,
             pay_split=1 if d.get("pay_split") else 0, place_url=d.get("place_url"),
             # Импортированный старый «неактивный» объект становится обычным
@@ -967,13 +971,18 @@ def category_create(request: Request, bg: BackgroundTasks, name: str = Form(...)
     if not choice_mode or not voting_deadline:
         raise HTTPException(400, "Название, режим и дедлайн голосования обязательны")
     token = new_link_token()
-    # мягкая очередь: при включённой модерации категорий новая помечается
-    # is_reviewed=0 (ссылка работает сразу, админ просто видит её в очереди).
-    reviewed = 0 if app_settings.is_on(conn, app_settings.MODERATE_CATEGORIES) else 1
+    # Глобальная мягкая очередь и адресная премодерация независимы.
+    # Вторая жёстко закрывает все публичные URL до одобрения.
+    held = moderation.requires_operator_review(conn, request.state.user["id"])
+    reviewed = 0 if (held or app_settings.is_on(
+        conn, app_settings.MODERATE_CATEGORIES,
+    )) else 1
     cursor = conn.execute(
         "INSERT INTO categories(owner_id, name, category_skin, link_token, link_enabled, "
-        "moderate_proposals, is_reviewed, created_at) VALUES(?,?,?,?,1,0,?,?)",
-        (request.state.user["id"], name, appearance.FRIENDS, token, reviewed, now_iso()))
+        "moderate_proposals, is_reviewed, operator_review_pending, created_at) "
+        "VALUES(?,?,?,?,1,0,?,?,?)",
+        (request.state.user["id"], name, appearance.FRIENDS, token, reviewed,
+         1 if held else 0, now_iso()))
     category_id = int(cursor.lastrowid)
     try:
         voting.configure_category(
@@ -988,7 +997,9 @@ def category_create(request: Request, bg: BackgroundTasks, name: str = Form(...)
         "🆕 Создана категория",
         f"«{notify.esc(name)}»",
         f"Кто: {notify.esc(actor)}"))
-    return redir(f"/admin/categories/{category_id}", "Категория создана — добавь название и описание")
+    message = ("Подборка отправлена администратору на проверку"
+               if held else "Категория создана — добавь название и описание")
+    return redir(f"/admin/categories/{category_id}", message)
 
 
 def _cat_or_404(conn, cid: int, user):
@@ -1039,7 +1050,10 @@ def category_clone(cid: int, request: Request, conn=Depends(get_db)):
     owner_id = int(src["owner_id"])
     suffix = " (копия)"
     name = src["name"][:200 - len(suffix)].rstrip() + suffix
-    reviewed = 0 if app_settings.is_on(conn, app_settings.MODERATE_CATEGORIES) else 1
+    held = moderation.requires_operator_review(conn, request.state.user["id"])
+    reviewed = 0 if (held or app_settings.is_on(
+        conn, app_settings.MODERATE_CATEGORIES,
+    )) else 1
     copied_files: list[str] = []
     try:
         # События теперь общие для исходной категории и копии. Поэтому нельзя
@@ -1062,13 +1076,14 @@ def category_clone(cid: int, request: Request, conn=Depends(get_db)):
         cursor = conn.execute(
             "INSERT INTO categories("
             "owner_id, name, category_skin, link_token, link_enabled, "
-            "moderate_proposals, is_reviewed, description, og_title, og_desc, "
+            "moderate_proposals, is_reviewed, operator_review_pending, "
+            "description, og_title, og_desc, "
             "og_image, og_focus, use_default_preview, choice_mode, "
             "voting_deadline, voting_status, private_profiles, prevent_copying, "
             "pin_enabled, access_pin_hash, created_at"
-            ") VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            ") VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (owner_id, name, src["category_skin"], new_link_token(),
-             0, src["moderate_proposals"], reviewed,
+             0, src["moderate_proposals"], reviewed, 1 if held else 0,
              src["description"], src["og_title"], src["og_desc"], og_image,
              src["og_focus"] if og_image else None, src["use_default_preview"],
              src["choice_mode"],
@@ -1096,9 +1111,10 @@ def category_clone(cid: int, request: Request, conn=Depends(get_db)):
 
     return redir(
         f"/admin/categories/{new_cid}",
-        f"Категория скопирована; подключено {count} "
-        f"{plural(count, 'существующее событие', 'существующих события', 'существующих событий')}. "
-        "Проверь дедлайн и включи ссылку после правок",
+        (("Подборка отправлена администратору на проверку; " if held else
+          "Категория скопирована; ") + f"подключено {count} "
+         f"{plural(count, 'существующее событие', 'существующих события', 'существующих событий')}. "
+         "Проверь дедлайн и включи ссылку после правок"),
     )
 
 
@@ -1261,16 +1277,29 @@ def _safe_operator_editor_return(raw: str, owner_id: int) -> str | None:
         return None
     user_path = f"/operator/users/{owner_id}"
     if parsed.path == user_path:
-        return user_path
+        query = dict(parse_qsl(parsed.query, keep_blank_values=False))
+        clean_user: list[tuple[str, str]] = []
+        for key in ("events_page", "votes_page"):
+            if query.get(key, "").isdigit() and int(query[key]) > 1:
+                clean_user.append((key, str(int(query[key]))))
+        return user_path + (f"?{urlencode(clean_user)}" if clean_user else "")
+    if parsed.path == "/operator/review" and not parsed.query:
+        return parsed.path
     query = dict(parse_qsl(parsed.query, keep_blank_values=False))
     clean: list[tuple[str, str]] = []
     if parsed.path == "/operator/categories":
+        if query.get("link") in {"enabled", "disabled"}:
+            clean.append(("link", query["link"]))
+        if query.get("review") in {"pending", "operator", "soft", "approved"}:
+            clean.append(("review", query["review"]))
         if query.get("q"):
             clean.append(("q", query["q"][:200]))
         if query.get("page", "").isdigit() and int(query["page"]) > 1:
             clean.append(("page", str(int(query["page"]))))
     elif parsed.path == "/operator/dates":
-        if query.get("flt") in {"draft", "booked", "reported", "archived"}:
+        if query.get("flt") in {
+            "active", "review", "draft", "booked", "reported", "archived",
+        }:
             clean.append(("flt", query["flt"]))
         if query.get("q"):
             clean.append(("q", query["q"][:200]))
@@ -2042,10 +2071,13 @@ def date_create(request: Request, bg: BackgroundTasks,
     # отдельна и явно задаётся владельцем.
     date_id = insert_date(conn, name=name, place=place, starts=starts, ends=ends,
                           comment=comment, origin="admin", guest_token=None,
-                          owner_id=uid,
+                          owner_id=uid, actor_id=uid,
                           draft=0,
                           pay_split=pay_value, place_url=place_url,
                           is_public=public_value, capacity=capacity_value)
+    held = bool(conn.execute(
+        "SELECT operator_review_pending FROM dates WHERE id=?", (date_id,),
+    ).fetchone()[0])
     for cid in attach:
         conn.execute(
             "INSERT OR IGNORE INTO date_categories(date_id, category_id, position) "
@@ -2075,7 +2107,8 @@ def date_create(request: Request, bg: BackgroundTasks,
             request.query_params.get("return_to", ""), int(uid),
             allow_operator=bool(request.state.user["is_operator"]),
         ),
-        "Событие создано",
+        ("Событие отправлено администратору на проверку" if held else
+         "Событие создано"),
     )
 
 
@@ -2414,8 +2447,10 @@ def date_publish(did: int, request: Request, bg: BackgroundTasks,
     _validate_start_after_open_deadlines(conn, category_ids, d["starts_at"])
     conn.execute("UPDATE dates SET is_draft=0 WHERE id=?", (did,))
     conn.commit()
-    # если это было предложение гостя — уведомим автора о публикации
-    if d["origin"] == "guest" and d["proposed_by"]:
+    # Локальное одобрение владельца не обходит платформенную премодерацию.
+    # Автора уведомляем о публикации только когда событие реально стало доступно.
+    held = bool(d["operator_review_pending"])
+    if not held and d["origin"] == "guest" and d["proposed_by"]:
         cat = conn.execute(
             "SELECT c.name, c.link_token FROM categories c "
             "JOIN date_categories dc ON dc.category_id=c.id "
@@ -2426,7 +2461,11 @@ def date_publish(did: int, request: Request, bg: BackgroundTasks,
             "Теперь его видят гости ♥"), preference="updates",
             action_url=f"{BASE_URL}/c/{cat['link_token']}" if cat else None,
             action_label="Открыть событие" if cat else None)
-    return redir(next, "Опубликовано — гости теперь видят это событие")
+    return redir(
+        next,
+        ("Одобрено владельцем — событие ещё ждёт проверки администратора"
+         if held else "Опубликовано — гости теперь видят это событие"),
+    )
 
 
 def _bulk_set_archived(conn, d, *, archived: bool) -> bool:
@@ -2691,9 +2730,13 @@ def date_clone(did: int, request: Request, bg: BackgroundTasks,
             conn, name=clone_name, place=src["place"],
             starts=src["starts_at"], ends=src["ends_at"], comment=src["comment"],
             origin="admin", guest_token=None, draft=0,
-            owner_id=request.state.user["id"], pay_split=src["pay_split"],
+            owner_id=request.state.user["id"], actor_id=request.state.user["id"],
+            pay_split=src["pay_split"],
             place_url=src["place_url"], is_public=0,
             capacity=src["capacity"])
+        held = bool(conn.execute(
+            "SELECT operator_review_pending FROM dates WHERE id=?", (new_id,),
+        ).fetchone()[0])
 
         # При ошибке внутри helper он чистит частичную копию сам. Полный список
         # сохраняем до commit, чтобы убрать файлы и при ошибке фиксации БД.
@@ -2714,7 +2757,8 @@ def date_clone(did: int, request: Request, bg: BackgroundTasks,
             new_id, next, int(request.state.user["id"]),
             allow_operator=bool(request.state.user["is_operator"]),
         ),
-        "Событие скопировано и оставлено непубличным",
+        ("Копия отправлена администратору на проверку" if held else
+         "Событие скопировано и оставлено непубличным"),
     )
 
 
@@ -3037,12 +3081,13 @@ def _profile_current_wants(conn, user_id: int, *, is_me: bool,
         " w.updated_at AS marked_at, COALESCE("
         "  (SELECT MAX(strftime('%Y-%m-%dT%H:%M:%S', c.voting_deadline)) "
         "   FROM date_categories dc JOIN categories c ON c.id=dc.category_id "
-        "   WHERE dc.date_id=d.id), "
+        "   WHERE dc.date_id=d.id AND c.operator_review_pending=0), "
         "  strftime('%Y-%m-%dT%H:%M:%S', d.ends_at), "
         "  strftime('%Y-%m-%dT%H:%M:%S', d.starts_at, '+3 hours')"
         " ) AS expires_at "
         " FROM date_wants w JOIN dates d ON d.id=w.date_id "
         " WHERE w.user_id=? AND d.archived_at IS NULL "
+        " AND d.operator_review_pending=0 "
         " AND NOT EXISTS (SELECT 1 FROM date_reviews r "
         "                 WHERE r.user_id=w.user_id AND r.date_id=w.date_id)"
         + visibility + ") "
@@ -3079,7 +3124,8 @@ def _profile_sections_context(conn, user_id: int, viewer_id: int | None,
     # самому автору публикации.
     event_total = conn.execute(
         "SELECT COUNT(*) FROM dates "
-        "WHERE owner_id=? AND is_public=1 AND is_draft=0 AND archived_at IS NULL",
+        "WHERE owner_id=? AND is_public=1 AND is_draft=0 "
+        "AND operator_review_pending=0 AND archived_at IS NULL",
         (user_id,)).fetchone()[0]
     # После явного дедлайна план исчезает из профиля; уже опубликованный отзыв
     # остаётся только в Reviews. Строку wants сохраняем как право на сам отзыв.
@@ -3087,8 +3133,9 @@ def _profile_sections_context(conn, user_id: int, viewer_id: int | None,
     want_total = _profile_current_wants(
         conn, user_id, is_me=is_me, now=want_now,
     )
-    review_visibility = ("" if is_me else
-                         " AND r.is_public=1 AND d.is_public=1 AND d.is_draft=0")
+    review_visibility = " AND d.operator_review_pending=0"
+    if not is_me:
+        review_visibility += " AND r.is_public=1 AND d.is_public=1 AND d.is_draft=0"
     review_total = conn.execute(
         "SELECT COUNT(*) FROM date_reviews r JOIN dates d ON d.id=r.date_id "
         "WHERE r.user_id=?" + review_visibility,
@@ -3108,7 +3155,8 @@ def _profile_sections_context(conn, user_id: int, viewer_id: int | None,
     if tab == "events":
         date_rows = conn.execute(
             "SELECT id, owner_id, name, share_token, starts_at, ends_at, place FROM dates "
-            "WHERE owner_id=? AND is_public=1 AND is_draft=0 AND archived_at IS NULL "
+            "WHERE owner_id=? AND is_public=1 AND is_draft=0 "
+            "AND operator_review_pending=0 AND archived_at IS NULL "
             "ORDER BY id DESC LIMIT ? OFFSET ?",
             (user_id, PUBLIC_PROFILE_PAGE, offset),
         ).fetchall()
@@ -3202,6 +3250,8 @@ def public_profile_date_widget(user_id: int, did: int, request: Request,
     ).fetchone()
     if not row:
         raise HTTPException(404, "Событие не найдено")
+    if row["operator_review_pending"]:
+        raise HTTPException(404, "Событие не найдено")
 
     me = _profile_viewer(request, conn)
     viewer_id = int(me["id"]) if me else None
@@ -3244,13 +3294,16 @@ def public_profile_review_widget(user_id: int, review_id: int, request: Request,
         "SELECT r.id AS review_id, r.user_id, r.rating, r.text AS review_text, "
         "r.is_public AS review_public, "
         "d.id AS date_id, d.name, d.share_token, d.is_public AS date_public, "
-        "d.is_draft AS date_draft, u.display_name, u.tg_username "
+        "d.is_draft AS date_draft, d.operator_review_pending, "
+        "u.display_name, u.tg_username "
         "FROM date_reviews r JOIN dates d ON d.id=r.date_id "
         "JOIN users u ON u.id=r.user_id AND u.is_active=1 "
         "WHERE r.id=? AND r.user_id=?",
         (review_id, user_id),
     ).fetchone()
     if not row:
+        raise HTTPException(404, "Отзыв не найден")
+    if row["operator_review_pending"]:
         raise HTTPException(404, "Отзыв не найден")
     me = _profile_viewer(request, conn)
     is_me = me is not None and int(user_id) == int(me["id"])

@@ -119,12 +119,15 @@ def upsert_on_login(conn, telegram_id: int, *, username: str | None = None,
     row = get_by_telegram(conn, telegram_id)
 
     if row:
+        effective_operator = bool(is_op or row["is_operator"])
         conn.execute(
             "UPDATE users SET tg_username=?, is_operator=?, "
+            "is_suspicious=CASE WHEN ? THEN 0 ELSE is_suspicious END, "
             "bot_linked=CASE WHEN ? THEN 1 ELSE bot_linked END, "
             "last_login_at=? WHERE id=?",
-            (username, 1 if (is_op or row["is_operator"]) else 0,
-             1 if link_bot else 0, now_iso(), row["id"]))
+            (username, 1 if effective_operator else 0,
+             1 if effective_operator else 0, 1 if link_bot else 0,
+             now_iso(), row["id"]))
         if commit:
             conn.commit()
         return row["id"]
@@ -206,9 +209,12 @@ async def current_user(request: Request, conn=Depends(get_db)):
     # env — источник правды для роли оператора: если telegram_id попал в
     # OPERATOR_TG_IDS уже после входа, выдаём роль на лету (без перелогина).
     # Не снимаем роль у назначенных через операторскую панель — только выдаём.
-    if (user["telegram_id"] in OPERATOR_TG_IDS and not user["is_operator"]
+    if (user["telegram_id"] in OPERATOR_TG_IDS
+            and (not user["is_operator"] or user["is_suspicious"])
             and user["telegram_id"] != 0):
-        conn.execute("UPDATE users SET is_operator=1 WHERE id=?", (uid,))
+        conn.execute(
+            "UPDATE users SET is_operator=1, is_suspicious=0 WHERE id=?", (uid,),
+        )
         conn.commit()
         user = get_user(conn, uid)
     if "csrf" not in request.session:

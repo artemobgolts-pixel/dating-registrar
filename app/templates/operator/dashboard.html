@@ -6,14 +6,14 @@
 <p class="op-page-intro">Главные показатели, очередь модерации и быстрый доступ к ежедневным задачам.</p>
 {% endblock %}
 {% block content %}
-{% if stats.review_users or stats.review_cats %}
+{% if stats.review_users or stats.review_cats or stats.review_dates %}
 <div class="attention-card">
   <span class="attention-card__icon">
     <svg class="op-icon" aria-hidden="true"><use href="#op-i-review"></use></svg>
   </span>
   <div class="attention-card__copy">
-    <strong>На проверке — {{ stats.review_users }} пользователей и {{ stats.review_cats }} подборок</strong>
-    <p>Новые объекты доступны на платформе, но ждут просмотра администратора.</p>
+    <strong>На проверке — {{ stats.review_users }} пользователей, {{ stats.review_cats }} подборок и {{ stats.review_dates }} событий</strong>
+    <p>Контент подозрительных пользователей скрыт от публики до решения администратора.</p>
   </div>
   <a class="btn primary" href="/operator/review">Открыть очередь</a>
 </div>
@@ -132,6 +132,7 @@
               {% if not u['is_active'] %}<span class="badge danger">заблокирован</span>
               {% elif u['is_operator'] %}<span class="badge op">администратор</span>
               {% else %}<span class="badge success">активен</span>{% endif %}
+              {% if u['is_suspicious'] %}<span class="badge warning">подозрительный</span>{% endif %}
             </td>
             <td data-label="Регистрация" class="muted">{{ u['created_at'][:10] }}</td>
             <td data-label="Действие" class="action-cell">
@@ -167,7 +168,7 @@
       <div class="quick-list">
         <a class="quick-link" href="/operator/review">
           <span class="quick-link__icon"><svg class="op-icon" aria-hidden="true"><use href="#op-i-review"></use></svg></span>
-          <span class="quick-link__copy"><strong>Проверить очередь</strong><span>Новые пользователи и подборки</span></span>
+          <span class="quick-link__copy"><strong>Проверить очередь</strong><span>Пользователи, подборки и события</span></span>
           <svg class="op-icon" aria-hidden="true"><use href="#op-i-arrow-right"></use></svg>
         </a>
         <a class="quick-link" href="/operator/reports">

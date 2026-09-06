@@ -38,7 +38,7 @@
               aria-label="Ещё действия с подборкой «{{ c['name'] }}»"
               aria-controls="cat-menu-{{ c['id'] }}" aria-expanded="false">⋯</button>
       <div class="menu" id="cat-menu-{{ c['id'] }}">
-        {% if c['link_enabled'] %}
+        {% if c['link_enabled'] and not c['operator_review_pending'] %}
         <a href="/c/{{ c['link_token'] }}" target="_blank" rel="noopener" data-turbo="false">Открыть</a>
         <button type="button" data-copy="{{ BASE_URL }}/c/{{ c['link_token'] }}">Скопировать ссылку</button>
         {% endif %}
@@ -69,9 +69,10 @@
       <span class="cat-name">{{ c['name'] }}</span>
       <span class="badge badge-meta count-badge count-badge--label">{{ c['dcount'] }} {{ c['dcount'] | plural('событие', 'события', 'событий') }}</span>
     </div>
-    {% set has_status_exceptions = c['deadline_state'] != 'active' or c['voting_status'] == 'tie' or not c['link_enabled'] %}
+    {% set has_status_exceptions = c['operator_review_pending'] or c['deadline_state'] != 'active' or c['voting_status'] == 'tie' or not c['link_enabled'] %}
     {% if has_status_exceptions %}
     <div class="entity-status-row cat-status-row">
+      {% if c['operator_review_pending'] %}{{ status('Ждёт проверки администратора', 'warning') }}{% endif %}
       {% if c['deadline_state'] == 'missing' %}
         {{ status('Настройте дедлайн', 'warning') }}
       {% elif not c['is_active'] %}
@@ -87,6 +88,7 @@
       {% else %}Подборка неактивна: дедлайн не настроен.{% endif %}
       Голосование: {% if c['voting_status'] == 'open' %}идёт{% elif c['voting_status'] == 'tie' %}ничья, нужен выбор{% elif c['voting_status'] == 'resolved' %}победитель выбран{% elif c['voting_status'] == 'no_winner' %}завершено без выбора{% else %}не настроено{% endif %}.
       Ссылка {{ 'активна' if c['link_enabled'] else 'выключена' }}.
+      {% if c['operator_review_pending'] %}Публичная страница появится после проверки администратором.{% endif %}
       {% if c['moderate_proposals'] %}Модерация предложений включена.{% endif %}
     </span>
   </div>

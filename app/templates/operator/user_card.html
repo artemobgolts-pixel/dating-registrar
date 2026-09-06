@@ -24,12 +24,14 @@
       {% if not u['is_active'] %}<span class="badge danger">заблокирован</span>
       {% elif u['is_operator'] %}<span class="badge op">администратор</span>
       {% else %}<span class="badge success">активен</span>{% endif %}
+      {% if u['is_suspicious'] %}<span class="badge warning">подозрительный</span>{% endif %}
       {% if u['id'] == user['id'] %}<span class="badge neutral no-dot">это вы</span>{% endif %}
     </div>
   </div>
   <div class="profile-hero__stats" aria-label="Статистика пользователя">
-    <span class="mini-stat"><strong>{{ cats|length }}</strong><span>подборок</span></span>
-    <span class="mini-stat"><strong>{{ dates|length }}</strong><span>событий</span></span>
+    <span class="mini-stat"><strong>{{ cats_total }}</strong><span>подборок</span></span>
+    <span class="mini-stat"><strong>{{ dates_total }}</strong><span>событий</span></span>
+    <span class="mini-stat"><strong>{{ votes_total }}</strong><span>голосов</span></span>
   </div>
 </section>
 
@@ -75,7 +77,7 @@
   <section class="panel">
     <div class="panel__head">
       <div class="panel__title-wrap">
-        <h2 class="panel__title">Подборки <span class="badge no-dot">{{ cats|length }}</span></h2>
+        <h2 class="panel__title">Подборки <span class="badge no-dot">{{ cats_total }}</span></h2>
         <span class="panel__hint">Подборки этого пользователя</span>
       </div>
     </div>
@@ -88,11 +90,12 @@
             <td data-label="Подборка"><span class="cell-primary">{{ c['name'] }}</span></td>
             <td data-label="События" class="number-cell">{{ c['n'] }}</td>
             <td data-label="Ссылка">
-              {% if c['link_enabled'] and c['link_token'] %}<span class="badge success">включена</span>
+              {% if c['operator_review_pending'] %}<span class="badge warning">проверка администратора</span>
+              {% elif c['link_enabled'] and c['link_token'] %}<span class="badge success">включена</span>
               {% else %}<span class="badge neutral">выключена</span>{% endif %}
             </td>
             <td data-label="Действие" class="action-cell">
-              <a class="btn small" href="/admin/categories/{{ c['id'] }}?return_to={{ ('/operator/users/' ~ u['id']) | urlencode }}">
+              <a class="btn small" href="/admin/categories/{{ c['id'] }}?return_to={{ card_return_to | urlencode }}">
                 <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-edit"></use></svg>
                 Изменить
               </a>
@@ -144,6 +147,22 @@
 
         <div class="action-row">
           <span class="action-row__copy">
+            <strong>{{ 'Снять пометку «Подозрительный»' if u['is_suspicious'] else 'Пометить подозрительным' }}</strong>
+            <span>{% if u['is_suspicious'] %}Новые события и подборки снова будут публиковаться без адресной проверки. Уже удержанный контент останется в очереди.{% else %}Все новые события и подборки будут скрыты до решения администратора. Существующий контент не изменится.{% endif %}</span>
+          </span>
+          <form class="inline" method="post" action="/operator/users/{{ u['id'] }}/suspicious"
+                data-confirm="{{ 'Снять адресную премодерацию?' if u['is_suspicious'] else 'Отправлять весь новый контент пользователя на проверку?' }}">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <input type="hidden" name="enabled" value="{{ 0 if u['is_suspicious'] else 1 }}">
+            <button class="btn {{ '' if u['is_suspicious'] else 'danger' }}" type="submit"
+                    {% if u['is_operator'] and not u['is_suspicious'] %}disabled title="Администратора нельзя пометить подозрительным"{% endif %}>
+              {{ 'Снять пометку' if u['is_suspicious'] else 'Пометить' }}
+            </button>
+          </form>
+        </div>
+
+        <div class="action-row">
+          <span class="action-row__copy">
             <strong>{{ 'Снять роль администратора' if u['is_operator'] else 'Выдать роль администратора' }}</strong>
             <span>Роль даёт полный доступ к этой панели и данным платформы.</span>
           </span>
@@ -151,7 +170,7 @@
                 data-confirm="Изменить роль администратора?">
             <input type="hidden" name="csrf" value="{{ csrf }}">
             <button class="btn" type="submit"
-                    {% if u['id'] == user['id'] %}disabled title="Нельзя снять свою роль"{% endif %}>
+                    {% if u['id'] == user['id'] %}disabled title="Нельзя снять свою роль"{% elif u['is_suspicious'] and not u['is_operator'] %}disabled title="Сначала снимите пометку «Подозрительный»"{% endif %}>
               {{ 'Снять роль' if u['is_operator'] else 'Сделать админом' }}
             </button>
           </form>
@@ -187,11 +206,11 @@
       </div>
     </div>
   </section>
-  <section class="panel">
+  <section class="panel" id="userEvents">
     <div class="panel__head">
       <div class="panel__title-wrap">
-        <h2 class="panel__title">События <span class="badge no-dot">{{ dates|length }}</span></h2>
-        <span class="panel__hint">Последние 100 событий пользователя</span>
+        <h2 class="panel__title">События <span class="badge no-dot">{{ dates_total }}</span></h2>
+        <span class="panel__hint">Сначала созданные недавно{% if events_pages > 1 %} · страница {{ events_page }} из {{ events_pages }}{% endif %}</span>
       </div>
     </div>
     <div class="table-scroll">
@@ -202,13 +221,14 @@
           <tr>
             <td data-label="Событие"><span class="cell-primary">{{ d['name'] }}</span></td>
             <td data-label="Статус">
-              {% if d['archived_at'] %}<span class="badge neutral">архив</span>
+              {% if d['operator_review_pending'] %}<span class="badge warning">проверка администратора</span>
+              {% elif d['archived_at'] %}<span class="badge neutral">архив</span>
               {% elif d['is_draft'] %}<span class="badge warning">{{ 'на модерации' if d['origin']=='guest' else 'нужно исправить' }}</span>
               {% else %}<span class="badge success">активно</span>{% endif %}
             </td>
             <td data-label="Источник" class="muted">{{ 'Гость' if d['origin']=='guest' else 'Владелец' }}</td>
             <td data-label="Действие" class="action-cell">
-              <a class="btn small" href="/admin/dates/{{ d['id'] }}/edit?return_to={{ ('/operator/users/' ~ u['id']) | urlencode }}">
+              <a class="btn small" href="/admin/dates/{{ d['id'] }}/edit?return_to={{ card_return_to | urlencode }}">
                 <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-edit"></use></svg>
                 Изменить
               </a>
@@ -229,6 +249,84 @@
         </tbody>
       </table>
     </div>
+    {% if events_pages > 1 %}
+    <nav class="pagination panel-pagination" aria-label="Пагинация событий пользователя">
+      {% if events_page > 1 %}
+      <a class="btn small" href="/operator/users/{{ u['id'] }}?events_page={{ events_page-1 }}{% if votes_page > 1 %}&amp;votes_page={{ votes_page }}{% endif %}#userEvents">
+        <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-arrow-left"></use></svg>
+        Назад
+      </a>
+      {% else %}<span></span>{% endif %}
+      <span class="pagination__status">{{ events_page }} / {{ events_pages }}</span>
+      {% if events_page < events_pages %}
+      <a class="btn small" href="/operator/users/{{ u['id'] }}?events_page={{ events_page+1 }}{% if votes_page > 1 %}&amp;votes_page={{ votes_page }}{% endif %}#userEvents">
+        Вперёд
+        <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-arrow-right"></use></svg>
+      </a>
+      {% else %}<span></span>{% endif %}
+    </nav>
+    {% endif %}
+  </section>
+
+  <section class="panel" id="userVotes">
+    <div class="panel__head">
+      <div class="panel__title-wrap">
+        <h2 class="panel__title">Голоса пользователя <span class="badge no-dot">{{ votes_total }}</span></h2>
+        <span class="panel__hint">Выборы пользователя в подборках{% if votes_pages > 1 %} · страница {{ votes_page }} из {{ votes_pages }}{% endif %}</span>
+      </div>
+      {% if votes_total %}<a class="btn small" href="/operator/bookings?voter_id={{ u['id'] }}">Открыть журнал</a>{% endif %}
+    </div>
+    <div class="table-scroll">
+      <table class="data-table responsive-table">
+        <thead><tr><th>Событие</th><th>Подборка</th><th>Владелец</th><th>Когда</th><th>Статус</th></tr></thead>
+        <tbody>
+          {% for vote in votes %}
+          <tr>
+            <td data-label="Событие">
+              <a class="link cell-primary" href="/admin/dates/{{ vote['date_id'] }}/edit">{{ vote['date_name'] }}</a>
+            </td>
+            <td data-label="Подборка">{{ vote['category_name'] }}</td>
+            <td data-label="Владелец">
+              <a class="link" href="/operator/users/{{ vote['owner_id'] }}">{{ vote['owner_name'] }}</a>
+            </td>
+            <td data-label="Когда" class="muted">{{ vote['created_at'][:16].replace('T',' ') }}</td>
+            <td data-label="Статус">
+              {% if vote['participation_withdrawn_at'] %}<span class="badge neutral">отказался от участия</span>
+              {% else %}<span class="badge success">голос учтён</span>{% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr class="empty-row">
+            <td colspan="5">
+              <div class="empty-state compact">
+                <div>
+                  <span class="empty-state__icon"><svg class="op-icon" aria-hidden="true"><use href="#op-i-votes"></use></svg></span>
+                  <strong class="empty-state__title">Пользователь ещё не голосовал</strong>
+                </div>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if votes_pages > 1 %}
+    <nav class="pagination panel-pagination" aria-label="Пагинация голосов пользователя">
+      {% if votes_page > 1 %}
+      <a class="btn small" href="/operator/users/{{ u['id'] }}?votes_page={{ votes_page-1 }}{% if events_page > 1 %}&amp;events_page={{ events_page }}{% endif %}#userVotes">
+        <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-arrow-left"></use></svg>
+        Назад
+      </a>
+      {% else %}<span></span>{% endif %}
+      <span class="pagination__status">{{ votes_page }} / {{ votes_pages }}</span>
+      {% if votes_page < votes_pages %}
+      <a class="btn small" href="/operator/users/{{ u['id'] }}?votes_page={{ votes_page+1 }}{% if events_page > 1 %}&amp;events_page={{ events_page }}{% endif %}#userVotes">
+        Вперёд
+        <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-arrow-right"></use></svg>
+      </a>
+      {% else %}<span></span>{% endif %}
+    </nav>
+    {% endif %}
   </section>
   </div>
 </div>

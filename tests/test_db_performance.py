@@ -42,6 +42,13 @@ V32_INDEXES = {
 
 V33_INDEXES = {"idx_review_queue_user_active", "idx_book_user_date_active"}
 
+V36_INDEXES = {
+    "idx_categories_operator_review_pending",
+    "idx_categories_review_queue",
+    "idx_dates_operator_review_pending",
+    "idx_users_review_queue",
+}
+
 
 def plan(conn: sqlite3.Connection, sql: str, params=()) -> str:
     return "\n".join(
@@ -114,7 +121,7 @@ class DatabasePerformanceMigrationTests(unittest.TestCase):
                     "INSERT INTO date_categories(date_id, category_id) VALUES(?,?)",
                     (ids["deadline-conflict"], open_category_id),
                 )
-                for index in V25_INDEXES | V32_INDEXES | V33_INDEXES:
+                for index in V25_INDEXES | V32_INDEXES | V33_INDEXES | V36_INDEXES:
                     conn.execute(f"DROP INDEX IF EXISTS {index}")
                 # init_db выше создал свежую схему. Для честной эмуляции старой
                 # v24 базы убираем объекты следующих миграций, иначе их ALTER
@@ -172,7 +179,7 @@ class DatabasePerformanceMigrationTests(unittest.TestCase):
                     )
                 }
                 self.assertTrue((V25_INDEXES - {"idx_dates_autoarchive_active"})
-                                | V32_INDEXES | V33_INDEXES <= indexes)
+                                | V32_INDEXES | V33_INDEXES | V36_INDEXES <= indexes)
                 self.assertNotIn("idx_dates_autoarchive_active", indexes)
                 review_queue_columns = {
                     row[1] for row in conn.execute("PRAGMA table_info(review_queue)")
@@ -223,14 +230,29 @@ class DatabasePerformanceMigrationTests(unittest.TestCase):
                     "idx_categories_open_deadline",
                     "SELECT id FROM categories "
                     "WHERE voting_status='open' AND closed_at IS NULL "
-                    "AND voting_deadline<=?",
+                    "AND operator_review_pending=0 AND voting_deadline<=?",
                     ("2030-01-01T00:00:00",),
+                ),
+                (
+                    "idx_categories_review_queue",
+                    "SELECT id FROM categories "
+                    "WHERE is_reviewed=0 OR operator_review_pending=1 "
+                    "ORDER BY created_at DESC, id DESC LIMIT 30",
+                    (),
+                ),
+                (
+                    "idx_users_review_queue",
+                    "SELECT id FROM users "
+                    "WHERE COALESCE(telegram_id,-1)<>0 AND is_reviewed=0 "
+                    "ORDER BY created_at DESC, id DESC LIMIT 30",
+                    (),
                 ),
                 (
                     "idx_dates_autoarchive_ends_due",
                     "SELECT id, starts_at, ends_at FROM dates "
                     "INDEXED BY idx_dates_autoarchive_ends_due "
-                    "WHERE archived_at IS NULL AND ends_at IS NOT NULL "
+                    "WHERE operator_review_pending=0 "
+                    "AND archived_at IS NULL AND ends_at IS NOT NULL "
                     "AND ends_at<?",
                     ("2030-01-01T00:00:00",),
                 ),
@@ -238,7 +260,8 @@ class DatabasePerformanceMigrationTests(unittest.TestCase):
                     "idx_dates_autoarchive_starts_due",
                     "SELECT id, starts_at, ends_at FROM dates "
                     "INDEXED BY idx_dates_autoarchive_starts_due "
-                    "WHERE archived_at IS NULL AND ends_at IS NULL "
+                    "WHERE operator_review_pending=0 "
+                    "AND archived_at IS NULL AND ends_at IS NULL "
                     "AND starts_at IS NOT NULL AND starts_at<? "
                     "AND owner_id=?",
                     ("2030-01-01T00:00:00", 1),
@@ -247,7 +270,8 @@ class DatabasePerformanceMigrationTests(unittest.TestCase):
                     "idx_dates_autoarchive_end_fallback_start",
                     "SELECT id,starts_at,ends_at FROM dates "
                     "INDEXED BY idx_dates_autoarchive_end_fallback_start "
-                    "WHERE archived_at IS NULL AND ends_at IS NOT NULL "
+                    "WHERE operator_review_pending=0 "
+                    "AND archived_at IS NULL AND ends_at IS NOT NULL "
                     "AND starts_at IS NOT NULL AND starts_at<? AND ends_at>=?",
                     ("2030-01-01T00:00:00", "2030-01-01T12:00:00"),
                 ),
@@ -316,7 +340,8 @@ class DatabasePerformanceMigrationTests(unittest.TestCase):
                 "SELECT DISTINCT d.id FROM categories c "
                 "JOIN dates d ON d.id=c.winner_date_id "
                 "WHERE c.voting_status='resolved' AND c.winner_date_id IS NOT NULL "
-                "AND d.archived_at IS NULL AND EXISTS ("
+                "AND c.operator_review_pending=0 "
+                "AND d.archived_at IS NULL AND d.operator_review_pending=0 AND EXISTS ("
                 " SELECT 1 FROM bookings b JOIN date_reviews r "
                 " ON r.date_id=b.date_id AND r.user_id=b.user_id "
                 " WHERE b.category_id=c.id AND b.date_id=c.winner_date_id "
@@ -325,6 +350,7 @@ class DatabasePerformanceMigrationTests(unittest.TestCase):
                 "AND NOT EXISTS (SELECT 1 FROM date_categories pending_dc "
                 " JOIN categories pending_c ON pending_c.id=pending_dc.category_id "
                 " WHERE pending_dc.date_id=d.id "
+                " AND pending_c.operator_review_pending=0 "
                 " AND pending_c.voting_status IN ('open','tie'))",
             )
             self.assertIn("idx_categories_winner_date", completed)

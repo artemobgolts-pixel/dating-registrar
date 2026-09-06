@@ -1729,12 +1729,14 @@ assert {"answer", "answered_at", "suggest_starts", "suggest_ends"} <= qcols
 assert "user_id" in qcols                 # v13: автор вопроса (уведомление при ответе)
 dcols = {r[1] for r in conn.execute("PRAGMA table_info(dates)")}
 assert {"is_draft", "pay_split", "place_url"} <= dcols
+assert "operator_review_pending" in dcols
 assert "capacity" in dcols and conn.execute(
     "SELECT capacity FROM dates WHERE id=1").fetchone()[0] == 1  # v22
 assert "is_chosen" not in dcols          # v8: мёртвая колонка дропнута
 assert "proposed_by" in dcols             # v13: автор предложения
 ccols = {r[1] for r in conn.execute("PRAGMA table_info(categories)")}
 assert "description" in ccols
+assert "operator_review_pending" in ccols
 assert "owner_id" in ccols                # v9: владелец категории
 assert {"og_title", "og_desc", "og_image", "og_focus"} <= ccols   # v14/v15/v21: превью ссылки
 assert {"choice_mode", "voting_deadline", "voting_status", "closed_at",
@@ -1747,7 +1749,15 @@ assert legacy_voting["voting_deadline"]
 assert legacy_voting["voting_status"] == "unconfigured"
 assert "owner_id" in dcols                # v9: владелец события
 # v13: мягкая очередь модерации + per-user поля + таблица настроек
-assert "is_reviewed" in ccols and "is_reviewed" in {r[1] for r in conn.execute("PRAGMA table_info(users)")}
+ucols = {r[1] for r in conn.execute("PRAGMA table_info(users)")}
+assert "is_reviewed" in ccols and "is_reviewed" in ucols
+assert "is_suspicious" in ucols
+assert conn.execute(
+    "SELECT operator_review_pending FROM categories WHERE name='Старая'"
+).fetchone()[0] == 0
+assert conn.execute(
+    "SELECT COUNT(*) FROM dates WHERE operator_review_pending<>0"
+).fetchone()[0] == 0
 assert "user_id" in {r[1] for r in conn.execute("PRAGMA table_info(bookings)")}
 assert "participation_withdrawn_at" in {
     r[1] for r in conn.execute("PRAGMA table_info(bookings)")}
@@ -3153,6 +3163,7 @@ with TestClient(main.app, follow_redirects=False) as cnata, \
         extra_ids.append(main.public_routes.insert_date(
             q, name=f"Публичное {idx}", place=None, starts=None, ends=None,
             comment=None, origin="admin", guest_token=None, owner_id=pub["owner_id"],
+            actor_id=pub["owner_id"],
             draft=0, pay_split=0, is_public=1))
     q.commit()
     prof_first = cgosha.get(f"/u/{pub['owner_id']}").text

@@ -1,14 +1,14 @@
 {% extends "operator/base.html" %}
 {% block title %}На проверке{% endblock %}
-{% block page_eyebrow %}Мягкая модерация{% endblock %}
-{% block page_title %}На проверке <span class="count">{{ (users_q|length) + (cats_q|length) }}</span>{% endblock %}
+{% block page_eyebrow %}Модерация{% endblock %}
+{% block page_title %}На проверке <span class="count">{{ users_total + categories_total + dates_total }}</span>{% endblock %}
 {% block page_intro %}
-<p class="op-page-intro">Просмотрите новые аккаунты и подборки, отмеченные правилами модерации.</p>
+<p class="op-page-intro">Мягкая очередь новых аккаунтов и обязательная премодерация контента подозрительных пользователей.</p>
 {% endblock %}
 {% block page_actions %}
 <a class="btn" href="/operator/settings">
   <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-settings"></use></svg>
-  Настроить очередь
+  Настроить общую очередь
 </a>
 {% endblock %}
 
@@ -18,23 +18,21 @@
     <svg class="op-icon" aria-hidden="true"><use href="#op-i-review"></use></svg>
   </span>
   <div class="info-card__copy">
-    <strong>Проверка не ограничивает доступ</strong>
-    <p>Это мягкая очередь: пользователи и подборки продолжают работать, пока администратор их просматривает.</p>
+    <strong>Два независимых режима проверки</strong>
+    <p>Новые аккаунты и обычные подборки в мягкой очереди продолжают работать. Подборки и события с пометкой «скрыто до решения» недоступны по публичным ссылкам, пока администратор их не одобрит.</p>
   </div>
 </div>
 
-<section class="panel">
+<section class="panel" id="reviewUsers">
   <div class="panel__head">
     <div class="panel__title-wrap">
-      <h2 class="panel__title">Пользователи <span class="badge warning no-dot">{{ users_q|length }}</span></h2>
-      <span class="panel__hint">Новые аккаунты, ожидающие просмотра</span>
+      <h2 class="panel__title">Пользователи <span class="badge warning no-dot">{{ users_total }}</span></h2>
+      <span class="panel__hint">Мягкая очередь новых аккаунтов{% if users_pages > 1 %} · страница {{ users_page }} из {{ users_pages }}{% endif %}</span>
     </div>
   </div>
   <div class="table-scroll">
     <table class="data-table responsive-table">
-      <thead>
-        <tr><th>Пользователь</th><th>Подборки</th><th>События</th><th>Регистрация</th><th></th></tr>
-      </thead>
+      <thead><tr><th>Пользователь</th><th>Подборки</th><th>События</th><th>Регистрация</th><th></th></tr></thead>
       <tbody>
         {% for u in users_q %}
         <tr>
@@ -53,86 +51,120 @@
           <td data-label="Действие" class="action-cell">
             <form class="inline" method="post" action="/operator/review/user/{{ u['id'] }}/approve">
               <input type="hidden" name="csrf" value="{{ csrf }}">
-              <button class="btn small primary" type="submit">
-                <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-check"></use></svg>
-                Одобрить
-              </button>
+              <button class="btn small primary" type="submit">Одобрить</button>
             </form>
           </td>
         </tr>
         {% else %}
-        <tr class="empty-row">
-          <td colspan="5">
-            <div class="empty-state compact">
-              <div>
-                <span class="empty-state__icon"><svg class="op-icon" aria-hidden="true"><use href="#op-i-check"></use></svg></span>
-                <strong class="empty-state__title">Все пользователи проверены</strong>
-                <p>Новых аккаунтов в очереди нет.</p>
-              </div>
-            </div>
-          </td>
-        </tr>
+        <tr class="empty-row"><td colspan="5"><div class="empty-state compact"><div><strong class="empty-state__title">Все пользователи проверены</strong></div></div></td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+  {% if users_pages > 1 %}
+  <nav class="pagination panel-pagination" aria-label="Пагинация пользователей на проверке">
+    {% if users_page > 1 %}<a class="btn small" href="/operator/review?users_page={{ users_page-1 }}&amp;categories_page={{ categories_page }}&amp;dates_page={{ dates_page }}#reviewUsers">Назад</a>{% else %}<span></span>{% endif %}
+    <span class="pagination__status">{{ users_page }} / {{ users_pages }}</span>
+    {% if users_page < users_pages %}<a class="btn small" href="/operator/review?users_page={{ users_page+1 }}&amp;categories_page={{ categories_page }}&amp;dates_page={{ dates_page }}#reviewUsers">Вперёд</a>{% else %}<span></span>{% endif %}
+  </nav>
+  {% endif %}
 </section>
 
-<section class="panel">
+<section class="panel" id="reviewCategories">
   <div class="panel__head">
     <div class="panel__title-wrap">
-      <h2 class="panel__title">Подборки <span class="badge warning no-dot">{{ cats_q|length }}</span></h2>
-      <span class="panel__hint">Новые подборки, ожидающие просмотра</span>
+      <h2 class="panel__title">Подборки <span class="badge warning no-dot">{{ categories_total }}</span></h2>
+      <span class="panel__hint">Мягкая очередь и скрытые подборки{% if categories_pages > 1 %} · страница {{ categories_page }} из {{ categories_pages }}{% endif %}</span>
     </div>
   </div>
   <div class="table-scroll">
     <table class="data-table responsive-table">
-      <thead>
-        <tr><th>Подборка</th><th>Владелец</th><th>События</th><th>Ссылка</th><th>Создана</th><th></th></tr>
-      </thead>
+      <thead><tr><th>Подборка</th><th>Владелец</th><th>События</th><th>Режим</th><th>Создана</th><th></th></tr></thead>
       <tbody>
         {% for c in cats_q %}
         <tr>
-          <td data-label="Подборка">
-            <span class="cell-primary">{{ c['name'] }}</span>
-            <span class="cell-secondary">ID {{ c['id'] }}</span>
-          </td>
-          <td data-label="Владелец" class="muted">{{ c['owner'] or 'Без имени' }}</td>
+          <td data-label="Подборка"><span class="cell-primary">{{ c['name'] }}</span><span class="cell-secondary">ID {{ c['id'] }}</span></td>
+          <td data-label="Владелец"><a class="link" href="/operator/users/{{ c['owner_id'] }}">{{ c['owner'] }}</a></td>
           <td data-label="События" class="number-cell">{{ c['n'] }}</td>
-          <td data-label="Ссылка">
-            {% if c['link_token'] %}
-            <a class="link" href="{{ base_url }}/c/{{ c['link_token'] }}" target="_blank" rel="noopener">
-              Открыть
-              <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-arrow-up-right"></use></svg>
-            </a>
-            {% else %}<span class="muted">Нет ссылки</span>{% endif %}
+          <td data-label="Режим">
+            {% if c['operator_review_pending'] %}<span class="badge warning">скрыта до решения</span>{% else %}<span class="badge neutral">мягкая очередь</span>{% endif %}
           </td>
           <td data-label="Создана" class="muted">{{ c['created_at'][:10] }}</td>
-          <td data-label="Действие" class="action-cell">
-            <form class="inline" method="post" action="/operator/review/category/{{ c['id'] }}/approve">
-              <input type="hidden" name="csrf" value="{{ csrf }}">
-              <button class="btn small primary" type="submit">
-                <svg class="op-icon sm" aria-hidden="true"><use href="#op-i-check"></use></svg>
-                Одобрить
-              </button>
-            </form>
-          </td>
-        </tr>
-        {% else %}
-        <tr class="empty-row">
-          <td colspan="6">
-            <div class="empty-state compact">
-              <div>
-                <span class="empty-state__icon"><svg class="op-icon" aria-hidden="true"><use href="#op-i-check"></use></svg></span>
-                <strong class="empty-state__title">Все подборки проверены</strong>
-                <p>Новых подборок в очереди нет.</p>
-              </div>
+          <td data-label="Действия" class="action-cell">
+            <div class="button-row">
+              <a class="btn small" href="/admin/categories/{{ c['id'] }}?return_to=%2Foperator%2Freview">Изменить</a>
+              <form class="inline" method="post" action="/operator/review/category/{{ c['id'] }}/approve">
+                <input type="hidden" name="csrf" value="{{ csrf }}">
+                <button class="btn small primary" type="submit">Одобрить</button>
+              </form>
+              {% if c['operator_review_pending'] %}
+              <form class="inline" method="post" action="/operator/review/category/{{ c['id'] }}/reject" data-confirm="Отклонить и удалить подборку «{{ c['name'] }}»?">
+                <input type="hidden" name="csrf" value="{{ csrf }}">
+                <button class="btn small danger" type="submit">Отклонить</button>
+              </form>
+              {% endif %}
             </div>
           </td>
         </tr>
+        {% else %}
+        <tr class="empty-row"><td colspan="6"><div class="empty-state compact"><div><strong class="empty-state__title">Подборок на проверке нет</strong></div></div></td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+  {% if categories_pages > 1 %}
+  <nav class="pagination panel-pagination" aria-label="Пагинация подборок на проверке">
+    {% if categories_page > 1 %}<a class="btn small" href="/operator/review?users_page={{ users_page }}&amp;categories_page={{ categories_page-1 }}&amp;dates_page={{ dates_page }}#reviewCategories">Назад</a>{% else %}<span></span>{% endif %}
+    <span class="pagination__status">{{ categories_page }} / {{ categories_pages }}</span>
+    {% if categories_page < categories_pages %}<a class="btn small" href="/operator/review?users_page={{ users_page }}&amp;categories_page={{ categories_page+1 }}&amp;dates_page={{ dates_page }}#reviewCategories">Вперёд</a>{% else %}<span></span>{% endif %}
+  </nav>
+  {% endif %}
+</section>
+
+<section class="panel" id="reviewDates">
+  <div class="panel__head">
+    <div class="panel__title-wrap">
+      <h2 class="panel__title">События <span class="badge warning no-dot">{{ dates_total }}</span></h2>
+      <span class="panel__hint">Скрыты по всем публичным ссылкам{% if dates_pages > 1 %} · страница {{ dates_page }} из {{ dates_pages }}{% endif %}</span>
+    </div>
+  </div>
+  <div class="table-scroll">
+    <table class="data-table responsive-table">
+      <thead><tr><th>Событие</th><th>Автор</th><th>Владелец</th><th>Подборки</th><th>Создано</th><th></th></tr></thead>
+      <tbody>
+        {% for d in dates_q %}
+        <tr>
+          <td data-label="Событие"><span class="cell-primary">{{ d['name'] }}</span><span class="cell-secondary">ID {{ d['id'] }}{% if d['is_draft'] %} · также ждёт владельца{% endif %}</span></td>
+          <td data-label="Автор" class="muted">{{ d['author'] }}</td>
+          <td data-label="Владелец"><a class="link" href="/operator/users/{{ d['owner_id'] }}">{{ d['owner'] }}</a></td>
+          <td data-label="Подборки" class="muted">{{ d['categories'] or 'Не привязано' }}</td>
+          <td data-label="Создано" class="muted">{{ d['created_at'][:10] }}</td>
+          <td data-label="Действия" class="action-cell">
+            <div class="button-row">
+              <a class="btn small" href="/admin/dates/{{ d['id'] }}/edit?return_to=%2Foperator%2Freview">Изменить</a>
+              <form class="inline" method="post" action="/operator/review/date/{{ d['id'] }}/approve">
+                <input type="hidden" name="csrf" value="{{ csrf }}">
+                <button class="btn small primary" type="submit">Одобрить</button>
+              </form>
+              <form class="inline" method="post" action="/operator/review/date/{{ d['id'] }}/reject" data-confirm="Отклонить и удалить событие «{{ d['name'] }}» вместе с медиа?">
+                <input type="hidden" name="csrf" value="{{ csrf }}">
+                <button class="btn small danger" type="submit">Отклонить</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr class="empty-row"><td colspan="6"><div class="empty-state compact"><div><strong class="empty-state__title">Событий на обязательной проверке нет</strong></div></div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if dates_pages > 1 %}
+  <nav class="pagination panel-pagination" aria-label="Пагинация событий на проверке">
+    {% if dates_page > 1 %}<a class="btn small" href="/operator/review?users_page={{ users_page }}&amp;categories_page={{ categories_page }}&amp;dates_page={{ dates_page-1 }}#reviewDates">Назад</a>{% else %}<span></span>{% endif %}
+    <span class="pagination__status">{{ dates_page }} / {{ dates_pages }}</span>
+    {% if dates_page < dates_pages %}<a class="btn small" href="/operator/review?users_page={{ users_page }}&amp;categories_page={{ categories_page }}&amp;dates_page={{ dates_page+1 }}#reviewDates">Вперёд</a>{% else %}<span></span>{% endif %}
+  </nav>
+  {% endif %}
 </section>
 {% endblock %}

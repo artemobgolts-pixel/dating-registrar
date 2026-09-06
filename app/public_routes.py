@@ -27,6 +27,7 @@ import category_access
 import db
 import guests as legacy_guests
 import images
+import moderation
 import notify
 import places
 import social_events
@@ -289,7 +290,10 @@ def claim_legacy_votes(conn, request: Request, user, category_id: int) -> int:
 # ---------------------------------------------------------------------------
 
 def cat_by_token(conn, token: str):
-    return conn.execute("SELECT * FROM categories WHERE link_token=?", (token,)).fetchone()
+    return conn.execute(
+        "SELECT * FROM categories WHERE link_token=? AND operator_review_pending=0",
+        (token,),
+    ).fetchone()
 
 
 def category_og_sources(
@@ -331,6 +335,7 @@ def category_og_sources_batch(
             "JOIN date_images di ON di.date_id=d.id "
             f"WHERE dc.category_id IN ({placeholders}) "
             "AND d.archived_at IS NULL AND d.is_draft=0 "
+            "AND d.operator_review_pending=0 "
             "ORDER BY dc.category_id ASC, dc.position ASC, d.id ASC, "
             "di.position ASC, di.id ASC",
             tuple(batch),
@@ -464,7 +469,8 @@ def date_in_category(conn, category_id: int, date_id: int):
     """Опубликованное активное событие в категории (для выбора/вопросов/ics)."""
     return conn.execute(
         "SELECT d.* FROM dates d JOIN date_categories dc ON dc.date_id=d.id "
-        "WHERE d.id=? AND dc.category_id=? AND d.archived_at IS NULL AND d.is_draft=0",
+        "WHERE d.id=? AND dc.category_id=? AND d.archived_at IS NULL "
+        "AND d.is_draft=0 AND d.operator_review_pending=0",
         (date_id, category_id),
     ).fetchone()
 
@@ -586,19 +592,21 @@ def first_existing_og_image(rows):
 
 
 def insert_date(conn, *, name, place, starts, ends, comment, origin, guest_token,
-                owner_id, draft=0, pay_split=0, place_url=None, proposed_by=None,
+                owner_id, actor_id, draft=0, pay_split=0, place_url=None, proposed_by=None,
                 is_public=0, capacity=1, source_date_id=None) -> int:
     # Каждое событие получает стабильную секретную ссылку /d/<share_token>
     # сразу при создании — через неё им можно поделиться, чтобы другой
     # пользователь добавил копию себе. Генерим здесь, чтобы ВСЕ пути создания
     # (админ, клон, импорт, гостевое предложение) получили токен без правок.
     share_token = new_link_token()
+    held = moderation.requires_operator_review(conn, actor_id)
     cur = conn.execute(
         "INSERT INTO dates(owner_id, name, place, place_url, starts_at, ends_at, comment, "
-        "origin, guest_token, proposed_by, is_draft, pay_split, share_token, is_public, "
-        "capacity, source_date_id, created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "origin, guest_token, proposed_by, is_draft, operator_review_pending, pay_split, "
+        "share_token, is_public, capacity, source_date_id, created_at) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (owner_id, name, place, place_url, starts, ends, comment, origin, guest_token,
-         proposed_by, draft, pay_split, share_token, 1 if is_public else 0,
+         proposed_by, draft, 1 if held else 0, pay_split, share_token, 1 if is_public else 0,
          capacity, source_date_id, now_iso()),
     )
     return cur.lastrowid
@@ -1140,6 +1148,7 @@ def public_category(token: str, request: Request, conn=Depends(get_db)):
     rows = conn.execute(
         "SELECT d.* FROM dates d JOIN date_categories dc ON dc.date_id=d.id "
         "WHERE dc.category_id=? AND d.archived_at IS NULL "
+        "AND d.operator_review_pending=0 "
         "AND (d.is_draft=0 OR (d.origin='guest' AND d.guest_token=?)) "
         "ORDER BY dc.position ASC, (d.starts_at IS NULL) ASC, d.starts_at ASC, d.created_at ASC",
         (cat["id"], guest),
@@ -1147,6 +1156,7 @@ def public_category(token: str, request: Request, conn=Depends(get_db)):
     past_rows = conn.execute(
         "SELECT d.* FROM dates d JOIN date_categories dc ON dc.date_id=d.id "
         "WHERE dc.category_id=? AND d.archived_at IS NOT NULL AND d.is_draft=0 "
+        "AND d.operator_review_pending=0 "
         "ORDER BY COALESCE(d.ends_at, d.starts_at, d.created_at) DESC LIMIT 30",
         (cat["id"],),
     ).fetchall()
@@ -1405,6 +1415,7 @@ def public_image(token: str, filename: str, request: Request,
         "JOIN date_categories dc ON dc.date_id=d.id "
         "JOIN categories c ON c.id=dc.category_id "
         "WHERE c.link_token=? AND c.link_enabled=1 AND di.filename=? "
+        "AND d.operator_review_pending=0 "
         "AND (d.is_draft=0 OR (d.guest_token=('u' || CAST(? AS TEXT)) "
         "AND EXISTS(SELECT 1 FROM users u WHERE u.id=? AND u.is_active=1)))",
         (token, filename, uid, uid),
@@ -1475,6 +1486,7 @@ def public_video(token: str, filename: str, request: Request, conn=Depends(get_d
         "JOIN date_categories dc ON dc.date_id=d.id "
         "JOIN categories c ON c.id=dc.category_id "
         "WHERE c.link_token=? AND c.link_enabled=1 AND dv.filename=? "
+        "AND d.operator_review_pending=0 "
         "AND (d.is_draft=0 OR (d.guest_token=('u' || CAST(? AS TEXT)) "
         "AND EXISTS(SELECT 1 FROM users u WHERE u.id=? AND u.is_active=1)))",
         (token, filename, uid, uid),
@@ -1496,7 +1508,9 @@ def public_video(token: str, filename: str, request: Request, conn=Depends(get_d
 
 def date_by_share(conn, token: str):
     return conn.execute(
-        "SELECT * FROM dates WHERE share_token=?", (token,)).fetchone()
+        "SELECT * FROM dates WHERE share_token=? AND operator_review_pending=0",
+        (token,),
+    ).fetchone()
 
 
 @router.get("/d/{token}", response_class=HTMLResponse)
@@ -1514,7 +1528,8 @@ def shared_date(token: str, request: Request, conn=Depends(get_db)):
     can_copy_event = not bool(conn.execute(
         "SELECT 1 FROM categories c "
         "JOIN date_categories dc ON dc.category_id=c.id "
-        "WHERE dc.date_id=? AND c.link_enabled=1 AND c.prevent_copying=1 LIMIT 1",
+        "WHERE dc.date_id=? AND c.link_enabled=1 "
+        "AND c.operator_review_pending=0 AND c.prevent_copying=1 LIMIT 1",
         (d["id"],),
     ).fetchone())
     has_want = False
@@ -1629,7 +1644,8 @@ def shared_date_og_image(token: str, skin: str | None = None,
     логотипов. Без доступного фото возвращаем единый default preview.
     """
     date_row = conn.execute(
-        "SELECT id FROM dates WHERE share_token=?", (token,),
+        "SELECT id FROM dates WHERE share_token=? AND operator_review_pending=0",
+        (token,),
     ).fetchone()
     if not date_row:
         raise HTTPException(404)
@@ -1668,7 +1684,7 @@ def shared_profile_review(token: str, review_id: int, request: Request,
         "FROM date_reviews r JOIN dates d ON d.id=r.date_id "
         "JOIN users u ON u.id=r.user_id AND u.is_active=1 "
         "WHERE r.id=? AND d.share_token=? AND r.is_public=1 "
-        "AND d.is_public=1 AND d.is_draft=0",
+        "AND d.is_public=1 AND d.is_draft=0 AND d.operator_review_pending=0",
         (review_id, token),
     ).fetchone()
     if not row:
@@ -1938,7 +1954,7 @@ def shared_date_image(token: str, filename: str, w: int | None = None,
         raise HTTPException(404)
     ok = conn.execute(
         "SELECT 1 FROM date_images di JOIN dates d ON d.id=di.date_id "
-        "WHERE d.share_token=? AND di.filename=?",
+        "WHERE d.share_token=? AND d.operator_review_pending=0 AND di.filename=?",
         (token, filename)).fetchone()
     if not ok:
         raise HTTPException(404)
@@ -1960,7 +1976,7 @@ def shared_date_video(token: str, filename: str, request: Request, conn=Depends(
         raise HTTPException(404)
     ok = conn.execute(
         "SELECT 1 FROM date_videos dv JOIN dates d ON d.id=dv.date_id "
-        "WHERE d.share_token=? AND dv.filename=?",
+        "WHERE d.share_token=? AND d.operator_review_pending=0 AND dv.filename=?",
         (token, filename)).fetchone()
     path = images.UPLOAD_DIR / filename
     if not ok or not path.exists():
@@ -2002,7 +2018,8 @@ def shared_date_add(token: str, request: Request, csrf: str = Form(""),
     elif conn.execute(
         "SELECT 1 FROM categories c "
         "JOIN date_categories dc ON dc.category_id=c.id "
-        "WHERE dc.date_id=? AND c.link_enabled=1 AND c.prevent_copying=1 LIMIT 1",
+        "WHERE dc.date_id=? AND c.link_enabled=1 "
+        "AND c.operator_review_pending=0 AND c.prevent_copying=1 LIMIT 1",
         (d["id"],),
     ).fetchone():
         # Иначе настройку можно было обойти ручным POST без hidden-поля.
@@ -2028,7 +2045,7 @@ def shared_date_add(token: str, request: Request, csrf: str = Form(""),
         new_id = insert_date(
             conn, name=d["name"], place=d["place"], starts=d["starts_at"],
             ends=d["ends_at"], comment=d["comment"], origin="copy",
-            guest_token=None, owner_id=user["id"], draft=0,
+            guest_token=None, owner_id=user["id"], actor_id=user["id"], draft=0,
             pay_split=d["pay_split"], place_url=d["place_url"],
             capacity=d["capacity"], source_date_id=source_id,
         )
@@ -2053,14 +2070,20 @@ def shared_date_add(token: str, request: Request, csrf: str = Form(""),
     except Exception:
         conn.rollback()
         raise
+    pending_review = bool(conn.execute(
+        "SELECT operator_review_pending FROM dates WHERE id=?", (new_id,),
+    ).fetchone()[0])
     conn.commit()
     edit_url = f"/admin/dates/{new_id}/edit"
     # fetch-запрос (виджет ленты комьюнити) хочет остаться на месте — отвечаем
     # JSON и показываем тост; обычный переход по ссылке /d/<token> — редиректом.
     if request.headers.get("x-requested-with") == "fetch":
-        return JSONResponse({"ok": True, "edit_url": edit_url})
+        return JSONResponse({"ok": True, "edit_url": edit_url,
+                             "pending_review": pending_review})
     return redir(edit_url,
-                 "Событие добавлено в твою коллекцию ♥ Привяжи его к своим категориям")
+                 ("Копия отправлена администратору на проверку"
+                  if pending_review else
+                  "Событие добавлено в твою коллекцию ♥ Привяжи его к своим категориям"))
 
 
 # ---------------------------------------------------------------------------
@@ -2159,7 +2182,8 @@ def public_book(token: str, request: Request, bg: BackgroundTasks,
         # be used to create a new ballot.
         d = conn.execute(
             "SELECT d.* FROM dates d JOIN date_categories dc ON dc.date_id=d.id "
-            "WHERE d.id=? AND dc.category_id=? AND d.is_draft=0",
+            "WHERE d.id=? AND dc.category_id=? AND d.is_draft=0 "
+            "AND d.operator_review_pending=0",
             (date_id, cat["id"]),
         ).fetchone()
     else:
@@ -2355,10 +2379,14 @@ def public_propose(token: str, request: Request, bg: BackgroundTasks,
     date_id = insert_date(conn, name=name, place=place, starts=starts, ends=ends,
                           comment=comment, origin="guest", guest_token=guest,
                           owner_id=cat["owner_id"],   # предложение принадлежит владельцу категории
+                          actor_id=user["id"],       # решение по флагу автора, а не владельца
                           proposed_by=user["id"],     # но автор — гость (для уведомления о публикации)
                           draft=1 if moderated else 0,
                           pay_split=pay_value, place_url=place_url,
                           capacity=capacity_value)
+    operator_held = bool(conn.execute(
+        "SELECT operator_review_pending FROM dates WHERE id=?", (date_id,),
+    ).fetchone()[0])
     conn.execute(
         "INSERT INTO date_categories(date_id, category_id, position) VALUES(?,?,?)",
         (date_id, cat["id"], next_cat_pos(conn, cat["id"])))
@@ -2381,7 +2409,8 @@ def public_propose(token: str, request: Request, bg: BackgroundTasks,
         bg.add_task(places.resolve_into_db, date_id, place_url)
 
     msg = notify.card(
-        "💡 Новое предложение" + (" (на модерации)" if moderated else ""),
+        "💡 Новое предложение" +
+        (" (на модерации)" if moderated or operator_held else ""),
         f"«{esc(name)}» · {esc(cat['name'])}",
         f"От: {esc(author)}",
         f"📍 {esc(place)}" if place else "",
@@ -2392,7 +2421,12 @@ def public_propose(token: str, request: Request, bg: BackgroundTasks,
     notify_admin(bg, conn, cat["owner_id"], msg, action_url=action_url,
                  action_label="Открыть предложение")
 
-    return JSONResponse({"ok": True, "id": date_id, "moderated": moderated})
+    return JSONResponse({
+        "ok": True,
+        "id": date_id,
+        "moderated": bool(moderated or operator_held),
+        "operator_review_pending": operator_held,
+    })
 
 
 @router.post("/c/{token}/propose/{date_id}/edit")

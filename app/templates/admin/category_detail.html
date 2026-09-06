@@ -26,6 +26,12 @@
   <a class="btn small" href="/operator/users/{{ cat['owner_id'] }}">Открыть владельца</a>
 </aside>
 {% endif %}
+{% if cat['operator_review_pending'] %}
+<aside class="operator-edit-context" role="status">
+  <span class="operator-edit-context-icon">⏳</span>
+  <span><strong>Подборка ждёт проверки администратора</strong><small>Публичная ссылка станет доступна после одобрения.</small></span>
+</aside>
+{% endif %}
 <div class="bar">
   <h1 style="margin:0"><span class="display-ink">{{ cat['name'] }}</span></h1>
 </div>
@@ -165,10 +171,13 @@
       <button type="button" class="more cat-editor-more" aria-label="Другие действия с подборкой"
               aria-haspopup="true" aria-expanded="false">⋯</button>
       <div class="menu cat-editor-menu">
-        {% if cat['link_enabled'] %}
+        {% if cat['link_enabled'] and not cat['operator_review_pending'] %}
         <a href="/c/{{ cat['link_token'] }}" target="_blank" rel="noopener">Открыть ссылку</a>
         <button type="button" data-tour="category-share-copy"
                 data-copy="{{ BASE_URL }}/c/{{ cat['link_token'] }}">Скопировать ссылку</button>
+        {% elif cat['operator_review_pending'] %}
+        <button type="button" disabled>Ссылка ждёт проверки</button>
+        <button type="button" data-tour="category-share-copy" disabled>Скопировать ссылку</button>
         {% else %}
         <button type="button" disabled>Ссылка отключена</button>
         <button type="button" data-tour="category-share-copy" disabled>Скопировать ссылку</button>
@@ -411,7 +420,10 @@
     <p class="muted">Перед отправкой открой страницу гостя и убедись, что варианты, правила и список участников отображаются верно.</p>
   </div>
   <div class="category-share-actions">
-    {% if cat['link_enabled'] %}
+    {% if cat['operator_review_pending'] %}
+    <span class="muted">Подборка отправлена администратору. После одобрения здесь появятся действия для проверки и отправки ссылки.</span>
+    <a class="btn ghost" href="/admin/categories">К списку подборок</a>
+    {% elif cat['link_enabled'] %}
     <a class="btn ghost" href="/c/{{ cat['link_token'] }}" target="_blank" rel="noopener">Проверить страницу</a>
     <button type="button" class="btn primary" data-copy="{{ BASE_URL }}/c/{{ cat['link_token'] }}">Скопировать ссылку</button>
     {% else %}

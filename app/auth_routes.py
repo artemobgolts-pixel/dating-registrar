@@ -718,12 +718,14 @@ def _link_telegram(conn, user_id: int, telegram_id: int,
     existing = users.get_by_telegram(conn, telegram_id)
     if existing and existing["id"] != user_id:
         return False, "telegram_in_use"
+    trusted_operator = 1 if telegram_id in users.OPERATOR_TG_IDS else 0
     try:
         conn.execute(
             "UPDATE users SET telegram_id=?, tg_username=?, "
             "is_operator=CASE WHEN ? THEN 1 ELSE is_operator END, "
+            "is_suspicious=CASE WHEN ? THEN 0 ELSE is_suspicious END, "
             "bot_linked=1, last_login_at=? WHERE id=?",
-            (telegram_id, username, 1 if telegram_id in users.OPERATOR_TG_IDS else 0,
+            (telegram_id, username, trusted_operator, trusted_operator,
              now_iso(), user_id))
     except sqlite3.IntegrityError:
         # Между SELECT и UPDATE другой запрос мог успеть занять telegram_id.

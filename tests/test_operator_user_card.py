@@ -123,6 +123,61 @@ class OperatorUserCardTests(unittest.TestCase):
 
         self.assertIn("это вы", html)
 
+    def test_card_shows_votes_cast_by_target_user(self):
+        voter_id = self._user(950010, "Голосующий")
+        host_id = self._user(950011, "Организатор")
+        host_category, host_date = self._add_content(host_id)
+        own_category, own_date = self._add_content(voter_id)
+        self.conn.executemany(
+            "INSERT INTO date_categories(date_id,category_id,position) VALUES(?,?,0)",
+            ((host_date, host_category), (own_date, own_category)),
+        )
+        self.conn.execute(
+            "INSERT INTO bookings(date_id,category_id,guest_token,user_id,"
+            "participation_withdrawn_at,created_at) VALUES(?,?,?,?,?,?)",
+            (host_date, host_category, f"u{voter_id}", voter_id, STAMP, STAMP),
+        )
+        # Чужой голос за событие пользователя не является его собственным голосом.
+        self.conn.execute(
+            "INSERT INTO bookings(date_id,category_id,guest_token,user_id,created_at) "
+            "VALUES(?,?,?,?,?)",
+            (own_date, own_category, f"u{host_id}", host_id, STAMP),
+        )
+        self.conn.commit()
+
+        response = self.client.get(f"/operator/users/{voter_id}")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Голоса пользователя", response.text)
+        self.assertIn(f"Событие {host_id}", response.text)
+        self.assertIn(f"Подборка {host_id}", response.text)
+        self.assertIn("отказался от участия", response.text)
+        self.assertIn(f"/operator/bookings?voter_id={voter_id}", response.text)
+        self.assertNotIn(f"Событие {voter_id}</a>", response.text)
+
+    def test_card_paginates_events_and_keeps_total_count(self):
+        user_id = self._user(950020, "Много событий")
+        for number in range(12):
+            self.conn.execute(
+                "INSERT INTO dates(owner_id,name,origin,created_at) VALUES(?,?,?,?)",
+                (user_id, f"Постраничное событие {number:02d}", "owner", STAMP),
+            )
+        self.conn.commit()
+
+        first = self.client.get(f"/operator/users/{user_id}")
+        second = self.client.get(f"/operator/users/{user_id}?events_page=2")
+        clamped = self.client.get(f"/operator/users/{user_id}?events_page=999")
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertIn("Постраничное событие 11", first.text)
+        self.assertNotIn("Постраничное событие 00", first.text)
+        self.assertIn("Постраничное событие 00", second.text)
+        self.assertNotIn("Постраничное событие 11", second.text)
+        self.assertIn("страница 2 из 2", second.text)
+        self.assertIn("Постраничное событие 00", clamped.text)
+        self.assertIn("<strong>12</strong><span>событий</span>", second.text)
+
     def test_oauth_only_user_in_list_has_provider_label(self):
         oauth_id = self._user(None, "Пользователь Google")
         self.conn.execute(
@@ -143,6 +198,49 @@ class OperatorUserCardTests(unittest.TestCase):
             page = self.client.get(path)
             self.assertEqual(page.status_code, 200, path)
             self.assertNotIn("Telegram ID None", page.text, path)
+
+    def test_operator_lists_filter_risk_and_moderation_state(self):
+        suspicious_id = self._user(950030, "Рискованный 100% пользователь")
+        regular_id = self._user(950031, "Обычный пользователь")
+        self.conn.execute(
+            "UPDATE users SET is_suspicious=1 WHERE id=?", (suspicious_id,),
+        )
+        pending_category = int(self.conn.execute(
+            "INSERT INTO categories(owner_id,name,link_token,is_reviewed,"
+            "operator_review_pending,created_at) VALUES(?,?,?,?,1,?)",
+            (suspicious_id, "Скрытая 100% подборка", "filtered-pending", 0, STAMP),
+        ).lastrowid)
+        self.conn.execute(
+            "INSERT INTO categories(owner_id,name,link_token,created_at) "
+            "VALUES(?,?,?,?)",
+            (regular_id, "Обычная подборка", "filtered-regular", STAMP),
+        )
+        self.conn.execute(
+            "INSERT INTO dates(owner_id,name,origin,operator_review_pending,created_at) "
+            "VALUES(?,?,?,1,?)",
+            (suspicious_id, "Скрытое событие", "owner", STAMP),
+        )
+        self.conn.execute(
+            "INSERT INTO dates(owner_id,name,origin,created_at) VALUES(?,?,?,?)",
+            (regular_id, "Обычное событие", "owner", STAMP),
+        )
+        self.conn.commit()
+
+        users = self.client.get("/operator/users?risk=suspicious&q=100%25")
+        self.assertEqual(users.status_code, 200)
+        self.assertIn("Рискованный 100% пользователь", users.text)
+        self.assertNotIn("Обычный пользователь", users.text)
+
+        categories = self.client.get("/operator/categories?review=operator")
+        self.assertEqual(categories.status_code, 200)
+        self.assertIn("Скрытая 100% подборка", categories.text)
+        self.assertNotIn("Обычная подборка", categories.text)
+        self.assertIn(f"/admin/categories/{pending_category}", categories.text)
+
+        dates = self.client.get("/operator/dates?flt=review")
+        self.assertEqual(dates.status_code, 200)
+        self.assertIn("Скрытое событие", dates.text)
+        self.assertNotIn("Обычное событие", dates.text)
 
 
 if __name__ == "__main__":

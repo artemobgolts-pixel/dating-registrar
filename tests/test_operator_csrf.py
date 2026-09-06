@@ -38,6 +38,7 @@ WEBHOOK_HEADERS = {
 }
 PUBLIC_ORIGIN = "https://operator-csrf.test"
 REJECTION = "Запрос с другого сайта отклонён"
+STALE_SESSION = "Сессия устарела"
 STAMP = "2030-01-01T10:00:00"
 
 
@@ -117,17 +118,22 @@ class OperatorCsrfTests(unittest.TestCase):
         cls.client.__exit__(None, None, None)
         _DATA.cleanup()
 
-    def embedded_post(self, path: str, referer: str):
+    def embedded_post(self, path: str, referer: str | None, *,
+                      origin: str | None = PUBLIC_ORIGIN,
+                      csrf: str | None = None):
+        headers = {
+            # Telegram Web can keep the same-origin app inside its
+            # cross-site frame; the signed form token remains valid.
+            "Sec-Fetch-Site": "cross-site",
+        }
+        if referer is not None:
+            headers["Referer"] = PUBLIC_ORIGIN + referer
+        if origin is not None:
+            headers["Origin"] = origin
         return self.client.post(
             path,
-            data={"csrf": self.csrf},
-            headers={
-                "Origin": PUBLIC_ORIGIN,
-                # Telegram Web can keep the same-origin app inside its
-                # cross-site frame; the signed form token remains valid.
-                "Sec-Fetch-Site": "cross-site",
-                "Referer": PUBLIC_ORIGIN + referer,
-            },
+            data={"csrf": self.csrf if csrf is None else csrf},
+            headers=headers,
         )
 
     def assert_not_cross_site_rejection(self, response) -> None:
@@ -159,7 +165,7 @@ class OperatorCsrfTests(unittest.TestCase):
         finally:
             conn.close()
 
-    def test_cross_site_guards_remain_enforced(self):
+    def test_foreign_origin_is_rejected_even_with_valid_token(self):
         path = f"/operator/users/{self.oauth_user_id}/ban"
         referer = PUBLIC_ORIGIN + f"/operator/users/{self.oauth_user_id}"
         conn = db.connect()
@@ -181,16 +187,62 @@ class OperatorCsrfTests(unittest.TestCase):
         )
         self.assert_cross_site_rejection(foreign_origin)
 
-        missing_origin = self.client.post(
-            path,
-            data={"csrf": self.csrf},
-            headers={"Sec-Fetch-Site": "cross-site", "Referer": referer},
+        conn = db.connect()
+        try:
+            # The rejected request may not reach the toggle handler.
+            self.assertEqual(conn.execute(
+                "SELECT is_active FROM users WHERE id=?", (self.oauth_user_id,),
+            ).fetchone()[0], active_before)
+        finally:
+            conn.close()
+
+    def test_missing_and_opaque_origins_work_with_valid_session_token(self):
+        path = f"/operator/users/{self.oauth_user_id}/ban"
+
+        for origin in (None, "null"):
+            with self.subTest(origin=origin):
+                conn = db.connect()
+                try:
+                    active_before = int(conn.execute(
+                        "SELECT is_active FROM users WHERE id=?",
+                        (self.oauth_user_id,),
+                    ).fetchone()[0])
+                finally:
+                    conn.close()
+
+                response = self.embedded_post(
+                    path, None, origin=origin,
+                )
+                self.assert_not_cross_site_rejection(response)
+
+                conn = db.connect()
+                try:
+                    self.assertEqual(conn.execute(
+                        "SELECT is_active FROM users WHERE id=?",
+                        (self.oauth_user_id,),
+                    ).fetchone()[0], 0 if active_before else 1)
+                finally:
+                    conn.close()
+
+    def test_invalid_token_is_rejected_for_opaque_webview_request(self):
+        path = f"/operator/users/{self.oauth_user_id}/ban"
+        conn = db.connect()
+        try:
+            active_before = conn.execute(
+                "SELECT is_active FROM users WHERE id=?", (self.oauth_user_id,),
+            ).fetchone()[0]
+        finally:
+            conn.close()
+
+        response = self.embedded_post(
+            path, None, origin="null", csrf="invalid-session-token",
         )
-        self.assert_cross_site_rejection(missing_origin)
+        self.assertEqual(response.status_code, 303, response.text)
+        query = parse_qs(urlsplit(response.headers["location"]).query)
+        self.assertIn(STALE_SESSION, query.get("msg", [""])[0])
 
         conn = db.connect()
         try:
-            # Neither rejected request may reach the toggle handler.
             self.assertEqual(conn.execute(
                 "SELECT is_active FROM users WHERE id=?", (self.oauth_user_id,),
             ).fetchone()[0], active_before)

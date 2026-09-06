@@ -84,7 +84,7 @@
           <input type="hidden" name="next" value="{{ current_list_url }}">
           <button type="submit">Скопировать событие</button>
         </form>
-        {% if r['share_token'] %}
+        {% if r['share_token'] and not r['operator_review_pending'] %}
         <button type="button" data-copy="{{ BASE_URL }}/d/{{ r['share_token'] }}">{% with icon='link' %}{% include "admin/_icon.html" %}{% endwith %} Поделиться</button>
         {% endif %}
         <form method="post" action="/admin/dates/{{ r['id'] }}/archive">
@@ -148,7 +148,7 @@
       </div>
       <div class="foot">
         <a class="edit-hint" href="/admin/dates/{{ r['id'] }}/edit?{{ editor_return_query }}">Редактировать</a>
-        {% if r['share_token'] %}
+        {% if r['share_token'] and not r['operator_review_pending'] %}
         <a class="btn small open-date" href="/d/{{ r['share_token'] }}" target="_blank" rel="noopener" title="Открыть страницу события">Открыть</a>
         {% endif %}
       </div>
@@ -218,7 +218,7 @@
     </div>
     <div class="drow-act">
       <a class="btn small" href="/admin/dates/{{ r['id'] }}/edit?{{ editor_return_query }}">Редактировать</a>
-      {% if r['share_token'] %}
+      {% if r['share_token'] and not r['operator_review_pending'] %}
       <a class="btn small open-date" href="/d/{{ r['share_token'] }}" target="_blank" rel="noopener">Открыть</a>
       <button type="button" class="btn small" data-copy="{{ BASE_URL }}/d/{{ r['share_token'] }}">Поделиться</button>
       {% endif %}

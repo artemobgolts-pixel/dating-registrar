@@ -96,6 +96,10 @@
         запрет копирования; отметки «Хочу сходить» всегда публичны. Копии
         событий помнят источник, а стандартная квота личных событий равна 100.
 
+  v36 — адресная премодерация: оператор может пометить аккаунт
+        подозрительным; его новые подборки и события скрыты до решения
+        оператора, не затрагивая существующий контент.
+
 Свежая база создаётся сразу по последней схеме. Существующая —
 докатывается миграциями при старте приложения.
 """
@@ -108,7 +112,7 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "app.db"
 
-LATEST_VERSION = 35
+LATEST_VERSION = 36
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -122,6 +126,8 @@ CREATE TABLE IF NOT EXISTS users (
     is_active INTEGER NOT NULL DEFAULT 1,    -- 0 = забанен
     is_operator INTEGER NOT NULL DEFAULT 0,  -- суперадмин (модерация/баны/лимиты)
     is_reviewed INTEGER NOT NULL DEFAULT 1,  -- 0 = новый, ждёт проверки админом (мягкая очередь)
+    is_suspicious INTEGER NOT NULL DEFAULT 0
+        CHECK(is_suspicious IN (0, 1)), -- 1 = новый контент на премодерации
     date_limit INTEGER NOT NULL DEFAULT 100, -- квота лично созданных событий; оператор поднимает вручную
     bot_linked INTEGER NOT NULL DEFAULT 0,   -- 1 = запускал бота → можно слать уведомления
     cursor_effects INTEGER NOT NULL DEFAULT 0, -- 1 = декоративные эффекты курсора включены
@@ -218,6 +224,8 @@ CREATE TABLE IF NOT EXISTS categories (
         CHECK(pin_enabled IN (0, 1)), -- 1 = гостевая ссылка требует PIN
     access_pin_hash TEXT,       -- salted PBKDF2; исходный четырёхзначный PIN не храним
     is_reviewed INTEGER NOT NULL DEFAULT 1,  -- 0 = новая, ждёт проверки админом (мягкая очередь)
+    operator_review_pending INTEGER NOT NULL DEFAULT 0
+        CHECK(operator_review_pending IN (0, 1)), -- жёстко скрыта до одобрения
     description TEXT,          -- видно всем гостям под заголовком страницы
     og_title TEXT,             -- заголовок превью ссылки (NULL = дефолт)
     og_desc TEXT,              -- описание превью ссылки (NULL = дефолт)
@@ -247,6 +255,8 @@ CREATE TABLE IF NOT EXISTS dates (
     guest_token TEXT,          -- кто предложил (если гость)
     proposed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,  -- автор предложения (для уведомления о публикации)
     is_draft INTEGER NOT NULL DEFAULT 0,    -- черновик / на модерации: гостям не виден
+    operator_review_pending INTEGER NOT NULL DEFAULT 0
+        CHECK(operator_review_pending IN (0, 1)), -- жёстко скрыто до одобрения
     pay_split INTEGER NOT NULL DEFAULT 0,   -- бейдж «оплата 50/50»
     place_url TEXT,            -- если «место» вставили ссылкой на карты
     share_token TEXT,          -- секретная ссылка на это событие (/d/<токен>) для «добавить себе»
@@ -416,7 +426,8 @@ CREATE INDEX IF NOT EXISTS idx_categories_og_image
     ON categories(og_image, owner_id) WHERE og_image IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_categories_open_deadline
     ON categories(voting_deadline)
-    WHERE voting_status='open' AND closed_at IS NULL;
+    WHERE voting_status='open' AND closed_at IS NULL
+      AND operator_review_pending=0;
 CREATE INDEX IF NOT EXISTS idx_categories_winner_date
     ON categories(winner_date_id)
     WHERE voting_status='resolved' AND winner_date_id IS NOT NULL;
@@ -426,18 +437,30 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_dates_owner_source
 CREATE UNIQUE INDEX IF NOT EXISTS idx_dates_share ON dates(share_token);
 -- лента комьюнити на главной: свежие публичные активные события
 CREATE INDEX IF NOT EXISTS idx_dates_public ON dates(is_public, is_draft, archived_at, id);
+CREATE INDEX IF NOT EXISTS idx_categories_operator_review_pending
+    ON categories(created_at DESC, id DESC) WHERE operator_review_pending=1;
+CREATE INDEX IF NOT EXISTS idx_categories_review_queue
+    ON categories(created_at DESC, id DESC)
+    WHERE is_reviewed=0 OR operator_review_pending=1;
+CREATE INDEX IF NOT EXISTS idx_dates_operator_review_pending
+    ON dates(created_at DESC, id DESC) WHERE operator_review_pending=1;
+CREATE INDEX IF NOT EXISTS idx_users_review_queue
+    ON users(created_at DESC, id DESC)
+    WHERE COALESCE(telegram_id,-1)<>0 AND is_reviewed=0;
 -- Минутный auto-archive делает адресные range-seek по явному концу и началу;
 -- отдельный start-index сохраняет fallback для невалидного legacy ends_at.
 -- Архивные/недатированные строки вообще не занимают эти индексы.
 CREATE INDEX IF NOT EXISTS idx_dates_autoarchive_ends_due
     ON dates(ends_at)
-    WHERE archived_at IS NULL AND ends_at IS NOT NULL;
+    WHERE operator_review_pending=0 AND archived_at IS NULL AND ends_at IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_dates_autoarchive_starts_due
     ON dates(starts_at)
-    WHERE archived_at IS NULL AND ends_at IS NULL AND starts_at IS NOT NULL;
+    WHERE operator_review_pending=0 AND archived_at IS NULL
+      AND ends_at IS NULL AND starts_at IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_dates_autoarchive_end_fallback_start
     ON dates(starts_at)
-    WHERE archived_at IS NULL AND ends_at IS NOT NULL AND starts_at IS NOT NULL;
+    WHERE operator_review_pending=0 AND archived_at IS NULL
+      AND ends_at IS NOT NULL AND starts_at IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_reports_status ON reports(status, created_at);
 CREATE INDEX IF NOT EXISTS idx_reports_open_date_target
     ON reports(target_id)
@@ -516,6 +539,7 @@ WHEN NEW.voting_status='open' AND (
     OR EXISTS (
         SELECT 1 FROM date_categories dc JOIN dates d ON d.id=dc.date_id
         WHERE dc.category_id=NEW.id AND d.archived_at IS NULL AND d.is_draft=0
+          AND d.operator_review_pending=0
           AND d.starts_at IS NOT NULL AND NEW.voting_deadline>=d.starts_at
     )
 )
@@ -530,7 +554,8 @@ BEFORE INSERT ON date_categories
 WHEN EXISTS (
     SELECT 1 FROM categories c JOIN dates d ON d.id=NEW.date_id
     WHERE c.id=NEW.category_id AND c.voting_status='open'
-      AND d.archived_at IS NULL AND d.is_draft=0 AND d.starts_at IS NOT NULL
+      AND d.archived_at IS NULL AND d.is_draft=0
+      AND d.operator_review_pending=0 AND d.starts_at IS NOT NULL
       AND c.voting_deadline>=d.starts_at
 )
 BEGIN
@@ -552,7 +577,8 @@ BEFORE UPDATE OF date_id, category_id ON date_categories
 WHEN EXISTS (
     SELECT 1 FROM categories c JOIN dates d ON d.id=NEW.date_id
     WHERE c.id=NEW.category_id AND c.voting_status='open'
-      AND d.archived_at IS NULL AND d.is_draft=0 AND d.starts_at IS NOT NULL
+      AND d.archived_at IS NULL AND d.is_draft=0
+      AND d.operator_review_pending=0 AND d.starts_at IS NOT NULL
       AND c.voting_deadline>=d.starts_at
 )
 BEGIN
@@ -572,8 +598,9 @@ END;
 -- Аналогичная защита действует при редактировании времени, публикации и
 -- возврате события из архива.
 CREATE TRIGGER IF NOT EXISTS trg_dates_open_deadline_update
-BEFORE UPDATE OF starts_at, archived_at, is_draft ON dates
-WHEN NEW.archived_at IS NULL AND NEW.is_draft=0 AND NEW.starts_at IS NOT NULL
+BEFORE UPDATE OF starts_at, archived_at, is_draft, operator_review_pending ON dates
+WHEN NEW.archived_at IS NULL AND NEW.is_draft=0
+ AND NEW.operator_review_pending=0 AND NEW.starts_at IS NOT NULL
  AND EXISTS (
     SELECT 1 FROM date_categories dc JOIN categories c ON c.id=dc.category_id
     WHERE dc.date_id=NEW.id AND c.voting_status='open'
@@ -581,6 +608,19 @@ WHEN NEW.archived_at IS NULL AND NEW.is_draft=0 AND NEW.starts_at IS NOT NULL
  )
 BEGIN
     SELECT RAISE(ABORT, 'candidate_before_deadline');
+END;
+
+-- Одобрение не может задним числом изменить состав уже
+-- зафиксированного голосования, даже при прямом SQL-апдейте.
+CREATE TRIGGER IF NOT EXISTS trg_dates_operator_review_release
+BEFORE UPDATE OF operator_review_pending ON dates
+WHEN OLD.operator_review_pending=1 AND NEW.operator_review_pending=0 AND EXISTS (
+    SELECT 1 FROM date_categories dc JOIN categories c ON c.id=dc.category_id
+    WHERE dc.date_id=NEW.id
+      AND (c.closed_at IS NOT NULL OR c.voting_status IN ('tie', 'resolved', 'no_winner'))
+)
+BEGIN
+    SELECT RAISE(ABORT, 'category_composition_frozen');
 END;
 
 -- winner_date_id использует RESTRICT, чтобы победившее событие нельзя было
@@ -1518,7 +1558,65 @@ MIGRATIONS: dict[int, str] = {
                 )
           );
     """,
+    36: """
+        -- Существующие данные остаются одобренными: флаг аккаунта
+        -- влияет только на будущие INSERT. Жёсткий hold не смешиваем с
+        -- исторической мягкой очередью is_reviewed и локальным is_draft.
+        CREATE INDEX IF NOT EXISTS idx_categories_operator_review_pending
+            ON categories(created_at DESC, id DESC) WHERE operator_review_pending=1;
+        CREATE INDEX IF NOT EXISTS idx_categories_review_queue
+            ON categories(created_at DESC, id DESC)
+            WHERE is_reviewed=0 OR operator_review_pending=1;
+        CREATE INDEX IF NOT EXISTS idx_dates_operator_review_pending
+            ON dates(created_at DESC, id DESC) WHERE operator_review_pending=1;
+        CREATE INDEX IF NOT EXISTS idx_users_review_queue
+            ON users(created_at DESC, id DESC)
+            WHERE COALESCE(telegram_id,-1)<>0 AND is_reviewed=0;
+
+        -- SCHEMA ниже заново создаст их с учётом operator_review_pending.
+        DROP TRIGGER IF EXISTS trg_categories_voting_config_update;
+        DROP TRIGGER IF EXISTS trg_date_categories_deadline_insert;
+        DROP TRIGGER IF EXISTS trg_date_categories_deadline_update;
+        DROP TRIGGER IF EXISTS trg_dates_open_deadline_update;
+        DROP TRIGGER IF EXISTS trg_dates_operator_review_release;
+        DROP INDEX IF EXISTS idx_categories_open_deadline;
+        DROP INDEX IF EXISTS idx_dates_autoarchive_ends_due;
+        DROP INDEX IF EXISTS idx_dates_autoarchive_starts_due;
+        DROP INDEX IF EXISTS idx_dates_autoarchive_end_fallback_start;
+    """,
 }
+
+
+def _migration_sql(conn: sqlite3.Connection, version: int) -> str:
+    """Возвращает миграцию с безопасным добавлением колонок текущей версии.
+
+    Боевые обновления приходят с целостной v35-схемы, но восстановленная база
+    или тестовая копия может уже содержать отдельные v36-колонки при старом
+    ``user_version``. SQLite не поддерживает ``ADD COLUMN IF NOT EXISTS``;
+    поэтому формируем только отсутствующие ALTER и выполняем их в той же
+    транзакции, что и bump версии.
+    """
+    script = MIGRATIONS[version]
+    if version != 36:
+        return script
+    specs = (
+        ("users", "is_suspicious", "INTEGER NOT NULL DEFAULT 0 "
+         "CHECK(is_suspicious IN (0, 1))"),
+        ("categories", "operator_review_pending", "INTEGER NOT NULL DEFAULT 0 "
+         "CHECK(operator_review_pending IN (0, 1))"),
+        ("dates", "operator_review_pending", "INTEGER NOT NULL DEFAULT 0 "
+         "CHECK(operator_review_pending IN (0, 1))"),
+    )
+    additions = []
+    for table, column, definition in specs:
+        columns = {
+            str(row[1]) for row in conn.execute(f"PRAGMA table_info({table})")
+        }
+        if column not in columns:
+            additions.append(
+                f"ALTER TABLE {table} ADD COLUMN {column} {definition};"
+            )
+    return "\n".join(additions + [script])
 
 
 def connect() -> sqlite3.Connection:
@@ -1558,8 +1656,9 @@ def init_db() -> None:
         # PRAGMA вне транзакции — поэтому ставим до BEGIN, проверяем целостность
         # после COMMIT через foreign_key_check (вернёт строки при нарушении).
         conn.execute("PRAGMA foreign_keys=OFF")
+        migration_sql = _migration_sql(conn, ver)
         conn.executescript(
-            f"BEGIN IMMEDIATE;\n{MIGRATIONS[ver]}\nPRAGMA user_version={ver};\nCOMMIT;")
+            f"BEGIN IMMEDIATE;\n{migration_sql}\nPRAGMA user_version={ver};\nCOMMIT;")
         broken = conn.execute("PRAGMA foreign_key_check").fetchall()
         conn.execute("PRAGMA foreign_keys=ON")
         if broken:
