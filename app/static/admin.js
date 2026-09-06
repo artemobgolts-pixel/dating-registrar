@@ -1223,6 +1223,10 @@
     var baseUrl = feed.getAttribute("data-feed-url") || "/admin/community";
     var emptyEl = document.getElementById("cfeedEmpty");
     var endEl = document.getElementById("cfeedEnd");
+    var searchForm = document.getElementById("communitySearchForm");
+    var searchInput = document.getElementById("communitySearchInput");
+    var searchClear = document.getElementById("communitySearchClear");
+    var searchStatus = document.getElementById("communitySearchStatus");
     var dlg = document.getElementById("communityDlg");
     var cwidBody = document.getElementById("cwidBody");
     var cwidClose = document.getElementById("cwidClose");
@@ -1234,8 +1238,65 @@
     var reportCancel = document.getElementById("communityReportCancel");
     var reportOpener = null;
 
+    var activeQuery = feed.getAttribute("data-feed-query") || "";
     var loading = false, done = false, loadedAny = false;
+    var requestGeneration = 0;
+    var activeRequest = null;
     var io = null;
+
+    function cleanSearchQuery(value) {
+      var normalized = String(value || "");
+      if (typeof normalized.normalize === "function") normalized = normalized.normalize("NFKC");
+      normalized = normalized.replace(/\s+/g, " ").trim().slice(0, 80).trim();
+      var words = normalized.match(/[0-9A-Za-zА-Яа-яЁё]+/g) || [];
+      return words.some(function (word) { return word.length >= 2; }) ? normalized : "";
+    }
+
+    function updateSearchControls() {
+      if (searchInput && searchInput.value !== activeQuery) searchInput.value = activeQuery;
+      if (searchClear) searchClear.hidden = !activeQuery;
+    }
+
+    function updatePageQuery() {
+      if (!window.history || !window.history.replaceState) return;
+      var pageUrl = new URL(window.location.href);
+      if (activeQuery) pageUrl.searchParams.set("q", activeQuery);
+      else pageUrl.searchParams.delete("q");
+      window.history.replaceState(
+        window.history.state, "", pageUrl.pathname + pageUrl.search + pageUrl.hash
+      );
+    }
+
+    function requestUrl(cursor) {
+      var url = new URL(baseUrl, window.location.href);
+      if (cursor) url.searchParams.set("cursor", cursor);
+      else url.searchParams.delete("cursor");
+      if (activeQuery) url.searchParams.set("q", activeQuery);
+      else url.searchParams.delete("q");
+      return url.pathname + url.search;
+    }
+
+    function resetFeed(query) {
+      activeQuery = cleanSearchQuery(query);
+      requestGeneration += 1;
+      if (activeRequest) activeRequest.abort();
+      activeRequest = null;
+      if (io) io.disconnect();
+      loading = false;
+      done = false;
+      loadedAny = false;
+      feed.innerHTML = "";
+      feed.setAttribute("aria-busy", "true");
+      if (emptyEl) emptyEl.hidden = true;
+      if (endEl) endEl.hidden = true;
+      if (searchStatus) {
+        searchStatus.hidden = !activeQuery;
+        searchStatus.textContent = activeQuery ? "Ищем по запросу «" + activeQuery + "»…" : "";
+      }
+      updateSearchControls();
+      updatePageQuery();
+      load();
+    }
 
     // На телефоне отдаём ссылку системному меню, на компьютере сразу копируем.
     // Проверяем не только ширину: узкое окно ПК всё равно остаётся ПК, а планшет
@@ -1353,27 +1414,56 @@
     function load() {
       if (loading || done) return;
       loading = true;
+      feed.setAttribute("aria-busy", "true");
+      var generation = requestGeneration;
       var cursor = currentCursor();       // null на первой странице
       var sentinel = feed.querySelector(".cfeed-sentinel");
       if (sentinel) sentinel.remove();     // старый маркер заменяем свежей страницей
-      var url = baseUrl + (cursor ? "?cursor=" + encodeURIComponent(cursor) : "");
-      fetch(url, { credentials: "same-origin", headers: { "X-Requested-With": "fetch" } })
+      activeRequest = "AbortController" in window ? new AbortController() : null;
+      var options = {
+        credentials: "same-origin", headers: { "X-Requested-With": "fetch" }
+      };
+      if (activeRequest) options.signal = activeRequest.signal;
+      fetch(requestUrl(cursor), options)
         .then(function (r) { return r.ok ? r.text() : Promise.reject(); })
         .then(function (html) {
+          if (generation !== requestGeneration) return;
           feed.insertAdjacentHTML("beforeend", html.trim());
           var hasCards = feed.querySelector(".cfeed-card");
           if (hasCards) loadedAny = true;
-          if (!loadedAny && emptyEl) emptyEl.hidden = false;
+          if (!loadedAny && emptyEl) {
+            emptyEl.textContent = activeQuery
+              ? "По этому запросу ничего не нашлось. Попробуй название места или слово из ссылки."
+              : "Пока пусто — как появятся публичные события, они возникнут здесь 🌙";
+            emptyEl.hidden = false;
+          }
+          if (searchStatus && activeQuery) {
+            searchStatus.hidden = false;
+            searchStatus.textContent = loadedAny
+              ? "Результаты по запросу «" + activeQuery + "»"
+              : "Нет результатов по запросу «" + activeQuery + "»";
+          }
           // нет нового маркера курсора → страниц больше нет
           if (!feed.querySelector(".cfeed-sentinel")) {
             done = true;
-            if (loadedAny && endEl) endEl.hidden = false;
+            if (loadedAny && endEl) endEl.hidden = Boolean(activeQuery);
           } else {
             observeSentinel();
           }
-          loading = false;
         })
-        .catch(function () { loading = false; });
+        .catch(function (error) {
+          if (generation !== requestGeneration || (error && error.name === "AbortError")) return;
+          if (searchStatus && activeQuery) {
+            searchStatus.hidden = false;
+            searchStatus.textContent = "Не удалось выполнить поиск. Попробуй ещё раз.";
+          }
+        })
+        .finally(function () {
+          if (generation !== requestGeneration) return;
+          loading = false;
+          activeRequest = null;
+          feed.setAttribute("aria-busy", "false");
+        });
     }
 
     function observeSentinel() {
@@ -1530,6 +1620,20 @@
         });
     });
 
+    if (searchForm && searchInput) {
+      searchForm.addEventListener("submit", function (event) {
+        event.preventDefault();
+        resetFeed(searchInput.value);
+      });
+      searchInput.addEventListener("input", function () {
+        if (searchClear) searchClear.hidden = !cleanSearchQuery(searchInput.value);
+      });
+    }
+    if (searchClear) searchClear.addEventListener("click", function () {
+      resetFeed("");
+      if (searchInput) searchInput.focus();
+    });
+
     // Независимые действия внутри виджета (контент подгружается): отметка
     // «Хочу сходить» хранит связь с оригиналом, «Добавить» создаёт копию.
     if (cwidBody) cwidBody.addEventListener("click", function (e) {
@@ -1599,6 +1703,11 @@
       }
     });
 
+    updateSearchControls();
+    if (searchStatus && activeQuery) {
+      searchStatus.hidden = false;
+      searchStatus.textContent = "Ищем по запросу «" + activeQuery + "»…";
+    }
     load();     // первая страница
   }
 

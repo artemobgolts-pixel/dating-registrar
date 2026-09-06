@@ -222,6 +222,146 @@ class CommunityFeedTests(unittest.TestCase):
 
         self.assertEqual([int(row["id"]) for row in result.rows], [event_id])
 
+    def test_search_checks_map_and_regular_link_text_without_opening_urls(self):
+        owner = self._user("Автор")
+        map_match = self._event(owner, "Вечер в центре")
+        regular_match = self._event(owner, "Ужин после прогулки")
+        self._event(owner, "Совсем другое")
+        self.conn.execute(
+            "UPDATE dates SET place_url=? WHERE id=?",
+            (
+                "https://yandex.ru/maps/org/"
+                "%D0%A8%D0%BE%D0%BA%D0%BE%D0%BB%D0%B0%D0%B4%D0%BD%D0%B8%D1%86%D0%B0/42",
+                map_match,
+            ),
+        )
+        self.conn.execute(
+            "INSERT INTO date_links(date_id,url,position) VALUES(?,?,0)",
+            (regular_match, "https://example.com/restaurants/severyane-spb"),
+        )
+
+        by_map = community_feed.page(
+            self.conn, self.viewer, now=NOW, query="Шоколадница",
+        )
+        by_link_category = community_feed.page(
+            self.conn, self.viewer, now=NOW, query="ресторан",
+        )
+        by_full_link = community_feed.page(
+            self.conn,
+            self.viewer,
+            now=NOW,
+            query="https://example.com/restaurants/severyane-spb",
+        )
+        infrastructure_noise = community_feed.page(
+            self.conn, self.viewer, now=NOW, query="maps",
+        )
+
+        self.assertEqual(self._names(by_map), ["Вечер в центре"])
+        self.assertEqual(self._names(by_link_category), ["Ужин после прогулки"])
+        self.assertEqual(self._names(by_full_link), ["Ужин после прогулки"])
+        self.assertEqual(self._names(infrastructure_noise), [])
+        self.assertEqual(by_map.mode, "search")
+
+    def test_search_allows_small_typo_but_does_not_guess_other_meanings(self):
+        owner = self._user("Автор")
+        self._event(owner, "Шоколадница на Невском")
+
+        typo = community_feed.page(
+            self.conn, self.viewer, now=NOW, query="шоколадниуа",
+        )
+        unrelated = community_feed.page(
+            self.conn, self.viewer, now=NOW, query="школа танцев",
+        )
+
+        self.assertEqual(self._names(typo), ["Шоколадница на Невском"])
+        self.assertEqual(self._names(unrelated), [])
+
+    def test_search_requires_every_meaningful_word(self):
+        owner = self._user("Автор")
+        self._event(owner, "Ресторан Северяне", place="Санкт-Петербург")
+        self._event(owner, "Ресторан на набережной", place="Москва")
+
+        result = community_feed.page(
+            self.conn, self.viewer, now=NOW, query="ресторан петербург",
+        )
+
+        self.assertEqual(self._names(result), ["Ресторан Северяне"])
+
+    def test_text_relevance_wins_before_recommendation_score(self):
+        owner = self._user("Автор")
+        title_match = self._event(
+            owner,
+            "Северяне",
+            starts_at="2030-09-01T18:00:00",
+            created_at="2029-01-01T10:00:00",
+        )
+        comment_match = self._event(
+            owner,
+            "Популярный ужин",
+            starts_at="2030-01-02T18:00:00",
+            comment="Встречаемся в Северянах",
+            place="Центр",
+        )
+        self.conn.execute(
+            "INSERT INTO date_images(date_id,filename) VALUES(?,?)",
+            (comment_match, "cover.webp"),
+        )
+
+        result = community_feed.page(
+            self.conn, self.viewer, now=NOW, query="северяне",
+        )
+
+        self.assertEqual(int(result.rows[0]["id"]), title_match)
+
+    def test_search_cursor_is_stable_and_bound_to_query(self):
+        owner = self._user("Автор")
+        expected = {
+            self._event(owner, f"Кофейня номер {index}")
+            for index in range(7)
+        }
+
+        seen: list[int] = []
+        cursor = None
+        for _ in range(5):
+            result = community_feed.page(
+                self.conn,
+                self.viewer,
+                cursor,
+                now=NOW,
+                page_size=2,
+                search_pool_size=20,
+                query="кофейня",
+            )
+            seen.extend(int(row["id"]) for row in result.rows)
+            cursor = result.next_cursor
+            if cursor is None:
+                break
+
+        self.assertEqual(set(seen), expected)
+        self.assertEqual(len(seen), len(set(seen)))
+        self.assertTrue(result.mode == "search")
+
+        # Курсор одного запроса нельзя незаметно применить к другому: поиск
+        # безопасно начинает новую выдачу вместо неверного OFFSET.
+        first = community_feed.page(
+            self.conn, self.viewer, now=NOW, page_size=2, query="кофейня",
+        )
+        changed = community_feed.page(
+            self.conn, self.viewer, first.next_cursor, now=NOW,
+            page_size=2, query="номер",
+        )
+        self.assertEqual(len(changed.rows), 2)
+
+        hostile = community_feed.page(
+            self.conn,
+            self.viewer,
+            "s1.20300101100000.999999999999999999999999.2.0000000000",
+            now=NOW,
+            page_size=2,
+            query="кофейня",
+        )
+        self.assertEqual(len(hostile.rows), 2)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -28,6 +28,7 @@ import appearance
 import backup
 import category_access
 import community_feed as community_recommendations
+import community_search
 import db
 import images
 import metrics
@@ -39,7 +40,8 @@ import social_events
 import settings as app_settings
 import voting
 import voting_events
-from config import BASE_URL, SUPPORT_CONTACT, OAUTH_PROVIDERS, OAUTH_LABELS
+from config import (BASE_URL, COMMUNITY_SEARCH_ENABLED, OAUTH_LABELS,
+                    OAUTH_PROVIDERS, SUPPORT_CONTACT)
 from guests import gname
 from helpers import (clean_text, new_link_token, normalize_period, now_iso, now_naive,
                      parse_birth_date, parse_dt_local, parse_links, pay_label, plural)
@@ -361,11 +363,17 @@ def dashboard(request: Request, conn=Depends(get_db)):
             use_default=bool(share["use_default_preview"]),
         )
 
+    prepared_search = community_search.prepare_query(
+        request.query_params.get("q") if COMMUNITY_SEARCH_ENABLED else None,
+    )
+    community_query = prepared_search.display if prepared_search.terms else ""
     return templates.TemplateResponse(
         request, "admin/dashboard.html",
         actx(request, conn, active="dash", stats=stats,
              share_cats=share_cats, share=share, share_url=share_url, qr_svg=qr_svg,
-             share_preview_revision=share_preview_revision))
+             share_preview_revision=share_preview_revision,
+             community_search_enabled=COMMUNITY_SEARCH_ENABLED,
+             community_query=community_query))
 
 
 def _qr_svg(data: str, skin: str = "friends") -> str:
@@ -411,9 +419,10 @@ def _qr_svg(data: str, skin: str = "friends") -> str:
 # Рекомендованное окно использует непрозрачный курсор; после него сохраняется
 # keyset-пагинация по id, чтобы старые события не исчезали из ленты.
 
-def _community_cards_page(conn, viewer_id: int, cursor: object = None):
+def _community_cards_page(conn, viewer_id: int, cursor: object = None,
+                          query: object = None):
     ranked = community_recommendations.page(
-        conn, viewer_id, cursor, now=now_naive(),
+        conn, viewer_id, cursor, now=now_naive(), query=query,
     )
     media = public_routes._batch_media(conn, [r["id"] for r in ranked.rows])
     cards = []
@@ -425,9 +434,10 @@ def _community_cards_page(conn, viewer_id: int, cursor: object = None):
     return cards, ranked
 
 
-def _community_cards(conn, viewer_id: int, cursor: object = None):
+def _community_cards(conn, viewer_id: int, cursor: object = None,
+                     query: object = None):
     """Совместимый helper для тестов и внутренних вызовов."""
-    cards, ranked = _community_cards_page(conn, viewer_id, cursor)
+    cards, ranked = _community_cards_page(conn, viewer_id, cursor, query)
     return cards, ranked.next_cursor
 
 
@@ -435,8 +445,15 @@ def _community_cards(conn, viewer_id: int, cursor: object = None):
 def community_feed(request: Request, conn=Depends(get_db)):
     """HTML-фрагмент со следующей страницей ленты (для бесконечного скролла).
     Возвращает только карточки + маркер курсора — фронт дописывает их в ленту."""
+    uid = int(request.state.user["id"])
+    prepared_search = community_search.prepare_query(
+        request.query_params.get("q") if COMMUNITY_SEARCH_ENABLED else None,
+    )
+    query = prepared_search.display if prepared_search.terms else ""
+    if query:
+        user_throttle("community_search", uid, request)
     cards, ranked = _community_cards_page(
-        conn, request.state.user["id"], request.query_params.get("cursor"),
+        conn, uid, request.query_params.get("cursor"), query,
     )
     metrics.observe_community_feed(
         mode=ranked.mode,

@@ -21,6 +21,11 @@ APP_ENV = os.getenv(
 APP_RELEASE = os.getenv("APP_RELEASE", "unknown").strip() or "unknown"
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").strip().upper() or "INFO"
 LOG_FORMAT = os.getenv("LOG_FORMAT", "pretty").strip().lower() or "pretty"
+# Экспериментальный поиск ленты не меняет схему БД и отключается одной
+# переменной, если на реальных данных качество или стоимость окажутся плохими.
+COMMUNITY_SEARCH_ENABLED = os.getenv(
+    "COMMUNITY_SEARCH_ENABLED", "true",
+).strip().lower() in ("1", "true", "yes")
 
 
 def _sample_rate(name: str, default: float) -> float:

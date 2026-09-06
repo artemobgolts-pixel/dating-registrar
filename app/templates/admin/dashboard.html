@@ -111,7 +111,25 @@
   <div class="cfeed-intro" data-tour="dashboard-feed">
     <b>Лента событий</b>
   </div>
-  <div class="cfeed" id="communityFeed" data-feed-url="/admin/community"></div>
+  {% if community_search_enabled %}
+  <form class="cfeed-search" id="communitySearchForm" method="get" action="/admin/"
+        role="search" aria-label="Поиск по ленте событий">
+    <label class="sr-only" for="communitySearchInput">Название, место, описание или ссылка</label>
+    <div class="cfeed-search-row">
+      <input type="search" id="communitySearchInput" name="q"
+             value="{{ community_query }}" maxlength="80" autocomplete="off"
+             placeholder="Название, место или ссылка">
+      <button type="submit" class="btn primary">Найти</button>
+      <button type="button" class="btn cfeed-search-clear" id="communitySearchClear"
+              {% if not community_query %}hidden{% endif %}>Сбросить</button>
+    </div>
+    <p class="muted cfeed-search-hint">Ищем также в описании и читаемой части ссылок на карты.</p>
+  </form>
+  <p class="muted cfeed-search-status" id="communitySearchStatus"
+     role="status" aria-live="polite" hidden></p>
+  {% endif %}
+  <div class="cfeed" id="communityFeed" data-feed-url="/admin/community"
+       {% if community_query %}data-feed-query="{{ community_query }}"{% endif %}></div>
   <p class="muted cfeed-empty" id="cfeedEmpty" hidden style="text-align:center;padding:20px 0">Пока пусто — как появятся публичные события, они возникнут здесь 🌙</p>
   <p class="muted cfeed-end" id="cfeedEnd" hidden style="text-align:center;padding:14px 0;font-size:13px">Это всё на сейчас{% if user['admin_skin'] == 'romantic' %} ♥{% endif %}</p>
 </div>

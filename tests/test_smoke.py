@@ -2991,6 +2991,8 @@ with TestClient(main.app, follow_redirects=False) as cnata, \
     assert "Встречи сообщества" not in dash
     assert "Публичные события других людей" not in dash
     assert 'id="communityFeed"' in dash
+    assert 'id="communitySearchForm"' in dash
+    assert 'placeholder="Название, место или ссылка"' in dash
     assert 'id="communityReportDlg"' in dash and 'id="communityReportForm"' in dash
 
     # фрагмент ленты: видно чужое публичное, НЕ видно приватное и своё
@@ -3009,6 +3011,27 @@ with TestClient(main.app, follow_redirects=False) as cnata, \
     assert "data-community-report" in feed and "пожаловаться" in feed.lower()
     assert f'data-report-url="/d/{pub["share_token"]}/report"' in feed
     assert "?w=480 480w" in feed and 'fetchpriority="low"' in feed
+    # Поиск проверяет название/описание и сохранённые ссылки, но сохраняет те же
+    # ограничения приватности, что обычная лента.
+    assert "Пикник на закате" in cgosha.get(
+        "/admin/community", params={"q": "плед"},
+    ).text
+    link_conn = dbm.connect()
+    link_conn.execute(
+        "INSERT INTO date_links(date_id,url,position) VALUES(?,?,0)",
+        (pub["id"], "https://example.com/restaurants/piknik-place"),
+    )
+    link_conn.commit()
+    link_conn.close()
+    assert "Пикник на закате" in cgosha.get(
+        "/admin/community", params={"q": "restaurant"},
+    ).text
+    assert "Секретный ужин" not in cgosha.get(
+        "/admin/community", params={"q": "секретный"},
+    ).text
+    assert "Пикник на закате" not in cgosha.get(
+        "/admin/community", params={"q": "несуществующее"},
+    ).text
     # автор не видит своё событие в собственной ленте
     assert "Пикник на закате" not in cnata.get("/admin/community").text
 

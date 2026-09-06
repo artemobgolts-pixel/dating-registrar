@@ -3236,6 +3236,15 @@ html[data-theme="dark"][data-skin="friends"] .share-qr {
    ЛЕНТА ВСТРЕЧ СООБЩЕСТВА (главная) + мини-виджет события
    ============================================================ */
 .cfeed-intro { margin-bottom: 14px; }
+.cfeed-search { max-width: 760px; margin: -2px 0 8px; }
+.cfeed-search-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center; gap: 8px;
+}
+.cfeed-search-row input { min-width: 0; }
+.cfeed-search-row .btn { min-height: 44px; padding-inline: 18px; }
+.cfeed-search-hint { margin: 6px 2px 0; font-size: 12px; }
+.cfeed-search-status { margin: 0 0 12px 2px; font-size: 13px; }
 .cfeed {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
@@ -3341,6 +3350,8 @@ html[data-theme="dark"][data-skin="friends"] .share-qr {
   .cfeed { grid-template-columns: minmax(0, 1fr); }
   .grid .dcard .ph { height: auto; aspect-ratio: 16 / 9; }
   .dates-bulk-form, .drow-select { display: none; }
+  .cfeed-search-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .cfeed-search-clear { grid-column: 1 / -1; width: 100%; }
 }
 @media (max-width: 950px) and (max-height: 600px) and (pointer: coarse) {
   /* Телефон в landscape не возвращается к сохранённому табличному виду. */

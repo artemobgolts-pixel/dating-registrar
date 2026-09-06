@@ -196,6 +196,9 @@ class ApplicationMetricsTests(unittest.TestCase):
         app_metrics.observe_community_feed(
             mode="raw-user-mode", candidate_count=-1, returned_count=-5,
         )
+        app_metrics.observe_community_feed(
+            mode="search", candidate_count=800, returned_count=3,
+        )
 
         self.assertEqual(registry.get_sample_value(
             "date4you_community_feed_pages_total", {"mode": "personalized"},
@@ -209,6 +212,12 @@ class ApplicationMetricsTests(unittest.TestCase):
         self.assertEqual(registry.get_sample_value(
             "date4you_community_feed_candidates_sum", {"mode": "general"},
         ), 0.0)
+        self.assertEqual(registry.get_sample_value(
+            "date4you_community_feed_pages_total", {"mode": "search"},
+        ), 1.0)
+        self.assertEqual(registry.get_sample_value(
+            "date4you_community_feed_events_total", {"mode": "search"},
+        ), 3.0)
         self.assertNotIn("raw-user-mode", generate_latest(
             registry,
         ).decode("utf-8"))

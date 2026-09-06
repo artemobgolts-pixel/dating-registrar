@@ -13,20 +13,29 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import re
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime
 
+import community_search
+
 
 PAGE_SIZE = 12
 RANKING_POOL_SIZE = 240
+SEARCH_POOL_SIZE = community_search.SEARCH_POOL_SIZE
 
 _RANKED_CURSOR_RE = re.compile(
     r"^r1\.(?P<stamp>\d{14})\.(?P<max_id>[1-9]\d*)\.(?P<offset>\d{1,3})$"
 )
 _CHRONO_CURSOR_RE = re.compile(
     r"^c1\.(?P<before_id>[1-9]\d*)(?:\.(?P<last_owner>[1-9]\d*))?$"
+)
+_SEARCH_CURSOR_RE = re.compile(
+    r"^s1\.(?P<stamp>\d{14})\.(?P<max_id>[1-9]\d*)\."
+    r"(?P<offset>\d{1,4})\.(?P<signature>[0-9a-f]{10})$"
 )
 
 
@@ -49,6 +58,35 @@ def _ranked_cursor(as_of: datetime, max_id: int, offset: int) -> str:
 def _chrono_cursor(before_id: int, last_owner: int | None = None) -> str:
     suffix = f".{last_owner}" if last_owner else ""
     return f"c1.{before_id}{suffix}"
+
+
+def _search_signature(query: community_search.SearchQuery) -> str:
+    return hashlib.blake2s(
+        query.normalized.encode("utf-8"), digest_size=5,
+    ).hexdigest()
+
+
+def _search_cursor(as_of: datetime, max_id: int, offset: int,
+                   query: community_search.SearchQuery) -> str:
+    return f"s1.{_stamp(as_of)}.{max_id}.{offset}.{_search_signature(query)}"
+
+
+def _parse_search_cursor(raw: object, query: community_search.SearchQuery):
+    value = str(raw or "").strip()
+    match = _SEARCH_CURSOR_RE.fullmatch(value)
+    if not match or not hmac.compare_digest(
+        match.group("signature"), _search_signature(query),
+    ):
+        return None
+    try:
+        as_of = datetime.strptime(match.group("stamp"), "%Y%m%d%H%M%S")
+    except ValueError:
+        return None
+    offset = int(match.group("offset"))
+    max_id = int(match.group("max_id"))
+    if offset > SEARCH_POOL_SIZE or max_id > 9_223_372_036_854_775_807:
+        return None
+    return as_of, max_id, offset
 
 
 def _parse_cursor(raw: object):
@@ -301,6 +339,103 @@ def _ranked_rows(
     return _diversify(ranked), "personalized" if personalized else "general"
 
 
+def _links_for_rows(
+    conn: sqlite3.Connection, rows: list[sqlite3.Row],
+) -> dict[int, list[str]]:
+    result: dict[int, list[str]] = {}
+    ids = [int(row["id"]) for row in rows]
+    # Старые сборки SQLite ограничивали запрос 999 параметрами. Небольшие чанки
+    # сохраняют поиск переносимым и не меняют число запросов на обычной ленте.
+    for start in range(0, len(ids), 400):
+        chunk = ids[start:start + 400]
+        placeholders = ",".join("?" for _ in chunk)
+        for link in conn.execute(
+            "SELECT date_id, url FROM date_links "
+            f"WHERE date_id IN ({placeholders}) ORDER BY date_id, position, id",
+            tuple(chunk),
+        ):
+            result.setdefault(int(link["date_id"]), []).append(str(link["url"]))
+    return result
+
+
+def _search_page(
+    conn: sqlite3.Connection,
+    viewer_id: int,
+    cursor: object,
+    query: community_search.SearchQuery,
+    current: datetime,
+    page_size: int,
+    pool_size: int,
+) -> FeedPage:
+    parsed_cursor = _parse_search_cursor(cursor, query)
+    if parsed_cursor:
+        as_of, max_id, offset = parsed_cursor
+    else:
+        as_of, max_id, offset = current, None, 0
+
+    candidates = _candidate_rows(
+        conn, viewer_id, as_of, limit=pool_size + 1, max_id=max_id,
+    )
+    if not candidates:
+        return FeedPage([], None, "search", 0)
+    if max_id is None:
+        max_id = int(candidates[0]["id"])
+    pool = candidates[:pool_size]
+    links = _links_for_rows(conn, pool)
+    scored = [
+        (row, community_search.score_event(
+            row, links.get(int(row["id"]), []), query,
+        ))
+        for row in pool
+    ]
+    matches = [(row, score) for row, score in scored if score > 0]
+    if not matches:
+        return FeedPage([], None, "search", len(pool))
+
+    match_rows = [row for row, _ in matches]
+    wants, copies = _popularity(conn, viewer_id, match_rows)
+    affinity = _author_affinity(conn, viewer_id)
+
+    def key(item: tuple[sqlite3.Row, int]) -> tuple[int, int, int]:
+        row, search_score = item
+        date_id = int(row["id"])
+        root_id = int(row["source_date_id"] or date_id)
+        recommendation_score = _event_score(
+            row,
+            as_of=as_of,
+            wants=wants.get(date_id, 0),
+            copies=copies.get(root_id, 0),
+            affinity=affinity.get(int(row["owner_id"]), 0),
+        )
+        return search_score, recommendation_score, date_id
+
+    ordered = sorted(matches, key=key, reverse=True)
+    # Разводим одинаково релевантные карточки разных авторов, но никогда не
+    # меняем местами разные уровни текстового совпадения.
+    ranked: list[sqlite3.Row] = []
+    previous_owner: int | None = None
+    index = 0
+    while index < len(ordered):
+        score = ordered[index][1]
+        end = index + 1
+        while end < len(ordered) and ordered[end][1] == score:
+            end += 1
+        group = _diversify(
+            [row for row, _ in ordered[index:end]], previous_owner,
+        )
+        ranked.extend(group)
+        previous_owner = int(group[-1]["owner_id"])
+        index = end
+
+    if offset >= len(ranked):
+        return FeedPage([], None, "search", len(pool))
+    page_rows = ranked[offset:offset + page_size]
+    next_offset = offset + len(page_rows)
+    next_cursor = _search_cursor(as_of, max_id, next_offset, query) \
+        if next_offset < len(ranked) else None
+    return FeedPage(page_rows, next_cursor, "search", len(pool))
+
+
 def _chronological_page(
     conn: sqlite3.Connection,
     viewer_id: int,
@@ -334,11 +469,23 @@ def page(
     now: datetime | None = None,
     page_size: int = PAGE_SIZE,
     pool_size: int = RANKING_POOL_SIZE,
+    query: object = None,
+    search_pool_size: int = SEARCH_POOL_SIZE,
 ) -> FeedPage:
-    """Возвращает одну стабильную страницу рекомендаций и следующий курсор."""
+    """Возвращает страницу рекомендаций либо релевантных результатов поиска."""
     current = (now or datetime.now()).replace(tzinfo=None, microsecond=0)
     safe_page_size = min(PAGE_SIZE, max(1, int(page_size)))
     safe_pool_size = min(RANKING_POOL_SIZE, max(safe_page_size, int(pool_size)))
+    prepared_query = community_search.prepare_query(query)
+    if prepared_query.terms:
+        safe_search_pool = min(
+            SEARCH_POOL_SIZE,
+            max(safe_page_size, int(search_pool_size)),
+        )
+        return _search_page(
+            conn, viewer_id, cursor, prepared_query, current,
+            safe_page_size, safe_search_pool,
+        )
     cursor_kind, cursor_data = _parse_cursor(cursor)
 
     if cursor_kind == "chronological":

@@ -66,13 +66,15 @@ BACKGROUND_JOBS = frozenset({
     "repair_places", "rate_limit_gc", "other",
 })
 BACKGROUND_RESULTS = frozenset({"success", "failure", "cancelled"})
-COMMUNITY_FEED_MODES = frozenset({"general", "personalized", "chronological"})
+COMMUNITY_FEED_MODES = frozenset({
+    "general", "personalized", "chronological", "search",
+})
 
 HTTP_DURATION_BUCKETS = (0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0)
 DEPENDENCY_DURATION_BUCKETS = (0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0,
                                10.0, 30.0, 60.0)
 JOB_DURATION_BUCKETS = (0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 30.0, 120.0, 600.0)
-COMMUNITY_CANDIDATE_BUCKETS = (0, 1, 6, 12, 24, 60, 120, 240)
+COMMUNITY_CANDIDATE_BUCKETS = (0, 1, 6, 12, 24, 60, 120, 240, 500, 1000, 2000)
 
 
 def _bounded(value: object, allowed: frozenset[str], fallback: str) -> str:
