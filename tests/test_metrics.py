@@ -186,6 +186,33 @@ class ApplicationMetricsTests(unittest.TestCase):
         self.assertNotIn("raw-user-provider", payload)
         self.assertNotIn("raw-error-text", payload)
 
+    def test_community_feed_metrics_use_only_bounded_modes(self):
+        registry = CollectorRegistry()
+        app_metrics = metrics.ApplicationMetrics(registry)
+
+        app_metrics.observe_community_feed(
+            mode="personalized", candidate_count=42, returned_count=12,
+        )
+        app_metrics.observe_community_feed(
+            mode="raw-user-mode", candidate_count=-1, returned_count=-5,
+        )
+
+        self.assertEqual(registry.get_sample_value(
+            "date4you_community_feed_pages_total", {"mode": "personalized"},
+        ), 1.0)
+        self.assertEqual(registry.get_sample_value(
+            "date4you_community_feed_events_total", {"mode": "personalized"},
+        ), 12.0)
+        self.assertEqual(registry.get_sample_value(
+            "date4you_community_feed_pages_total", {"mode": "general"},
+        ), 1.0)
+        self.assertEqual(registry.get_sample_value(
+            "date4you_community_feed_candidates_sum", {"mode": "general"},
+        ), 0.0)
+        self.assertNotIn("raw-user-mode", generate_latest(
+            registry,
+        ).decode("utf-8"))
+
 
 class PrometheusMiddlewareTests(unittest.IsolatedAsyncioTestCase):
     async def test_metrics_endpoint_has_prometheus_content_type(self):

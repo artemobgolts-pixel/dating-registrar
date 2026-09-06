@@ -49,6 +49,8 @@ V36_INDEXES = {
     "idx_users_review_queue",
 }
 
+V37_INDEXES = {"idx_dates_source"}
+
 
 def plan(conn: sqlite3.Connection, sql: str, params=()) -> str:
     return "\n".join(
@@ -121,7 +123,8 @@ class DatabasePerformanceMigrationTests(unittest.TestCase):
                     "INSERT INTO date_categories(date_id, category_id) VALUES(?,?)",
                     (ids["deadline-conflict"], open_category_id),
                 )
-                for index in V25_INDEXES | V32_INDEXES | V33_INDEXES | V36_INDEXES:
+                for index in (V25_INDEXES | V32_INDEXES | V33_INDEXES
+                              | V36_INDEXES | V37_INDEXES):
                     conn.execute(f"DROP INDEX IF EXISTS {index}")
                 # init_db выше создал свежую схему. Для честной эмуляции старой
                 # v24 базы убираем объекты следующих миграций, иначе их ALTER
@@ -179,7 +182,8 @@ class DatabasePerformanceMigrationTests(unittest.TestCase):
                     )
                 }
                 self.assertTrue((V25_INDEXES - {"idx_dates_autoarchive_active"})
-                                | V32_INDEXES | V33_INDEXES | V36_INDEXES <= indexes)
+                                | V32_INDEXES | V33_INDEXES | V36_INDEXES
+                                | V37_INDEXES <= indexes)
                 self.assertNotIn("idx_dates_autoarchive_active", indexes)
                 review_queue_columns = {
                     row[1] for row in conn.execute("PRAGMA table_info(review_queue)")
@@ -280,6 +284,14 @@ class DatabasePerformanceMigrationTests(unittest.TestCase):
                     "SELECT date_id FROM date_wants WHERE user_id=? "
                     "ORDER BY updated_at DESC",
                     (1,),
+                ),
+                (
+                    "idx_dates_source",
+                    "SELECT source_date_id, COUNT(*) FROM dates "
+                    "INDEXED BY idx_dates_source "
+                    "WHERE source_date_id IN (?,?) AND origin='copy' "
+                    "GROUP BY source_date_id",
+                    (1, 2),
                 ),
                 (
                     "idx_reports_open_date_target",

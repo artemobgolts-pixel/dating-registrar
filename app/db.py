@@ -99,6 +99,8 @@
   v36 — адресная премодерация: оператор может пометить аккаунт
         подозрительным; его новые подборки и события скрыты до решения
         оператора, не затрагивая существующий контент.
+  v37 — индекс происхождения копий для ограниченного по стоимости подсчёта
+        популярности в рекомендованной ленте.
 
 Свежая база создаётся сразу по последней схеме. Существующая —
 докатывается миграциями при старте приложения.
@@ -112,7 +114,7 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "app.db"
 
-LATEST_VERSION = 36
+LATEST_VERSION = 37
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -434,6 +436,8 @@ CREATE INDEX IF NOT EXISTS idx_categories_winner_date
 CREATE INDEX IF NOT EXISTS idx_dates_owner ON dates(owner_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_dates_owner_source
     ON dates(owner_id, source_date_id) WHERE source_date_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_dates_source
+    ON dates(source_date_id) WHERE source_date_id IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_dates_share ON dates(share_token);
 -- лента комьюнити на главной: свежие публичные активные события
 CREATE INDEX IF NOT EXISTS idx_dates_public ON dates(is_public, is_draft, archived_at, id);
@@ -1583,6 +1587,10 @@ MIGRATIONS: dict[int, str] = {
         DROP INDEX IF EXISTS idx_dates_autoarchive_ends_due;
         DROP INDEX IF EXISTS idx_dates_autoarchive_starts_due;
         DROP INDEX IF EXISTS idx_dates_autoarchive_end_fallback_start;
+    """,
+    37: """
+        CREATE INDEX IF NOT EXISTS idx_dates_source
+            ON dates(source_date_id) WHERE source_date_id IS NOT NULL;
     """,
 }
 

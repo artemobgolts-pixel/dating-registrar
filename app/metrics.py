@@ -66,11 +66,13 @@ BACKGROUND_JOBS = frozenset({
     "repair_places", "rate_limit_gc", "other",
 })
 BACKGROUND_RESULTS = frozenset({"success", "failure", "cancelled"})
+COMMUNITY_FEED_MODES = frozenset({"general", "personalized", "chronological"})
 
 HTTP_DURATION_BUCKETS = (0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0)
 DEPENDENCY_DURATION_BUCKETS = (0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0,
                                10.0, 30.0, 60.0)
 JOB_DURATION_BUCKETS = (0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 30.0, 120.0, 600.0)
+COMMUNITY_CANDIDATE_BUCKETS = (0, 1, 6, 12, 24, 60, 120, 240)
 
 
 def _bounded(value: object, allowed: frozenset[str], fallback: str) -> str:
@@ -193,6 +195,28 @@ class ApplicationMetrics:
             ("job",),
             registry=registry,
         )
+        # Ответы на два эксплуатационных вопроса: включается ли персональная
+        # ветка и хватает ли ей кандидатов. Latency/error rate уже покрывает
+        # общий RED middleware для /admin/community.
+        self.community_feed_pages = Counter(
+            f"{NAMESPACE}_community_feed_pages_total",
+            "Rendered community feed pages by bounded ranking mode.",
+            ("mode",),
+            registry=registry,
+        )
+        self.community_feed_events = Counter(
+            f"{NAMESPACE}_community_feed_events_total",
+            "Events returned by community feed ranking mode.",
+            ("mode",),
+            registry=registry,
+        )
+        self.community_feed_candidates = Histogram(
+            f"{NAMESPACE}_community_feed_candidates",
+            "Candidate rows considered for a community feed page.",
+            ("mode",),
+            buckets=COMMUNITY_CANDIDATE_BUCKETS,
+            registry=registry,
+        )
 
         # Gauge-серии должны присутствовать с нуля уже до первого прохода.
         for state in OUTBOX_STATES:
@@ -287,6 +311,18 @@ class ApplicationMetrics:
         )
         if result_label == "success":
             self.background_last_success.labels(job=job_label).set(self.wall_time())
+
+    def observe_community_feed(
+        self, *, mode: object, candidate_count: int, returned_count: int,
+    ) -> None:
+        mode_label = _bounded(mode, COMMUNITY_FEED_MODES, "general")
+        self.community_feed_pages.labels(mode=mode_label).inc()
+        self.community_feed_events.labels(mode=mode_label).inc(
+            max(0, int(returned_count))
+        )
+        self.community_feed_candidates.labels(mode=mode_label).observe(
+            max(0, int(candidate_count))
+        )
 
 
 class DependencyTimer:
@@ -390,6 +426,15 @@ def set_outbox_state(*, pending: int, due: int, claimed: int,
         due=due,
         claimed=claimed,
         oldest_due_age_seconds=oldest_due_age_seconds,
+    )
+
+
+def observe_community_feed(*, mode: object, candidate_count: int,
+                           returned_count: int) -> None:
+    APP_METRICS.observe_community_feed(
+        mode=mode,
+        candidate_count=candidate_count,
+        returned_count=returned_count,
     )
 
 

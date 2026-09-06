@@ -96,6 +96,7 @@ class EventLifecycleTests(unittest.TestCase):
         conn.execute("ALTER TABLE categories DROP COLUMN pin_enabled")
         conn.execute("ALTER TABLE categories DROP COLUMN access_pin_hash")
         conn.execute("DROP INDEX idx_dates_owner_source")
+        conn.execute("DROP INDEX idx_dates_source")
         conn.execute("ALTER TABLE dates DROP COLUMN source_date_id")
         conn.execute("PRAGMA user_version=28")
         conn.commit()

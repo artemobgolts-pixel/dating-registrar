@@ -27,8 +27,10 @@ from urllib.parse import parse_qsl, urlencode, urlsplit
 import appearance
 import backup
 import category_access
+import community_feed as community_recommendations
 import db
 import images
+import metrics
 import moderation
 import notify
 import places
@@ -308,10 +310,6 @@ def profile_avatar(filename: str, request: Request, w: int | None = None):
 GNAME_SQL = "COALESCE(g.name, 'Человек #' || substr(COALESCE({t}, '??????'), 1, 6))"
 
 
-# Сколько карточек комьюнити-ленты отдаём за одну «страницу» бесконечного скролла.
-COMMUNITY_PAGE = 12
-
-
 @router.get("/", response_class=HTMLResponse)
 def dashboard(request: Request, conn=Depends(get_db)):
     uid = request.state.user["id"]
@@ -410,52 +408,45 @@ def _qr_svg(data: str, skin: str = "friends") -> str:
 # когда/место/комментарий + автор + действия добавления, жалобы и шаринга.
 # Категорию и
 # модификатор оплаты НЕ показываем (решение владельца). Бесконечный скролл —
-# keyset-пагинацией по d.id DESC (курсор = id последней карточки).
+# Рекомендованное окно использует непрозрачный курсор; после него сохраняется
+# keyset-пагинация по id, чтобы старые события не исчезали из ленты.
 
-def _community_cards(conn, viewer_id: int, cursor: int | None):
-    """Возвращает (dates, next_cursor) для ленты. dates — события с медиа и
-    именем/аватаром владельца. Курсор — id, строго меньше которого берём дальше."""
-    where = (
-        "d.is_public=1 AND d.is_draft=0 AND d.operator_review_pending=0 "
-        "AND d.archived_at IS NULL "
-        "AND d.owner_id<>? AND NOT EXISTS ("
-        "SELECT 1 FROM dates copied WHERE copied.owner_id=? "
-        "AND copied.origin='copy' "
-        "AND copied.source_date_id=COALESCE(d.source_date_id,d.id))"
+def _community_cards_page(conn, viewer_id: int, cursor: object = None):
+    ranked = community_recommendations.page(
+        conn, viewer_id, cursor, now=now_naive(),
     )
-    params: list = [viewer_id, viewer_id]
-    if cursor:
-        where += " AND d.id<?"
-        params.append(cursor)
-    rows = conn.execute(
-        f"SELECT d.*, u.display_name AS owner_name, u.tg_username AS owner_username, "
-        f"u.avatar_path AS owner_avatar "
-        f"FROM dates d JOIN users u ON u.id=d.owner_id "
-        f"WHERE {where} ORDER BY d.id DESC LIMIT ?",
-        (*params, COMMUNITY_PAGE + 1)).fetchall()
-    has_more = len(rows) > COMMUNITY_PAGE
-    rows = rows[:COMMUNITY_PAGE]
-    media = public_routes._batch_media(conn, [r["id"] for r in rows])
+    media = public_routes._batch_media(conn, [r["id"] for r in ranked.rows])
     cards = []
-    for r in rows:
+    for r in ranked.rows:
         d = public_routes.date_payload_from(r, media)
         d["owner_display"] = (r["owner_name"] or r["owner_username"]
                               or f"Человек #{r['owner_id']}")
         cards.append(d)
-    next_cursor = rows[-1]["id"] if (rows and has_more) else None
-    return cards, next_cursor
+    return cards, ranked
+
+
+def _community_cards(conn, viewer_id: int, cursor: object = None):
+    """Совместимый helper для тестов и внутренних вызовов."""
+    cards, ranked = _community_cards_page(conn, viewer_id, cursor)
+    return cards, ranked.next_cursor
 
 
 @router.get("/community", response_class=HTMLResponse)
 def community_feed(request: Request, conn=Depends(get_db)):
     """HTML-фрагмент со следующей страницей ленты (для бесконечного скролла).
     Возвращает только карточки + маркер курсора — фронт дописывает их в ленту."""
-    cur = request.query_params.get("cursor")
-    cursor = int(cur) if cur and cur.isdigit() else None
-    cards, next_cursor = _community_cards(conn, request.state.user["id"], cursor)
+    cards, ranked = _community_cards_page(
+        conn, request.state.user["id"], request.query_params.get("cursor"),
+    )
+    metrics.observe_community_feed(
+        mode=ranked.mode,
+        candidate_count=ranked.candidate_count,
+        returned_count=len(cards),
+    )
     return templates.TemplateResponse(
         request, "admin/_community_cards.html",
-        {"request": request, "cards": cards, "next_cursor": next_cursor})
+        {"request": request, "cards": cards,
+         "next_cursor": ranked.next_cursor})
 
 
 @router.get("/community/date/{did}", response_class=HTMLResponse)
