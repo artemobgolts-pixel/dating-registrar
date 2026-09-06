@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import secrets
+import sys
 import traceback
 from contextvars import ContextVar, Token
 from datetime import datetime, timezone
@@ -168,50 +170,197 @@ def _safe_value(value: Any) -> Any:
     return redact_text(str(value))
 
 
+def _safe_stacktrace(tb: Any, *, limit: int = 8) -> str:
+    """Короткий стек без строк кода, где могут находиться секретные литералы."""
+    frames = traceback.extract_tb(tb)
+    omitted = max(0, len(frames) - limit)
+    lines = [f"… пропущено кадров: {omitted}"] if omitted else []
+    for frame in frames[-limit:]:
+        lines.append(
+            f'File "{redact_text(frame.filename)}", line {frame.lineno}, '
+            f"in {frame.name}"
+        )
+    return "\n".join(lines)
+
+
+def _record_payload(record: logging.LogRecord) -> dict[str, Any]:
+    """Собирает единый безопасный payload для любого формата вывода."""
+    payload: dict[str, Any] = {
+        "timestamp": datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+        .replace("+00:00", "Z"),
+        "level": record.levelname.lower(),
+        "service": SERVICE_NAME,
+        "environment": _environment,
+        "release": _release,
+        "logger": record.name,
+        "event": _safe_value(
+            getattr(record, "event", f"{record.name}.{record.levelname.lower()}")
+        ),
+        "message": redact_text(record.getMessage()),
+    }
+    request_id = getattr(record, "request_id", None) or current_request_id()
+    if valid_request_id(request_id):
+        payload["request_id"] = request_id
+    for field in _SAFE_EXTRA_FIELDS:
+        if hasattr(record, field):
+            payload[field] = _safe_value(getattr(record, field))
+    if record.exc_info:
+        exc_type, _exc, tb = record.exc_info
+        payload["exception"] = {
+            "type": exc_type.__name__ if exc_type else "Exception",
+            # Exception message может содержать введённые человеком данные.
+            # Для диагностики достаточно типа и frames без local variables.
+            "stacktrace": _safe_stacktrace(tb),
+        }
+    return payload
+
+
 class JsonFormatter(logging.Formatter):
     """Один JSON-объект на строку с allowlist дополнительных полей."""
 
     def format(self, record: logging.LogRecord) -> str:
-        payload: dict[str, Any] = {
-            "timestamp": datetime.now(timezone.utc).isoformat(timespec="milliseconds")
-            .replace("+00:00", "Z"),
-            "level": record.levelname.lower(),
-            "service": SERVICE_NAME,
-            "environment": _environment,
-            "release": _release,
-            "logger": record.name,
-            "event": _safe_value(
-                getattr(record, "event", f"{record.name}.{record.levelname.lower()}")
-            ),
-            "message": redact_text(record.getMessage()),
-        }
-        request_id = getattr(record, "request_id", None) or current_request_id()
-        if valid_request_id(request_id):
-            payload["request_id"] = request_id
-        for field in _SAFE_EXTRA_FIELDS:
-            if hasattr(record, field):
-                payload[field] = _safe_value(getattr(record, field))
-        if record.exc_info:
-            exc_type, _exc, tb = record.exc_info
-            payload["exception"] = {
-                "type": exc_type.__name__ if exc_type else "Exception",
-                # Exception message может содержать введённые человеком данные.
-                # Для диагностики достаточно типа и frames без local variables.
-                "stacktrace": redact_text("".join(traceback.format_tb(tb))),
-            }
-        return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+        return json.dumps(
+            _record_payload(record), ensure_ascii=False, separators=(",", ":")
+        )
 
 
-def configure_logging(*, level: str, environment: str, release: str) -> None:
+_PRETTY_LABELS = {
+    "request_id": "запрос",
+    "event": "событие",
+    "provider": "сервис",
+    "operation": "операция",
+    "outcome": "результат",
+    "job": "задача",
+    "result": "итог",
+    "count": "количество",
+    "exception_type": "ошибка",
+    "status_code": "статус",
+    "duration_ms": "длительность_мс",
+}
+_PRETTY_FIELDS = (
+    "request_id",
+    "event",
+    "provider",
+    "operation",
+    "outcome",
+    "job",
+    "result",
+    "count",
+    "exception_type",
+    "status_code",
+    "duration_ms",
+)
+_LEVEL_LABELS = {
+    "debug": "DEBUG",
+    "info": "INFO",
+    "warning": "WARN",
+    "error": "ERROR",
+    "critical": "CRIT",
+}
+_LEVEL_COLORS = {
+    "debug": "\x1b[36m",
+    "info": "\x1b[32m",
+    "warning": "\x1b[33m",
+    "error": "\x1b[31m",
+    "critical": "\x1b[1;31m",
+}
+
+
+def _one_line(value: Any) -> str:
+    """Не даёт значениям ломать визуальную структуру одной записи."""
+    return (
+        str(value)
+        .replace("\\", "\\\\")
+        .replace("\r", "\\r")
+        .replace("\n", "\\n")
+        .replace("\t", "\\t")
+    )
+
+
+class PrettyFormatter(logging.Formatter):
+    """Компактный человекочитаемый формат с устойчивым порядком полей."""
+
+    def __init__(self, *, colors: bool = False) -> None:
+        super().__init__()
+        self.colors = colors
+
+    def format(self, record: logging.LogRecord) -> str:
+        payload = _record_payload(record)
+        timestamp = str(payload["timestamp"]).replace("T", " ")
+        level = str(payload["level"])
+        level_label = _LEVEL_LABELS.get(level, level.upper())[:5].ljust(5)
+        logger_name = _one_line(payload["logger"])
+        message = _one_line(payload["message"])
+
+        if self.colors:
+            timestamp = f"\x1b[2m{timestamp}\x1b[0m"
+            level_label = f"{_LEVEL_COLORS.get(level, '')}{level_label}\x1b[0m"
+            logger_name = f"\x1b[36m{logger_name}\x1b[0m"
+
+        parts = [f"{timestamp} │ {level_label} │ {logger_name} │ {message}"]
+        is_http = any(field in payload for field in ("method", "route"))
+        if is_http:
+            request_summary = " ".join(
+                _one_line(payload[field])
+                for field in ("method", "route")
+                if field in payload
+            )
+            if "status_code" in payload:
+                request_summary += f" → {_one_line(payload['status_code'])}"
+            if "duration_ms" in payload:
+                request_summary += f" · {_one_line(payload['duration_ms'])} мс"
+            parts.append(request_summary)
+
+        for field in _PRETTY_FIELDS:
+            if field in payload:
+                if field == "event" and not hasattr(record, "event"):
+                    continue
+                if is_http and field in ("status_code", "duration_ms"):
+                    continue
+                parts.append(f"{_PRETTY_LABELS[field]}={_one_line(payload[field])}")
+
+        exception = payload.get("exception")
+        if isinstance(exception, Mapping):
+            if "exception_type" not in payload:
+                parts.append(
+                    f"исключение={_one_line(exception.get('type', 'Exception'))}"
+                )
+            stacktrace = exception.get("stacktrace")
+            if stacktrace:
+                compact_stack = " ↳ ".join(
+                    _one_line(line.strip())
+                    for line in str(stacktrace).splitlines()
+                    if line.strip()
+                )
+                parts.append(f"стек={compact_stack}")
+        return " │ ".join(parts)
+
+
+def _stream_supports_colors(stream: Any) -> bool:
+    return (
+        os.getenv("NO_COLOR") is None
+        and hasattr(stream, "isatty")
+        and stream.isatty()
+    )
+
+
+def configure_logging(
+    *, level: str, environment: str, release: str, log_format: str = "pretty"
+) -> None:
     global _environment, _release
     _environment = environment or "production"
     _release = release or "unknown"
     numeric_level = getattr(logging, (level or "INFO").upper(), logging.INFO)
     handler = logging.StreamHandler()
-    handler.setFormatter(JsonFormatter())
+    if (log_format or "pretty").strip().lower() == "json":
+        handler.setFormatter(JsonFormatter())
+    else:
+        handler.setFormatter(
+            PrettyFormatter(colors=_stream_supports_colors(sys.stderr))
+        )
     logging.basicConfig(level=numeric_level, handlers=[handler], force=True)
     # Uvicorn настраивает собственные handlers до импорта приложения. Убираем
-    # их, чтобы startup/error тоже проходили через единый JSON formatter.
+    # их, чтобы startup/error тоже проходили через единый formatter.
     for logger_name in ("uvicorn", "uvicorn.error"):
         logger = logging.getLogger(logger_name)
         logger.handlers.clear()

@@ -13,13 +13,14 @@ DOMAIN = os.getenv("DOMAIN", "localhost")
 BASE_URL = f"https://{DOMAIN}"
 SECRET_KEY = os.getenv("SECRET_KEY", "").strip()
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "true").strip().lower() in ("1", "true", "yes")
-# Среда/релиз попадают в JSON-логи и Sentry. APP_RELEASE обычно равен
+# Среда/релиз попадают в структурированные логи и Sentry. APP_RELEASE обычно равен
 # git SHA, который передаёт система деплоя.
 APP_ENV = os.getenv(
     "APP_ENV", "production" if COOKIE_SECURE else "development"
 ).strip() or "production"
 APP_RELEASE = os.getenv("APP_RELEASE", "unknown").strip() or "unknown"
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").strip().upper() or "INFO"
+LOG_FORMAT = os.getenv("LOG_FORMAT", "pretty").strip().lower() or "pretty"
 
 
 def _sample_rate(name: str, default: float) -> float:

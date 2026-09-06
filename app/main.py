@@ -39,7 +39,7 @@ import operator_routes
 import public_routes
 import users
 import voting_events
-from config import (APP_ENV, APP_RELEASE, COOKIE_SECURE, DOMAIN, LOG_LEVEL,
+from config import (APP_ENV, APP_RELEASE, COOKIE_SECURE, DOMAIN, LOG_FORMAT, LOG_LEVEL,
                     SECRET_KEY, SENTRY_DSN, SENTRY_TRACES_SAMPLE_RATE,
                     support_link)
 from web import redir, templates
@@ -57,6 +57,7 @@ from tasks import (autoarchive_loop, autoarchive_once, backup_loop,
 
 observability.configure_logging(
     level=LOG_LEVEL, environment=APP_ENV, release=APP_RELEASE,
+    log_format=LOG_FORMAT,
 )
 log = logging.getLogger("app")
 

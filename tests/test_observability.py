@@ -52,6 +52,7 @@ class RedactionTests(unittest.TestCase):
             )
             record.event = "dependency_failed"
             payload = json.loads(observability.JsonFormatter().format(record))
+            pretty = observability.PrettyFormatter().format(record)
         finally:
             observability.reset_request_id(token)
 
@@ -62,6 +63,60 @@ class RedactionTests(unittest.TestCase):
         self.assertNotIn(BOT_TOKEN, encoded)
         self.assertNotIn("oauth-secret", encoded)
         self.assertIn("/c/{token}", encoded)
+        for secret in (LINK_TOKEN, BOT_TOKEN, "oauth-secret"):
+            self.assertNotIn(secret, pretty)
+        self.assertIn("/c/{token}", pretty)
+
+    def test_pretty_formatter_groups_http_fields_and_stays_on_one_line(self):
+        record = logging.LogRecord(
+            "app", logging.INFO, __file__, 1,
+            "HTTP-запрос завершён\nподмена строки", (), None,
+        )
+        record.event = "http_request_completed"
+        record.request_id = "edge-01:req.42"
+        record.method = "GET"
+        record.route = "/health"
+        record.status_code = 200
+        record.status_class = "2xx"
+        record.duration_ms = 12.34
+
+        rendered = observability.PrettyFormatter().format(record)
+
+        self.assertIn("│ INFO  │ app │ HTTP-запрос завершён\\nподмена строки", rendered)
+        self.assertIn("GET /health → 200 · 12.34 мс", rendered)
+        self.assertIn("запрос=edge-01:req.42", rendered)
+        self.assertIn("событие=http_request_completed", rendered)
+        self.assertNotIn("\n", rendered)
+
+    def test_pretty_formatter_labels_dependency_status_without_empty_route(self):
+        record = logging.LogRecord(
+            "notify", logging.WARNING, __file__, 1,
+            "Telegram вернул ошибку", (), None,
+        )
+        record.event = "telegram_send_failed"
+        record.provider = "telegram"
+        record.status_code = 503
+        record.outcome = "failure"
+
+        rendered = observability.PrettyFormatter().format(record)
+
+        self.assertIn("статус=503", rendered)
+        self.assertNotIn("→ 503", rendered)
+
+    def test_traceback_omits_exception_message_and_source_code(self):
+        try:
+            raise RuntimeError("private-value-from-user")
+        except RuntimeError:
+            record = logging.LogRecord(
+                "app", logging.ERROR, __file__, 1,
+                "Безопасное сообщение", (), sys.exc_info(),
+            )
+
+        rendered = observability.PrettyFormatter().format(record)
+
+        self.assertIn("исключение=RuntimeError", rendered)
+        self.assertIn("test_traceback_omits_exception_message_and_source_code", rendered)
+        self.assertNotIn("private-value-from-user", rendered)
 
     def test_redactor_removes_complete_headers_email_and_media_filename(self):
         value = (
@@ -229,7 +284,7 @@ class IntegrationConfigurationTests(unittest.TestCase):
         self.assertIsNone(logging_integration._breadcrumb_handler)
         self.assertIsNone(logging_integration._sentry_logs_handler)
 
-    def test_uvicorn_loggers_are_routed_through_json_root(self):
+    def test_uvicorn_loggers_are_routed_through_pretty_root(self):
         root = logging.getLogger()
         names = (
             "uvicorn", "uvicorn.error", "uvicorn.access", "httpx", "httpcore",
@@ -253,7 +308,7 @@ class IntegrationConfigurationTests(unittest.TestCase):
             )
 
             self.assertIsInstance(root.handlers[0].formatter,
-                                  observability.JsonFormatter)
+                                  observability.PrettyFormatter)
             for name in ("uvicorn", "uvicorn.error"):
                 logger = logging.getLogger(name)
                 self.assertEqual(logger.handlers, [])
@@ -264,6 +319,39 @@ class IntegrationConfigurationTests(unittest.TestCase):
             self.assertFalse(access.propagate)
             self.assertEqual(logging.getLogger("httpx").level, logging.WARNING)
             self.assertEqual(logging.getLogger("httpcore").level, logging.WARNING)
+        finally:
+            root.handlers = saved_root[0]
+            root.setLevel(saved_root[1])
+            for name, (handlers, level, propagate, disabled) in saved.items():
+                logger = logging.getLogger(name)
+                logger.handlers = handlers
+                logger.setLevel(level)
+                logger.propagate = propagate
+                logger.disabled = disabled
+
+    def test_json_log_format_remains_available(self):
+        root = logging.getLogger()
+        names = (
+            "uvicorn", "uvicorn.error", "uvicorn.access", "httpx", "httpcore",
+        )
+        saved_root = (list(root.handlers), root.level)
+        saved = {
+            name: (
+                list(logging.getLogger(name).handlers),
+                logging.getLogger(name).level,
+                logging.getLogger(name).propagate,
+                logging.getLogger(name).disabled,
+            )
+            for name in names
+        }
+        try:
+            observability.configure_logging(
+                level="INFO", environment="test", release="test-release",
+                log_format="json",
+            )
+
+            self.assertIsInstance(root.handlers[0].formatter,
+                                  observability.JsonFormatter)
         finally:
             root.handlers = saved_root[0]
             root.setLevel(saved_root[1])

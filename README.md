@@ -284,19 +284,31 @@ docker compose start app   # права на файлы entrypoint поправ�
 
 ## Наблюдаемость
 
-### JSON-логи, request ID и Sentry
+### Читаемые логи, request ID и Sentry
 
-Приложение пишет в stdout по одному JSON-объекту на строку. Основные поля:
-`event`, `request_id`, `route`, `status_class`, `duration_ms`, `environment` и
-`release`. Сырые query string, cookies, токены, email и секретные части URL в
-телеметрию не попадают. На публичном HTTPS edge Caddy всегда заменяет входящий
+По умолчанию приложение пишет компактные однострочные логи: время, уровень,
+источник, понятное сообщение и только относящиеся к событию поля. Например:
+
+```text
+2026-09-06 19:48:02.486Z │ INFO  │ app │ HTTP-запрос завершён │ GET /health → 200 · 12.34 мс │ запрос=edge-generated-id │ событие=http_request_completed
+```
+
+Сырые query string, cookies, токены, email и секретные части URL в телеметрию
+не попадают. На публичном HTTPS edge Caddy всегда заменяет входящий
 `X-Request-ID` своим значением: присланному клиентом ID мы не доверяем. Возьми
-фактический `X-Request-ID` из заголовков ответа и найди его в логах приложения
-(для фильтра нужен `jq`, на Debian: `apt install -y jq`):
+фактический `X-Request-ID` из заголовков ответа и найди его в логах приложения:
 
 ```bash
 curl -sS -D - -o /dev/null https://date4you.online/health
 # скопируй значение X-Request-ID из ответа, например edge-generated-id
+docker compose logs --no-log-prefix app | grep -F 'запрос=edge-generated-id'
+```
+
+Для машинной обработки переключи `LOG_FORMAT=json`. Тогда каждая запись снова
+будет JSON-объектом с полями `event`, `request_id`, `route`, `status_class`,
+`duration_ms`, `environment` и `release`, а фильтрация доступна через `jq`:
+
+```bash
 docker compose logs --no-log-prefix app \
   | jq -R 'fromjson? | select(.request_id == "edge-generated-id")'
 ```
