@@ -705,7 +705,7 @@
   });
   $("#propDescToolbar").addEventListener("mousedown", (e) => e.preventDefault());
 
-  const PAY = { "1": "💸 50/50", "2": "👌 Я плачу", "3": "🫵 Ты платишь" };
+  const PAY = { "1": "💸 50/50", "2": "👌 Я плачу", "3": "🫵 Ты платишь", "4": "Бесплатно" };
   function syncPropPay() {
     const selected = propForm.querySelector('input[name="pay"]:checked');
     const text = PAY[selected ? selected.value : "0"] || "";

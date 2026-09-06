@@ -1794,7 +1794,7 @@ html.ink-static .bg-smoke span {
 .descprev b { color: var(--ink); }
 .descprev a { color: var(--rose-2); }
 
-/* ---------- переключатели-тумблеры (черновик, 50/50) ---------- */
+/* ---------- переключатели-тумблеры (черновик, условия оплаты) ---------- */
 .toggle {
   display: flex; align-items: center; gap: 11px;
   padding: 11px 13px;
@@ -3268,7 +3268,7 @@ html[data-theme="dark"][data-skin="friends"] .share-qr {
   overflow: hidden;
 }
 .cfeed-owner {
-  display: inline-flex; align-items: center; gap: 7px; margin-top: auto;
+  display: inline-flex; align-items: center; gap: 4px; margin-top: auto;
   text-decoration: none; color: var(--rose-2); font-size: 13px; font-weight: 600;
   padding: 5px 8px 5px 5px; border-radius: 999px; align-self: flex-start;
   background: rgba(255, 255, 255, .55); border: 1px solid var(--line);

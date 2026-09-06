@@ -45,6 +45,7 @@
   </summary>
   <div class="category-appearance-content">
   <form id="categoryEditForm" method="post" action="/admin/categories/{{ cat['id'] }}/rename?return_to={{ editor_return_url | urlencode }}"
+        data-preserve-scroll
         enctype="multipart/form-data" style="display:grid;gap:10px">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <div class="category-description-fields" data-tour="category-description">
@@ -234,7 +235,7 @@
   {% endif %}
 
   {% if voting_state.status in ('unconfigured', 'open', 'tie', 'resolved', 'no_winner') %}
-  <form class="voting-form" method="post" action="/admin/categories/{{ cat['id'] }}/voting?return_to={{ editor_return_url | urlencode }}">
+  <form class="voting-form" method="post" action="/admin/categories/{{ cat['id'] }}/voting?return_to={{ editor_return_url | urlencode }}" data-preserve-scroll>
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <div class="field" style="margin:0">
       <label class="field-label">Сколько вариантов может выбрать один человек<sup class="required-mark" aria-hidden="true">*</sup></label>
@@ -371,7 +372,7 @@
     <h2 id="categoryPrivacyTitle">Приватность</h2>
     <p class="muted">Управляй тем, что смогут увидеть и сделать люди по гостевой ссылке.</p>
   </div>
-  <form class="category-privacy-form" method="post"
+  <form class="category-privacy-form" method="post" data-preserve-scroll
         action="/admin/categories/{{ cat['id'] }}/privacy?return_to={{ editor_return_url | urlencode }}">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <div class="category-privacy-options">

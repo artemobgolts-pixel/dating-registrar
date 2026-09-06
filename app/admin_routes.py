@@ -783,7 +783,7 @@ async def import_json(request: Request, file: UploadFile = File(...),
             ends=d.get("ends_at"), comment=d.get("comment"),
             origin="admin", guest_token=None, owner_id=uid, actor_id=uid,
             draft=0,
-            pay_split=1 if d.get("pay_split") else 0, place_url=d.get("place_url"),
+            pay_split=parse_pay(d.get("pay_split")), place_url=d.get("place_url"),
             # Импортированный старый «неактивный» объект становится обычным
             # активным событием, но не публикуется без явного решения владельца.
             is_public=0 if d.get("is_draft") else d.get("is_public", 0),
@@ -1980,13 +1980,15 @@ def enforce_date_quota(conn, user, bg: BackgroundTasks | None = None) -> None:
 
 
 def parse_pay(value) -> int:
-    """Вариант оплаты из формы → 0..3 (0 не указано, 1 — 50/50, 2 — я плачу,
-    3 — ты оплатишь). Любое неизвестное значение трактуем как 0."""
+    """Вариант оплаты из формы → 0..4; 4 означает бесплатное участие.
+
+    Любое неизвестное значение трактуем как «не указано».
+    """
     try:
         v = int(value)
     except (TypeError, ValueError):
         return 0
-    return v if v in (1, 2, 3) else 0
+    return v if v in (1, 2, 3, 4) else 0
 
 
 def parse_public(value) -> int:

@@ -87,6 +87,34 @@
     document.addEventListener("turbo:load", function () {
       document.documentElement.classList.remove("turbo-loading");
     });
+    // Редакторы после POST снова открывают ту же длинную страницу. Turbo (как и
+    // полная загрузка) начинает её сверху, поэтому переносим позицию ровно через
+    // один успешный переход. Ключ URL не даёт применить её на другой странице.
+    var editorScrollKey = "d4y_editor_scroll";
+    function currentEditorUrl() {
+      return window.location.pathname + window.location.search;
+    }
+    document.addEventListener("submit", function (e) {
+      var form = e.target;
+      if (!form.matches || !form.matches("[data-preserve-scroll]")) return;
+      try {
+        sessionStorage.setItem(editorScrollKey, JSON.stringify({
+          url: currentEditorUrl(),
+          y: Math.round(window.scrollY)
+        }));
+      } catch (_) {}
+    });
+    document.addEventListener("turbo:load", function () {
+      var saved;
+      try {
+        saved = JSON.parse(sessionStorage.getItem(editorScrollKey) || "null");
+      } catch (_) {
+        saved = null;
+      }
+      if (!saved || saved.url !== currentEditorUrl() || !Number.isFinite(saved.y)) return;
+      try { sessionStorage.removeItem(editorScrollKey); } catch (_) {}
+      requestAnimationFrame(function () { window.scrollTo(0, saved.y); });
+    });
     // КЛЮЧЕВОЕ для «реактивации»: любая успешная POST-форма (сохранение события,
     // привязка категории, архив/удаление, правка категории) меняет содержимое
     // СПИСКОВ (Активные/Архив, дашборд). Turbo кэширует снимок каждой
@@ -106,6 +134,9 @@
       var ok = e.detail && e.detail.success;
       if (ok && window.Turbo && Turbo.cache && typeof Turbo.cache.clear === "function") {
         Turbo.cache.clear();
+      }
+      if (!ok) {
+        try { sessionStorage.removeItem(editorScrollKey); } catch (_) {}
       }
     });
   }
@@ -290,7 +321,7 @@
     // в заголовке (.pay). Видимость нужного места ставит галерея (galleryHasMedia).
     var payPill = document.querySelector('.pcard [data-preview="pay"]');          // в заголовке
     var payPhoto = document.querySelector('.pcard [data-preview="pay-photo"]');   // на фото
-    var PAY = { "1": "💸 50/50", "2": "👌 Я плачу", "3": "🫵 Ты платишь" };
+    var PAY = { "1": "💸 50/50", "2": "👌 Я плачу", "3": "🫵 Ты платишь", "4": "Бесплатно" };
     var galleryHasMedia = !!(document.querySelector("#edSlides .ed-slide"));
     function syncPay() {
       var ch = form.querySelector('[data-bind="pay"]:checked');

@@ -765,11 +765,12 @@ window.UI = (() => {
       if (pv.desc) pv.desc.innerHTML = html;
       if (descPrev) descPrev.innerHTML = desc && desc.value ? "превью: " + html : "";
 
-      // оплата: радиогруппа (0 не важно / 1 50-50 / 2 я плачу / 3 ты оплатишь)
+      // оплата: радиогруппа (0 не важно / 1 50-50 / 2 я плачу /
+      // 3 ты оплатишь / 4 бесплатно)
       if (pv.pay) {
         var payChecked = form.querySelector('[data-bind="pay"]:checked');
         var payVal = payChecked ? payChecked.value : "0";
-        var PAY = { "1": "💸 50/50", "2": "👌 Я плачу", "3": "🫵 Ты платишь" };
+        var PAY = { "1": "💸 50/50", "2": "👌 Я плачу", "3": "🫵 Ты платишь", "4": "Бесплатно" };
         if (PAY[payVal]) { pv.pay.textContent = PAY[payVal]; pv.pay.hidden = false; }
         else { pv.pay.textContent = ""; pv.pay.hidden = true; }
       }

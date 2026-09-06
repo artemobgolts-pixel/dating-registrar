@@ -56,6 +56,7 @@
    больше нет. Значения пишутся в скрытые input формы — бэкенд не меняется.
    Порядок: 1) редактируемое превью 2) модификаторы 3) категории. #}
 <form method="post" enctype="multipart/form-data" id="dateForm"
+      {% if date %}data-preserve-scroll{% endif %}
       data-slots="{{ slots if slots and slots > 0 else 0 }}"
       data-vslots="{{ 2 - (videos | length) if videos else 2 }}"
       data-did="{{ date['id'] if date else '' }}"
@@ -197,6 +198,7 @@
           <label class="pay-opt choice-chip"><input type="radio" name="pay" value="1" data-bind="pay" {% if date and date['pay_split'] == 1 %}checked{% endif %}>💸 50/50</label>
           <label class="pay-opt choice-chip"><input type="radio" name="pay" value="2" data-bind="pay" {% if date and date['pay_split'] == 2 %}checked{% endif %}>👌 Я плачу</label>
           <label class="pay-opt choice-chip"><input type="radio" name="pay" value="3" data-bind="pay" {% if date and date['pay_split'] == 3 %}checked{% endif %}>🫵 Ты платишь</label>
+          <label class="pay-opt choice-chip"><input type="radio" name="pay" value="4" data-bind="pay" {% if date and date['pay_split'] == 4 %}checked{% endif %}> Бесплатно</label>
         </div>
       </div>
       <label class="field capacity-field">

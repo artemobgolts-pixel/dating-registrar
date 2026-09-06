@@ -1564,7 +1564,7 @@ html.ink-static .bg-smoke span {
 
 .count-line { margin-top: 12px; color: var(--muted); font-size: 13px; letter-spacing: .02em; }
 
-/* модификатор «50/50» — крупнее и сочнее остальных бейджей */
+/* модификатор цены/оплаты — крупнее и сочнее остальных бейджей */
 .badge.pay {
   font-size: 13px;
   font-weight: 700;

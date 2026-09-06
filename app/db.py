@@ -259,7 +259,7 @@ CREATE TABLE IF NOT EXISTS dates (
     is_draft INTEGER NOT NULL DEFAULT 0,    -- черновик / на модерации: гостям не виден
     operator_review_pending INTEGER NOT NULL DEFAULT 0
         CHECK(operator_review_pending IN (0, 1)), -- жёстко скрыто до одобрения
-    pay_split INTEGER NOT NULL DEFAULT 0,   -- бейдж «оплата 50/50»
+    pay_split INTEGER NOT NULL DEFAULT 0,   -- модификатор цены/оплаты события
     place_url TEXT,            -- если «место» вставили ссылкой на карты
     share_token TEXT,          -- секретная ссылка на это событие (/d/<токен>) для «добавить себе»
     source_date_id INTEGER,    -- исходник пользовательской копии; намеренно без FK:

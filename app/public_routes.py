@@ -646,7 +646,7 @@ def parse_pay_split(value) -> int:
         result = int(value)
     except (TypeError, ValueError):
         raise HTTPException(400, "Неизвестный вариант оплаты")
-    if result not in (0, 1, 2, 3):
+    if result not in (0, 1, 2, 3, 4):
         raise HTTPException(400, "Неизвестный вариант оплаты")
     return result
 
