@@ -770,7 +770,8 @@ window.UI = (() => {
       if (pv.pay) {
         var payChecked = form.querySelector('[data-bind="pay"]:checked');
         var payVal = payChecked ? payChecked.value : "0";
-        var PAY = { "1": "💸 50/50", "2": "👌 Я плачу", "3": "🫵 Ты платишь", "4": "🆓 Бесплатно" };
+        var PAY = { "1": "💸 50/50", "2": "👌 Я плачу", "3": "🫵 Ты платишь", "4": "Бесплатно" };
+        pv.pay.dataset.payValue = PAY[payVal] ? payVal : "0";
         if (PAY[payVal]) { pv.pay.textContent = PAY[payVal]; pv.pay.hidden = false; }
         else { pv.pay.textContent = ""; pv.pay.hidden = true; }
       }

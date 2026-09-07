@@ -3247,22 +3247,24 @@ html[data-theme="dark"][data-skin="friends"] .share-qr {
   -webkit-appearance: none; appearance: none;
 }
 .cfeed-search-input input::-webkit-search-cancel-button { display: none; }
-.cfeed-search-clear {
-  position: absolute; top: 50%; inset-inline-end: 7px; z-index: 1;
+.cfeed-search-input .cfeed-search-clear {
+  position: absolute; inset-block: 1px; inset-inline-end: 1px; z-index: 1;
   display: grid; place-items: center;
-  width: 30px; height: 30px; min-width: 30px; min-height: 30px; padding: 0;
-  border: 0; border-radius: 50%; cursor: pointer;
+  width: 40px; height: auto; min-width: 0; min-height: 0; padding: 0;
+  border: 0; border-radius: 0; cursor: pointer;
   background: transparent; color: var(--muted);
-  font: 600 21px/1 var(--sans);
-  transform: translateY(-50%);
-  transition: color 140ms ease, background-color 140ms ease;
+  box-shadow: none;
+  font: 500 20px/1 var(--sans);
+  transition: color 140ms ease;
 }
 .cfeed-search-clear[hidden] { display: none; }
 @media (hover: hover) and (pointer: fine) {
-  .cfeed-search-clear:hover { background: var(--rose-soft); color: var(--ink); }
+  .cfeed-search-input .cfeed-search-clear:hover { background: transparent; color: var(--ink); }
 }
-.cfeed-search-clear:active { transform: translateY(-50%) scale(.94); }
-.cfeed-search-clear:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.cfeed-search-input .cfeed-search-clear:active { transform: scale(.94); }
+.cfeed-search-input .cfeed-search-clear:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: -4px; border-radius: 8px;
+}
 .cfeed-search-row .btn { min-height: 44px; padding-inline: 18px; }
 .cfeed-search-status { margin: 0 0 12px 2px; font-size: 13px; }
 .cfeed {
@@ -5323,6 +5325,13 @@ html[data-theme] .badge.media-badge.media-badge--inflow,
   background: color-mix(in srgb, var(--card) 92%, var(--ink) 4%);
   color: var(--ink); border-color: color-mix(in srgb, var(--ink) 11%, var(--line));
   -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: none;
+}
+html[data-theme] .media-badge.media-badge--pay[data-pay-value="4"] {
+  --media-badge-mark: rgba(255, 255, 255, .78);
+  border-color: var(--choice-pay-bg);
+  background: var(--choice-pay-bg);
+  color: var(--choice-pay-fg);
+  box-shadow: 0 4px 11px color-mix(in srgb, var(--choice-pay-bg) 28%, transparent);
 }
 html[data-skin="friends"] .media-badge--guest { --media-badge-mark: var(--friends-teal); }
 html[data-skin="friends"] .media-badge--pending { --media-badge-mark: var(--friends-amber); }

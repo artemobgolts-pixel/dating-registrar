@@ -705,13 +705,16 @@
   });
   $("#propDescToolbar").addEventListener("mousedown", (e) => e.preventDefault());
 
-  const PAY = { "1": "💸 50/50", "2": "👌 Я плачу", "3": "🫵 Ты платишь", "4": "🆓 Бесплатно" };
+  const PAY = { "1": "💸 50/50", "2": "👌 Я плачу", "3": "🫵 Ты платишь", "4": "Бесплатно" };
   function syncPropPay() {
     const selected = propForm.querySelector('input[name="pay"]:checked');
     const text = PAY[selected ? selected.value : "0"] || "";
+    const value = text && selected ? selected.value : "0";
     const onPhoto = text && propSlides.children.length > 0;
+    $("#propPayPhoto").dataset.payValue = value;
     $("#propPayPhoto").textContent = text;
     $("#propPayPhoto").hidden = !onPhoto;
+    $("#propPayPill").dataset.payValue = value;
     $("#propPayPill").textContent = text;
     $("#propPayPill").hidden = !text || onPhoto;
   }

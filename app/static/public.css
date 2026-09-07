@@ -3635,6 +3635,13 @@ html[data-theme] .media-badges--inflow .badge.media-badge,
   border-color: color-mix(in srgb, var(--ink) 11%, var(--line));
   -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: none;
 }
+html[data-theme] .media-badge.media-badge--pay[data-pay-value="4"] {
+  --media-badge-mark: rgba(255, 255, 255, .78);
+  border-color: var(--choice-pay-bg);
+  background: var(--choice-pay-bg);
+  color: var(--choice-pay-fg);
+  box-shadow: 0 4px 11px color-mix(in srgb, var(--choice-pay-bg) 28%, transparent);
+}
 html[data-skin="friends"] .media-badge--guest { --media-badge-mark: var(--friends-teal); }
 html[data-skin="friends"] .media-badge--pending { --media-badge-mark: var(--friends-amber); }
 html[data-skin="friends"] .media-badge--booking { --media-badge-mark: var(--rose); }

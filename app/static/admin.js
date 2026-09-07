@@ -87,39 +87,63 @@
     document.addEventListener("turbo:load", function () {
       document.documentElement.classList.remove("turbo-loading");
     });
-    // Редакторы после POST снова открывают ту же длинную страницу. Turbo (как и
-    // полная загрузка) начинает её сверху, поэтому переносим позицию ровно через
-    // один успешный переход. Ключ URL не даёт применить её на другой странице.
+    // Редакторы после POST снова открывают ту же длинную страницу. После ответа
+    // сверху появляется flash-плашка, поэтому абсолютный scrollY уже указывает
+    // на другой участок. Запоминаем смещение относительно отправленной формы:
+    // она остаётся стабильным якорем и при Turbo-переходе, и при полной загрузке.
     var editorScrollKey = "d4y_editor_scroll";
-    function currentEditorUrl() {
-      var url = new URL(window.location.href);
-      // Flash-параметр появляется только после успешного POST и не меняет
-      // сам редактор. Без нормализации он ломал совпадение сохранённого URL.
-      url.searchParams.delete("msg");
-      var query = url.searchParams.toString();
-      return url.pathname + (query ? "?" + query : "");
+    var editorScrollRestorePending = false;
+    function currentEditorPath() {
+      return window.location.pathname;
+    }
+    function removeSavedEditorScroll() {
+      try { sessionStorage.removeItem(editorScrollKey); } catch (_) {}
     }
     document.addEventListener("submit", function (e) {
       var form = e.target;
       if (!form.matches || !form.matches("[data-preserve-scroll]")) return;
+      var y = Math.round(window.scrollY);
+      var anchorTop = form.getBoundingClientRect().top + window.scrollY;
       try {
         sessionStorage.setItem(editorScrollKey, JSON.stringify({
-          url: currentEditorUrl(),
-          y: Math.round(window.scrollY)
+          path: currentEditorPath(),
+          anchorId: form.id || "",
+          anchorOffset: Math.round(y - anchorTop),
+          y: y
         }));
       } catch (_) {}
     });
-    document.addEventListener("turbo:load", function () {
+    function restoreEditorScroll() {
+      if (editorScrollRestorePending) return;
       var saved;
       try {
         saved = JSON.parse(sessionStorage.getItem(editorScrollKey) || "null");
       } catch (_) {
         saved = null;
       }
-      if (!saved || saved.url !== currentEditorUrl() || !Number.isFinite(saved.y)) return;
-      try { sessionStorage.removeItem(editorScrollKey); } catch (_) {}
-      requestAnimationFrame(function () { window.scrollTo(0, saved.y); });
-    });
+      if (!saved || !Number.isFinite(saved.y)) return;
+      if (saved.path !== currentEditorPath()) {
+        removeSavedEditorScroll();
+        return;
+      }
+      editorScrollRestorePending = true;
+      // Два кадра дают Turbo закончить замену body и применить геометрию CSS.
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () {
+          var anchor = saved.anchorId ? document.getElementById(saved.anchorId) : null;
+          var y = saved.y;
+          if (anchor && Number.isFinite(saved.anchorOffset)) {
+            y = anchor.getBoundingClientRect().top + window.scrollY + saved.anchorOffset;
+          }
+          window.scrollTo(0, Math.max(0, Math.round(y)));
+          removeSavedEditorScroll();
+          editorScrollRestorePending = false;
+        });
+      });
+    }
+    document.addEventListener("turbo:load", restoreEditorScroll);
+    // Fallback для браузерной полной перезагрузки и восстановления вкладки.
+    window.addEventListener("pageshow", restoreEditorScroll);
     // КЛЮЧЕВОЕ для «реактивации»: любая успешная POST-форма (сохранение события,
     // привязка категории, архив/удаление, правка категории) меняет содержимое
     // СПИСКОВ (Активные/Архив, дашборд). Turbo кэширует снимок каждой
@@ -141,7 +165,7 @@
         Turbo.cache.clear();
       }
       if (!ok) {
-        try { sessionStorage.removeItem(editorScrollKey); } catch (_) {}
+        removeSavedEditorScroll();
       }
     });
   }
@@ -326,7 +350,7 @@
     // в заголовке (.pay). Видимость нужного места ставит галерея (galleryHasMedia).
     var payPill = document.querySelector('.pcard [data-preview="pay"]');          // в заголовке
     var payPhoto = document.querySelector('.pcard [data-preview="pay-photo"]');   // на фото
-    var PAY = { "1": "💸 50/50", "2": "👌 Я плачу", "3": "🫵 Ты платишь", "4": "🆓 Бесплатно" };
+    var PAY = { "1": "💸 50/50", "2": "👌 Я плачу", "3": "🫵 Ты платишь", "4": "Бесплатно" };
     var galleryHasMedia = !!(document.querySelector("#edSlides .ed-slide"));
     function syncPay() {
       var ch = form.querySelector('[data-bind="pay"]:checked');
@@ -334,10 +358,12 @@
       var label = PAY[v] || "";
       var onPhoto = galleryHasMedia && !!label;
       if (payPhoto) {
+        payPhoto.dataset.payValue = label ? v : "0";
         payPhoto.textContent = onPhoto ? label : "";
         payPhoto.hidden = !onPhoto;
       }
       if (payPill) {
+        payPill.dataset.payValue = label ? v : "0";
         var inHeader = !!label && !onPhoto;
         payPill.textContent = inHeader ? label : "";
         payPill.hidden = !inHeader;

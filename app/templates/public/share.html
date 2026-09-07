@@ -131,7 +131,7 @@
              id="date-{{ d.id }}">
       {% if d.images or d.videos %}
       <div class="gal-wrap">
-        {% if d.pay_split %}<div class="badges media-badges"><span class="badge pay media-badge media-badge--pay">{{ d.pay_split | pay_label }}</span></div>{% endif %}
+        {% if d.pay_split %}<div class="badges media-badges"><span class="badge pay media-badge media-badge--pay" data-pay-value="{{ d.pay_split }}">{{ d.pay_split | pay_label }}</span></div>{% endif %}
         {% if not is_mine %}
         <details class="event-card-menu event-card-menu--media">
           <summary aria-label="Действия с событием «{{ d.name }}»">
@@ -178,7 +178,7 @@
         </details>
         {% endif %}
         {% if not d.images and not d.videos and d.pay_split %}
-        <div class="badges media-badges media-badges--inflow inflow"><span class="badge pay media-badge media-badge--pay">{{ d.pay_split | pay_label }}</span></div>
+        <div class="badges media-badges media-badges--inflow inflow"><span class="badge pay media-badge media-badge--pay" data-pay-value="{{ d.pay_split }}">{{ d.pay_split | pay_label }}</span></div>
         {% endif %}
         <h2 class="title">{{ d.name }}</h2>
         <div class="meta">

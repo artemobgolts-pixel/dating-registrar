@@ -117,7 +117,7 @@
         alt="" loading="lazy" fetchpriority="low" decoding="async"
         {% if r['cover_focus'] %}style="object-position:{{ r['cover_focus'] }}"{% endif %}>
       {% if r['pay_split'] or r['origin'] == 'guest' %}<div class="badges media-badges">
-        {% if r['pay_split'] %}<span class="bdg pay media-badge media-badge--pay">{{ r['pay_split'] | pay_label }}</span>{% endif %}
+        {% if r['pay_split'] %}<span class="bdg pay media-badge media-badge--pay" data-pay-value="{{ r['pay_split'] }}">{{ r['pay_split'] | pay_label }}</span>{% endif %}
         {% if r['origin'] == 'guest' %}<span class="bdg guest media-badge media-badge--guest">💡 предложено</span>{% endif %}
       </div>{% endif %}
       {% if r['booked_names'] %}<div class="badges media-badges book-corner"><span class="bdg book media-badge media-badge--booking">{% with icon='check' %}{% include "admin/_icon.html" %}{% endwith %} {{ r['booked_names'] }}</span></div>{% endif %}
@@ -126,7 +126,7 @@
     <div class="b">
       {% if not r['cover'] %}
       {% if r['pay_split'] or r['origin'] == 'guest' or r['booked_names'] %}<div class="badges media-badges media-badges--inflow inflow">
-        {% if r['pay_split'] %}<span class="bdg pay media-badge media-badge--pay">{{ r['pay_split'] | pay_label }}</span>{% endif %}
+        {% if r['pay_split'] %}<span class="bdg pay media-badge media-badge--pay" data-pay-value="{{ r['pay_split'] }}">{{ r['pay_split'] | pay_label }}</span>{% endif %}
         {% if r['origin'] == 'guest' %}<span class="bdg guest media-badge media-badge--guest">💡 предложено</span>{% endif %}
         {% if r['booked_names'] %}<span class="bdg book media-badge media-badge--booking">{% with icon='check' %}{% include "admin/_icon.html" %}{% endwith %} {{ r['booked_names'] }}</span>{% endif %}
       </div>{% endif %}
@@ -201,7 +201,7 @@
       <div class="drow-ttl">
         <a href="/admin/dates/{{ r['id'] }}/edit?{{ editor_return_query }}" class="serif">{{ r['name'] }}</a>
         {% if r['origin'] == 'guest' %}<span class="badge badge-meta media-badge media-badge--guest media-badge--inflow">💡 предложено</span>{% endif %}
-        {% if r['pay_split'] %}<span class="badge badge-split media-badge media-badge--pay media-badge--inflow">{{ r['pay_split'] | pay_label }}</span>{% endif %}
+        {% if r['pay_split'] %}<span class="badge badge-split media-badge media-badge--pay media-badge--inflow" data-pay-value="{{ r['pay_split'] }}">{{ r['pay_split'] | pay_label }}</span>{% endif %}
       </div>
       <div class="entity-status-row drow-status-row">
         {{ event_lifecycle(r) }}
