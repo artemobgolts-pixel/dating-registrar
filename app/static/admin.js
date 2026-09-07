@@ -92,7 +92,12 @@
     // один успешный переход. Ключ URL не даёт применить её на другой странице.
     var editorScrollKey = "d4y_editor_scroll";
     function currentEditorUrl() {
-      return window.location.pathname + window.location.search;
+      var url = new URL(window.location.href);
+      // Flash-параметр появляется только после успешного POST и не меняет
+      // сам редактор. Без нормализации он ломал совпадение сохранённого URL.
+      url.searchParams.delete("msg");
+      var query = url.searchParams.toString();
+      return url.pathname + (query ? "?" + query : "");
     }
     document.addEventListener("submit", function (e) {
       var form = e.target;
@@ -321,7 +326,7 @@
     // в заголовке (.pay). Видимость нужного места ставит галерея (galleryHasMedia).
     var payPill = document.querySelector('.pcard [data-preview="pay"]');          // в заголовке
     var payPhoto = document.querySelector('.pcard [data-preview="pay-photo"]');   // на фото
-    var PAY = { "1": "💸 50/50", "2": "👌 Я плачу", "3": "🫵 Ты платишь", "4": "Бесплатно" };
+    var PAY = { "1": "💸 50/50", "2": "👌 Я плачу", "3": "🫵 Ты платишь", "4": "🆓 Бесплатно" };
     var galleryHasMedia = !!(document.querySelector("#edSlides .ed-slide"));
     function syncPay() {
       var ch = form.querySelector('[data-bind="pay"]:checked');
@@ -1626,7 +1631,7 @@
         resetFeed(searchInput.value);
       });
       searchInput.addEventListener("input", function () {
-        if (searchClear) searchClear.hidden = !cleanSearchQuery(searchInput.value);
+        if (searchClear) searchClear.hidden = !searchInput.value;
       });
     }
     if (searchClear) searchClear.addEventListener("click", function () {

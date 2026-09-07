@@ -151,7 +151,7 @@
 {% if m %}<div class="flash{{ ' err' if m.startswith('⚠') else '' }}">{{ m }}</div>{% endif %}
 {% if user and not user['bot_linked'] and active not in ('q', 'profile') %}
 <div class="flash telegram-connect-banner">
-  {% with telegram_connect_class='telegram-connect-banner-inner', telegram_connect_description='Подключи уведомления о выборе событий, вопросах и предложениях прямо в Telegram.', telegram_connect_return_to=request.url.path %}
+  {% with telegram_connect_class='telegram-connect-banner-inner', telegram_connect_return_to=request.url.path %}
     {% include "admin/_telegram_connect.html" %}
   {% endwith %}
 </div>

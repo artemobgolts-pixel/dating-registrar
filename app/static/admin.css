@@ -3238,12 +3238,32 @@ html[data-theme="dark"][data-skin="friends"] .share-qr {
 .cfeed-intro { margin-bottom: 14px; }
 .cfeed-search { max-width: 760px; margin: -2px 0 8px; }
 .cfeed-search-row {
-  display: grid; grid-template-columns: minmax(0, 1fr) auto auto;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto;
   align-items: center; gap: 8px;
 }
-.cfeed-search-row input { min-width: 0; }
+.cfeed-search-input { position: relative; min-width: 0; }
+.cfeed-search-input input {
+  width: 100%; min-width: 0; padding-inline-end: 42px;
+  -webkit-appearance: none; appearance: none;
+}
+.cfeed-search-input input::-webkit-search-cancel-button { display: none; }
+.cfeed-search-clear {
+  position: absolute; top: 50%; inset-inline-end: 7px; z-index: 1;
+  display: grid; place-items: center;
+  width: 30px; height: 30px; min-width: 30px; min-height: 30px; padding: 0;
+  border: 0; border-radius: 50%; cursor: pointer;
+  background: transparent; color: var(--muted);
+  font: 600 21px/1 var(--sans);
+  transform: translateY(-50%);
+  transition: color 140ms ease, background-color 140ms ease;
+}
+.cfeed-search-clear[hidden] { display: none; }
+@media (hover: hover) and (pointer: fine) {
+  .cfeed-search-clear:hover { background: var(--rose-soft); color: var(--ink); }
+}
+.cfeed-search-clear:active { transform: translateY(-50%) scale(.94); }
+.cfeed-search-clear:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .cfeed-search-row .btn { min-height: 44px; padding-inline: 18px; }
-.cfeed-search-hint { margin: 6px 2px 0; font-size: 12px; }
 .cfeed-search-status { margin: 0 0 12px 2px; font-size: 13px; }
 .cfeed {
   display: grid;
@@ -3285,9 +3305,16 @@ html[data-theme="dark"][data-skin="friends"] .share-qr {
 }
 .cfeed-owner:hover { background: var(--rose-soft); }
 .cfeed-card-owner { margin-top: 0; }
-.cfeed-ava { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; }
-.cfeed-ava-ph { display: grid; place-items: center; background: #f3e6e9; font-size: 15px; }
+.cfeed-ava { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; flex: none; }
+.cfeed-ava-ph {
+  display: inline-block; width: auto; background: transparent;
+  border-radius: 0; font-size: 18px; line-height: 26px;
+}
 .cfeed-owner-name { max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.date-bookings-card { display: grid; gap: 8px; }
+.date-bookings-list { display: grid; gap: 6px; }
+.date-booking-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .report-link {
   margin-top: 9px; border: 0; background: none; padding: 0; cursor: pointer;
   font: inherit; font-size: 12px; color: var(--muted); opacity: .7;
@@ -3351,7 +3378,6 @@ html[data-theme="dark"][data-skin="friends"] .share-qr {
   .grid .dcard .ph { height: auto; aspect-ratio: 16 / 9; }
   .dates-bulk-form, .drow-select { display: none; }
   .cfeed-search-row { grid-template-columns: minmax(0, 1fr) auto; }
-  .cfeed-search-clear { grid-column: 1 / -1; width: 100%; }
 }
 @media (max-width: 950px) and (max-height: 600px) and (pointer: coarse) {
   /* Телефон в landscape не возвращается к сохранённому табличному виду. */
@@ -3657,7 +3683,6 @@ html[data-theme="dark"] .badge {
 html[data-theme="dark"] .thumb img,
 html[data-theme="dark"] .avatar-pick .avatar-ph,
 html[data-theme="dark"] .profile-avatar-ph,
-html[data-theme="dark"] .cfeed-ava-ph,
 html[data-theme="dark"] .og-img,
 html[data-theme="dark"] .cat-thumb,
 html[data-theme="dark"] .cat-cover { background-color: #2d272c; }

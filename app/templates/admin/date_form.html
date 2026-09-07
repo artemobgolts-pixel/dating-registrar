@@ -33,11 +33,11 @@
 {% endif %}
 
 {% if date and booked %}
-<div class="card" style="background:rgba(253,244,246,.85);border-color:#f0d9de">
+<div class="card date-bookings-card">
   <b>{% with icon='check' %}{% include "admin/_icon.html" %}{% endwith %} Кто выбрал</b>
-  <div style="margin-top:8px;display:grid;gap:6px">
+  <div class="date-bookings-list">
     {% for b in booked %}
-    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    <div class="date-booking-row">
       <span>{{ b['name'] }} <span class="muted">— «{{ b['cat'] }}»</span></span>
       <form class="inline" method="post" action="/admin/bookings/{{ b['bid'] }}/delete"
             data-confirm="Снять выбор «{{ b['name'] }}»? Освободится одно место.">
@@ -198,7 +198,7 @@
           <label class="pay-opt choice-chip"><input type="radio" name="pay" value="1" data-bind="pay" {% if date and date['pay_split'] == 1 %}checked{% endif %}>💸 50/50</label>
           <label class="pay-opt choice-chip"><input type="radio" name="pay" value="2" data-bind="pay" {% if date and date['pay_split'] == 2 %}checked{% endif %}>👌 Я плачу</label>
           <label class="pay-opt choice-chip"><input type="radio" name="pay" value="3" data-bind="pay" {% if date and date['pay_split'] == 3 %}checked{% endif %}>🫵 Ты платишь</label>
-          <label class="pay-opt choice-chip"><input type="radio" name="pay" value="4" data-bind="pay" {% if date and date['pay_split'] == 4 %}checked{% endif %}> Бесплатно</label>
+          <label class="pay-opt choice-chip"><input type="radio" name="pay" value="4" data-bind="pay" {% if date and date['pay_split'] == 4 %}checked{% endif %}>🆓 Бесплатно</label>
         </div>
       </div>
       <label class="field capacity-field">

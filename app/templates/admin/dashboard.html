@@ -116,14 +116,18 @@
         role="search" aria-label="Поиск по ленте событий">
     <label class="sr-only" for="communitySearchInput">Название, место, описание или ссылка</label>
     <div class="cfeed-search-row">
-      <input type="search" id="communitySearchInput" name="q"
-             value="{{ community_query }}" maxlength="80" autocomplete="off"
-             placeholder="Название, место или ссылка">
+      <div class="cfeed-search-input">
+        <input type="search" id="communitySearchInput" name="q"
+               value="{{ community_query }}" maxlength="80" autocomplete="off"
+               placeholder="Название, место или ссылка">
+        <button type="button" class="cfeed-search-clear" id="communitySearchClear"
+                aria-label="Сбросить поиск" title="Сбросить поиск"
+                {% if not community_query %}hidden{% endif %}>
+          <span aria-hidden="true">×</span>
+        </button>
+      </div>
       <button type="submit" class="btn primary">Найти</button>
-      <button type="button" class="btn cfeed-search-clear" id="communitySearchClear"
-              {% if not community_query %}hidden{% endif %}>Сбросить</button>
     </div>
-    <p class="muted cfeed-search-hint">Ищем также в описании и читаемой части ссылок на карты.</p>
   </form>
   <p class="muted cfeed-search-status" id="communitySearchStatus"
      role="status" aria-live="polite" hidden></p>

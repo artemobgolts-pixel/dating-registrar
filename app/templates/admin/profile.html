@@ -112,7 +112,7 @@
 
 {% if not user['bot_linked'] %}
 <div class="card" style="max-width:540px">
-  {% with telegram_connect_class='telegram-connect-profile', telegram_connect_description='Получай уведомления о выборе событий, вопросах и предложениях прямо в Telegram.', telegram_connect_return_to='/admin/profile' %}
+  {% with telegram_connect_class='telegram-connect-profile', telegram_connect_return_to='/admin/profile' %}
     {% include "admin/_telegram_connect.html" %}
   {% endwith %}
 </div>

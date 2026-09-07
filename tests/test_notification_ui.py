@@ -74,6 +74,14 @@ class NotificationUiTests(unittest.TestCase):
         self.assertNotIn("Бот подключён", combined)
         self.assertNotIn("Бот не подключён", combined)
         self.assertNotIn("Подключить бота", combined)
+        self.assertNotIn(
+            "Получай уведомления о выборе событий, вопросах и предложениях прямо в Telegram.",
+            combined,
+        )
+        self.assertNotIn(
+            "Подключи уведомления о выборе событий, вопросах и предложениях прямо в Telegram.",
+            combined,
+        )
         self.assertIn("Уведомления в Telegram", connect)
         self.assertIn("{% if not user['bot_linked'] %}", connect)
         self.assertIn('data-tg-connect class="btn primary telegram-connect-button notif-settings-connect"', connect)
