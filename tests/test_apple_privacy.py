@@ -135,7 +135,7 @@ class ProfileVisibilityTests(unittest.TestCase):
     def setUp(self):
         self.conn = memory_db()
         self.user = add_user(self.conn, 1, "Алина")
-        self.request = SimpleNamespace(state=SimpleNamespace(user=self.user))
+        self.request = SimpleNamespace(state=SimpleNamespace(user=self.user), headers={})
 
     def tearDown(self):
         self.conn.close()
@@ -174,12 +174,16 @@ class EventCreationDefaultsTests(unittest.TestCase):
     def test_new_event_starts_public_but_editing_preserves_saved_choice(self):
         template = (APP / "templates/admin/date_form.html").read_text("utf-8")
         self.assertIn(
-            "{% if not date or date['is_public'] %}checked{% endif %}",
+            "{% if draft['is_public'] %}checked{% endif %}",
             template,
         )
         # Сервер по-прежнему отличает сознательно снятый checkbox от дефолта UI.
         self.assertIn("is_public: str | None = Form(None)",
                       (APP / "admin_routes.py").read_text("utf-8"))
+        for date, expected in ((None, 1), ({"is_public": 0}, 0), ({"is_public": 1}, 1)):
+            with self.subTest(date=date), patch.object(admin_routes, "actx", side_effect=lambda request, conn, **kw: kw), patch.object(admin_routes.templates, "TemplateResponse") as render:
+                admin_routes._render_date_editor(SimpleNamespace(state=SimpleNamespace()), None, date=date)
+                self.assertEqual(render.call_args.args[2]["draft"]["is_public"], expected)
 
 
 class WantsAndRosterVisibilityTests(unittest.TestCase):

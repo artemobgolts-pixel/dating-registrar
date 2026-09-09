@@ -6,7 +6,7 @@
 #   2) создаёт rclone-ремоут "backup" (S3) из ПЕРЕМЕННЫХ ОКРУЖЕНИЯ — ключи
 #      пишутся в ~/.config/rclone/rclone.conf (chmod 600), НИКОГДА не в git;
 #   3) проверяет доступ к бакету (rclone lsd);
-#   4) дописывает TG_BACKUP_CHAT_ID в .env (если ещё не задан) и перезапускает app;
+#   4) при явном opt-in добавляет отсутствующий TG_BACKUP_CHAT_ID, применяет .env;
 #   5) делает контрольный прогон scripts/backup.sh;
 #   6) подсказывает строку cron (сам crontab не трогает — добавишь осознанно).
 #
@@ -29,7 +29,8 @@ S3_ACCESS_KEY="${S3_ACCESS_KEY:-}"
 S3_SECRET_KEY="${S3_SECRET_KEY:-}"
 S3_BUCKET="${S3_BUCKET:-date4you-d3df2b40}"
 S3_REGION="${S3_REGION:-}"                       # многие S3 не требуют; оставь пустым
-TG_BACKUP_CHAT_ID="${TG_BACKUP_CHAT_ID:--5251173115}"
+# Telegram — отдельный opt-in; существующее значение в .env не меняем.
+TG_BACKUP_CHAT_ID="${TG_BACKUP_CHAT_ID:-}"
 REMOTE_NAME="${REMOTE_NAME:-backup}"
 
 # Каталог проекта: пробуем оба известных пути, иначе задай PROJECT_DIR= явно.
@@ -87,14 +88,21 @@ ENV_FILE="$PROJECT_DIR/.env"
 if [ ! -f "$ENV_FILE" ]; then
   echo "ОШИБКА: нет $ENV_FILE" >&2; exit 1
 fi
-if grep -q '^TG_BACKUP_CHAT_ID=' "$ENV_FILE"; then
-  sed -i "s|^TG_BACKUP_CHAT_ID=.*|TG_BACKUP_CHAT_ID=$TG_BACKUP_CHAT_ID|" "$ENV_FILE"
-  echo "→ TG_BACKUP_CHAT_ID обновлён в .env"
-else
+if grep -Eq '^[[:space:]]*(export[[:space:]]+)?TG_BACKUP_CHAT_ID[[:space:]]*=' "$ENV_FILE"; then
+  echo "→ Существующая настройка TG_BACKUP_CHAT_ID сохранена (включая отключение)"
+elif [ -n "$TG_BACKUP_CHAT_ID" ]; then
+  # Только идентификатор чата или username канала; не допускаем новые строки .env.
+  if [[ ! "$TG_BACKUP_CHAT_ID" =~ ^-?[0-9]+$ && ! "$TG_BACKUP_CHAT_ID" =~ ^@[A-Za-z][A-Za-z0-9_]*$ ]]; then
+    echo "ОШИБКА: некорректный TG_BACKUP_CHAT_ID" >&2; exit 1
+  fi
   printf '\nTG_BACKUP_CHAT_ID=%s\n' "$TG_BACKUP_CHAT_ID" >> "$ENV_FILE"
-  echo "→ TG_BACKUP_CHAT_ID добавлен в .env"
+  echo "→ Явно выбранный TG_BACKUP_CHAT_ID добавлен в .env"
+else
+  echo "→ Telegram-бэкап не настроен: получатель не задан"
 fi
-echo "→ Перезапускаю app, чтобы подхватить .env…"
+# Контрольный backup читает настройки работающего контейнера. Применяем .env
+# и при отключении/смене получателя, чтобы не отправить снимок по старому адресу.
+echo "→ Применяю .env к app перед контрольным бэкапом…"
 ( cd "$PROJECT_DIR" && docker compose up -d app )
 
 # 5) контрольный прогон (база + uploads наружу, бэкап базы в TG)

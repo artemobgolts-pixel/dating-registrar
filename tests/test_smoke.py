@@ -515,21 +515,19 @@ with TestClient(main.app, follow_redirects=False) as c:
     r = apost(c, "/admin/dates/new", {"name": "Перебор"},
               files=[("images", (f"p{i}.png", png((i * 30, 80, 80)), "image/png"))
                      for i in range(6)])
-    assert r.status_code == 303
-    fr = c.get(r.headers["location"])
-    assert "⚠" in fr.text and "Максимум" in fr.text
+    assert r.status_code == 422
+    assert 'id="editorError"' in r.text and "Максимум" in r.text
     assert not db_one("SELECT 1 FROM dates WHERE name='Перебор'")
 
     r = apost(c, "/admin/dates/new", {"name": "Битый файл"},
               files=[("images", ("x.png", b"definitely not an image", "image/png"))])
-    fr = c.get(r.headers["location"])
-    assert "не похож" in fr.text
+    assert r.status_code == 422 and "не похож" in r.text
     assert not db_one("SELECT 1 FROM dates WHERE name='Битый файл'")
 
     r = apost(c, "/admin/dates/new", {"name": "Кривая дата", "starts_at": "lol"})
-    fr = c.get(r.headers["location"])
-    assert "Неверный формат" in fr.text
-    step("ошибки форм админки превращаются в flash-сообщения, мусор не создаётся")
+    assert r.status_code == 422 and "Неверный формат" in r.text
+    assert 'value="Кривая дата"' in r.text
+    step("ошибки редактора возвращают форму с черновиком, мусор не создаётся")
 
     # ---------- защита фото ----------
     page = c.get(f"/c/{tok}").text
@@ -1476,14 +1474,14 @@ with TestClient(main.app, follow_redirects=False) as c:
     # битый «видеофайл» (на самом деле png-байты) — мягкая ошибка
     r = apost(c, "/admin/dates/new", {"name": "Битое видео", "categories": str(vcid)},
               files=[("videos", ("x.mp4", png(), "video/mp4"))])
-    assert r.status_code == 303 and "%E2%9A%A0" in r.headers["location"]
+    assert r.status_code == 422 and 'id="editorError"' in r.text
 
     # сирот не остаётся: фото валидное, видео битое → НИ фото, НИ видео на диске
     before = set(p.name for p in main.images.UPLOAD_DIR.iterdir())
     r = apost(c, "/admin/dates/new", {"name": "Сирота-тест", "categories": str(vcid)},
               files=[("images", ("ok.png", png((10, 20, 30)), "image/png")),
                      ("videos", ("bad.mp4", png(), "video/mp4"))])
-    assert r.status_code == 303 and "%E2%9A%A0" in r.headers["location"]
+    assert r.status_code == 422 and 'id="editorError"' in r.text
     after = set(p.name for p in main.images.UPLOAD_DIR.iterdir())
     assert after == before, f"остались файлы-сироты: {after - before}"
     assert not db_one("SELECT 1 FROM dates WHERE name='Сирота-тест'")
@@ -1491,7 +1489,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     # больше двух видео за раз — отбой
     r = apost(c, "/admin/dates/new", {"name": "Много видео", "categories": str(vcid)},
               files=[("videos", (f"v{i}.mp4", MP4, "video/mp4")) for i in range(3)])
-    assert r.status_code == 303 and "%E2%9A%A0" in r.headers["location"]
+    assert r.status_code == 422 and 'id="editorError"' in r.text
 
     # удаление видео админом чистит и файл
     r = apost(c, f"/admin/dates/{did_vid}/videos/{vrow and db_one('SELECT id FROM date_videos WHERE date_id=?', (did_vid,))['id']}/delete",
@@ -2373,10 +2371,9 @@ with TestClient(main.app, follow_redirects=False) as cq:
     for i in range(3):
         assert cqp("/admin/dates/new", {"name": f"Квота {i}"}).status_code == 303
     r = cqp("/admin/dates/new", {"name": "Лишнее"})
-    # friendly-flash превращает 400 в 303 с сообщением про лимит в ?msg=
-    assert r.status_code == 303
-    loc = unquote(r.headers.get("location", ""))
-    assert "лимит" in loc.lower()
+    # Ошибка квоты сохраняет редактор и введённое название.
+    assert r.status_code == 422
+    assert "лимит" in r.text.lower() and 'value="Лишнее"' in r.text
     assert db_one("SELECT COUNT(*) FROM dates WHERE owner_id=? AND name='Лишнее'",
                   (uid_q,))[0] == 0
 

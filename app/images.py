@@ -17,6 +17,8 @@ import secrets
 import shutil
 import hashlib
 import subprocess
+import warnings
+from contextlib import ExitStack
 from pathlib import Path
 
 from PIL import Image, ImageOps
@@ -96,45 +98,57 @@ def save_upload(upload) -> str:
     if len(data) > MAX_BYTES:
         raise ValueError("Файл больше 10 МБ")
 
-    try:
-        im = Image.open(io.BytesIO(data))
-        im.load()
-    except Image.DecompressionBombError:
-        raise ValueError(f"Слишком большое изображение (максимум {MAX_DIM}×{MAX_DIM})")
-    except Exception:
-        raise ValueError("Файл не похож на изображение")
+    with ExitStack() as decoded:
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("error", Image.DecompressionBombWarning)
+                im = Image.open(io.BytesIO(data))
+                decoded.callback(im.close)
+                # Размеры доступны из заголовка: не декодируем пиксели до
+                # проверки каждой стороны, включая очень узкие изображения.
+                if im.width > MAX_DIM or im.height > MAX_DIM:
+                    raise Image.DecompressionBombError("Слишком большое разрешение")
+                im.load()
+        except (Image.DecompressionBombError, Image.DecompressionBombWarning):
+            raise ValueError(f"Слишком большое изображение (максимум {MAX_DIM}×{MAX_DIM})")
+        except Exception:
+            raise ValueError("Файл не похож на изображение")
 
-    if im.width > MAX_DIM or im.height > MAX_DIM:
-        raise ValueError(f"Слишком большое разрешение (максимум {MAX_DIM}×{MAX_DIM})")
+        im = ImageOps.exif_transpose(im)
+        decoded.callback(im.close)
 
-    im = ImageOps.exif_transpose(im)
+        if im.mode in ("P", "LA"):
+            im = im.convert("RGBA")
+            decoded.callback(im.close)
+        elif im.mode not in ("RGB", "RGBA"):
+            im = im.convert("RGB")
+            decoded.callback(im.close)
 
-    if im.mode in ("P", "LA"):
-        im = im.convert("RGBA")
-    elif im.mode not in ("RGB", "RGBA"):
-        im = im.convert("RGB")
+        im.thumbnail((MAX_SIDE, MAX_SIDE))
 
-    im.thumbnail((MAX_SIDE, MAX_SIDE))
-
-    name = f"{secrets.token_urlsafe(12)}.webp"
-    im.save(UPLOAD_DIR / name, "WEBP", quality=85, method=4)
-    # Новые фото сразу получают варианты для карточек и аватаров. Старые фото
-    # по-прежнему обслуживает ленивый fallback в responsive_image().
-    generate_responsive_variants(name, image=im)
-    return name
+        name = f"{secrets.token_urlsafe(12)}.webp"
+        try:
+            im.save(UPLOAD_DIR / name, "WEBP", quality=85, method=4)
+            # Новые фото сразу получают варианты для карточек и аватаров. Старые
+            # фото по-прежнему обслуживает ленивый fallback в responsive_image().
+            generate_responsive_variants(name, image=im)
+        except Exception:
+            delete_file(name)
+            raise
+        return name
 
 
 def save_batch(uploads) -> list[str]:
     """Сохраняет пачку файлов атомарно по принципу «всё или ничего».
 
-    Возвращает список имён. Если какой-то файл битый — удаляет уже
-    записанные из этой пачки и пробрасывает ValueError дальше.
+    Возвращает список имён. При любой ошибке удаляет уже записанные
+    из этой пачки файлы и пробрасывает ошибку дальше.
     """
     saved: list[str] = []
     try:
         for f in uploads:
             saved.append(save_upload(f))
-    except ValueError:
+    except Exception:
         for name in saved:
             delete_file(name)
         raise
@@ -178,12 +192,16 @@ def _write_responsive_variant(source: Path, filename: str, width: int,
         f".{target.name}.{os.getpid()}.{secrets.token_urlsafe(5)}.tmp")
     try:
         height = max(1, round(image.height * width / image.width))
-        resized = image.resize((width, height), Image.Resampling.LANCZOS)
-        if resized.mode in ("P", "LA"):
-            resized = resized.convert("RGBA")
-        elif resized.mode not in ("RGB", "RGBA"):
-            resized = resized.convert("RGB")
-        resized.save(tmp, "WEBP", quality=RESPONSIVE_QUALITY, method=4)
+        with ExitStack() as decoded:
+            resized = image.resize((width, height), Image.Resampling.LANCZOS)
+            decoded.callback(resized.close)
+            if resized.mode in ("P", "LA"):
+                resized = resized.convert("RGBA")
+                decoded.callback(resized.close)
+            elif resized.mode not in ("RGB", "RGBA"):
+                resized = resized.convert("RGB")
+                decoded.callback(resized.close)
+            resized.save(tmp, "WEBP", quality=RESPONSIVE_QUALITY, method=4)
         # os.replace атомарен и безопасен при одновременной генерации одного
         # размера несколькими воркерами: победит полностью записанный файл.
         os.replace(tmp, target)
@@ -230,11 +248,11 @@ def generate_responsive_variants(
         return cached
 
     def build(decoded: Image.Image) -> dict[int, Path]:
-        decoded = ImageOps.exif_transpose(decoded)
-        return {
-            width: _write_responsive_variant(source, name, width, decoded)
-            for width in wanted
-        }
+        with ImageOps.exif_transpose(decoded) as transposed:
+            return {
+                width: _write_responsive_variant(source, name, width, transposed)
+                for width in wanted
+            }
 
     if image is not None:
         try:
@@ -283,8 +301,8 @@ def responsive_image(filename: str, width: int | None = None) -> Path:
     try:
         with Image.open(source) as opened:
             opened.load()
-            image = ImageOps.exif_transpose(opened)
-            return _write_responsive_variant(source, name, width, image)
+            with ImageOps.exif_transpose(opened) as image:
+                return _write_responsive_variant(source, name, width, image)
     except (OSError, ValueError) as exc:
         # Повреждение кэша не должно ломать страницу: оригинал всё ещё можно
         # отдать. Ошибка останется в журнале для диагностики.
@@ -422,7 +440,7 @@ def save_video(upload) -> str:
                 if written > MAX_VIDEO_BYTES:
                     raise ValueError("Видео больше 60 МБ")
                 out.write(chunk)
-    except ValueError:
+    except Exception:
         delete_file(name)
         raise
     _faststart_mp4(path)
@@ -432,14 +450,14 @@ def save_video(upload) -> str:
 def save_videos_batch(uploads) -> list[str]:
     """Сохраняет пачку видео атомарно по принципу «всё или ничего».
 
-    Возвращает список имён. Если какой-то файл битый или превышает лимит —
-    удаляет уже записанные из этой пачки и пробрасывает ValueError дальше.
+    Возвращает список имён. При любой ошибке удаляет уже записанные
+    из этой пачки файлы и пробрасывает ошибку дальше.
     """
     saved: list[str] = []
     try:
         for f in uploads:
             saved.append(save_video(f))
-    except ValueError:
+    except Exception:
         for name in saved:
             delete_file(name)
         raise

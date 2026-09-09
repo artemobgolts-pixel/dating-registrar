@@ -12,6 +12,7 @@ import re
 import secrets
 import tempfile
 import zipfile
+from contextlib import closing
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Annotated
@@ -36,6 +37,7 @@ import moderation
 import notify
 import places
 import public_routes
+import sessions
 import social_events
 import settings as app_settings
 import voting
@@ -52,6 +54,7 @@ from public_routes import (add_photos, copy_date_media_and_links, insert_date,
                            save_links, VIDEO_TYPES)
 from ratelimit import user_throttle
 from users import current_user
+from uploads import UploadRoute
 from web import get_db, redir, templates
 
 
@@ -62,7 +65,7 @@ from web import get_db, redir, templates
 # часть: каждый запрос проходит через current_user (сессия + активный юзер +
 # CSRF на POST) и видит данные ТОЛЬКО своего владельца.
 
-router = APIRouter(prefix="/admin", dependencies=[Depends(current_user)])
+router = APIRouter(prefix="/admin", dependencies=[Depends(current_user)], route_class=UploadRoute)
 log = logging.getLogger("admin")
 
 
@@ -152,9 +155,9 @@ def actx(request: Request, conn, **extra) -> dict:
 
 
 @router.post("/logout")
-def logout(request: Request):
+def logout(request: Request, conn=Depends(get_db)):
     """Выход только по POST с CSRF: logout по GET можно навязать ссылкой."""
-    request.session.clear()
+    sessions.revoke_session(request, conn)
     return RedirectResponse("/", status_code=303)
 
 
@@ -229,6 +232,12 @@ def profile_save(request: Request,
     conn.commit()
     if new_avatar and old_avatar:        # старый аватар — только после коммита
         images.delete_file(old_avatar)
+    if request.headers.get("x-requested-with") == "fetch":
+        profile = conn.execute(
+            "SELECT display_name, birth_date, gender, avatar_path, cursor_effects, "
+            "admin_skin FROM users WHERE id=?", (uid,),
+        ).fetchone()
+        return JSONResponse({"ok": True, "profile": dict(profile)})
     return redir("/admin/profile", "Профиль сохранён ♥")
 
 
@@ -644,33 +653,6 @@ def export_csv(request: Request, conn=Depends(get_db)):
                              f'attachment; filename="date4you-events-{day}.csv"'})
 
 
-def _account_media_names(data: dict, user) -> set[str]:
-    """Исходные uploads, принадлежащие одному аккаунту и описанные export.json."""
-    names = {user["avatar_path"]} if user["avatar_path"] else set()
-    names.update(c["og_image"] for c in data["categories"] if c.get("og_image"))
-    for date in data["dates"]:
-        names.update(date["images"])
-        names.update(date["videos"])
-    return names
-
-
-def _write_account_archive(path: str, data: dict, user) -> None:
-    """Пишет переносимый ZIP без общей SQLite-базы и чужих файлов."""
-    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr(
-            "export.json", json.dumps(data, ensure_ascii=False, indent=2),
-        )
-        for filename in sorted(_account_media_names(data, user)):
-            # Имена обычно пришли из БД, но повреждённая/ручная запись не должна
-            # превратить экспорт в чтение произвольного файла рядом с uploads.
-            if (not images.SAFE_FILENAME.fullmatch(filename)
-                    or Path(filename).name != filename):
-                continue
-            source = images.UPLOAD_DIR / filename
-            if source.is_file() and not source.is_symlink():
-                archive.write(source, arcname=f"uploads/{filename}")
-
-
 def _write_platform_backup(path: str, database_snapshot: Path) -> None:
     """Пишет операторский ZIP: консистентный app.db и все исходные uploads."""
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
@@ -698,18 +680,6 @@ def _zip_response(writer, filename: str) -> FileResponse:
         headers={"Cache-Control": "private, no-store",
                  "X-Content-Type-Options": "nosniff"},
         background=BackgroundTask(os.unlink, tmp.name),
-    )
-
-
-@router.get("/export/account-archive")
-def export_account_archive(request: Request, conn=Depends(get_db)):
-    """export.json и только исходные медиа текущего аккаунта; общей БД нет."""
-    user = request.state.user
-    data = _full_dump(conn, user["id"])
-    day = now_naive().strftime("%Y-%m-%d")
-    return _zip_response(
-        lambda path: _write_account_archive(path, data, user),
-        f"date4you-account-{day}.zip",
     )
 
 
@@ -1802,16 +1772,20 @@ def category_dates_reorder(cid: int, request: Request, order: str = Form(...),
 def category_detach(cid: int, request: Request, date_id: int = Form(...),
                     conn=Depends(get_db)):
     cat = _cat_or_404(conn, cid, request.state.user)
+    d = get_owned_date(conn, date_id, cat["owner_id"])
+    if not conn.execute(
+        "SELECT 1 FROM date_categories WHERE date_id=? AND category_id=?",
+        (date_id, cid),
+    ).fetchone():
+        raise HTTPException(404, "Событие не найдено в подборке")
     cat = _require_category_composition_mutable(conn, cat)
-    d = conn.execute("SELECT name FROM dates WHERE id=?", (date_id,)).fetchone()
     affected_users = [int(r["user_id"]) for r in conn.execute(
         "SELECT DISTINCT user_id FROM bookings WHERE date_id=? AND category_id=? "
         "AND user_id IS NOT NULL", (date_id, cid),
     )]
-    if d:
-        voting_events.queue_date_removed(
-            conn, date_id, d["name"], cid, cat["name"], cat["link_token"],
-        )
+    voting_events.queue_date_removed(
+        conn, date_id, d["name"], cid, cat["name"], cat["link_token"],
+    )
     conn.execute("DELETE FROM bookings WHERE date_id=? AND category_id=?", (date_id, cid))
     conn.execute("DELETE FROM date_categories WHERE date_id=? AND category_id=?", (date_id, cid))
     for user_id in affected_users:
@@ -2015,6 +1989,75 @@ def parse_public(value) -> int:
 
 
 
+def is_date_editor_post(request: Request) -> bool:
+    return request.method == "POST" and bool(re.fullmatch(
+        r"/admin/dates/(?:new|[0-9]+/edit)", request.url.path))
+
+
+async def _capture_date_draft(request: Request):
+    """Снимок только текста после авторизации; файлы остаются у multipart-парсера."""
+    form = await request.form()
+    fields = ("name", "place", "starts_at", "ends_at", "links", "comment", "capacity")
+    draft = {key: value[:65536] if isinstance(value, str) else ""
+             for key in fields for value in [form.get(key, "")]}
+    draft["pay_split"] = parse_pay(form.get("pay"))
+    draft["is_public"] = parse_public(form.get("is_public"))
+    request.state.editor_draft = draft
+    request.state.editor_categories = {
+        int(value) for value in form.getlist("categories")[:128]
+        if isinstance(value, str) and value.isascii() and value.isdigit() and len(value) < 20
+    }
+    request.state.editor_had_uploads = any(
+        getattr(value, "filename", "") for key in ("images", "videos")
+        for value in form.getlist(key)
+    )
+
+
+def _render_date_editor(request: Request, conn, **context):
+    draft = getattr(request.state, "editor_draft", None)
+    error = getattr(request.state, "editor_error", "")
+    values = draft if draft is not None else (dict(context["date"]) if context["date"] else {
+        "name": "", "place": "", "starts_at": "", "ends_at": "", "comment": "",
+        "capacity": "1", "pay_split": 0, "is_public": 1,
+    })
+    if draft is not None:
+        context["links_text"] = draft["links"]
+        # Чужие категории и идентификатор события никогда не берём из черновика.
+        own_ids = {cat["id"] for cat in context["cats"]}
+        locked_checked = context["checked"] & context["locked_cat_ids"]
+        context["checked"] = (request.state.editor_categories & own_ids) | locked_checked
+    display_times = {}
+    for key in ("starts_at", "ends_at"):
+        try:
+            display_times[key] = parse_dt_local(values.get(key)) or ""
+        except HTTPException:
+            display_times[key] = ""
+    return templates.TemplateResponse(
+        request, "admin/date_form.html",
+        actx(request, conn, active="dates", draft=values, display_times=display_times,
+             editor_error=error,
+             editor_media_notice=bool(error and getattr(request.state, "editor_had_uploads", False)),
+             **context),
+        status_code=422 if error else 200,
+    )
+
+
+def date_editor_error(request: Request, detail: str):
+    """Повторяем GET после отката/закрытия неуспешной транзакции POST."""
+    request.state.editor_error = detail
+    with closing(db.connect()) as conn:
+        if request.url.path == "/admin/dates/new":
+            return date_new_form(request, conn)
+        return date_edit_form(int(request.path_params["did"]), request, conn)
+
+
+def _date_editor_saved(request: Request, target: str, message: str):
+    response = redir(target, message)
+    if request.headers.get("x-requested-with") == "fetch":
+        return JSONResponse({"ok": True, "redirect": response.headers["location"]})
+    return response
+
+
 @router.get("/dates/new", response_class=HTMLResponse)
 def date_new_form(request: Request, conn=Depends(get_db)):
     checked = set()
@@ -2028,15 +2071,14 @@ def date_new_form(request: Request, conn=Depends(get_db)):
         request.query_params.get("return_to", ""), int(request.state.user["id"]),
         allow_operator=bool(request.state.user["is_operator"]),
     )
-    return templates.TemplateResponse(
-        request, "admin/date_form.html",
-        actx(request, conn, active="dates", date=None, photos=[], videos=[], links_text="",
+    return _render_date_editor(
+        request, conn, date=None, photos=[], videos=[], links_text="",
              cats=cats, checked=checked, locked_cat_ids=locked_cat_ids,
              editor_return_url=editor_return_url,
-             slots=images.MAX_IMAGES))
+             slots=images.MAX_IMAGES)
 
 
-@router.post("/dates/new")
+@router.post("/dates/new", dependencies=[Depends(_capture_date_draft)])
 def date_create(request: Request, bg: BackgroundTasks,
                 name: str = Form(...), place: str = Form(""),
                 starts_at: str = Form(""), ends_at: str = Form(""),
@@ -2054,10 +2096,11 @@ def date_create(request: Request, bg: BackgroundTasks,
     try:
         enforce_date_quota(conn, request.state.user, bg)  # общая квота аккаунта
     except DateQuotaExceeded as exc:
-        # У HTTPException нет background hook. Возвращаем тот же понятный текст
-        # flash-сообщением и прикрепляем очередь к ответу, чтобы уведомление
-        # платформенному администратору действительно отправилось.
-        response = redir("/admin/dates", str(exc.detail))
+        # Уведомление о квоте сохраняем и при показе ошибки в редакторе.
+        if request.headers.get("x-requested-with") == "fetch":
+            response = JSONResponse({"ok": False, "detail": exc.detail}, status_code=exc.status_code)
+        else:
+            response = date_editor_error(request, str(exc.detail))
         response.background = bg
         return response
     name = clean_text(name, 200, "Название", required=True)
@@ -2112,7 +2155,7 @@ def date_create(request: Request, bg: BackgroundTasks,
         "🆕 Создано событие",
         f"«{notify.esc(name)}»",
         f"Кто: {notify.esc(actor)}"))
-    return redir(
+    return _date_editor_saved(request,
         _safe_date_editor_return(
             request.query_params.get("return_to", ""), int(uid),
             allow_operator=bool(request.state.user["is_operator"]),
@@ -2280,9 +2323,8 @@ def date_edit_form(did: int, request: Request, conn=Depends(get_db)):
             if owner else None
         ) or f"#{d['owner_id']}"
         operator_context = {"owner_name": owner_name}
-    return templates.TemplateResponse(
-        request, "admin/date_form.html",
-        actx(request, conn, active="dates", date=d, photos=photos, videos=videos,
+    return _render_date_editor(
+        request, conn, date=d, photos=photos, videos=videos,
              booked=booked,
              proposer=proposer,
              links_text="\n".join(r["url"] for r in link_rows),
@@ -2290,10 +2332,10 @@ def date_edit_form(did: int, request: Request, conn=Depends(get_db)):
              cats=cats, checked=checked, locked_cat_ids=locked_cat_ids,
              editor_return_url=editor_return_url,
              operator_context=operator_context,
-             slots=images.MAX_IMAGES - len(photos)))
+             slots=images.MAX_IMAGES - len(photos))
 
 
-@router.post("/dates/{did}/edit")
+@router.post("/dates/{did}/edit", dependencies=[Depends(_capture_date_draft)])
 def date_update(did: int, request: Request, bg: BackgroundTasks, name: str = Form(...),
                 place: str = Form(""),
                 starts_at: str = Form(""), ends_at: str = Form(""),
@@ -2427,7 +2469,7 @@ def date_update(did: int, request: Request, bg: BackgroundTasks, name: str = For
     if needs_resolve:
         bg.add_task(places.resolve_into_db, did, place_url)
     bg.add_task(prewarm_date_collages, did)   # тёплый кэш коллажей для списка «Категории»
-    return redir(
+    return _date_editor_saved(request,
         _date_editor_url(
             did, request.query_params.get("return_to", ""), int(d["owner_id"]),
             allow_operator=bool(request.state.user["is_operator"]),

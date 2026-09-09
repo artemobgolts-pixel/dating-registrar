@@ -42,8 +42,9 @@ from helpers import (_parse, clean_text, fmt_gcal, fmt_when, new_link_token,
 from notify import esc
 from ratelimit import guest_throttle
 from web import get_db, redir, templates
+from uploads import UploadRoute
 
-router = APIRouter()
+router = APIRouter(route_class=UploadRoute)
 
 
 # ---------------------------------------------------------------------------

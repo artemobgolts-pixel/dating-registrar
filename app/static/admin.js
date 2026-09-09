@@ -308,6 +308,53 @@
     if (!document.getElementById("edCard")) return;   // это точно новый редактор
     form.dataset.edReady = "1";
     var did = form.dataset.did || "";
+    var errorBox = document.getElementById("editorError");
+    var mediaNotice = document.getElementById("editorMediaNotice");
+    var draftPath = location.pathname + location.search;
+    var draftOwner = form.dataset.draftOwner;
+    var draftFields = ["name", "place", "starts_at", "ends_at", "comment", "links", "capacity"];
+    var failedDraft = !!(errorBox && !errorBox.hidden);
+    var submitting = false;
+    var saved = false;
+
+    // Только эта запись истории и этот пользователь; ни файлов, ни CSRF в снимке.
+    function rememberDraft() {
+      if (!failedDraft || saved || !form.isConnected
+          || location.pathname + location.search !== draftPath) return;
+      var fields = {};
+      draftFields.forEach(function (name) { fields[name] = form.elements[name].value.slice(0, 65536); });
+      var pay = form.querySelector('[name="pay"]:checked');
+      var draft = {
+        owner: draftOwner, path: draftPath, expires: Date.now() + 30 * 60 * 1000,
+        fields: fields, pay: pay ? pay.value : "0",
+        isPublic: form.elements.is_public.checked,
+        categories: Array.from(form.querySelectorAll('[name="categories"]:checked')).map(function (el) { return el.value; }),
+        error: errorBox.textContent,
+        hadMedia: !!(form.elements.images.files.length || form.elements.videos.files.length
+                     || (mediaNotice && !mediaNotice.hidden))
+      };
+      try { history.replaceState(Object.assign({}, history.state, { d4yEditorDraft: draft }), ""); } catch (_) {}
+    }
+
+    var restored = history.state && history.state.d4yEditorDraft;
+    if (restored && restored.owner === draftOwner && restored.path === draftPath
+        && restored.expires > Date.now() && restored.fields) {
+      draftFields.forEach(function (name) {
+        if (typeof restored.fields[name] === "string") form.elements[name].value = restored.fields[name].slice(0, 65536);
+      });
+      [["edTitle", "name"], ["edPlace", "place"], ["edLinks", "links"]].forEach(function (pair) {
+        document.getElementById(pair[0]).textContent = form.elements[pair[1]].value;
+      });
+      form.querySelectorAll('[name="pay"]').forEach(function (el) { el.checked = el.value === restored.pay; });
+      form.elements.is_public.checked = !!restored.isPublic;
+      form.querySelectorAll('[name="categories"][type="checkbox"]').forEach(function (el) {
+        if (!el.disabled) el.checked = (restored.categories || []).indexOf(el.value) !== -1;
+      });
+      errorBox.textContent = restored.error || "Черновик восстановлен — проверь поля перед сохранением";
+      errorBox.hidden = false;
+      if (mediaNotice) mediaNotice.hidden = !restored.hadMedia;
+      failedDraft = true;
+    }
 
     // --- инлайн-текст: название, место, ссылки (однострочные/списком) ----------
     if (UI.inlineEdit) {
@@ -379,6 +426,71 @@
     // чтобы модификатор перескакивал фото↔заголовок.
     initEdGallery(form, did, function (hasMedia) {
       galleryHasMedia = hasMedia; syncPay();
+    });
+
+    function showEditorError(message, field) {
+      errorBox.textContent = message;
+      errorBox.hidden = false;
+      failedDraft = true;
+      if (field) field.setAttribute("aria-invalid", "true");
+      rememberDraft();
+      errorBox.focus({ preventScroll: true });
+      errorBox.scrollIntoView({ block: "nearest" });
+    }
+    form.addEventListener("input", rememberDraft);
+    form.addEventListener("change", rememberDraft);
+    rememberDraft();
+
+    // richEditor регистрирует синхронизацию submit выше: FormData получает
+    // актуальную разметку. Ошибка не заменяет DOM и выбранные File-объекты.
+    form.addEventListener("submit", async function (event) {
+      event.preventDefault();
+      if (submitting || saved) return;
+      var title = form.elements.name.value.trim();
+      var titleView = document.getElementById("edTitle");
+      titleView.removeAttribute("aria-invalid");
+      if (!title || Array.from(title).length > 200) {
+        showEditorError(!title ? "Поле «Название» обязательно"
+          : "Поле «Название» слишком длинное (до 200 символов)", titleView);
+        return;
+      }
+      var body = new FormData(form);
+      body.set("csrf", document.body.dataset.csrf);
+      var buttons = Array.from(form.elements).filter(function (el) { return el.type === "submit" && !el.disabled; });
+      submitting = true;
+      form.setAttribute("aria-busy", "true");
+      buttons.forEach(function (button) { button.disabled = true; });
+      try {
+        var response = await fetch(form.action, {
+          method: "POST", body: body, redirect: "error",
+          headers: { "X-Requested-With": "fetch", "Accept": "application/json" }
+        });
+        var result = await response.json().catch(function () { return null; });
+        if (!response.ok || !result || result.ok !== true || typeof result.redirect !== "string") {
+          var detail = result && typeof result.detail === "string" ? result.detail
+            : "Не удалось сохранить событие — проверь поля и попробуй снова";
+          showEditorError(detail, detail.indexOf("Название") !== -1 ? titleView : null);
+          return;
+        }
+        var target = new URL(result.redirect, location.origin);
+        if (target.origin !== location.origin) throw new Error("Некорректный адрес возврата");
+        saved = true;
+        try {
+          var state = Object.assign({}, history.state);
+          delete state.d4yEditorDraft;
+          history.replaceState(state, "");
+        } catch (_) {}
+        if (window.Turbo) {
+          Turbo.cache.clear();
+          Turbo.visit(target.href);
+        } else location.assign(target.href);
+      } catch (_) {
+        showEditorError("Не удалось подтвердить сохранение. Проверь соединение и попробуй снова");
+      } finally {
+        submitting = false;
+        form.removeAttribute("aria-busy");
+        if (!saved) buttons.forEach(function (button) { button.disabled = false; });
+      }
     });
   }
 
@@ -1116,6 +1228,10 @@
     });
 
     var timer = null;
+    var draftRevision = 0;
+    var queuedSaves = 0;
+    form.dataset.dirty = "0";
+    form.dataset.saving = "0";
     function flash(text, ok) {
       if (!note) return;
       note.textContent = text;
@@ -1123,17 +1239,54 @@
       note.classList.toggle("err", ok === false);
     }
     var saveChain = Promise.resolve();
-    async function save(fd) {
-      flash("Сохранение…");
+    function saveError(revision, message) {
+      if (revision === draftRevision) flash(message, false);
+      return false;
+    }
+    async function save(fd, revision) {
+      if (revision === draftRevision) flash("Сохранение…");
+      var r;
       try {
-        var r = await fetch("/admin/profile", {
-          method: "POST", body: fd, keepalive: true,
-          headers: { "X-Requested-With": "fetch" }
+        r = await fetch("/admin/profile", {
+          method: "POST", body: fd, keepalive: true, redirect: "manual",
+          headers: { "X-Requested-With": "fetch", "Accept": "application/json" }
         });
-        flash(r.ok ? "Сохранено ✓" : "Не удалось сохранить", r.ok);
       } catch (_) {
-        flash("Нет связи — не сохранено", false);
+        return saveError(revision, "Нет связи — не сохранено");
       }
+      if (r.redirected || r.type === "opaqueredirect" ||
+          (r.status >= 300 && r.status < 400) ||
+          (r.headers.get("content-type") || "").split(";")[0].trim().toLowerCase() !== "application/json") {
+        return saveError(revision, "Не удалось сохранить — сервер не подтвердил изменения");
+      }
+      var payload;
+      try {
+        payload = await r.json();
+      } catch (_) {
+        return saveError(revision, "Не удалось сохранить — сервер не подтвердил изменения");
+      }
+      if (!r.ok || !payload || payload.ok !== true) {
+        var detail = payload && payload.detail;
+        return saveError(revision, typeof detail === "string" ? detail : "Не удалось сохранить профиль");
+      }
+      var profile = payload.profile;
+      var gender = fd.get("gender");
+      // Успех подтверждает записанные значения именно этого снимка формы.
+      if (!profile || profile.display_name !== String(fd.get("display_name") || "").trim() ||
+          profile.birth_date !== (fd.get("birth_date") || null) ||
+          profile.gender !== (gender === "m" || gender === "f" ? gender : null) ||
+          profile.cursor_effects !== (fd.has("cursor_effects") ? 1 : 0) ||
+          profile.admin_skin !== fd.get("admin_skin")) {
+        return saveError(revision, "Не удалось сохранить — сервер не подтвердил изменения");
+      }
+      // Ответ старого запроса не сбрасывает новый, ещё не сохранённый черновик.
+      if (revision === draftRevision) {
+        var name = form.querySelector('[name="display_name"]');
+        if (name) name.value = profile.display_name;
+        form.dataset.dirty = "0";
+        flash("Сохранено ✓", true);
+      }
+      return true;
     }
     function runSave() {
       var name = form.querySelector('[name="display_name"]');
@@ -1146,19 +1299,27 @@
       // выбранное оформление устаревшим значением.
       var fd = new FormData(form);
       fd.delete("avatar");
+      fd.set("csrf", document.body.dataset.csrf);
+      var revision = draftRevision;
+      queuedSaves += 1;
+      form.dataset.saving = "1";
       var pending = saveChain.catch(function () {}).then(function () {
-        return save(fd);
+        return save(fd, revision);
       });
       saveChain = pending;
       // profile.js дождётся именно этого запроса перед переходом в редактор:
       // иначе быстрый клик после смены skin мог получить старую тему с сервера.
       window.d4yProfileSave = pending;
       pending.finally(function () {
+        queuedSaves -= 1;
+        form.dataset.saving = queuedSaves > 0 ? "1" : "0";
         if (window.d4yProfileSave === pending) window.d4yProfileSave = null;
       });
       return pending;
     }
     function schedule() {
+      draftRevision += 1;
+      form.dataset.dirty = "1";
       flash("Изменения сохраняются автоматически");
       clearTimeout(timer);
       timer = setTimeout(runSave, 700);

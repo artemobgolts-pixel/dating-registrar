@@ -28,6 +28,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 import metrics
+import sessions
 import users
 from config import (BASE_URL, SUPPORT_CONTACT, TG_BOT_USERNAME, TG_MINI_APP_URL,
                     TG_WEBHOOK_SECRET, OAUTH_PROVIDERS, OAUTH_LABELS, OAUTH_META)
@@ -426,8 +427,7 @@ def auth_widget(request: Request, conn=Depends(get_db)):
             flow="telegram_widget", provider="telegram", result="banned",
         )
         raise HTTPException(403, "Доступ закрыт. Напиши в поддержку.")
-    request.session["user_id"] = uid
-    request.session["csrf"] = secrets.token_urlsafe(16)
+    sessions.issue_session(request, conn, uid)
     metrics.observe_auth(
         flow="telegram_widget", provider="telegram", result="success",
     )
@@ -549,15 +549,14 @@ async def auth_miniapp(request: Request, conn=Depends(get_db)):
     )
     user = users.get_user(conn, uid)
     if not user or not user["is_active"]:
-        request.session.clear()
+        sessions.revoke_session(request, conn)
         metrics.observe_auth(
             flow="miniapp", provider="telegram", result="banned",
         )
         raise HTTPException(403, "Доступ закрыт. Напиши в поддержку.")
     nxt = _safe_next(str(payload.get("next") or "")) or "/admin/"
-    request.session.clear()
-    request.session["user_id"] = uid
-    request.session["csrf"] = secrets.token_urlsafe(16)
+    sessions.revoke_session(request, conn)
+    sessions.issue_session(request, conn, uid)
     request.session["telegram_miniapp"] = True
     metrics.observe_auth(flow="miniapp", provider="telegram", result="success")
     return JSONResponse({
@@ -692,8 +691,7 @@ def auth_poll(request: Request, code: str, conn=Depends(get_db)):
     conn.execute("DELETE FROM login_codes WHERE code=?", (code,))
     conn.commit()
     _consume_auth_flow(request, code)
-    request.session["user_id"] = user["id"]
-    request.session["csrf"] = secrets.token_urlsafe(16)
+    sessions.issue_session(request, conn, user["id"])
     if flow_nxt and request.session.get("login_next") == flow_nxt:
         request.session.pop("login_next", None)
     metrics.observe_auth(
@@ -1177,7 +1175,6 @@ def oauth_callback(provider: str, request: Request, conn=Depends(get_db)):
     if not user or not user["is_active"]:
         metrics.observe_auth(flow="oauth", provider=provider, result="banned")
         raise HTTPException(403, "Доступ закрыт. Напиши в поддержку.")
-    request.session["user_id"] = uid
-    request.session["csrf"] = secrets.token_urlsafe(16)
+    sessions.issue_session(request, conn, uid)
     metrics.observe_auth(flow="oauth", provider=provider, result="success")
     return RedirectResponse(_post_login_redirect(request), status_code=303)

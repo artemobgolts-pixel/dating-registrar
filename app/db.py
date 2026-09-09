@@ -101,6 +101,7 @@
         оператора, не затрагивая существующий контент.
   v37 — индекс происхождения копий для ограниченного по стоимости подсчёта
         популярности в рекомендованной ленте.
+  v38 — серверный реестр сессий: отзыв при выходе и абсолютный срок действия.
 
 Свежая база создаётся сразу по последней схеме. Существующая —
 докатывается миграциями при старте приложения.
@@ -114,7 +115,7 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "app.db"
 
-LATEST_VERSION = 37
+LATEST_VERSION = 38
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -138,6 +139,14 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TEXT NOT NULL,
     last_login_at TEXT
 );
+
+CREATE TABLE IF NOT EXISTS auth_sessions (
+    id_hash TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expires_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_expiry ON auth_sessions(expires_at);
 
 -- Надёжная очередь пользовательских Telegram-уведомлений. chat_id намеренно
 -- не сохраняется: он резолвится по user_id непосредственно перед отправкой,
@@ -1591,6 +1600,15 @@ MIGRATIONS: dict[int, str] = {
     37: """
         CREATE INDEX IF NOT EXISTS idx_dates_source
             ON dates(source_date_id) WHERE source_date_id IS NOT NULL;
+    """,
+    38: """
+        CREATE TABLE IF NOT EXISTS auth_sessions (
+            id_hash TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            expires_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id);
+        CREATE INDEX IF NOT EXISTS idx_auth_sessions_expiry ON auth_sessions(expires_at);
     """,
 }
 

@@ -22,10 +22,12 @@ from contextlib import asynccontextmanager
 from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from fastapi import FastAPI, Request
-from fastapi.exception_handlers import http_exception_handler
-from fastapi.responses import RedirectResponse, PlainTextResponse
+from fastapi.exception_handlers import http_exception_handler, request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse, RedirectResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.concurrency import run_in_threadpool
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
@@ -37,6 +39,7 @@ import notify
 import observability
 import operator_routes
 import public_routes
+import sessions
 import users
 import voting_events
 from config import (APP_ENV, APP_RELEASE, COOKIE_SECURE, DOMAIN, LOG_FORMAT, LOG_LEVEL,
@@ -125,9 +128,10 @@ def session_same_site(cookie_secure: bool) -> str:
 
 
 app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+app.add_middleware(sessions.SessionRevocationMiddleware)
 app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY,
                    session_cookie="__Host-admin_s" if COOKIE_SECURE else "admin_s",
-                   max_age=60 * 60 * 24 * 30,
+                   max_age=sessions.SESSION_TTL_SECONDS,
                    # web.telegram.org может открыть Mini App cross-site iframe.
                    # None допустим только вместе с Secure; локальный HTTP — Lax.
                    same_site=session_same_site(COOKIE_SECURE),
@@ -293,6 +297,19 @@ app.add_route("/metrics", metrics.prometheus_endpoint, methods=["GET"])
 # фото, просроченный CSRF...) получают flash-сообщение вместо JSON-простыни.
 @app.exception_handler(StarletteHTTPException)
 async def friendly_http_exc(request: Request, exc: StarletteHTTPException):
+    if admin_routes.is_date_editor_post(request):
+        if request.headers.get("x-requested-with") == "fetch":
+            return JSONResponse({"ok": False, "detail": exc.detail},
+                                status_code=exc.status_code, headers=exc.headers)
+        if (exc.status_code in {400, 409, 422} and isinstance(exc.detail, str)
+                and hasattr(request.state, "editor_draft")):
+            return await run_in_threadpool(admin_routes.date_editor_error, request, exc.detail)
+    if (request.url.path == "/admin/profile" and request.method == "POST"
+            and request.headers.get("x-requested-with") == "fetch"):
+        return JSONResponse(
+            {"ok": False, "detail": exc.detail},
+            status_code=exc.status_code, headers=exc.headers,
+        )
     if request.url.path.startswith(("/admin", "/operator")) and request.method == "POST" \
             and not isinstance(exc.detail, dict):
         sp = urlsplit(request.headers.get("referer", ""))
@@ -316,8 +333,34 @@ async def friendly_http_exc(request: Request, exc: StarletteHTTPException):
     return await http_exception_handler(request, exc)
 
 
+@app.exception_handler(RequestValidationError)
+async def editor_validation_exc(request: Request, exc: RequestValidationError):
+    if admin_routes.is_date_editor_post(request):
+        fields = {"name": "название", "categories": "подборки", "images": "фото", "videos": "видео"}
+        labels = list(dict.fromkeys(fields.get(str(error["loc"][-1]), "поля формы")
+                                   for error in exc.errors()))
+        detail = "Проверь " + ", ".join(labels) + ": значение отсутствует или имеет неверный формат"
+        if request.headers.get("x-requested-with") == "fetch":
+            return JSONResponse({"ok": False, "detail": detail}, status_code=422)
+        if hasattr(request.state, "editor_draft"):
+            return await run_in_threadpool(admin_routes.date_editor_error, request, detail)
+    return await request_validation_exception_handler(request, exc)
+
+
 @app.exception_handler(users.NeedLogin)
 def _need_login(request: Request, exc: users.NeedLogin):
+    if (admin_routes.is_date_editor_post(request)
+            and request.headers.get("x-requested-with") == "fetch"):
+        return JSONResponse(
+            {"ok": False, "detail": "Сессия завершилась — войди снова, чтобы сохранить событие"},
+            status_code=401,
+        )
+    if (request.url.path == "/admin/profile" and request.method == "POST"
+            and request.headers.get("x-requested-with") == "fetch"):
+        return JSONResponse(
+            {"ok": False, "detail": "Сессия завершилась — войди снова, чтобы сохранить профиль"},
+            status_code=401,
+        )
     return RedirectResponse("/login", status_code=303)
 
 

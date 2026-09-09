@@ -1064,6 +1064,7 @@ class ThemeFormPersistenceTests(unittest.TestCase):
             (self.uid, "Категория", "2030-01-01T00:00:00"),
         ).lastrowid
         self.request = SimpleNamespace(
+            headers={},
             state=SimpleNamespace(
                 user=self.conn.execute(
                     "SELECT * FROM users WHERE id=?", (self.uid,)
