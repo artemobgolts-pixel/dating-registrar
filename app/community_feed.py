@@ -26,6 +26,7 @@ import community_search
 PAGE_SIZE = 12
 RANKING_POOL_SIZE = 240
 SEARCH_POOL_SIZE = community_search.SEARCH_POOL_SIZE
+_SQLITE_INT_MAX = (1 << 63) - 1
 
 _RANKED_CURSOR_RE = re.compile(
     r"^r1\.(?P<stamp>\d{14})\.(?P<max_id>[1-9]\d*)\.(?P<offset>\d{1,3})$"
@@ -71,7 +72,28 @@ def _search_cursor(as_of: datetime, max_id: int, offset: int,
     return f"s1.{_stamp(as_of)}.{max_id}.{offset}.{_search_signature(query)}"
 
 
+def _cursor_int(raw: object, *, minimum: int = 0,
+                maximum: int = _SQLITE_INT_MAX) -> int | None:
+    """Числовое поле курсора: границы SQLite и более узкие лимиты offset."""
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, int):
+        value = raw
+    else:
+        text = str(raw).strip()
+        if not text.isdecimal():
+            return None
+        # Не вызываем int() на неограниченной строке (включая ведущие нули).
+        text = text.lstrip("0") or "0"
+        if len(text) > 19:
+            return None
+        value = int(text)
+    return value if minimum <= value <= maximum else None
+
+
 def _parse_search_cursor(raw: object, query: community_search.SearchQuery):
+    if isinstance(raw, int):
+        return None
     value = str(raw or "").strip()
     match = _SEARCH_CURSOR_RE.fullmatch(value)
     if not match or not hmac.compare_digest(
@@ -82,29 +104,32 @@ def _parse_search_cursor(raw: object, query: community_search.SearchQuery):
         as_of = datetime.strptime(match.group("stamp"), "%Y%m%d%H%M%S")
     except ValueError:
         return None
-    offset = int(match.group("offset"))
-    max_id = int(match.group("max_id"))
-    if offset > SEARCH_POOL_SIZE or max_id > 9_223_372_036_854_775_807:
+    offset = _cursor_int(match.group("offset"), maximum=SEARCH_POOL_SIZE)
+    max_id = _cursor_int(match.group("max_id"), minimum=1)
+    if offset is None or max_id is None:
         return None
     return as_of, max_id, offset
 
 
 def _parse_cursor(raw: object):
-    if isinstance(raw, int) and raw > 0:
-        return "chronological", (raw, None)
+    if isinstance(raw, int):
+        before_id = _cursor_int(raw, minimum=1)
+        return ("chronological", (before_id, None)) if before_id is not None else ("fresh", None)
     value = str(raw or "").strip()
     if not value:
         return "fresh", None
     # Старые числовые курсоры продолжают работать после выкладки новой версии.
-    if value.isdigit() and int(value) > 0:
-        return "chronological", (int(value), None)
+    before_id = _cursor_int(value, minimum=1)
+    if before_id is not None:
+        return "chronological", (before_id, None)
     match = _CHRONO_CURSOR_RE.fullmatch(value)
     if match:
         last_owner = match.group("last_owner")
-        return "chronological", (
-            int(match.group("before_id")),
-            int(last_owner) if last_owner else None,
-        )
+        before_id = _cursor_int(match.group("before_id"), minimum=1)
+        owner_id = _cursor_int(last_owner, minimum=1) if last_owner else None
+        if before_id is None or (last_owner is not None and owner_id is None):
+            return "fresh", None
+        return "chronological", (before_id, owner_id)
     match = _RANKED_CURSOR_RE.fullmatch(value)
     if not match:
         return "fresh", None
@@ -112,9 +137,9 @@ def _parse_cursor(raw: object):
         as_of = datetime.strptime(match.group("stamp"), "%Y%m%d%H%M%S")
     except ValueError:
         return "fresh", None
-    max_id = int(match.group("max_id"))
-    offset = int(match.group("offset"))
-    if offset > RANKING_POOL_SIZE:
+    max_id = _cursor_int(match.group("max_id"), minimum=1)
+    offset = _cursor_int(match.group("offset"), maximum=RANKING_POOL_SIZE)
+    if max_id is None or offset is None:
         return "fresh", None
     return "ranked", (as_of, max_id, offset)
 

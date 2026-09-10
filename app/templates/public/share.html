@@ -115,6 +115,10 @@
 </div>
 
 <main class="wrap">
+  {% set message = request.query_params.get('msg') %}
+  {% if message %}
+  <p id="reviewResult" role="{{ 'alert' if message.startswith('⚠') else 'status' }}">{{ message }}</p>
+  {% endif %}
   <header class="hero">
     <h1><span class="display-ink">{{ d.name }}</span></h1>
     <div class="hero-ornament" aria-hidden="true">

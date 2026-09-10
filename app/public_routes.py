@@ -613,16 +613,22 @@ def insert_date(conn, *, name, place, starts, ends, comment, origin, guest_token
     return cur.lastrowid
 
 
-def personal_date_quota_used(conn, owner_id: int) -> int:
+def personal_date_quota_used(conn, owner_id: int, *, include_archived_ids=()) -> int:
     """Активные события, созданные владельцем лично.
 
     Гостевые предложения и независимые пользовательские копии не расходуют
     квоту — у них есть явный provenance вместо ненадёжного сравнения названий.
+    include_archived_ids позволяет тем же правилом проверить будущий набор
+    активных событий перед восстановлением указанных записей.
     """
+    active = "archived_at IS NULL"
+    if include_archived_ids:
+        placeholders = ",".join("?" for _ in include_archived_ids)
+        active = f"({active} OR id IN ({placeholders}))"
     return int(conn.execute(
-        "SELECT COUNT(*) FROM dates WHERE owner_id=? AND archived_at IS NULL "
+        f"SELECT COUNT(*) FROM dates WHERE owner_id=? AND {active} "
         "AND origin='admin' AND source_date_id IS NULL",
-        (owner_id,),
+        (owner_id, *include_archived_ids),
     ).fetchone()[0])
 
 

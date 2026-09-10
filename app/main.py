@@ -297,6 +297,12 @@ app.add_route("/metrics", metrics.prometheus_endpoint, methods=["GET"])
 # фото, просроченный CSRF...) получают flash-сообщение вместо JSON-простыни.
 @app.exception_handler(StarletteHTTPException)
 async def friendly_http_exc(request: Request, exc: StarletteHTTPException):
+    token = request.path_params.get("token")
+    if (token and request.method == "POST"
+            and request.url.path == f"/d/{token}/review/decline"
+            and request.headers.get("x-requested-with") != "fetch"
+            and isinstance(exc.detail, str)):
+        return redir(f"/d/{token}", f"⚠ {exc.detail}")
     if admin_routes.is_date_editor_post(request):
         if request.headers.get("x-requested-with") == "fetch":
             return JSONResponse({"ok": False, "detail": exc.detail},

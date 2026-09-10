@@ -53,7 +53,7 @@ from public_routes import (add_photos, copy_date_media_and_links, insert_date,
                            next_cat_pos, notify_admin, notify_user, parse_capacity, ranged_file,
                            save_links, VIDEO_TYPES)
 from ratelimit import user_throttle
-from users import current_user
+from users import current_user, get_user
 from uploads import UploadRoute
 from web import get_db, redir, templates
 
@@ -1941,15 +1941,27 @@ class DateQuotaExceeded(HTTPException):
     """Ожидаемый отказ, который endpoint превращает во flash с background."""
 
 
-def enforce_date_quota(conn, user, bg: BackgroundTasks | None = None) -> None:
+def enforce_date_quota(conn, user, bg: BackgroundTasks | None = None, *,
+                       restore_ids=None) -> None:
     """Отказ, если исчерпана квота лично созданных активных событий.
 
     Гостевые предложения принадлежат подборке владельца, но не расходуют его
     личную квоту. Архивные записи — история и тоже не считаются.
     """
-    limit = user["date_limit"]
-    used = public_routes.personal_date_quota_used(conn, int(user["id"]))
-    if used >= limit:
+    uid = int(user["id"])
+    # Запись удерживает блокировку SQLite до commit/rollback вызывающего кода.
+    # Создание, клонирование и восстановление считают квоту под этой блокировкой.
+    conn.execute("UPDATE users SET id=id WHERE id=?", (uid,))
+    limit = get_user(conn, uid)["date_limit"]
+    used = public_routes.personal_date_quota_used(conn, uid)
+    projected = (
+        used + 1 if restore_ids is None else
+        public_routes.personal_date_quota_used(
+            conn, uid, include_archived_ids=restore_ids,
+        )
+    )
+    # Повторное восстановление и исключения допустимы даже при сниженной квоте.
+    if projected > limit and projected > used:
         contact = (
             f"Чтобы увеличить лимит, напиши в поддержку {SUPPORT_CONTACT}."
             if SUPPORT_CONTACT
@@ -2523,6 +2535,11 @@ def date_publish(did: int, request: Request, bg: BackgroundTasks,
 def _bulk_set_archived(conn, d, *, archived: bool) -> bool:
     """Меняет архивный статус с теми же побочными эффектами, что одиночная кнопка."""
     did = int(d["id"])
+    if not archived:
+        enforce_date_quota(
+            conn, get_user(conn, int(d["owner_id"])), restore_ids=[did],
+        )
+        d = conn.execute("SELECT * FROM dates WHERE id=?", (did,)).fetchone()
     if bool(d["archived_at"]) == archived:
         return False
     _require_date_not_in_closed_vote(
@@ -2597,7 +2614,12 @@ def _bulk_delete_date(conn, d) -> list[str]:
 def dates_bulk(request: Request, bg: BackgroundTasks,
                action: str = Form(...), date_ids: list[int] = Form(default=[]),
                next: str = Form("/admin/dates"), conn=Depends(get_db)):
-    """Массовые действия desktop-списка с полной проверкой владения и lifecycle."""
+    """Одна транзакция: ошибка любого события отменяет весь набор.
+
+    Повторные archive/restore/privacy пропускают уже достигнутое состояние;
+    повторный delete отклоняет весь запрос, если событие уже отсутствует.
+    В результате считаются только изменённые события, ID дедуплицируются.
+    """
     allowed = {"archive", "restore", "make_public", "make_private", "delete"}
     if action not in allowed:
         raise HTTPException(400, "Неизвестное массовое действие")
@@ -2608,6 +2630,10 @@ def dates_bulk(request: Request, bg: BackgroundTasks,
         raise HTTPException(400, "За один раз можно изменить не больше 100 событий")
     uid = int(request.state.user["id"])
     user_throttle("datebulk", uid, request)
+    # Блокируем до чтения статусов; проверяем весь набор до изменений событий,
+    # чтобы отклонённый запрос не восстанавливал часть выбранных записей.
+    if action == "restore":
+        conn.execute("UPDATE users SET id=id WHERE id=?", (uid,))
     placeholders = ",".join("?" for _ in ids)
     owned = conn.execute(
         f"SELECT * FROM dates WHERE owner_id=? AND id IN ({placeholders})",
@@ -2617,6 +2643,8 @@ def dates_bulk(request: Request, bg: BackgroundTasks,
         raise HTTPException(404, "Одно из событий не найдено")
     by_id = {int(row["id"]): row for row in owned}
     ordered = [by_id[did] for did in ids]
+    if action == "restore":
+        enforce_date_quota(conn, request.state.user, restore_ids=ids)
     changed = 0
     files: list[str] = []
     deleted_rows = []
@@ -2670,6 +2698,9 @@ def date_archive(did: int, request: Request, next: str = Form("/admin/dates"),
     _require_date_not_in_closed_vote(conn, did, "перенести событие в архив")
     d = _date_or_404(conn, did, request.state.user)
     if d["archived_at"]:
+        enforce_date_quota(
+            conn, get_user(conn, int(d["owner_id"])), restore_ids=[did],
+        )
         category_ids = [int(r["category_id"]) for r in conn.execute(
             "SELECT category_id FROM date_categories WHERE date_id=?", (did,)
         )]

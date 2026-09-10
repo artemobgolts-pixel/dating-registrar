@@ -1415,6 +1415,8 @@
     var baseUrl = feed.getAttribute("data-feed-url") || "/admin/community";
     var emptyEl = document.getElementById("cfeedEmpty");
     var endEl = document.getElementById("cfeedEnd");
+    var errorEl = document.getElementById("cfeedError");
+    var retryEl = document.getElementById("cfeedRetry");
     var searchForm = document.getElementById("communitySearchForm");
     var searchInput = document.getElementById("communitySearchInput");
     var searchClear = document.getElementById("communitySearchClear");
@@ -1431,10 +1433,18 @@
     var reportOpener = null;
 
     var activeQuery = feed.getAttribute("data-feed-query") || "";
-    var loading = false, done = false, loadedAny = false;
+    var feedState = "idle", loadedAny = false;
     var requestGeneration = 0;
     var activeRequest = null;
     var io = null;
+
+    function setFeedState(state) {
+      feedState = state;
+      feed.setAttribute("data-feed-state", state);
+      feed.setAttribute("aria-busy", state === "loading" ? "true" : "false");
+      if (errorEl) errorEl.hidden = state !== "error";
+      if (retryEl) retryEl.disabled = state === "loading";
+    }
 
     function cleanSearchQuery(value) {
       var normalized = String(value || "");
@@ -1474,11 +1484,9 @@
       if (activeRequest) activeRequest.abort();
       activeRequest = null;
       if (io) io.disconnect();
-      loading = false;
-      done = false;
+      setFeedState("idle");
       loadedAny = false;
       feed.innerHTML = "";
-      feed.setAttribute("aria-busy", "true");
       if (emptyEl) emptyEl.hidden = true;
       if (endEl) endEl.hidden = true;
       if (searchStatus) {
@@ -1604,13 +1612,13 @@
     }
 
     function load() {
-      if (loading || done) return;
-      loading = true;
-      feed.setAttribute("aria-busy", "true");
+      if (feedState !== "idle") return;
+      setFeedState("loading");
+      if (io) io.disconnect();
       var generation = requestGeneration;
       var cursor = currentCursor();       // null на первой странице
       var sentinel = feed.querySelector(".cfeed-sentinel");
-      if (sentinel) sentinel.remove();     // старый маркер заменяем свежей страницей
+      // Сохраняем курсор до успешного ответа: повтор загрузит ту же страницу.
       activeRequest = "AbortController" in window ? new AbortController() : null;
       var options = {
         credentials: "same-origin", headers: { "X-Requested-With": "fetch" }
@@ -1621,6 +1629,7 @@
         .then(function (html) {
           if (generation !== requestGeneration) return;
           feed.insertAdjacentHTML("beforeend", html.trim());
+          if (sentinel) sentinel.remove();
           var hasCards = feed.querySelector(".cfeed-card");
           if (hasCards) loadedAny = true;
           if (!loadedAny && emptyEl) {
@@ -1637,14 +1646,17 @@
           }
           // нет нового маркера курсора → страниц больше нет
           if (!feed.querySelector(".cfeed-sentinel")) {
-            done = true;
+            setFeedState("end");
             if (loadedAny && endEl) endEl.hidden = Boolean(activeQuery);
           } else {
-            observeSentinel();
+            setFeedState("idle");
           }
         })
-        .catch(function (error) {
-          if (generation !== requestGeneration || (error && error.name === "AbortError")) return;
+        .catch(function () {
+          if (generation !== requestGeneration) return;
+          // Ошибка не означает конец ленты. Наблюдатель ждёт явного повтора,
+          // чтобы видимый маркер не запускал бесконечные неудачные запросы.
+          setFeedState("error");
           if (searchStatus && activeQuery) {
             searchStatus.hidden = false;
             searchStatus.textContent = "Не удалось выполнить поиск. Попробуй ещё раз.";
@@ -1652,17 +1664,18 @@
         })
         .finally(function () {
           if (generation !== requestGeneration) return;
-          loading = false;
           activeRequest = null;
-          feed.setAttribute("aria-busy", "false");
+          if (feedState === "idle") observeSentinel();
         });
     }
 
     function observeSentinel() {
       var sentinel = feed.querySelector(".cfeed-sentinel");
-      if (!sentinel || !("IntersectionObserver" in window)) return;
+      if (feedState !== "idle" || !sentinel || !("IntersectionObserver" in window)) return;
       if (io) io.disconnect();
+      var generation = requestGeneration;
       io = new IntersectionObserver(function (entries) {
+        if (generation !== requestGeneration || !feed.contains(sentinel)) return;
         if (entries.some(function (e) { return e.isIntersecting; })) load();
       }, { rootMargin: "300px" });
       io.observe(sentinel);
@@ -1810,6 +1823,12 @@
             submit.textContent = old;
           }
         });
+    });
+
+    if (retryEl) retryEl.addEventListener("click", function () {
+      if (feedState !== "error") return;
+      setFeedState("idle");
+      load();
     });
 
     if (searchForm && searchInput) {

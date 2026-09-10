@@ -134,6 +134,10 @@
   {% endif %}
   <div class="cfeed" id="communityFeed" data-feed-url="/admin/community"
        {% if community_query %}data-feed-query="{{ community_query }}"{% endif %}></div>
+  <div id="cfeedError" hidden>
+    <p class="muted" role="status">Не удалось загрузить события. Попробуй ещё раз.</p>
+    <button type="button" class="btn ghost" id="cfeedRetry">Попробовать снова</button>
+  </div>
   <p class="muted cfeed-empty" id="cfeedEmpty" hidden style="text-align:center;padding:20px 0">Пока пусто — как появятся публичные события, они возникнут здесь 🌙</p>
   <p class="muted cfeed-end" id="cfeedEnd" hidden style="text-align:center;padding:14px 0;font-size:13px">Это всё на сейчас{% if user['admin_skin'] == 'romantic' %} ♥{% endif %}</p>
 </div>
