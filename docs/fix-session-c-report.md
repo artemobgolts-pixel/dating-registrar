@@ -80,7 +80,10 @@ gate; recovery helper связан с подготовленным candidate art
   при неудаче нет retention предыдущих good bundles; при failed final check marker
   удаляется; retention удаляет целые завершённые bundles. Реальный rclone/S3 **NOT TESTED**.
 - Backup и release используют общий lock; backup journal позволяет `resume` после
-  interrupted stop. Phase A opt-in Telegram сохранён, включая отключение получателя
+  interrupted stop. Имя snapshot helper записывается до Docker create; после timeout,
+  interrupt или crash writers не запускаются до подтверждённого удаления helper.
+  Ошибка daemon/removal сохраняет marker и закрытый traffic; deploy/rollback также
+  не могут затереть незавершённое копирование. Phase A opt-in Telegram сохранён, включая отключение получателя
   и применение актуального `.env` к retained image перед контрольным backup.
 - Полные remote bundles хранятся комплектами (default 30), независимо от прежней
   семидневной media trash. Routine 14 DB-only snapshots и Telegram копии **не дают**
@@ -99,15 +102,15 @@ gate; recovery helper связан с подготовленным candidate art
 
 | Проверка | Результат |
 | --- | --- |
-| Локальные unittest/browser regressions | **PASS — 598 tests, 68 unittest-модулей** |
+| Локальные unittest/browser regressions | **PASS — 608 tests, 68 unittest-модулей**: полный clean gate 598 + 10 новых cleanup regressions |
 | Smoke | **PASS — 85 блоков** |
 | Screenshot regression ink | **PASS**; эталон не изменялся |
 | Общий inventory | **70 модулей; test SKIP = 0** |
-| Phase C targeted | Atomic 7; recovery 10; remote 5; release gate 12; procedure 16; health 6; grouping 6; static 7 — PASS |
+| Phase C targeted | Atomic 7; recovery 10; remote 5; release gate 12; procedure 26; health 6; grouping 6; static 7 — PASS |
 | Phase A setup/delivery | Setup 6 (добавлена managed-ветка), delivery 2 — PASS |
 | Caddy | Adapt/validate и реальный локальный HTTP old/new immutable/invalid hash drill — PASS |
 | Shell syntax / git diff whitespace | PASS |
-| Exact committed SHA | Полный clean-SHA gate запускается после commit; SHA, tree, source hash и результаты фиксируются отдельным receipt до push |
+| Exact committed SHA | `4cc8025e8125fd9296c4881491b3882660bc94b8`: полный clean developer gate **PASS**, 598 tests/70 модулей, 0 skips. После дополнительного исправления cleanup итоговый SHA и результаты фиксируются отдельным clean receipt до push |
 | Linux/Python 3.12 + Docker image build/start/rollback | Локально **BLOCKED**; workflow проверяет это на GitHub runner после push |
 | Production deployment, реальные Telegram/S3/TLS/remote restore | **NOT TESTED** — за границами безопасной локальной проверки |
 
@@ -122,6 +125,10 @@ gate; recovery helper связан с подготовленным candidate art
 - Review исправил publication static после переноса CI artifact, сохранение previous
   known-good при failed-candidate rollback, общий readiness deadline, backup journal,
   legacy recovery helper и сохранение VIDEO_FASTSTART default. Есть fault-injection tests.
+- После полного clean-SHA PASS исправлена дополнительная граница timeout/interrupt:
+  завершение клиента Docker не означает завершение snapshot container. Named helper,
+  сохранённый marker и подтверждение удаления закрывают запуск writers при живой copy;
+  отдельные fault-injection tests проверяют ошибки daemon/removal и recovery ordering.
 - До финального clean-SHA запуска результаты собирались из первого прогона и отдельных
   успешных повторов smoke/изменённых и оставшихся модулей; этот составной результат не
   выдаётся за release-qualified Linux gate.

@@ -297,14 +297,57 @@ def adopt(candidate):
     return value
 
 
+def cleanup_snapshot():
+    """Не возвращать writers, пока Docker не подтвердил отсутствие helper."""
+    state_file = STATE / "state.json"
+    if not state_file.exists():
+        return
+    state = read_json(state_file)
+    container = state.get("snapshot_container")
+    if container is None:
+        return
+    if not re.fullmatch(r"date4you-snapshot-[0-9a-f]{32}", container):
+        raise ValueError("Некорректный snapshot_container; требуется ручная проверка")
+
+    def exists():
+        return bool(run("docker", "ps", "-a", "--filter", f"name=^/{container}$",
+                        "--format", "{{.ID}}", capture=True, timeout=10))
+
+    # Ошибка daemon/CLI не означает, что контейнер отсутствует: marker сохраняется.
+    if exists():
+        run("docker", "rm", "-f", container, timeout=30)
+        if exists():
+            raise RuntimeError("Snapshot helper ещё существует; writers остаются остановлены")
+    del state["snapshot_container"]
+    write_json(state_file, state)
+
+
 def snapshot(value, recovery_image=None):
+    cleanup_snapshot()
+    state_file = STATE / "state.json"
+    state = read_json(state_file)
+    if state["status"] != "maintenance":
+        raise ValueError("Snapshot требует maintenance с остановленными writers")
     name = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + "-" + uuid.uuid4().hex[:8]
     parent = STATE / "recovery"
     parent.mkdir(exist_ok=True)
-    run("docker", "run", "--rm", "--network", "none", "--entrypoint", "python",
-        "-v", f"{ROOT / 'data'}:/data:ro", "-v", f"{parent}:/recovery",
-        recovery_image or value.get("recovery_image", value["image"]), "/app/recovery.py", "create", "--data", "/data",
-        "--output", f"/recovery/{name}", "--release", value["release"], "--image", value["image"], "--quiesced")
+    container = "date4you-snapshot-" + uuid.uuid4().hex
+    # Intent пишется до create: после SIGKILL resume сначала уберёт этот helper.
+    state["snapshot_container"] = container
+    write_json(state_file, state)
+    try:
+        run("docker", "create", "--name", container, "--network", "none", "--entrypoint", "python",
+            "-v", f"{ROOT / 'data'}:/data:ro", "-v", f"{parent}:/recovery",
+            recovery_image or value.get("recovery_image", value["image"]), "/app/recovery.py", "create", "--data", "/data",
+            "--output", f"/recovery/{name}", "--release", value["release"], "--image", value["image"], "--quiesced",
+            capture=True)
+        run("docker", "start", "-a", container)
+        exit_code = run("docker", "inspect", container, "--format", "{{.State.ExitCode}}",
+                        capture=True, timeout=10)
+        if exit_code != "0":
+            raise RuntimeError(f"Snapshot helper завершился с кодом {exit_code}")
+    finally:
+        cleanup_snapshot()
     return name
 
 
@@ -315,6 +358,7 @@ def ready(value):
 
 
 def activate(release, first_install=False, rollback=False, compatible=False):
+    cleanup_snapshot()
     target = manifest(release)
     state_file = STATE / "state.json"
     state = read_json(state_file) if state_file.exists() else None
@@ -373,6 +417,7 @@ def activate(release, first_install=False, rollback=False, compatible=False):
 
 
 def backup():
+    cleanup_snapshot()
     state = read_json(STATE / "state.json")
     if state["status"] != "active":
         raise ValueError("Backup требует завершённого релиза")
@@ -386,6 +431,9 @@ def backup():
     try:
         name = snapshot(value)
     finally:
+        # Внутренний finally мог завершиться ошибкой Docker. Повторная проверка
+        # обязательна: без неё внешний finally мог бы открыть writers при живой copy.
+        cleanup_snapshot()
         compose("up", "-d", "--no-build", "--pull", "never", "app")
         ready(value)
         progress.update(status="opening", traffic_opened=True)
@@ -397,6 +445,7 @@ def backup():
 
 
 def resume():
+    cleanup_snapshot()
     state = read_json(STATE / "state.json")
     if state["status"] not in {"maintenance", "candidate", "opening"}:
         raise ValueError("Resume только для незавершённой операции")

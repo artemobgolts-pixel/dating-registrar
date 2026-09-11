@@ -148,6 +148,14 @@ schema или несовместимой миграции оставьте traff
 что прежний процесс release/backup завершён; не обходите работающий lock. Сначала
 сохраните `state.json` и посмотрите status/current/target/previous/recovery.
 
+Контейнер копирования получает уникальное имя `date4you-snapshot-<id>`; поле
+`snapshot_container` записывается в journal **до** его создания. Timeout или interrupt
+клиента Docker не доказывает остановку копирования. `backup` и `resume` удаляют helper
+и подтверждают его отсутствие через успешный `docker ps -a` до запуска app.
+Если daemon недоступен, удаление не удалось или контейнер ещё виден, marker остаётся,
+app/Caddy не запускаются. Восстановите доступ к Docker и выполните `resume`;
+не стирайте `snapshot_container` вручную. Deploy/rollback также не обходят эту проверку.
+
 ## 5. Резервирование и полное восстановление
 
 Автоматические SQLite-only `data/backups/app-*.db` публикуются через validated
@@ -200,3 +208,6 @@ TLS и Linux/Docker failed-update drill должны пройти до productio
 
 Семантика команд сверена с [Docker Compose up](https://docs.docker.com/reference/cli/docker/compose/up/)
 и [Caddy rewrite](https://caddyserver.com/docs/caddyfile/directives/rewrite).
+Контроль helper использует [Docker start --attach](https://docs.docker.com/reference/cli/docker/container/start/),
+[список всех контейнеров](https://docs.docker.com/reference/cli/docker/container/ls/)
+и [принудительное удаление контейнера](https://docs.docker.com/reference/cli/docker/container/rm/).

@@ -15,6 +15,7 @@ import release
 
 A, B = "a" * 40, "b" * 40
 REAL_MANIFEST = release.manifest
+REAL_SNAPSHOT = release.snapshot
 
 
 class ReleaseProcedureTests(unittest.TestCase):
@@ -41,6 +42,188 @@ class ReleaseProcedureTests(unittest.TestCase):
     def snapshot(self, value, helper=None):
         self.calls.append(("snapshot", value["release"]))
         return "synthetic-paired-recovery"
+
+    def snapshot_docker(self, *, present=False, failures=None, keep_after_rm=False, exit_code="0"):
+        """Локальная модель daemon: CLI может оборваться, контейнер остаётся."""
+        engine = {"present": present}
+        failures = failures or {}
+
+        def docker(*args, **kwargs):
+            self.assertEqual(args[0], "docker")
+            operation = args[1]
+            self.calls.append(("docker", operation))
+            marker = release.read_json(self.state / "state.json").get("snapshot_container")
+            self.assertRegex(marker or "", r"^date4you-snapshot-[0-9a-f]{32}$")
+            if operation == "create":
+                self.assertEqual(args[args.index("--name") + 1], marker)
+                # Daemon мог принять create до timeout/interrupt клиентского CLI.
+                engine["present"] = True
+            if operation in failures:
+                raise failures[operation]
+            if operation == "create":
+                return "synthetic-container-id"
+            if operation == "start":
+                self.assertTrue(engine["present"])
+                self.assertIn("-a", args)
+                self.assertEqual(args[-1], marker)
+                return ""
+            if operation == "inspect":
+                self.assertEqual(args[2], marker)
+                self.assertEqual(args[args.index("--format") + 1], "{{.State.ExitCode}}")
+                return exit_code
+            if operation == "ps":
+                self.assertIn("-a", args)
+                self.assertEqual(args[args.index("--filter") + 1], f"name=^/{marker}$")
+                return "synthetic-container-id" if engine["present"] else ""
+            if operation == "rm":
+                self.assertIn("-f", args)
+                self.assertEqual(args[-1], marker)
+                engine["present"] = keep_after_rm
+                return ""
+            self.fail(f"Непредусмотренный Docker вызов: {args}")
+
+        return engine, docker
+
+    def maintenance_state(self, *, marker=False):
+        state = {"status": "maintenance", "current": A, "target": B,
+                 "previous": B, "traffic_opened": False}
+        if marker:
+            state["snapshot_container"] = "date4you-snapshot-" + "c" * 32
+        release.write_json(self.state / "state.json", state)
+        return state
+
+    def test_snapshot_records_identity_before_create_and_cleans_after_success(self):
+        original = self.maintenance_state()
+        engine, docker = self.snapshot_docker()
+        with patch.object(release, "run", side_effect=docker):
+            name = REAL_SNAPSHOT(self.values[A])
+        self.assertRegex(name, r"^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}$")
+        self.assertEqual(self.calls, [("docker", name) for name in
+                                     ("create", "start", "inspect", "ps", "rm", "ps")])
+        self.assertFalse(engine["present"])
+        self.assertEqual(release.read_json(self.state / "state.json"), original)
+
+    def test_snapshot_cli_timeout_and_interrupt_remove_surviving_helper(self):
+        for operation in ("create", "start"):
+            for error_type in (subprocess.TimeoutExpired, KeyboardInterrupt):
+                with self.subTest(operation=operation, error=error_type.__name__):
+                    self.calls.clear()
+                    original = self.maintenance_state()
+                    error = (subprocess.TimeoutExpired("synthetic-docker", 600)
+                             if error_type is subprocess.TimeoutExpired else KeyboardInterrupt())
+                    engine, docker = self.snapshot_docker(failures={operation: error})
+                    with patch.object(release, "run", side_effect=docker):
+                        with self.assertRaises(error_type):
+                            REAL_SNAPSHOT(self.values[A])
+                    self.assertFalse(engine["present"])
+                    self.assertEqual(self.calls[-3:], [("docker", "ps"), ("docker", "rm"), ("docker", "ps")])
+                    self.assertEqual(release.read_json(self.state / "state.json"), original)
+
+    def test_snapshot_nonzero_container_exit_is_not_reported_as_success(self):
+        original = self.maintenance_state()
+        engine, docker = self.snapshot_docker(exit_code="23")
+        with patch.object(release, "run", side_effect=docker):
+            with self.assertRaisesRegex(RuntimeError, "23"):
+                REAL_SNAPSHOT(self.values[A])
+        self.assertFalse(engine["present"])
+        self.assertEqual(release.read_json(self.state / "state.json"), original)
+
+    def test_cleanup_failure_blocks_all_writer_entry_points_and_preserves_marker(self):
+        operations = {
+            "backup": release.backup,
+            "resume": release.resume,
+            "deploy": lambda: release.activate(B),
+            "rollback": lambda: release.activate(B, rollback=True, compatible=True),
+        }
+        for name, invoke in operations.items():
+            for failed_command in ("ps", "rm"):
+                with self.subTest(operation=name, failure=failed_command):
+                    self.calls.clear()
+                    original = self.maintenance_state(marker=True)
+                    if name != "resume":
+                        original["status"] = "active"
+                        release.write_json(self.state / "state.json", original)
+                    engine, docker = self.snapshot_docker(present=True, failures={
+                        failed_command: subprocess.CalledProcessError(1, "synthetic-docker"),
+                    })
+                    with patch.object(release, "run", side_effect=docker):
+                        with self.assertRaises(subprocess.CalledProcessError):
+                            invoke()
+                    self.assertTrue(engine["present"])
+                    self.assertEqual(release.read_json(self.state / "state.json"), original)
+                    self.assertFalse(any(call[0] in {"up", "install", "stop", "snapshot"}
+                                         for call in self.calls))
+
+    def test_cleanup_requires_confirmed_absence_before_clearing_marker(self):
+        original = self.maintenance_state(marker=True)
+        engine, docker = self.snapshot_docker(present=True, keep_after_rm=True)
+        with patch.object(release, "run", side_effect=docker):
+            with self.assertRaises(RuntimeError):
+                release.resume()
+        self.assertTrue(engine["present"])
+        self.assertEqual(release.read_json(self.state / "state.json"), original)
+        self.assertEqual(self.calls, [("docker", "ps"), ("docker", "rm"), ("docker", "ps")])
+
+    def test_backup_outer_finally_does_not_restart_writers_after_cleanup_failure(self):
+        engine, docker = self.snapshot_docker(failures={
+            "start": subprocess.TimeoutExpired("synthetic-docker", 600),
+            "rm": subprocess.CalledProcessError(1, "synthetic-docker"),
+        })
+        with patch.object(release, "snapshot", REAL_SNAPSHOT), patch.object(release, "run", side_effect=docker):
+            with self.assertRaises(subprocess.CalledProcessError):
+                release.backup()
+        state = release.read_json(self.state / "state.json")
+        self.assertEqual((state["status"], state["operation"]), ("maintenance", "backup"))
+        self.assertRegex(state["snapshot_container"], r"^date4you-snapshot-[0-9a-f]{32}$")
+        self.assertTrue(engine["present"])
+        self.assertFalse(any(call[0] in {"up", "ready", "install"} for call in self.calls))
+
+    def test_backup_timeout_reopens_same_artifact_only_after_helper_cleanup(self):
+        engine, docker = self.snapshot_docker(failures={
+            "start": subprocess.TimeoutExpired("synthetic-docker", 600),
+        })
+        with patch.object(release, "snapshot", REAL_SNAPSHOT), patch.object(release, "run", side_effect=docker):
+            with self.assertRaises(subprocess.TimeoutExpired):
+                release.backup()
+        state = release.read_json(self.state / "state.json")
+        self.assertEqual((state["status"], state["current"], state["previous"]), ("active", A, B))
+        self.assertNotIn("snapshot_container", state)
+        self.assertFalse(engine["present"])
+        removal = self.calls.index(("docker", "rm"))
+        confirmation = self.calls.index(("docker", "ps"), removal + 1)
+        self.assertLess(confirmation, self.calls.index(("up", "-d", "--no-build", "--pull", "never", "app")))
+
+    def test_backup_nonzero_helper_never_returns_or_prints_successful_bundle(self):
+        engine, docker = self.snapshot_docker(exit_code="23")
+        with (patch.object(release, "snapshot", REAL_SNAPSHOT),
+              patch.object(release, "run", side_effect=docker), patch("builtins.print") as output):
+            with self.assertRaisesRegex(RuntimeError, "23"):
+                release.backup()
+        output.assert_not_called()
+        self.assertFalse(engine["present"])
+        state = release.read_json(self.state / "state.json")
+        self.assertEqual((state["status"], state["current"]), ("active", A))
+        self.assertNotIn("snapshot_container", state)
+
+    def test_resume_confirms_cleanup_before_installing_or_starting_app(self):
+        self.maintenance_state(marker=True)
+        engine, docker = self.snapshot_docker(present=True)
+        with patch.object(release, "run", side_effect=docker):
+            release.resume()
+        self.assertEqual(self.calls[:4], [("docker", "ps"), ("docker", "rm"),
+                                         ("docker", "ps"), ("install", A)])
+        self.assertFalse(engine["present"])
+        self.assertNotIn("snapshot_container", release.read_json(self.state / "state.json"))
+
+    def test_cleanup_rejects_unowned_container_name_without_docker(self):
+        original = self.maintenance_state(marker=True)
+        original["snapshot_container"] = "date4you-app-1"
+        release.write_json(self.state / "state.json", original)
+        with patch.object(release, "run") as docker:
+            with self.assertRaises(ValueError):
+                release.cleanup_snapshot()
+        docker.assert_not_called()
+        self.assertEqual(release.read_json(self.state / "state.json"), original)
 
     def test_success_snapshots_before_migration_and_opens_only_after_ready(self):
         release.activate(B)
