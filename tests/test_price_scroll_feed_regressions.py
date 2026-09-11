@@ -45,7 +45,8 @@ class FreePriceModifierTests(unittest.TestCase):
             self.assertIn(">Бесплатно</label>", template)
             self.assertNotIn("🆓 Бесплатно", template)
 
-        for relative in ("static/admin.js", "static/guest.js", "static/ui.js"):
+        # Оба действующих редактора; неиспользуемый UI.editorPreview удалён в D.
+        for relative in ("static/admin.js", "static/guest.js"):
             with self.subTest(script=relative):
                 source = (APP / relative).read_text("utf-8")
                 self.assertIn('"4": "Бесплатно"', source)

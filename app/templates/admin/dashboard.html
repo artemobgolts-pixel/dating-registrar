@@ -51,8 +51,8 @@
       <p class="muted" style="margin:6px 0 14px;font-size:13.5px">Отправь эту ссылку — по ней человек откроет твою подборку событий.</p>
       {% if share_cats | length > 1 %}
       <form method="get" action="/admin/" class="share-pick">
-        <label>Подборка</label>
-        <select name="share" data-autosubmit>
+        <label for="shareCollection">Подборка</label>
+        <select id="shareCollection" name="share" data-autosubmit>
           {% for c in share_cats %}<option value="{{ c['id'] }}" {{ 'selected' if c['id'] == share['id'] }}>{{ c['name'] }}</option>{% endfor %}
         </select>
       </form>

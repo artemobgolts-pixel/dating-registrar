@@ -6,6 +6,29 @@
 (function () {
   "use strict";
 
+  function loadDialogLogo(dialog) {
+    if (!dialog.open) return;
+    var skin = document.documentElement.dataset.skin === "romantic" ? "romantic" : "friends";
+    var logo = dialog.querySelector('[data-auth-logo="' + skin + '"][data-auth-logo-src]');
+    if (logo) {
+      logo.src = logo.dataset.authLogoSrc;
+      delete logo.dataset.authLogoSrc;
+    }
+  }
+
+  function prepareDialogLogos() {
+    document.querySelectorAll('dialog[data-auth-mode="dialog"]').forEach(function (dialog) {
+      if (!dialog._authLogoObserver) {
+        // Каждое открытие учитывает смену оформления при закрытом диалоге.
+        dialog._authLogoObserver = new MutationObserver(function () { loadDialogLogo(dialog); });
+        dialog._authLogoObserver.observe(dialog, { attributes: true, attributeFilter: ["open"] });
+      }
+      loadDialogLogo(dialog);
+    });
+  }
+  prepareDialogLogos();
+  document.addEventListener("d4y:skinchange", prepareDialogLogos);
+
   // --- 1. Telegram Login Widget ---------------------------------------------
   function loginSurface(wrap) {
     return wrap.closest(".login-card, .login-dlg");
@@ -225,6 +248,7 @@
   // Под Turbo блок «Подключить уведомления» — новый узел после перехода:
   // переинициализируем общий CTA после замены страницы.
   document.addEventListener("turbo:load", function () {
+    prepareDialogLogos();
     prepareLoginWidgets();
     wireAll();
   });

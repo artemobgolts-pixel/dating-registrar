@@ -790,6 +790,7 @@ html[data-skin="friends"] .card { --vote-feedback-accent: var(--friends-teal); }
   font-family: var(--serif);
   font-size: 26px; font-weight: 600; margin: 0 0 8px; line-height: 1.18;
 }
+.card .title { min-width: 0; overflow-wrap: anywhere; }
 .meta { display: grid; gap: 6px; margin: 0 0 10px; }
 .when, .place { display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 14.5px; flex-wrap: wrap; }
 .meta-icon {

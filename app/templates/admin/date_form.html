@@ -230,7 +230,7 @@
           <input type="checkbox" name="categories" value="{{ c['id'] }}"
                  {% if c['id'] in checked %}checked{% endif %}
                  {% if c['id'] in locked_cat_ids %}disabled{% endif %}>
-          {{ c['name'] }}
+          <span class="chip-cat-name">{{ c['name'] }}</span>
           {% if c['id'] in locked_cat_ids %}<span aria-label="Состав зафиксирован">🔒</span>{% endif %}
         </label>
         {% if c['id'] in locked_cat_ids and c['id'] in checked %}

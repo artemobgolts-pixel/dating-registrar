@@ -38,19 +38,19 @@
   <form method="get" action="/admin/dates" class="filters" data-tour="dates-controls">
     <input type="hidden" name="view" value="{{ view }}">
     {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
-    <select name="sort" data-autosubmit>
+    <select name="sort" aria-label="Сортировка событий" data-autosubmit>
       <option value="new" {{ 'selected' if sort == 'new' }}>Сначала новые</option>
       <option value="when" {{ 'selected' if sort == 'when' }}>По дате события</option>
       <option value="book" {{ 'selected' if sort == 'book' }}>По голосам</option>
     </select>
-    <select name="f" data-autosubmit>
+    <select name="f" aria-label="Фильтр событий" data-autosubmit>
       <option value="">Все события</option>
       <option value="public" {{ 'selected' if flt == 'public' }}>Публичные</option>
       <option value="private" {{ 'selected' if flt == 'private' }}>Непубличные</option>
       <option value="booked" {{ 'selected' if flt == 'booked' }}>С голосами</option>
       <option value="nodate" {{ 'selected' if flt == 'nodate' }}>Без даты</option>
     </select>
-    <select name="cat" data-autosubmit>
+    <select name="cat" aria-label="Подборка" data-autosubmit>
       <option value="">Все подборки</option>
       {% for c in cats %}<option value="{{ c['id'] }}" {{ 'selected' if cat == c['id'] | string }}>{{ c['name'] }}</option>{% endfor %}
     </select>

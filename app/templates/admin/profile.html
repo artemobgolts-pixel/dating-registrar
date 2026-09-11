@@ -40,19 +40,19 @@
     </div>
 
     <div class="field">
-      <label>Имя<sup class="required-mark" aria-hidden="true">*</sup></label>
-      <input type="text" name="display_name" required maxlength="80"
+      <label for="profileName">Имя<sup class="required-mark" aria-hidden="true">*</sup></label>
+      <input id="profileName" type="text" name="display_name" required maxlength="80"
              value="{{ user['display_name'] or '' }}">
     </div>
 
     <div class="field">
-      <label>Дата рождения</label>
-      <input type="date" name="birth_date" value="{{ user['birth_date'] or '' }}">
+      <label for="profileBirthDate">Дата рождения</label>
+      <input id="profileBirthDate" type="date" name="birth_date" value="{{ user['birth_date'] or '' }}">
     </div>
 
     <div class="field" style="margin-bottom:0">
-      <label>Пол</label>
-      <div class="gender-pick">
+      <span id="profileGenderLabel" class="profile-gender-label">Пол</span>
+      <div class="gender-pick" role="group" aria-labelledby="profileGenderLabel">
         <label class="gender-opt choice-chip"><input type="radio" name="gender" value="m" {{ 'checked' if user['gender'] == 'm' else '' }}> М</label>
         <label class="gender-opt choice-chip"><input type="radio" name="gender" value="f" {{ 'checked' if user['gender'] == 'f' else '' }}> Ж</label>
         <label class="gender-opt choice-chip"><input type="radio" name="gender" value="" {{ 'checked' if not user['gender'] else '' }}> Не указан</label>

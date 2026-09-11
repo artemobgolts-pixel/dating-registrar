@@ -445,6 +445,25 @@
     var interactiveIndex = Math.max(0, sceneNames.indexOf("float"));
     var activeScene = -1;
     var timeline;
+    var cachedScales = null;
+    var cachedGeometry = null;
+
+    function geometry() {
+      if (!cachedGeometry) {
+        cachedGeometry = {
+          stageRect: stage.getBoundingClientRect(),
+          pinRect: pin.getBoundingClientRect(),
+          toolbarRect: toolbar && toolbar.getBoundingClientRect(),
+          naturalWidth: Math.max(1, experience.offsetWidth),
+          naturalHeight: Math.max(1, experience.offsetHeight),
+          ownerTop: owner.offsetTop,
+          cardTop: card.offsetTop,
+          narrativeTop: narrative ? narrative.offsetTop : 0,
+          narrativeHeight: narrative ? narrative.offsetHeight : 0
+        };
+      }
+      return cachedGeometry;
+    }
 
     function sceneY(kind) {
       if (window.matchMedia("(max-width: 760px)").matches) return kind === "focus" ? -18 : -16;
@@ -453,16 +472,20 @@
     }
 
     function scales() {
-      var stageRect = stage.getBoundingClientRect();
-      var pinRect = pin.getBoundingClientRect();
-      var naturalWidth = Math.max(1, experience.offsetWidth);
-      var naturalHeight = Math.max(1, experience.offsetHeight);
+      // GSAP вычисляет несколько свойств-функций за один refresh.
+      // Геометрия общая до начала следующего цикла ScrollTrigger.
+      if (cachedScales) return cachedScales;
+      var layout = geometry();
+      var stageRect = layout.stageRect;
+      var pinRect = layout.pinRect;
+      var naturalWidth = layout.naturalWidth;
+      var naturalHeight = layout.naturalHeight;
       var stageTop = stageRect.top - pinRect.top;
       var stageBottom = stageTop + stageRect.height;
       var stageCenter = stageTop + (stageRect.height / 2);
       var safeTop = Math.max(stageTop + 6, 6);
       var safeBottom = Math.min(stageBottom - 6, pinRect.height - 8);
-      var toolbarRect = toolbar && toolbar.getBoundingClientRect();
+      var toolbarRect = layout.toolbarRect;
       if (toolbarRect) safeTop = Math.max(safeTop, toolbarRect.bottom - pinRect.top + 6);
       var availableWidth = Math.max(1, Math.min(stageRect.width - 8, window.innerWidth - 12));
 
@@ -474,7 +497,7 @@
 
       var widthFit = Math.min(1, availableWidth / naturalWidth);
       var baseFit = fitAt(sceneY("base"));
-      return {
+      cachedScales = {
         photo: Math.min(widthFit, 0.82),
         surface: Math.min(widthFit, 0.88),
         essentials: Math.min(widthFit, 0.92),
@@ -482,21 +505,23 @@
         full: baseFit * 0.97,
         focus: fitAt(sceneY("focus"))
       };
+      return cachedScales;
     }
 
     function narrativeYFor(scale, cameraY, includeOwner) {
       if (!narrative || !window.matchMedia("(max-width: 760px)").matches) return 0;
-      var pinRect = pin.getBoundingClientRect();
-      var stageRect = stage.getBoundingClientRect();
-      var toolbarRect = toolbar && toolbar.getBoundingClientRect();
+      var layout = geometry();
+      var pinRect = layout.pinRect;
+      var stageRect = layout.stageRect;
+      var toolbarRect = layout.toolbarRect;
       var stageCenter = stageRect.top - pinRect.top + (stageRect.height / 2);
-      var contentTop = includeOwner ? owner.offsetTop : card.offsetTop;
+      var contentTop = includeOwner ? layout.ownerTop : layout.cardTop;
       var cardTop = stageCenter + cameraY
-        + ((contentTop - (experience.offsetHeight / 2)) * scale);
+        + ((contentTop - (layout.naturalHeight / 2)) * scale);
       var switchBottom = toolbarRect ? toolbarRect.bottom - pinRect.top : 120;
       var centeredTop = switchBottom
-        + (cardTop - switchBottom - narrative.offsetHeight) / 2;
-      return Math.max(0, centeredTop - narrative.offsetTop);
+        + (cardTop - switchBottom - layout.narrativeHeight) / 2;
+      return Math.max(0, centeredTop - layout.narrativeTop);
     }
 
     function narrativePhotoY() {
@@ -608,6 +633,7 @@
         scrub: true,
         anticipatePin: 1,
         invalidateOnRefresh: true,
+        onRefreshInit: function () { cachedScales = null; cachedGeometry = null; },
         onUpdate: syncScene,
         onLeaveBack: function () {
           galleryController.releaseToTimeline(0);
@@ -791,6 +817,7 @@
     var ScrollTrigger = window.ScrollTrigger;
     var context = null;
     var timeline = null;
+    var disposed = false;
 
     if (!pin || !stage || !camera || !experience || !card || !gallery) {
       story.classList.add("is-story-ready");
@@ -827,20 +854,13 @@
         timeline = buildStoryTimeline(story, pin, stage, camera, experience, card, gallery, gsap);
       }, story);
       story.classList.add("is-story-ready");
-      window.requestAnimationFrame(function () { ScrollTrigger.refresh(); });
-      if (document.fonts && document.fonts.ready) {
+      // ScrollTrigger сам обновляется после сборки timeline, load и resize.
+      // Дополнительный refresh нужен только при ещё не загруженных шрифтах.
+      if (document.fonts && document.fonts.status !== "loaded" && document.fonts.ready) {
         document.fonts.ready.then(function () {
-          if (story.isConnected) ScrollTrigger.refresh();
+          if (!disposed && story.isConnected) ScrollTrigger.refresh();
         });
       }
-      var viewportWidth = window.innerWidth;
-      listen(window, "resize", function () {
-        if (Math.abs(window.innerWidth - viewportWidth) < 2) return;
-        viewportWidth = window.innerWidth;
-        window.requestAnimationFrame(function () {
-          if (story.isConnected) ScrollTrigger.refresh();
-        });
-      }, { passive: true }, cleaners);
     }
 
     function onMotionChange() {
@@ -849,6 +869,7 @@
     listen(reducedMotion, "change", onMotionChange, undefined, cleaners);
 
     return function () {
+      disposed = true;
       cleaners.forEach(function (cleaner) { cleaner(); });
       galleryController.destroy();
       if (timeline && timeline.scrollTrigger) timeline.scrollTrigger.kill();

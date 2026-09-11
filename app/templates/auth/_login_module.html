@@ -23,8 +23,8 @@
 
     <header class="auth-module__header">
       <div class="auth-module__logo" aria-hidden="true">
-        <img class="auth-module__logo-romantic" src="{{ asset('logo-romantic.png') }}" alt="">
-        <img class="auth-module__logo-standard" src="{{ asset('logo-standard.png') }}" alt="">
+        <img class="auth-module__logo-romantic" data-auth-logo="romantic" {{ 'src' if is_page else 'data-auth-logo-src' }}="{{ asset('logo-romantic.png') }}" alt="">
+        <img class="auth-module__logo-standard" data-auth-logo="friends" {{ 'src' if is_page else 'data-auth-logo-src' }}="{{ asset('logo-standard.png') }}" alt="">
       </div>
       {% if is_page %}
       <h1 class="auth-module__brand" id="{{ title_id }}" aria-label="{{ title }}"><span class="display-ink">date<span class="d4">4</span>you</span></h1>

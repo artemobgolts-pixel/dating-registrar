@@ -417,7 +417,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, .btn:focus-vi
   outline-offset: 1px;
 }
 
-label {
+label, .profile-gender-label {
   font-size: 12.5px;
   color: var(--muted);
   display: block;
@@ -1825,11 +1825,13 @@ html.ink-static .bg-smoke span {
 .chips-cat { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
 .chip-cat {
   display: inline-flex; align-items: center; gap: 6px;
+  min-width: 0; max-width: 100%;
   padding: 7px 14px; border-radius: 20px;
   border: 1px solid var(--line); background: rgba(255, 255, 255, .6);
   font-size: 13.5px; color: var(--ink); cursor: pointer;
   transition: background .15s, color .15s, border-color .15s;
 }
+.chip-cat-name { min-width: 0; overflow-wrap: anywhere; }
 .chip-cat input { position: absolute; opacity: 0; width: 0; height: 0; }
 .chip-cat:has(input:checked) {
   background: var(--rose); color: #fff; border-color: var(--rose);
@@ -2034,8 +2036,8 @@ html.ink-static .bg-smoke span {
 .controls {
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 18px;
 }
-.controls .filters { margin-bottom: 0; flex-wrap: nowrap; align-items: center; }
-.controls .filters select { min-width: 0; }
+.controls .filters { margin-bottom: 0; flex-wrap: nowrap; align-items: center; min-width: 0; max-width: 100%; }
+.controls .filters select { min-width: 0; max-width: 100%; flex: 1 1 150px; }
 .controls .tabs { align-items: center; margin-bottom: 0; }   /* убираем остаточный отступ — иначе табы съезжают вверх относительно фильтров */
 .viewtog {
   margin-left: auto; display: flex;
@@ -2304,7 +2306,8 @@ html.ink-static .bg-smoke span {
   display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, .82fr);
   gap: 24px; align-items: stretch;
 }
-@media (max-width: 640px) { .share-grid { grid-template-columns: 1fr; } }
+.share-grid > * { min-width: 0; }
+@media (max-width: 640px) { .share-grid { grid-template-columns: minmax(0, 1fr); } }
 /* На ПК QR занимает полноценную зону и центрируется в ней. */
 .share-qr-col {
   display: flex; flex-direction: column; align-items: center; gap: 12px;
@@ -2364,9 +2367,9 @@ html[data-theme="dark"][data-skin="friends"] .share-qr {
   --qr-ink: #e3e7ff;
   border-color: rgba(255,255,255,.12);
 }
-.share-cat { font-weight: 600; margin-bottom: 8px; }
+.share-cat { font-weight: 600; margin-bottom: 8px; overflow-wrap: anywhere; }
 .share-pick { margin-bottom: 12px; }
-.share-pick select { width: auto; min-width: 200px; }
+.share-pick select { width: auto; min-width: min(200px, 100%); max-width: 100%; }
 .qr-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; align-items: stretch; }
 /* #10: обе кнопки QR — одной высоты и с центрированным текстом. «Скачать» —
    это <a class="btn small"> (inline-block, текст съезжал влево и была ниже);
@@ -3199,7 +3202,7 @@ html[data-theme="dark"][data-skin="friends"] .share-qr {
 
   /* фильтры списка событий: на телефоне переносим и не даём «уезжать» вбок */
   .controls .filters { flex-wrap: wrap; width: 100%; }
-  .controls .filters select { flex: 1 1 auto; min-width: 0; }
+  .controls .filters select { flex: 1 1 150px; min-width: 0; }
   /* Вкладки Активные/Архив — во всю ширину, вкладки делят её поровну.
      Текст/шрифт/паддинг НЕ трогаем (тот же «сочный» вид) — влезаем за счёт того,
      что счётчик стал маленьким кружком-суперскриптом (см. .tabs .pill), а не

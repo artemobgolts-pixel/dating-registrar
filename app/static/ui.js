@@ -704,110 +704,6 @@ window.UI = (() => {
     return s;
   }
 
-  var RU_MONTHS = ["января", "февраля", "марта", "апреля", "мая", "июня",
-    "июля", "августа", "сентября", "октября", "ноября", "декабря"];
-
-  // Форматирование даты как на сервере (helpers.fmt_when), вход — "YYYY-MM-DDTHH:MM".
-  function fmtPoint(s, withYear) {
-    var p = s.split("T"); var d = p[0].split("-"); var t = p[1] || "00:00";
-    var day = parseInt(d[2], 10), mon = parseInt(d[1], 10) - 1, year = d[0];
-    var base = day + " " + (RU_MONTHS[mon] || "");
-    if (withYear !== false) base += " " + year;
-    return base + ", " + t.slice(0, 5);
-  }
-  function fmtWhen(starts, ends) {
-    if (!starts) return "";
-    if (!ends) return fmtPoint(starts);
-    var ds = starts.split("T")[0], de = ends.split("T")[0];
-    if (ds === de) return fmtPoint(starts) + "–" + (ends.split("T")[1] || "").slice(0, 5);
-    return fmtPoint(starts) + " — " + fmtPoint(ends);
-  }
-  function hostOf(u) {
-    try { return new URL(/^https?:\/\//.test(u) ? u : "https://" + u).host; }
-    catch (_) { return u.slice(0, 40); }
-  }
-
-  function editorPreview(form) {
-    var pv = {};
-    var scope = form.closest(".split") || document;
-    scope.querySelectorAll("[data-preview]").forEach(function (el) {
-      pv[el.getAttribute("data-preview")] = el;
-    });
-    var descPrev = document.getElementById("descPreview");
-    function field(name) { return form.querySelector('[data-bind="' + name + '"]'); }
-
-    // состояние превью-медиа: показываем блок .photo, только если есть обложка
-    // ИЛИ видео; иначе прячем целиком (без «битой картинки»/пустого плейсхолдера).
-    var hasCover = !!(pv.cover && pv.cover.getAttribute("src"));
-    var hasVideo = !!(pv.vbadge && !pv.vbadge.hidden);
-    function syncPhotoBox() {
-      if (pv.photo) pv.photo.hidden = !(hasCover || hasVideo);
-    }
-
-    function setCover(url) {
-      if (!pv.cover) return;
-      if (url) { pv.cover.src = url; pv.cover.hidden = false; hasCover = true; }
-      else { pv.cover.removeAttribute("src"); pv.cover.hidden = true; hasCover = false; }
-      syncPhotoBox();
-    }
-    function setVideo(has) {
-      if (pv.vbadge) pv.vbadge.hidden = !has;
-      hasVideo = !!has;
-      syncPhotoBox();
-    }
-
-    function sync() {
-      var title = field("title");
-      if (title && pv.title) pv.title.textContent = title.value || "Без названия";
-
-      var desc = field("desc");
-      var html = desc ? renderMarkup(desc.value) : "";
-      if (pv.desc) pv.desc.innerHTML = html;
-      if (descPrev) descPrev.innerHTML = desc && desc.value ? "превью: " + html : "";
-
-      // оплата: радиогруппа (0 не важно / 1 50-50 / 2 я плачу /
-      // 3 ты оплатишь / 4 бесплатно)
-      if (pv.pay) {
-        var payChecked = form.querySelector('[data-bind="pay"]:checked');
-        var payVal = payChecked ? payChecked.value : "0";
-        var PAY = { "1": "💸 50/50", "2": "👌 Я плачу", "3": "🫵 Ты платишь", "4": "Бесплатно" };
-        pv.pay.dataset.payValue = PAY[payVal] ? payVal : "0";
-        if (PAY[payVal]) { pv.pay.textContent = PAY[payVal]; pv.pay.hidden = false; }
-        else { pv.pay.textContent = ""; pv.pay.hidden = true; }
-      }
-
-      // мета: когда (🕐) + место (📍)
-      if (pv.meta) {
-        var bits = [];
-        var fs = document.getElementById("fStart"), fe = document.getElementById("fEnd");
-        var when = fs && fs.value ? fmtWhen(fs.value, fe && fe.value) : "";
-        if (when) bits.push('<span>🕐 ' + escapeHTML(when) + "</span>");
-        var place = field("place");
-        var pvv = place ? (place.value || "").trim() : "";
-        if (pvv) bits.push('<span>📍 ' + (/^https?:\/\//.test(pvv) ? "Место на карте" : escapeHTML(pvv)) + "</span>");
-        pv.meta.innerHTML = bits.join("");
-      }
-
-      // ссылки (textarea name="links", по одной на строку)
-      if (pv.links) {
-        var la = form.querySelector('[name="links"]');
-        var out = "";
-        if (la) {
-          la.value.split("\n").forEach(function (line) {
-            var u = line.trim();
-            if (u) out += '<span class="plink">🔗 ' + escapeHTML(hostOf(u)) + "</span>";
-          });
-        }
-        pv.links.innerHTML = out;
-      }
-    }
-
-    form.addEventListener("input", sync);
-    form.addEventListener("change", sync);
-    sync();
-    return { sync: sync, setCover: setCover, setVideo: setVideo };
-  }
-
   /* --- WYSIWYG-редактор описания: форматирование видно прямо в поле -------
      contenteditable показывает жирный/курсив/подчёркнутый/зачёркнутый/ссылки
      как настоящее оформление, а в скрытую <textarea> синхронно пишется
@@ -1485,7 +1381,7 @@ window.UI = (() => {
   voteCountdowns(document);
 
   return { sortable, burst, uploader, mediaUploader, lazyVideos, dateChips, postWithProgress,
-           editorPreview, richEditor, cardMenu, renderMarkup, glassTabs,
+           richEditor, cardMenu, renderMarkup, glassTabs,
            inlineEdit: inlineEdit, timeRange: timeRange,
            numberSteppers: numberSteppers, voteCountdowns: voteCountdowns };
 })();

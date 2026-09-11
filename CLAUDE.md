@@ -9,13 +9,16 @@ FastAPI + SQLite (WAL) + Jinja2 + Pillow. Деплой: Docker Compose + Caddy 2
 
 ```
 app/
-  main.py        — все роуты (публичные /c/<токен>/... и админка /admin/...)
+  main.py        — сборка приложения, middleware, health/readiness и подключение роутов
+  admin_routes.py / public_routes.py / auth_routes.py — кабинет, публичные страницы, вход
+  sessions.py    — серверный registry сессий и отзыв при выходе
   db.py          — схема и миграции (PRAGMA user_version)
   images.py      — приём фото (WebP, лимиты), backup.py — снимки базы, notify.py — Telegram
   docker-entrypoint.sh — чинит права на /data и понижает привилегии до appuser
   static/        — public.css (гостевая), admin.css, ui.js (sortable/uploader/чипы/конфетти)
   templates/     — public/ и admin/ (Jinja2)
-tests/test_smoke.py — смоук-тесты (httpx ASGI, без сети)
+tests/test_*.py  — unit/HTTP/browser regression; test_smoke.py — смоук-проверки
+scripts/release_gate.py — изолированный полный gate, привязанный к SHA
 data/            — база, фото, бэкапы; НЕ в гите, никогда не трогать и не коммитить
 ```
 
@@ -23,13 +26,17 @@ data/            — база, фото, бэкапы; НЕ в гите, ник�
 
 ```bash
 # локальный запуск (из app/)
-DATA_DIR=../data-dev COOKIE_SECURE=false SECRET_KEY=dev ADMIN_PASSWORD=dev uvicorn main:app --reload
+DATA_DIR=../data-dev COOKIE_SECURE=false SECRET_KEY=dev uvicorn main:app --reload
 
 # тесты (из корня репозитория)
 python tests/test_smoke.py
 ```
 
-Перед коммитом тесты должны быть зелёные. Зависимости: `pip install -r app/requirements.txt`.
+Перед коммитом тесты должны быть зелёные. Для browser suites нужны зависимости
+из `app/requirements-test.txt` и Chromium (`python -m playwright install chromium`).
+Полный gate и выпуск точного SHA описаны в [docs/release.md](docs/release.md);
+один smoke не заменяет этот gate. Локальные browser fixtures используют временную
+SQLite и отключённые интеграции (`tests/live_backend.py`).
 
 ## Правила проекта
 
@@ -42,10 +49,11 @@ python tests/test_smoke.py
   и `/admin/uploads/<файл>`. Не монтировать `/uploads` в StaticFiles.
 - **CSRF**: каждая POST-форма админки несёт `<input type="hidden" name="csrf" value="{{ csrf }}">`;
   fetch-запросы админки берут токен из `document.body.dataset.csrf`.
-- **Участники**: перед гостевыми действиями требуется имя (сервер отвечает 412
-  `{need_name: true}`, фронт открывает диалог). Один участник может отдать только
-  один голос за конкретное событие в категории (`UNIQUE` в `bookings`);
-  число выбираемых вариантов задаёт режим голосования категории.
+- **Участники**: гостевые действия требуют входа в аккаунт. Legacy guest cookie
+  и имена читаются для старых записей и переноса голосов после входа; старый
+  диалог имени и выпуск guest cookie не используются. Правила количества
+  голосов и дедлайна задаёт `voting.py`; режим категории ограничивает выбор
+  одним или несколькими событиями.
 - **Оформления** независимы от светлой/тёмной темы: `category_skin` задаёт
   `friends|romantic` для публичной ссылки категории, `admin_skin` — для кабинета
   пользователя. `data-skin` и `data-theme` не объединять. Romantic сохраняет
