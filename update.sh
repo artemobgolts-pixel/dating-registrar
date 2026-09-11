@@ -1,23 +1,9 @@
 #!/usr/bin/env bash
-# Серверный апдейт: подтянуть свежий код и пересобрать контейнер.
-# Запуск на сервере из каталога проекта:  cd /opt/date4you && ./update.sh
-#
-# Безопасно для данных: data/ и .env не в git, pull их не трогает.
+# Никаких pull/main/rebuild: заранее подготовленный artifact полного SHA.
 set -euo pipefail
-
-echo "→ Забираю свежий код…"
-git pull --ff-only origin main
-
-# --build нужен, если менялся Python-код или зависимости. Для чистой
-# статики/шаблонов хватило бы 'restart', но --build надёжнее и не намного
-# дольше при кэше слоёв Docker.
-echo "→ Пересобираю и поднимаю…"
-docker compose up -d --build
-
-echo "→ Жду healthcheck…"
-sleep 8
-docker compose ps
-
-echo
-echo "✓ Готово. Логи: docker compose logs -f app"
-echo "  Откат:  git log --oneline (взять прошлый хеш) → git checkout <хеш> && docker compose up -d --build"
+cd "$(dirname "$0")"
+if [ "$#" -ne 1 ] || [[ ! "$1" =~ ^[0-9a-f]{40}$ ]]; then
+  echo 'Использование: ./update.sh <полный подготовленный SHA>; см. docs/release.md' >&2
+  exit 2
+fi
+exec "${PYTHON:-python3}" scripts/release.py deploy --sha "$1"

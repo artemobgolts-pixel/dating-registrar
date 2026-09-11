@@ -34,7 +34,7 @@ import social_events
 import users
 import voting
 import voting_events
-from config import (AUTHOR_PROJECTS, ABOUT_TEXT, BASE_URL, DOMAIN,
+from config import (AUTHOR_PROJECTS, ABOUT_TEXT, APP_RELEASE, BASE_URL, DOMAIN,
                     MSK, support_link)
 from helpers import (_parse, clean_text, fmt_gcal, fmt_when, new_link_token,
                      normalize_period, now_iso, now_naive, parse_dt_local,
@@ -978,16 +978,53 @@ def _category_voting_state(conn, category_id: int):
 # ---------------------------------------------------------------------------
 
 @router.get("/health")
-def health():
-    # Не просто «процесс жив»: читаем базу и пробуем запись на диск —
-    # ловим readonly-/data и залипшие блокировки.
-    conn = db.connect()
-    try:
-        conn.execute("SELECT 1 FROM sqlite_master LIMIT 1")
-    finally:
-        conn.close()
-    (db.DATA_DIR / ".health").touch()
+async def health():
+    # Liveness не зависит от SQLite: краткая блокировка writer не должна
+    # перезапускать исправный процесс и прерывать пользовательские запросы.
     return {"ok": True}
+
+
+_READINESS_BUSY_TIMEOUT_SECONDS = 0.1
+
+
+@router.get("/ready")
+def ready():
+    """Проверка релиза в worker-потоке, без изменения данных и создания БД.
+
+    Отдельное соединение не наследует 15-секундный timeout обычных запросов.
+    BEGIN IMMEDIATE проверяет получение writer lock; ROLLBACK сразу отпускает
+    его. Это не проверка свободного места для будущих загрузок/транзакций.
+    """
+    conn = None
+    state = {"ok": False, "release": APP_RELEASE,
+             "schema_version": None, "expected_schema_version": db.LATEST_VERSION}
+    try:
+        conn = sqlite3.connect(
+            db.DB_PATH.resolve().as_uri() + "?mode=rw", uri=True,
+            timeout=_READINESS_BUSY_TIMEOUT_SECONDS, isolation_level=None,
+        )
+        conn.execute("BEGIN IMMEDIATE")
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+        state["schema_version"] = version
+        if version != db.LATEST_VERSION:
+            state["reason"] = "schema_mismatch"
+        else:
+            conn.execute("SELECT 1 FROM users LIMIT 1")
+            state["ok"] = True
+    except sqlite3.Error as exc:
+        code = getattr(exc, "sqlite_errorcode", 0) & 0xff
+        state["reason"] = ("database_busy" if code in (
+            sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED,
+        ) else "database_unavailable")
+    finally:
+        if conn is not None:
+            try:
+                if conn.in_transaction:
+                    conn.rollback()
+            finally:
+                conn.close()
+    return JSONResponse(state, status_code=200 if state["ok"] else 503,
+                        headers={"Cache-Control": "no-store"})
 
 
 @router.get("/")

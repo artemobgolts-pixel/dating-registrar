@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 from urllib.parse import quote, urlsplit
 
@@ -485,25 +486,31 @@ def send_document(chat_id: int | str, path, caption: str | None = None,
         return False
 
 
-# Алёрты о сбоях (500-е) оператору. Дедупликация по тексту, чтобы всплеск
-# одинаковых ошибок не превратился в флуд: одинаковый алёрт — не чаще раза в окно.
+# Алёрты о сбоях оператору. Ключ группы не содержит request_id и пользовательских
+# значений; диагностический текст первого запроса сохраняется в сообщении.
 _ALERT_WINDOW = 300          # секунд
-_alert_seen: dict[str, float] = {}
+_alert_seen: dict[str | tuple[str, str, str], float] = {}
+_alert_lock = threading.Lock()
 
 
-def alert(text: str) -> None:
+def alert(text: str, *, group_key: tuple[str, str, str] | None = None) -> None:
     """Шлёт алёрт о сбое (тот же бот/чат, что и уведомления), с троттлингом.
 
-    Блокирующий httpx.post — вызывать из потока/боновой задачи, не из event loop.
+    group_key: метод, шаблон маршрута, тип исключения; request_id остаётся
+    только в text. Старые вызовы без ключа сохраняют дедупликацию по тексту.
+    Блокирующий httpx.post — вызывать из потока/фоновой задачи, не из event loop.
     """
     if not TOKEN or not CHAT:
         return
-    now = time.monotonic()
-    # чистим протухшие записи окна и проверяем дедуп
-    for k, t in list(_alert_seen.items()):
-        if now - t > _ALERT_WINDOW:
-            _alert_seen.pop(k, None)
-    if now - _alert_seen.get(text, -_ALERT_WINDOW) < _ALERT_WINDOW:
-        return
-    _alert_seen[text] = now
+    key = group_key if group_key is not None else text
+    # Несколько asyncio.to_thread могут одновременно обрабатывать одну группу.
+    # Резервируем окно под lock, сетевой вызов выполняем уже без него.
+    with _alert_lock:
+        now = time.monotonic()
+        for k, t in list(_alert_seen.items()):
+            if now - t >= _ALERT_WINDOW:
+                _alert_seen.pop(k, None)
+        if now - _alert_seen.get(key, -_ALERT_WINDOW) < _ALERT_WINDOW:
+            return
+        _alert_seen[key] = now
     notify(text)

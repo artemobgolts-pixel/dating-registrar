@@ -14,12 +14,14 @@
 """
 
 import asyncio
+import hashlib
 import logging
 import os
 import secrets
+import stat
 import time
 from contextlib import asynccontextmanager
-from urllib.parse import parse_qsl, urlencode, urlsplit
+from urllib.parse import parse_qs, parse_qsl, urlencode, urlsplit
 
 from fastapi import FastAPI, Request
 from fastapi.exception_handlers import http_exception_handler, request_validation_exception_handler
@@ -151,13 +153,43 @@ class CachedStatic(StaticFiles):
     версии: шрифты/иконки/картинки — надолго, CSS/JS — на час с ревалидацией."""
 
     LONG = {".woff2", ".woff", ".ttf", ".png", ".jpg", ".jpeg", ".webp", ".ico", ".svg"}
+    # Python 3.12/slim и Windows могут не иметь системной MIME-базы для этих файлов.
+    # Без v статику тоже обслуживает image, поэтому тип не зависит от пакетов хоста.
+    MEDIA_TYPES = {".webp": "image/webp", ".woff2": "font/woff2",
+                   ".woff": "font/woff", ".ttf": "font/ttf"}
+
+    def _content_version(self, path):
+        # lookup_path сохраняет защиту StaticFiles от выхода за static directory.
+        full_path, info = self.lookup_path(path)
+        if info is None or not stat.S_ISREG(info.st_mode):
+            return None
+        try:
+            with open(full_path, "rb") as source:
+                return hashlib.file_digest(source, "sha256").hexdigest()[:12]
+        except OSError:
+            return None
 
     async def get_response(self, path, scope):
+        # Старый immutable URL никогда не должен возвращать новые байты даже при
+        # прямом обращении к backend, без content-addressed хранилища Caddy.
+        try:
+            query = parse_qs(scope.get("query_string", b"").decode("latin-1"),
+                             keep_blank_values=True, max_num_fields=100)
+        except ValueError:
+            return PlainTextResponse("Not Found", status_code=404,
+                                     headers={"Cache-Control": "no-store"})
+        versions = query.get("v")
+        if versions is not None:
+            if (len(versions) != 1 or len(versions[0]) != 12
+                    or versions[0] != await run_in_threadpool(self._content_version, path)):
+                return PlainTextResponse("Not Found", status_code=404,
+                                         headers={"Cache-Control": "no-store"})
         resp = await super().get_response(path, scope)
         ext = os.path.splitext(path)[1].lower()
-        if resp.status_code == 200:
-            qs = scope.get("query_string", b"")
-            if b"v=" in qs:
+        if resp.status_code in (200, 304):
+            if ext in self.MEDIA_TYPES:
+                resp.headers["Content-Type"] = self.MEDIA_TYPES[ext]
+            if versions is not None:
                 # имя версионировано по содержимому → можно кэшировать максимально
                 resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
             elif ext in self.LONG:
@@ -396,7 +428,9 @@ async def unhandled_error(request: Request, exc: Exception):
         rid = f"\n<code>request_id={notify.esc(request_id)}</code>" if request_id else ""
         msg = (f"🔥 500 на <code>{request.method} {notify.esc(route)}</code>\n"
                f"<b>{type(exc).__name__}</b>{rid}")
-        asyncio.create_task(asyncio.to_thread(notify.alert, msg))
+        method = request.method if request.method in metrics.HTTP_METHODS else "OTHER"
+        group_key = (method, route, f"{type(exc).__module__}.{type(exc).__qualname__}")
+        asyncio.create_task(asyncio.to_thread(notify.alert, msg, group_key=group_key))
     except Exception:
         log.exception("Не удалось отправить алёрт о сбое")
     if "text/html" in request.headers.get("accept", "").lower():

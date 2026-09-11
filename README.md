@@ -103,10 +103,11 @@ nano .env
 
 Без `SECRET_KEY` приложение **не запустится** — упадёт с понятной ошибкой.
 
-Дальше:
+Далее подготовьте точный artifact и release receipt по [процедуре выпуска](docs/release.md).
+Только для совершенно пустого data:
 
 ```bash
-docker compose up -d --build
+python3 scripts/release.py deploy --sha <подготовленный-SHA> --first-install
 ```
 
 Минуту-две Caddy получает сертификат, после этого:
@@ -131,7 +132,7 @@ Telegram профиль проверяется по подписанному `We
 3. Придумай длинную случайную строку для `TG_WEBHOOK_SECRET` (`openssl rand -hex 32`).
 4. Свой `telegram_id` (у [@userinfobot](https://t.me/userinfobot)) впиши в `OPERATOR_TG_IDS`.
    При первом входе ты автоматически станешь владельцем всех существующих данных.
-5. `docker compose up -d` — приложение само зарегистрирует вебхук входа в Telegram
+5. `python3 scripts/release.py compose up -d --no-build --pull never app` — приложение само зарегистрирует вебхук входа в Telegram
    и глобальную кнопку меню Mini App при старте (ручные `setWebhook` и
    `setChatMenuButton` не нужны).
 6. После того как HTTPS-сертификат домена уже работает, в @BotFather обязательно
@@ -153,34 +154,22 @@ Telegram профиль проверяется по подписанному `We
 
 ## Обновление сайта
 
-Если проект на сервере склонирован из git (шаг 3):
+Используйте [процедуру выпуска и восстановления](docs/release.md): clean SHA →
+полный release gate → сохранённый image artifact → pre-migration DB+media bundle →
+readiness → traffic. Сначала подготовьте artifact точного SHA, затем:
 
 ```bash
 cd /opt/date4you
-git pull
-docker compose up -d --build
+./update.sh <40-символьный-подготовленный-SHA>
+python3 scripts/release.py status
 ```
 
-`data/` и `.env` в `.gitignore`, так что `git pull` их не трогает.
-После обновления админка один раз попросит войти заново — cookie сессии
-переехала на защищённое имя `__Host-…`. Это разовое и ожидаемое.
-Миграции базы применяются автоматически при старте (схема хранит версию
-в `PRAGMA user_version` — старые установки докатываются сами, включая
-перенос старых «выборов» в новые именные голоса).
+Сбой обновления сохраняет previous image и recovery point. Откат не пересобирает
+image и не заменяет DB автоматически. Старые cookies без registry session после
+миграции Phase A требуют повторного входа; схема Phase C остаётся v38.
 
-### Если на сервере старая копия без git
-
-```bash
-cd /opt
-mv date4you date4you-old
-git clone https://github.com/artemobgolts-pixel/dating-registrar.git date4you
-cp date4you-old/.env date4you/
-mv date4you-old/data date4you/
-cd date4you
-docker compose up -d --build
-# когда убедишься, что всё работает:
-# rm -rf /opt/date4you-old
-```
+Старую установку без git сначала перенесите в проверенный checkout с отдельной
+резервной копией DB+media; live data не перемещайте по устаревшему shell-рецепту.
 
 ---
 
@@ -197,7 +186,7 @@ cd dating-registrar
 
 ```bash
 cd app
-pip install -r requirements.txt
+pip install -c constraints.txt -r requirements.txt
 DATA_DIR=../data-dev COOKIE_SECURE=false SECRET_KEY=dev \
   TG_BOT_USERNAME=dev_bot TG_WEBHOOK_SECRET=dev OPERATOR_TG_IDS=1 \
   uvicorn main:app --reload
@@ -222,7 +211,7 @@ git push
 Personal access tokens → Generate new token (classic, права `repo`).
 Вставляешь токен вместо пароля. Либо один раз: `gh auth login` (через GitHub CLI).
 
-После `git push` обнови сервер: `cd /opt/date4you && git pull && docker compose up -d --build`.
+После `git push` выпусти точный SHA по [release procedure](docs/release.md). Smoke сам по себе не является release gate.
 
 ### Claude Code в VS Code
 
@@ -238,47 +227,18 @@ Personal access tokens → Generate new token (classic, права `repo`).
 
 ## Бэкапы
 
-Три уровня, от простого к параноидальному:
+Автоматические атомарные SQLite-only snapshots в `data/backups/` хранят последние
+14 успешных копий. Они не гарантируют восстановление удалённых медиа.
 
-1. **Автоматический** — приложение само раз в сутки кладёт консистентный снимок базы
-   в `data/backups/` и хранит последние 14. Ничего настраивать не нужно.
-2. **Ручной** — `docker compose exec app python backup.py` (снимок через sqlite backup API).
-3. **Внешний** — добавь в cron на сервере копирование `data/` куда-то ещё, например:
+Полная recovery point включает DB, uploads и проверенный manifest. Команда
+`python3 scripts/release.py backup` на управляемом сервере кратко останавливает
+traffic и всех writers, создаёт bundle и возвращает тот же image. `scripts/backup.sh`
+публикует полные bundles через rclone, храня последние 30 завершённых точек целиком.
+Telegram DB-only копия остаётся отдельным явным opt-in.
 
-   ```bash
-   0 4 * * * tar -czf /root/date4you-$(date +\%F).tar.gz -C /opt/date4you data/backups data/uploads
-   ```
-
-   ⚠ Не архивируй «живой» `data/app.db` напрямую (база в режиме WAL) —
-   бери снимки из `data/backups/`, они для этого и существуют.
-
-4. **В облако (рекомендуется для прода)** — `scripts/backup.sh`: делает свежий снимок
-   внутри контейнера и заливает его в облако через [rclone](https://rclone.org)
-   (S3 / Я.Диск / R2), храня последние 30 копий. Настрой `rclone config` (ремоут
-   по умолчанию `backup`), затем добавь в cron:
-
-   ```bash
-   0 21 * * *  cd /opt/date4you && ./scripts/backup.sh >> /var/log/date4you-backup.log 2>&1
-   ```
-   На сервере с часовым поясом UTC это 00:00 по Москве. Telegram-отправка
-   выполняется только этим cron; встроенный цикл приложения хранит лишь
-   локальный свежий снимок и не дублирует сообщение.
-
-   Параметры (`RCLONE_REMOTE`, `KEEP_REMOTE`, `SERVICE`, …) переопределяются
-   переменными окружения — см. шапку скрипта. **Проверь восстановление** из
-   облачной копии хотя бы раз, прежде чем полагаться на бэкап.
-
-### Восстановление из снимка
-
-```bash
-cd /opt/date4you
-docker compose stop app
-cp data/backups/app-ГГГГММДД-ЧЧММСС.db data/app.db
-rm -f data/app.db-wal data/app.db-shm
-docker compose start app   # права на файлы entrypoint поправит сам
-```
-
-Полный архив (база + все фото + JSON) можно скачать кнопкой в админке → Главная → Экспорт.
+[Инструкции, RPO/RTO и restore-drill](docs/release.md#5-резервирование-и-полное-восстановление).
+Restore создаёт новый каталог; решение заменить live data и принять потерю изменений
+после выбранной точки остаётся за оператором. Не копируйте старый app.db поверх live WAL/SHM.
 
 ---
 
@@ -301,7 +261,7 @@ docker compose start app   # права на файлы entrypoint поправ�
 ```bash
 curl -sS -D - -o /dev/null https://date4you.online/health
 # скопируй значение X-Request-ID из ответа, например edge-generated-id
-docker compose logs --no-log-prefix app | grep -F 'запрос=edge-generated-id'
+python3 scripts/release.py compose logs --no-log-prefix app | grep -F 'запрос=edge-generated-id'
 ```
 
 Для машинной обработки переключи `LOG_FORMAT=json`. Тогда каждая запись снова
@@ -309,7 +269,7 @@ docker compose logs --no-log-prefix app | grep -F 'запрос=edge-generated-i
 `duration_ms`, `environment` и `release`, а фильтрация доступна через `jq`:
 
 ```bash
-docker compose logs --no-log-prefix app \
+python3 scripts/release.py compose logs --no-log-prefix app \
   | jq -R 'fromjson? | select(.request_id == "edge-generated-id")'
 ```
 
@@ -326,7 +286,7 @@ SENTRY_TRACES_SAMPLE_RATE=0.05
 отключает performance traces, но оставляет сбор необработанных ошибок. Перед
 отправкой наружу приложение удаляет request body, query, cookies, заголовки и PII;
 `request_id` остаётся безопасным ключом корреляции. После изменения переменных
-пересоздай контейнер: `docker compose up -d --build app`.
+пересоздай контейнер: `python3 scripts/release.py compose up -d --no-build --pull never app`.
 
 ### Локальные Prometheus и Grafana
 
@@ -338,8 +298,9 @@ app-контейнер. Создай игнорируемый `.env.monitoring` 
 cp .env.monitoring.example .env.monitoring
 openssl rand -hex 24
 nano .env.monitoring  # вставь результат в GRAFANA_ADMIN_PASSWORD=...
+export APP_IMAGE='sha256:<active-image-ID-из-.release/artifacts/RELEASE/manifest.json>'
 docker compose --env-file .env --env-file .env.monitoring \
-  --profile monitoring up -d --build
+  --profile monitoring up -d --no-deps prometheus grafana
 docker compose --env-file .env --env-file .env.monitoring \
   --profile monitoring ps
 ```
@@ -400,10 +361,10 @@ cookie с префиксом `__Host-`. IP клиента для лимитов 
 
 ## Если что-то пошло не так
 
-- **Логи приложения:** `docker compose logs -f app` · **Caddy:** `docker compose logs -f caddy`
-- **Статус:** `docker compose ps` — у `app` должно быть `(healthy)`.
+- **Логи приложения:** `python3 scripts/release.py compose logs -f app` · **Caddy:** `python3 scripts/release.py compose logs -f caddy`
+- **Статус:** `python3 scripts/release.py compose ps` — у `app` должно быть `(healthy)`.
 - **Приложение не стартует и пишет про SECRET_KEY** — заполни `.env`.
 - **PermissionError на /data** — не должно случаться: entrypoint чинит права при старте.
-  Если всё же случилось, перезапусти контейнер: `docker compose restart app`.
+  Если всё же случилось, перезапусти контейнер: `python3 scripts/release.py compose restart app`.
 - **Несколько воркеров uvicorn** — нельзя: лимиты живут в памяти процесса,
   SQLite комфортнее с одним писателем. В Dockerfile уже стоит `--workers 1`.

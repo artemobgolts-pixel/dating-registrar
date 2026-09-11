@@ -9,7 +9,9 @@ x-logging: &default-logging
 
 services:
   app:
-    build: ./app
+    # Сервер использует .release/compose.json; прямой запуск требует явного image ID.
+    image: ${APP_IMAGE:?Use scripts/release.py with a verified artifact}
+    pull_policy: never
     restart: unless-stopped
     env_file: .env
     environment:
@@ -37,7 +39,7 @@ services:
       - DOMAIN=${DOMAIN}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./app/static:/srv/static:ro
+      - ./.release/assets:/srv/assets:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:

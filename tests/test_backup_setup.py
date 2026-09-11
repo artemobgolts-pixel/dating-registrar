@@ -13,10 +13,13 @@ BASH = str(Path("C:/Program Files/Git/bin/bash.exe")) if os.name == "nt" else sh
 
 
 class BackupSetupTests(unittest.TestCase):
-    def run_setup(self, initial="OTHER=unchanged\n", recipient=None):
+    def run_setup(self, initial="OTHER=unchanged\n", recipient=None, managed=False):
         with tempfile.TemporaryDirectory(prefix="date4you-backup-setup-") as directory:
             root = Path(directory)
             (root / "scripts").mkdir()
+            if managed:
+                (root / ".release").mkdir()
+                (root / ".release/state.json").write_text('{"status":"active"}', encoding="utf-8")
             config = root / ".env"
             config.write_text(initial, encoding="utf-8")
             (root / "scripts/backup.sh").write_text('printf "backup\\n" >> "$TEST_LOG"\n', encoding="utf-8")
@@ -25,16 +28,18 @@ class BackupSetupTests(unittest.TestCase):
 export PATH="/usr/bin:/bin:$PATH"
 rclone() { if [ "$*" = "config file" ]; then printf '%s\\n' "$PROJECT_DIR/fake-rclone.conf"; fi; return 0; }
 docker() { printf 'docker %s\\n' "$*" >> "$TEST_LOG"; }
+python3() { printf 'python3 %s\\n' "$*" >> "$TEST_LOG"; }
 chmod() { return 0; }
 curl() { echo 'FORBIDDEN NETWORK' >&2; return 99; }
 sudo() { echo 'FORBIDDEN SYSTEM CHANGE' >&2; return 99; }
-export -f rclone docker chmod curl sudo
+export -f rclone docker python3 chmod curl sudo
 source "$1"
 ''', encoding="utf-8", newline="\n")
             env = dict(os.environ, PROJECT_DIR=root.as_posix(), TEST_LOG=(root / "calls").as_posix(),
                        S3_ENDPOINT="https://synthetic.invalid", S3_ACCESS_KEY="synthetic",
                        S3_SECRET_KEY="synthetic", S3_BUCKET="synthetic", REMOTE_NAME="synthetic")
             env.pop("TG_BACKUP_CHAT_ID", None)
+            env.pop("PYTHON", None)
             if recipient is not None:
                 env["TG_BACKUP_CHAT_ID"] = recipient
             result = subprocess.run([BASH, wrapper.as_posix(), SCRIPT.as_posix()], env=env,
@@ -79,6 +84,14 @@ source "$1"
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(config, "OTHER=unchanged\n")
         self.assertEqual(calls, "")
+
+    def test_managed_release_applies_current_choice_to_retained_image(self):
+        for assignment in ("TG_BACKUP_CHAT_ID=", "TG_BACKUP_CHAT_ID=-100999"):
+            initial = assignment + "\n"
+            result, config, calls = self.run_setup(initial, recipient="-100123", managed=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(config, initial)
+            self.assertEqual(calls, "python3 scripts/release.py compose up -d --no-build --pull never app\nbackup\n")
 
 
 if __name__ == "__main__":

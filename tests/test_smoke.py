@@ -245,9 +245,12 @@ with TestClient(main.app, follow_redirects=False) as c:
     # ---------- health ----------
     r = c.get("/health")
     assert r.status_code == 200 and r.json() == {"ok": True}
-    assert (DATA / ".health").exists()           # проба записи на диск прошла
+    ready = c.get("/ready")
+    assert ready.status_code == 200 and ready.json()["ok"]
+    assert ready.json()["schema_version"] == dbm.LATEST_VERSION
+    assert not (DATA / ".health").exists()
     assert c.get("/favicon.ico").status_code == 200
-    step("/health отвечает и проверяет чтение базы + запись на диск; favicon на месте")
+    step("/health отвечает; /ready проверяет writer lock и схему базы; favicon на месте")
 
     correlated = c.get("/health", headers={"X-Request-ID": "edge-smoke-42"})
     assert correlated.headers["X-Request-ID"] == "edge-smoke-42"
@@ -1663,7 +1666,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     refresh_csrf(c)
 
 # ---------- миграции v1 → v4 (вне приложения) ----------
-mig = Path("/tmp/mig.db")
+mig = Path(tempfile.gettempdir()) / "mig.db"
 mig.unlink(missing_ok=True)
 old_db_path = dbm.DB_PATH
 dbm.DB_PATH = mig

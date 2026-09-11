@@ -22,27 +22,22 @@
 
 	# Метрики доступны только collector-у внутри Docker-сети через app:8000.
 	# Снаружи не раскрываем имена маршрутов, состояние очереди и процесса.
-	@metrics path /metrics /metrics/*
+	@metrics path /metrics /metrics/* /ready /ready/*
 	handle @metrics {
 		respond 404
 	}
 
-	# Публичную статику отдаём напрямую, не занимая воркеры приложения.
-	# ?v=<хэш содержимого> формирует web.asset(), поэтому такая ссылка immutable.
+	# Append-only файлы из проверенного image; старые URL сохраняют свои байты.
 	@staticVersioned {
 		path /static/*
 		query v=*
 	}
-	@staticUnversioned {
-		path /static/*
-		not query v=*
-	}
-	handle /static/* {
-		root * /srv
-
-		header @staticVersioned Cache-Control "public, max-age=31536000, immutable"
-		header @staticUnversioned Cache-Control "public, max-age=3600, must-revalidate"
-
+	handle @staticVersioned {
+		@badVersion expression !{query.v}.matches('^[0-9a-f]{12}$')
+		respond @badVersion 404
+		root * /srv/assets
+		rewrite * /{query.v}{path}
+		header Cache-Control "public, max-age=31536000, immutable"
 		file_server
 	}
 

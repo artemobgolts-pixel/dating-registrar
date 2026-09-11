@@ -103,7 +103,11 @@ fi
 # Контрольный backup читает настройки работающего контейнера. Применяем .env
 # и при отключении/смене получателя, чтобы не отправить снимок по старому адресу.
 echo "→ Применяю .env к app перед контрольным бэкапом…"
-( cd "$PROJECT_DIR" && docker compose up -d app )
+if [ -f "$PROJECT_DIR/.release/state.json" ]; then
+  ( cd "$PROJECT_DIR" && "${PYTHON:-python3}" scripts/release.py compose up -d --no-build --pull never app )
+else
+  ( cd "$PROJECT_DIR" && docker compose up -d app )
+fi
 
 # 5) контрольный прогон (база + uploads наружу, бэкап базы в TG)
 echo "→ Контрольный прогон scripts/backup.sh…"
