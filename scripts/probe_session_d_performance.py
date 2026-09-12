@@ -14,8 +14,13 @@ ROOT = Path(__file__).resolve().parents[1]
 from playwright.sync_api import sync_playwright
 
 OBSERVE = """() => {
-  window.lab = {lcp: 0, tasks: [], events: []};
-  new PerformanceObserver(list => list.getEntries().forEach(e => lab.lcp = e.startTime))
+  window.lab = {lcp: 0, tasks: [], events: [], lcpEntries: []};
+  performance.mark('lab-navigation-script');
+  new PerformanceObserver(list => list.getEntries().forEach(e => {
+    lab.lcp = e.startTime;
+    lab.lcpEntries.push({start:e.startTime, render:e.renderTime, load:e.loadTime,
+      size:e.size, url:e.url, html:e.element && e.element.outerHTML.slice(0,1500)});
+  }))
     .observe({type: 'largest-contentful-paint', buffered: true});
   new PerformanceObserver(list => list.getEntries().forEach(e => lab.tasks.push({start:e.startTime, duration:e.duration})))
     .observe({type: 'longtask', buffered: true});
@@ -28,6 +33,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', required=True)
     parser.add_argument('--runs', type=int, default=3)
+    parser.add_argument('--detailed-trace', action='store_true',
+                        help='Добавить RunTask, navigation и стеки; сравнивать только одинаковый режим tracing.')
     parser.add_argument('--source-root', type=Path, default=ROOT,
                         help='Optional extracted baseline checkout; never modifies that source.')
     args = parser.parse_args()
@@ -46,6 +53,7 @@ def main():
                       'appearance': 'cold friends/light; warm friends/dark from preceding theme interaction',
                       'serving': 'local FastAPI HTTP actual hashed assets, no Caddy/compression/TLS',
                       'source_root': str(source_root),
+                      'detailed_trace': args.detailed_trace,
                       'landing_sha256': hashlib.sha256((source_root / 'app/static/landing-story.js').read_bytes()).hexdigest(),
                       'runs': []}
             for index in range(args.runs):
@@ -65,14 +73,23 @@ def main():
                         cdp.send('Network.clearBrowserCache')
                     trace = index == 0 and cache == 'cold'
                     if trace:
-                        cdp.send('Tracing.start', {'categories':'devtools.timeline,v8.execute,disabled-by-default-v8.cpu_profiler',
+                        categories = 'devtools.timeline,v8.execute,disabled-by-default-v8.cpu_profiler'
+                        if args.detailed_trace:
+                            categories += ',toplevel,blink.user_timing,loading,disabled-by-default-devtools.timeline.stack'
+                        cdp.send('Tracing.start', {'categories':categories,
                                                   'transferMode':'ReturnAsStream'})
                     page.goto(backend.url + '/', wait_until='load')
                     page.wait_for_timeout(8000)
                     metrics = page.evaluate('''() => ({...lab,
+                      timeOrigin:performance.timeOrigin, clockNow:performance.now(),
+                      paints:performance.getEntriesByType('paint').map(e=>({name:e.name,start:e.startTime})),
+                      navigation:performance.getEntriesByType('navigation').map(e=>({load:e.loadEventEnd,domContentLoaded:e.domContentLoadedEventEnd})),
+                      fonts:[...document.fonts].map(f=>({family:f.family,status:f.status})),
+                      ink:window.__inkStats ? window.__inkStats() : null,
                       skin: document.documentElement.dataset.skin, theme: document.documentElement.dataset.theme,
                       bytes: performance.getEntriesByType('resource').reduce((s,e)=>s+e.transferSize,0),
-                      resources: performance.getEntriesByType('resource').map(e=>({name:e.name.split('/').pop(), bytes:e.transferSize})),
+                      resources: performance.getEntriesByType('resource').map(e=>({name:e.name.split('/').pop(),bytes:e.transferSize,
+                        start:e.startTime,end:e.responseEnd,type:e.initiatorType,decoded:e.decodedBodySize})),
                       triggers: window.ScrollTrigger ? ScrollTrigger.getAll().length : 0})''')
                     metrics['blocking_ms'] = sum(max(0, task['duration'] - 50) for task in metrics['tasks'])
                     metrics['long_tasks'] = len(metrics['tasks'])
