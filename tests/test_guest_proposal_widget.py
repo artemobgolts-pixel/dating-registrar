@@ -243,6 +243,11 @@ class GuestProposalMediaBrowserTests(unittest.TestCase):
         self.addCleanup(page.close)
         page_errors = []
         page.on("pageerror", lambda error: page_errors.append(str(error)))
+        # Успешный POST перезагружает страницу через 1100 мс. Управляем
+        # часами fixture, чтобы скорость CI не уничтожала about:blank между
+        # проверками следующих сессий; сам reload проверяется в конце.
+        page.clock.install(time="2026-01-01T00:00:00Z")
+        page.clock.pause_at("2026-01-01T00:00:01Z")
         page.set_content("""
           <body data-token="test" data-auth="1" data-csrf="csrf" data-skin="friends"
                 data-max-photos="5" data-max-videos="2">
@@ -427,6 +432,7 @@ class GuestProposalMediaBrowserTests(unittest.TestCase):
             ["image", "image", "image", "video"],
         )
         page.locator("#propSubmit").click()
+        page.clock.run_for(1)
         page.wait_for_function("window.__proposalPosts.length === 1")
         self.assertEqual(page.evaluate("window.__proposalKeepOrders[0]"), "n0,s101,s102")
         self.assertEqual(page.evaluate("window.__proposalVideoKeepOrders[0]"), "s201")
@@ -452,7 +458,7 @@ class GuestProposalMediaBrowserTests(unittest.TestCase):
         page.locator("#propSubmit").click()
         self.assertTrue(page.locator("#propSubmit").is_disabled())
         page.locator("#propCancel").click()
-        page.wait_for_timeout(180)
+        page.clock.run_for(180)
 
         self.assertFalse(page.locator("#propDlg").evaluate("dialog => dialog.open"))
         self.assertFalse(page.locator("#propSubmit").is_disabled())
@@ -484,7 +490,7 @@ class GuestProposalMediaBrowserTests(unittest.TestCase):
             page.locator("#propBar i").evaluate("fill => fill.style.width"), "0%"
         )
         page.locator("#fabPropose").click()
-        page.wait_for_timeout(300)
+        page.clock.run_for(300)
         self.assertTrue(page.locator("#propDlg").evaluate("dialog => dialog.open"))
         self.assertTrue(page.locator("#propBar").evaluate("bar => bar.hidden"))
         self.assertEqual(
@@ -500,6 +506,7 @@ class GuestProposalMediaBrowserTests(unittest.TestCase):
         }""")
         page.evaluate("window.__xhrDelay = 0")
         page.locator("#propSubmit").click()
+        page.clock.run_for(1)
         page.wait_for_function("window.__proposalCompleted.length === 1")
         page.wait_for_function("!document.querySelector('#propDlg').open")
         self.assertEqual(page.evaluate("window.__proposalAborts"), 1)
@@ -526,6 +533,9 @@ class GuestProposalMediaBrowserTests(unittest.TestCase):
         self.assertFalse(vote_cta.evaluate("el => el.classList.contains('on')"))
         self.assertIsNone(vote_cta.get_attribute("data-id"))
         self.assertEqual(page_errors, [])
+        with page.expect_navigation(url="about:blank"):
+            page.clock.run_for(1100)
+        self.assertEqual(page.locator("#propForm").count(), 0)
 
 
 if __name__ == "__main__":
