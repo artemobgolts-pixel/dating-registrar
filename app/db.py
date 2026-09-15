@@ -115,7 +115,7 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "app.db"
 
-LATEST_VERSION = 38
+LATEST_VERSION = 39
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -147,6 +147,21 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_auth_sessions_expiry ON auth_sessions(expires_at);
+
+CREATE TABLE IF NOT EXISTS oauth_flows (
+    state_hash TEXT PRIMARY KEY,
+    browser_hash TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    mode TEXT NOT NULL CHECK(mode IN ('login', 'link')),
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    session_id_hash TEXT,
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    next_url TEXT,
+    CHECK((user_id IS NULL AND session_id_hash IS NULL AND mode='login')
+          OR (user_id IS NOT NULL AND session_id_hash IS NOT NULL))
+);
+CREATE INDEX IF NOT EXISTS idx_oauth_flows_expiry ON oauth_flows(expires_at);
 
 -- Надёжная очередь пользовательских Telegram-уведомлений. chat_id намеренно
 -- не сохраняется: он резолвится по user_id непосредственно перед отправкой,
@@ -1609,6 +1624,22 @@ MIGRATIONS: dict[int, str] = {
         );
         CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id);
         CREATE INDEX IF NOT EXISTS idx_auth_sessions_expiry ON auth_sessions(expires_at);
+    """,
+    39: """
+        CREATE TABLE IF NOT EXISTS oauth_flows (
+            state_hash TEXT PRIMARY KEY,
+            browser_hash TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            mode TEXT NOT NULL CHECK(mode IN ('login', 'link')),
+            user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+            session_id_hash TEXT,
+            created_at INTEGER NOT NULL,
+            expires_at INTEGER NOT NULL,
+            next_url TEXT,
+            CHECK((user_id IS NULL AND session_id_hash IS NULL AND mode='login')
+                  OR (user_id IS NOT NULL AND session_id_hash IS NOT NULL))
+        );
+        CREATE INDEX IF NOT EXISTS idx_oauth_flows_expiry ON oauth_flows(expires_at);
     """,
 }
 

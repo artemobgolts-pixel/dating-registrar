@@ -18,8 +18,7 @@
 </div>
 {% endmacro %}
 {% for d in cards %}
-<article class="cfeed-card" data-widget="{{ d['id'] }}" role="button" tabindex="0"
-         aria-label="Открыть «{{ d['name'] }}»">
+<article class="cfeed-card" data-widget="{{ d['id'] }}">
   {% if d['images'] %}
   <div class="cfeed-ph">
     <img src="/d/{{ d['share_token'] }}/image/{{ d['images'][0]['filename'] }}?w=480"
@@ -35,7 +34,8 @@
   {% endif %}
   <div class="cfeed-body">
     {% if not d['images'] and not d['videos'] %}{{ report_menu(d, 'body') }}{% endif %}
-    <h3 class="cfeed-ttl serif">{{ d['name'] }}</h3>
+    <h3 class="cfeed-ttl serif"><button type="button" class="cfeed-open" data-community-open
+        aria-label="Открыть «{{ d['name'] }}»">{{ d['name'] }}</button></h3>
     <a class="cfeed-owner cfeed-card-owner" href="/u/{{ d['owner_id'] }}" data-stop
        aria-label="Автор: {{ d['owner_display'] }}">
       {% if d['owner_avatar'] %}

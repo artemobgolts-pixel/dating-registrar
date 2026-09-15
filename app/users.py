@@ -147,7 +147,7 @@ def upsert_on_login(conn, telegram_id: int, *, username: str | None = None,
 
 def upsert_oauth_login(conn, provider: str, provider_uid: str, *,
                        display_name: str | None = None,
-                       email: str | None = None) -> int:
+                       email: str | None = None, commit: bool = True) -> int:
     """Вход/регистрация через OAuth. Возвращает user_id.
 
     Если привязка (provider, provider_uid) уже есть — логиним её пользователя.
@@ -160,7 +160,8 @@ def upsert_oauth_login(conn, provider: str, provider_uid: str, *,
     if link:
         conn.execute("UPDATE users SET last_login_at=? WHERE id=?",
                      (now_iso(), link["user_id"]))
-        conn.commit()
+        if commit:
+            conn.commit()
         return link["user_id"]
 
     reviewed = 0 if app_settings.is_on(conn, app_settings.MODERATE_USERS) else 1
@@ -173,7 +174,8 @@ def upsert_oauth_login(conn, provider: str, provider_uid: str, *,
     conn.execute(
         "INSERT INTO oauth_accounts(provider, provider_uid, user_id, email, created_at) "
         "VALUES(?,?,?,?,?)", (provider, provider_uid, uid, email, now_iso()))
-    conn.commit()
+    if commit:
+        conn.commit()
     return uid
 
 

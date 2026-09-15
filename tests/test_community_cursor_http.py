@@ -57,7 +57,9 @@ class CommunityCursorHttpTests(unittest.TestCase):
         before = self.snapshot()
         for cursor in cursors:
             with self.subTest(cursor=str(cursor)[:100], query=query):
-                self.assertEqual(self.card_ids(self.page(cursor, query=query)), expected)
+                response = self.page(cursor, query=query)
+                self.assertEqual(self.card_ids(response), expected)
+                self.assertEqual(response.headers.get("X-Feed-Reset"), "1")
                 self.assertEqual(self.snapshot(), before)
 
     def test_out_of_range_components_do_not_escape_as_http_500(self):
@@ -90,11 +92,13 @@ class CommunityCursorHttpTests(unittest.TestCase):
         self.assertEqual(self.card_ids(self.page("1")), [])
         self.assertEqual(self.card_ids(self.page("c1.1.1")), [])
 
-    def test_ranked_offset_boundaries_and_malformed_composite_reset(self):
+    def test_legacy_ranked_offsets_and_malformed_composite_explicitly_reset(self):
         max_id = self.ids[-1]
-        ranked = [self.ids[0], *reversed(self.ids[1:])]
-        self.assertEqual(self.card_ids(self.page(f"r1.{CURSOR_STAMP}.{max_id}.12")), ranked[12:24])
-        self.assertEqual(self.card_ids(self.page(f"r1.{CURSOR_STAMP}.{max_id}.{community_feed.RANKING_POOL_SIZE}")), [])
+        # v1 offsets не подтверждают неизменность выдачи: продолжать их небезопасно.
+        self.assert_resets((
+            f"r1.{CURSOR_STAMP}.{max_id}.12",
+            f"r1.{CURSOR_STAMP}.{max_id}.{community_feed.RANKING_POOL_SIZE}",
+        ))
         self.assert_resets([
             cursor for value in (INT64_MIN - 1, INT64_MIN, INT64_MAX, INT64_MAX + 1)
             for cursor in (f"r1.{CURSOR_STAMP}.{max_id}.{value}", f"r1.{value}.{max_id}.0")
@@ -118,7 +122,7 @@ class CommunityCursorHttpTests(unittest.TestCase):
             cursor = self.next_cursor(response)
             if cursor is None:
                 break
-            self.assertTrue(cursor.startswith("r1."))
+            self.assertTrue(cursor.startswith("r2."))
             response = self.page(cursor)
             seen.extend(self.card_ids(response))
         self.assertEqual(seen, [self.ids[0], *reversed(self.ids[1:])])
@@ -145,15 +149,16 @@ class CommunityCursorHttpTests(unittest.TestCase):
             f"s1.{CURSOR_STAMP}.{maximum}.0", f"s1.{CURSOR_STAMP}.{maximum}.0.{signature}.extra",
         ))
         self.assert_resets(invalid, query="Кино")
-        expected = [self.ids[0], *reversed(self.ids[1:18])]
-        self.assertEqual(self.card_ids(self.page(f"s1.{CURSOR_STAMP}.{INT64_MAX}.0.{signature}", query="Кино")), expected[:12])
-        self.assertEqual(self.card_ids(self.page(f"s1.{CURSOR_STAMP}.1.0.{signature}", query="Кино")), [])
-        self.assertEqual(self.card_ids(self.page(f"s1.{CURSOR_STAMP}.{maximum}.{community_feed.SEARCH_POOL_SIZE}.{signature}", query="Кино")), [])
+        self.assert_resets((
+            f"s1.{CURSOR_STAMP}.{INT64_MAX}.0.{signature}",
+            f"s1.{CURSOR_STAMP}.1.0.{signature}",
+            f"s1.{CURSOR_STAMP}.{maximum}.{community_feed.SEARCH_POOL_SIZE}.{signature}",
+        ), query="Кино")
 
     def test_search_pagination_and_changed_query_reset_have_no_duplicate_or_missing_cards(self):
         first = self.page(query="Кино")
         cursor = self.next_cursor(first)
-        self.assertTrue(cursor.startswith("s1."))
+        self.assertTrue(cursor.startswith("s2."))
         second = self.page(cursor, query="Кино")
         seen = self.card_ids(first) + self.card_ids(second)
         self.assertEqual(seen, [self.ids[0], *reversed(self.ids[1:18])])

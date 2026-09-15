@@ -10,7 +10,9 @@ save_batch() сначала конвертирует и записывает в�
 """
 
 import io
+import json
 import logging
+import math
 import os
 import re
 import secrets
@@ -72,13 +74,21 @@ def upload_image_exists(filename: str | None) -> bool:
 
 MAX_VIDEO_BYTES = 60 * 1024 * 1024   # 60 МБ на видео
 MAX_VIDEOS = 2                       # до 2 видео на событие
-# MP4 faststart — безопасный opt-in: ffmpeg не становится обязательной
-# зависимостью контейнера. Если флаг выключен, бинарник отсутствует, remux
-# завершился ошибкой или превысил таймаут, сохраняется проверенный оригинал.
+# MP4 faststart — необязательный remux уже проверенного оригинала.
+# ffprobe/ffmpeg обязательны для проверки новых загрузок независимо от флага.
 VIDEO_FASTSTART = os.getenv("VIDEO_FASTSTART", "").strip().lower() in (
     "1", "true", "yes")
 FFMPEG_BIN = os.getenv("FFMPEG_BIN", "ffmpeg").strip() or "ffmpeg"
 FFMPEG_TIMEOUT = 30
+FFPROBE_BIN = os.getenv("FFPROBE_BIN", "ffprobe").strip() or "ffprobe"
+VIDEO_PROBE_TIMEOUT = 10
+MAX_VIDEO_PIXELS = 4096 * 4096
+_VIDEO_INPUT_LIMITS = [
+    "-protocol_whitelist", "file", "-format_whitelist", "mov,matroska,webm",
+    "-max_alloc", str(64 * 1024 * 1024), "-max_streams", "8",
+    "-probesize", str(5 * 1024 * 1024), "-analyzeduration", "5000000",
+    "-threads", "1", "-max_pixels", str(MAX_VIDEO_PIXELS),
+]
 
 
 def save_upload(upload) -> str:
@@ -356,7 +366,7 @@ def copy_file(filename: str) -> str | None:
 
 # ---------------------------------------------------------------------------
 # Видео: принимаем mp4/webm как есть (без перекодирования), валидируем
-# по сигнатуре файла, а не по mime, и пишем на диск потоково.
+# по контейнеру/метаданным и декодируемому кадру, пишем потоково во временный файл.
 # ---------------------------------------------------------------------------
 
 def _sniff_video_ext(head: bytes) -> str | None:
@@ -365,6 +375,63 @@ def _sniff_video_ext(head: bytes) -> str | None:
     if head.startswith(b"\x1aE\xdf\xa3"):
         return ".webm"
     return None
+
+
+def _probe_video(path: Path, ext: str) -> None:
+    """Ограниченная проверка локального контейнера и первого видеокадра.
+
+    Только MP4/WebM, без сетевых протоколов и внешних demuxer-ов; вход ≤60 МБ,
+    ≤8 потоков, ≤16 Мп, один decoder thread, ≤64 МБ на allocation, ≤10 с на
+    процесс. Это проверка воспроизводимости, не полное перекодирование ролика.
+    """
+    probe, decoder = shutil.which(FFPROBE_BIN), shutil.which(FFMPEG_BIN)
+    if not probe or not decoder:
+        raise ValueError("Проверка видео временно недоступна. Попробуй позже.")
+    message = "Видео повреждено или не содержит читаемого видеопотока. Выбери другой файл."
+    try:
+        result = subprocess.run(
+            [probe, "-v", "error", *_VIDEO_INPUT_LIMITS,
+             "-select_streams", "V:0", "-show_entries",
+             "stream=codec_name,codec_type,width,height:format=format_name,duration",
+             "-of", "json", str(path)],
+            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            timeout=VIDEO_PROBE_TIMEOUT, check=False,
+        )
+        if result.returncode or result.stderr or len(result.stdout) > 16384:
+            raise ValueError(message)
+        metadata = json.loads(result.stdout)
+        stream = metadata["streams"][0]
+        width, height = stream["width"], stream["height"]
+        if (stream.get("codec_type") != "video"
+                or not isinstance(stream.get("codec_name"), str)
+                or stream["codec_name"] in ("", "unknown")
+                or type(width) is not int or type(height) is not int
+                or width <= 0 or height <= 0 or width * height > MAX_VIDEO_PIXELS):
+            raise ValueError(message)
+        container = metadata["format"]
+        formats = container["format_name"].split(",")
+        if not ((ext == ".mp4" and "mp4" in formats)
+                or (ext == ".webm" and "webm" in formats)):
+            raise ValueError(message)
+        # WebM из MediaRecorder может не содержать Duration; кадр обязателен всегда.
+        if "duration" in container:
+            duration = float(container["duration"])
+            if not math.isfinite(duration) or duration <= 0:
+                raise ValueError(message)
+        decoded = subprocess.run(
+            [decoder, "-nostdin", "-hide_banner", "-v", "error", "-xerror",
+             *_VIDEO_INPUT_LIMITS, "-err_detect", "explode", "-i", str(path),
+             "-map", "0:V:0", "-frames:v", "1", "-threads", "1",
+             "-progress", "pipe:1", "-nostats", "-f", "null", "-"],
+            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            timeout=VIDEO_PROBE_TIMEOUT, check=False,
+        )
+        if (decoded.returncode or decoded.stderr or len(decoded.stdout) > 16384
+                or not re.search(rb"(?m)^frame=\s*[1-9][0-9]*\s*$", decoded.stdout)):
+            raise ValueError(message)
+    except (OSError, subprocess.SubprocessError, ValueError, TypeError,
+            KeyError, IndexError, AttributeError) as exc:
+        raise ValueError(message) from exc
 
 
 def _faststart_mp4(path: Path) -> bool:
@@ -385,8 +452,9 @@ def _faststart_mp4(path: Path) -> bool:
     try:
         result = subprocess.run(
             [ffmpeg, "-nostdin", "-hide_banner", "-loglevel", "error",
-             "-i", str(path), "-map", "0", "-c", "copy",
-             "-movflags", "+faststart", "-f", "mp4", str(tmp)],
+             *_VIDEO_INPUT_LIMITS, "-i", str(path), "-map", "0", "-c", "copy",
+             "-movflags", "+faststart", "-fs", str(MAX_VIDEO_BYTES + 1),
+             "-f", "mp4", str(tmp)],
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE, timeout=FFMPEG_TIMEOUT, check=False,
         )
@@ -427,9 +495,12 @@ def save_video(upload) -> str:
         raise ValueError("Видео должно быть mp4 или webm (mov сначала сконвертируй)")
     name = f"{secrets.token_urlsafe(12)}{ext}"
     path = UPLOAD_DIR / name
+    staged = UPLOAD_DIR / f".{name}.pending{ext}"
     written = 0
     try:
-        with open(path, "wb") as out:
+        with open(staged, "xb") as out:
+            if len(head) > MAX_VIDEO_BYTES:
+                raise ValueError("Видео больше 60 МБ")
             out.write(head)
             written = len(head)
             while True:
@@ -440,10 +511,12 @@ def save_video(upload) -> str:
                 if written > MAX_VIDEO_BYTES:
                     raise ValueError("Видео больше 60 МБ")
                 out.write(chunk)
-    except Exception:
-        delete_file(name)
-        raise
-    _faststart_mp4(path)
+        _probe_video(staged, ext)
+        if _faststart_mp4(staged):
+            _probe_video(staged, ext)
+        os.replace(staged, path)
+    finally:
+        staged.unlink(missing_ok=True)
     return name
 
 

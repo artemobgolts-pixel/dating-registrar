@@ -40,6 +40,7 @@ from helpers import (_parse, clean_text, fmt_gcal, fmt_when, new_link_token,
                      normalize_period, now_iso, now_naive, parse_dt_local,
                      parse_links)
 from notify import esc
+from object_ids import ObjectId, require_object_id
 from ratelimit import guest_throttle
 from web import get_db, redir, templates
 from uploads import UploadRoute
@@ -468,6 +469,7 @@ def active_cat_or_410(conn, token: str, request: Request | None = None):
 
 def date_in_category(conn, category_id: int, date_id: int):
     """Опубликованное активное событие в категории (для выбора/вопросов/ics)."""
+    date_id = require_object_id(date_id)
     return conn.execute(
         "SELECT d.* FROM dates d JOIN date_categories dc ON dc.date_id=d.id "
         "WHERE d.id=? AND dc.category_id=? AND d.archived_at IS NULL "
@@ -526,6 +528,7 @@ def notify_admin(bg, conn, owner_id: int | None, text: str, *,
 
 def own_proposal_or_403(conn, cat, date_id: int, guest: str | None):
     """Предложение гостя, которое он может править: только его собственное."""
+    date_id = require_object_id(date_id)
     d = conn.execute(
         "SELECT d.* FROM dates d JOIN date_categories dc ON dc.date_id=d.id "
         "WHERE d.id=? AND dc.category_id=? AND d.archived_at IS NULL",
@@ -1370,7 +1373,7 @@ def public_owner_avatar(token: str, request: Request = None,
 
 
 @router.get("/c/{token}/participant-avatar/{user_id}")
-def public_participant_avatar(token: str, user_id: int, w: int | None = None,
+def public_participant_avatar(token: str, user_id: ObjectId, w: int | None = None,
                               conn=Depends(get_db), request: Request = None):
     """Аватар участника виден только внутри активной гостевой категории.
 
@@ -1716,7 +1719,7 @@ def shared_date_og_image(token: str, skin: str | None = None,
 
 
 @router.get("/d/{token}/review/{review_id}", response_class=HTMLResponse)
-def shared_profile_review(token: str, review_id: int, request: Request,
+def shared_profile_review(token: str, review_id: ObjectId, request: Request,
                           conn=Depends(get_db)):
     """Публичная share-ссылка ведёт на конкретный отзыв, не на событие."""
     row = conn.execute(
@@ -2150,7 +2153,7 @@ def _ics_fold(line: str) -> str:
 
 
 @router.get("/c/{token}/ics/{date_id}")
-def public_ics(token: str, date_id: int, request: Request,
+def public_ics(token: str, date_id: ObjectId, request: Request,
                conn=Depends(get_db)):
     cat = active_cat_or_410(conn, token, request)
     d = date_in_category(conn, cat["id"], date_id)
@@ -2208,7 +2211,7 @@ def _ics_response(conn, d, uid: str) -> Response:
 
 @router.post("/c/{token}/book")
 def public_book(token: str, request: Request, bg: BackgroundTasks,
-                date_id: int = Form(...), conn=Depends(get_db)):
+                date_id: Annotated[ObjectId, Form()] = ..., conn=Depends(get_db)):
     """Голос за вариант; режим single/multiple задаёт владелец категории."""
     cat = active_cat_or_410(conn, token, request)
     user = acting_user(request, conn)
@@ -2312,7 +2315,7 @@ def public_withdraw(token: str, request: Request, bg: BackgroundTasks,
 
 @router.post("/c/{token}/suggest_time")
 def public_suggest_time(token: str, request: Request, bg: BackgroundTasks,
-                        date_id: int = Form(...),
+                        date_id: Annotated[ObjectId, Form()] = ...,
                         starts_at: str = Form(""), ends_at: str = Form(""),
                         conn=Depends(get_db)):
     """Гость предлагает время для события без даты.
@@ -2355,7 +2358,7 @@ def public_suggest_time(token: str, request: Request, bg: BackgroundTasks,
 
 @router.post("/c/{token}/question")
 def public_question(token: str, request: Request, bg: BackgroundTasks,
-                    date_id: int = Form(...), text: str = Form(...),
+                    date_id: Annotated[ObjectId, Form()] = ..., text: str = Form(...),
                     conn=Depends(get_db)):
     cat = active_cat_or_410(conn, token, request)
     user = acting_user(request, conn)
@@ -2474,14 +2477,14 @@ def public_propose(token: str, request: Request, bg: BackgroundTasks,
 
 
 @router.post("/c/{token}/propose/{date_id}/edit")
-def public_propose_edit(token: str, date_id: int, request: Request, bg: BackgroundTasks,
+def public_propose_edit(token: str, date_id: ObjectId, request: Request, bg: BackgroundTasks,
                         name: str = Form(...), place: str = Form(""),
                         starts_at: str = Form(""), ends_at: str = Form(""),
                         links: str = Form(""), comment: str = Form(""),
                         keep_order: str = Form(""),
                         keep_video_order: str = Form(""),
-                        remove_image: list[int] = Form(default=[]),
-                        remove_video: list[int] = Form(default=[]),
+                        remove_image: list[ObjectId] = Form(default=[]),
+                        remove_video: list[ObjectId] = Form(default=[]),
                         pay: str = Form("0"),
                         capacity: str = Form("1"),
                         photos: list[UploadFile] = File(default=[], alias="images"),
@@ -2641,7 +2644,7 @@ def public_propose_edit(token: str, date_id: int, request: Request, bg: Backgrou
 
 
 @router.post("/c/{token}/propose/{date_id}/delete")
-def public_propose_delete(token: str, date_id: int, request: Request, bg: BackgroundTasks,
+def public_propose_delete(token: str, date_id: ObjectId, request: Request, bg: BackgroundTasks,
                           conn=Depends(get_db)):
     cat = active_cat_or_410(conn, token, request)
     ensure_category_editable(conn, cat)
@@ -2703,7 +2706,7 @@ def public_propose_delete(token: str, date_id: int, request: Request, bg: Backgr
 
 @router.post("/c/{token}/report")
 def public_report(token: str, request: Request, bg: BackgroundTasks,
-                  target_type: str = Form(...), target_id: int = Form(...),
+                  target_type: str = Form(...), target_id: Annotated[ObjectId, Form()] = ...,
                   reason: str = Form(""), csrf: str = Form(""),
                   conn=Depends(get_db)):
     """Жалоба без обязательного входа на событие или саму подборку.

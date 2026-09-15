@@ -373,7 +373,8 @@ async def friendly_http_exc(request: Request, exc: StarletteHTTPException):
 
 @app.exception_handler(RequestValidationError)
 async def editor_validation_exc(request: Request, exc: RequestValidationError):
-    if admin_routes.is_date_editor_post(request):
+    path_error = any(error["loc"][:1] == ("path",) for error in exc.errors())
+    if admin_routes.is_date_editor_post(request) and not path_error:
         fields = {"name": "название", "categories": "подборки", "images": "фото", "videos": "видео"}
         labels = list(dict.fromkeys(fields.get(str(error["loc"][-1]), "поля формы")
                                    for error in exc.errors()))

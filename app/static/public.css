@@ -232,6 +232,7 @@ body::after {
 /* --- шапка --------------------------------------------------------------- */
 .hero { text-align: center; margin: 18px 0 32px; animation: fade-down .7s var(--ease) both; }
 .hero h1 {
+  min-width: 0; max-width: 100%; overflow-wrap: anywhere;
   --display-ink-gradient: linear-gradient(120deg, var(--rose-2), var(--rose) 55%, #cf8a78);
   --display-ink-fallback: var(--rose);
   font-family: var(--serif);
@@ -286,6 +287,7 @@ body::after {
 /* подпись автора категории — кликабельна для всех (ведёт на профиль /u/<id>) */
 .author {
   display: inline-flex; align-items: center; gap: 8px;
+  min-width: 0; max-width: 100%;
   margin-top: 14px; padding: 4px 12px 4px 4px;
   background: rgba(255, 255, 255, .62);
   border: 1px solid rgba(240, 228, 225, .9);
@@ -306,7 +308,10 @@ body::after {
   background: linear-gradient(135deg, var(--rose), var(--rose-2));
   color: #fff; font-size: 13px;
 }
-.author-name { font-size: 14px; font-weight: 600; letter-spacing: .01em; }
+.author-name {
+  font-size: 14px; font-weight: 600; letter-spacing: .01em;
+  min-width: 0; overflow-wrap: anywhere;
+}
 
 /* правый верхний угол: кластер кнопок «Помощь», «VPN», «Войти» */
 .corner-actions {

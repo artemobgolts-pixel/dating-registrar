@@ -2086,6 +2086,7 @@ html.ink-static .bg-smoke span {
 .dcard .ttl {
   font-family: var(--serif); font-size: 17.5px; color: var(--ink);
   margin: 0 0 4px; line-height: 1.18;
+  min-width: 0; max-width: 100%; overflow-wrap: anywhere;
 }
 .dcard .ttl a { color: inherit; text-decoration: none; }
 .dcard .ttl a:hover { color: var(--rose); }
@@ -2861,7 +2862,10 @@ html[data-theme="dark"][data-skin="friends"] .share-qr {
 .drow.archived .drow-cover img { filter: saturate(.5); }
 .drow-main { flex: 1; min-width: 0; }
 .drow-ttl { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.drow-ttl a { font-size: 17px; color: var(--ink); text-decoration: none; }
+.drow-ttl a {
+  font-size: 17px; color: var(--ink); text-decoration: none;
+  min-width: 0; max-width: 100%; overflow-wrap: anywhere;
+}
 .drow-ttl a:hover { color: var(--rose); }
 .drow-meta { font-size: 12.5px; color: var(--muted); margin-top: 3px;
   display: flex; gap: 6px; flex-wrap: wrap; }
@@ -3286,7 +3290,7 @@ html[data-theme="dark"][data-skin="friends"] .share-qr {
   transition: transform .18s ease, box-shadow .2s ease;
 }
 .cfeed-card:hover { transform: translateY(-2px); box-shadow: 0 16px 38px rgba(150, 80, 95, .14); }
-.cfeed-card:focus-visible { outline: 2px solid var(--rose); outline-offset: 2px; }
+.cfeed-open:focus-visible { outline: 2px solid var(--rose); outline-offset: 2px; border-radius: 3px; }
 .cfeed-ph {
   position: relative; height: auto; aspect-ratio: 16 / 9;
   background: linear-gradient(135deg, #caa094, #9c6f6a);
@@ -3295,6 +3299,11 @@ html[data-theme="dark"][data-skin="friends"] .share-qr {
 .cfeed-ph-vid { display: grid; place-items: center; font-size: 34px; }
 .cfeed-body { position: relative; padding: 15px 16px 16px; display: flex; flex-direction: column; gap: 9px; flex: 1; }
 .cfeed-ttl { min-width: 0; font-size: 20px; color: var(--ink); margin: 0; line-height: 1.2; }
+.cfeed-open {
+  display: block; min-width: 0; max-width: 100%; padding: 0; border: 0;
+  background: none; color: inherit; font: inherit; text-align: inherit;
+  overflow-wrap: anywhere; cursor: pointer;
+}
 .cfeed-meta { font-size: 13px; color: var(--muted); display: flex; flex-direction: column; gap: 3px; }
 .cfeed-desc {
   font-size: 14px; color: #6b5b5e; margin: 0;

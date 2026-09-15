@@ -11,10 +11,12 @@
 """
 
 from fastapi import HTTPException
+from object_ids import require_object_id
 
 
 def get_owned_category(conn, cid: int, user_id: int):
     """Категория cid, если она принадлежит user_id. Иначе 404."""
+    cid = require_object_id(cid)
     cat = conn.execute(
         "SELECT * FROM categories WHERE id=? AND owner_id=?", (cid, user_id)
     ).fetchone()
@@ -25,6 +27,7 @@ def get_owned_category(conn, cid: int, user_id: int):
 
 def get_owned_date(conn, did: int, user_id: int):
     """Событие did, если оно принадлежит user_id. Иначе 404."""
+    did = require_object_id(did)
     d = conn.execute(
         "SELECT * FROM dates WHERE id=? AND owner_id=?", (did, user_id)
     ).fetchone()

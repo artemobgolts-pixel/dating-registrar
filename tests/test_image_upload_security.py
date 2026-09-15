@@ -16,6 +16,8 @@ import warnings
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+from media_fixtures import video_bytes
+
 
 APP = Path(__file__).resolve().parents[1] / "app"
 sys.path.insert(0, str(APP))
@@ -205,8 +207,7 @@ class ImageUploadSecurityTests(unittest.TestCase):
                 stored.load()
 
     def test_valid_video_batch_preserves_mp4_and_webm(self):
-        payloads = [b"\0\0\0\x18ftypmp42" + b"x" * 24,
-                    b"\x1aE\xdf\xa3" + b"x" * 24]
+        payloads = [video_bytes("mp4"), video_bytes("webm")]
         with patch.object(images, "VIDEO_FASTSTART", False):
             filenames = images.save_videos_batch([
                 Upload(data, "video/mp4") for data in payloads])
@@ -215,11 +216,11 @@ class ImageUploadSecurityTests(unittest.TestCase):
             self.assertEqual((images.UPLOAD_DIR / filename).read_bytes(), data)
 
     def test_video_batch_limit_failure_cleans_prior_and_partial_files(self):
-        header = b"\0\0\0\x18ftypmp42"
-        with patch.object(images, "MAX_VIDEO_BYTES", 32), \
+        video = video_bytes()
+        with patch.object(images, "MAX_VIDEO_BYTES", len(video)), \
                 patch.object(images, "VIDEO_FASTSTART", False):
             with self.assertRaisesRegex(ValueError, "Видео больше"):
-                images.save_videos_batch([Upload(header), Upload(header + b"x" * 24)])
+                images.save_videos_batch([Upload(video), Upload(video + b"x")])
         self.assert_no_artifacts()
 
     def test_video_batch_io_failure_cleans_prior_and_partial_files(self):
@@ -229,7 +230,7 @@ class ImageUploadSecurityTests(unittest.TestCase):
                     raise OSError("synthetic video read failure")
                 return super().read(size)
 
-        header = b"\0\0\0\x18ftypmp42" + b"x" * 24
+        header = video_bytes()
         failed = Upload(header)
         failed.file = FailedRead(header)
         with patch.object(images, "VIDEO_FASTSTART", False):

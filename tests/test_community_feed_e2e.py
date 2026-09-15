@@ -135,6 +135,51 @@ class CommunityFeedBrowserTests(unittest.TestCase):
         self.fail_and_retry("500", query="Пикник")
         expect(self.page.locator("#communitySearchStatus")).to_contain_text("Результаты по запросу «Пикник»")
 
+    def archive_seen_item_and_finish(self, *, query=""):
+        self.open_feed(query)
+        initial = self.card_ids()
+        archived = initial[0]
+        conn = self.backend.db.connect()
+        try:
+            conn.execute(
+                "UPDATE dates SET archived_at=? WHERE id=?",
+                (self.backend.main.now_iso(), archived),
+            )
+            conn.commit()
+            self.before = list(conn.iterdump())
+        finally:
+            conn.close()
+
+        # Ответ приходит от настоящего backend. Возвращаем viewport наверх до
+        # его доставки, чтобы новая первая страница не запустила ещё одну
+        # автоматическую загрузку до проверки замены устаревших карточек.
+        held = self.hold_page(query=query)
+        route, response = held[0]
+        self.page.evaluate("window.scrollTo(0, 0)")
+        with self.page.expect_response(lambda r: r.url == route.request.url) as refreshed:
+            route.fulfill(response=response)
+        self.assertEqual(refreshed.value.status, 200)
+        self.assertEqual(refreshed.value.headers.get("x-feed-reset"), "1")
+        expect(self.page.locator("#communityFeed")).to_have_attribute("data-feed-state", "idle")
+        expect(self.cards).to_have_count(12)
+        expect(self.page.locator(
+            f"#communityFeed .cfeed-card[data-widget='{archived}']",
+        )).to_have_count(0)
+        refreshed_ids = self.card_ids()
+        self.assertEqual(len(refreshed_ids), len(set(refreshed_ids)))
+        self.assertNotEqual(refreshed_ids, initial)
+        expect(self.retry).to_be_hidden()
+
+        expected = [did for did in (self.search_ids if query else self.ids) if did != archived]
+        self.finish_feed(expected, search=bool(query))
+
+    def test_ranked_mutation_replaces_stale_page_without_loss_or_duplicates(self):
+        self.archive_seen_item_and_finish()
+
+    def test_search_mutation_replaces_stale_page_without_loss_or_duplicates(self):
+        self.archive_seen_item_and_finish(query="Пикник")
+        expect(self.page.locator("#communitySearchStatus")).to_contain_text("Результаты по запросу «Пикник»")
+
     def test_first_page_network_failure_retries_without_false_empty_state(self):
         self.page.route("**/admin/community", lambda route: route.abort("failed"))
         self.page.goto(self.backend.url + "/admin/")

@@ -23,6 +23,8 @@ from datetime import datetime, timedelta
 from urllib.parse import unquote
 from pathlib import Path
 
+from media_fixtures import video_bytes
+
 ROOT = Path(__file__).resolve().parents[1] / "app"
 DATA = Path(tempfile.gettempdir()) / f"date4you-smoke-{os.getpid()}"
 FAILFAST_DATA = Path(tempfile.gettempdir()) / f"date4you-smoke-ff-{os.getpid()}"
@@ -1095,7 +1097,7 @@ with TestClient(main.app, follow_redirects=False) as c:
 
     # ---------- экспорт ----------
     # заранее создаём событие с видео, чтобы проверить экспорт видео
-    MP4_EXP = b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 16 + b"\x00" * 64
+    MP4_EXP = video_bytes()
     r = apost(c, "/admin/dates/new", {"name": "Экспорт-видео"},
               files=[("videos", ("ev.mp4", MP4_EXP, "video/mp4"))])
     assert r.status_code == 303
@@ -1325,7 +1327,7 @@ with TestClient(main.app, follow_redirects=False) as c:
         main.places._resolves_to_public_ip = real_public_ip
 
     # видео: загрузка админом, отдача с поддержкой Range
-    MP4 = b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 16 + b"\x00" * 64
+    MP4 = video_bytes()
     r = apost(c, "/admin/dates/new", {"name": "С видео", "categories": str(vcid)},
               files=[("videos", ("v.mp4", MP4, "video/mp4"))])
     assert r.status_code == 303

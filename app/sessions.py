@@ -27,7 +27,7 @@ def _delete_current(conn, session: dict) -> None:
         conn.execute("DELETE FROM auth_sessions WHERE id_hash=?", (digest,))
 
 
-def issue_session(request, conn, user_id: int) -> None:
+def issue_session(request, conn, user_id: int, *, commit: bool = True) -> None:
     """Ротирует текущую сессию, сохраняя login_next и незавершённые auth flows.
 
     Срок абсолютный: повторная подпись cookie при чтении не продлевает запись.
@@ -41,7 +41,8 @@ def issue_session(request, conn, user_id: int) -> None:
         "INSERT INTO auth_sessions(id_hash,user_id,expires_at) VALUES(?,?,?)",
         (_id_hash(token), int(user_id), now + SESSION_TTL_SECONDS),
     )
-    conn.commit()
+    if commit:
+        conn.commit()
     request.session["user_id"] = int(user_id)
     request.session["session_id"] = token
     request.session["csrf"] = secrets.token_urlsafe(16)

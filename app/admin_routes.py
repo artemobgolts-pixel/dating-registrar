@@ -11,6 +11,7 @@ import os
 import re
 import secrets
 import tempfile
+import unicodedata
 import zipfile
 from contextlib import closing
 from datetime import datetime, timedelta
@@ -49,6 +50,7 @@ from helpers import (clean_text, new_link_token, normalize_period, now_iso, now_
                      parse_birth_date, parse_dt_local, parse_links, pay_label, plural)
 from fastapi.responses import JSONResponse
 from ownership import get_owned_category, get_owned_date
+from object_ids import ObjectId, require_object_id
 from public_routes import (add_photos, copy_date_media_and_links, insert_date,
                            next_cat_pos, notify_admin, notify_user, parse_capacity, ranged_file,
                            save_links, VIDEO_TYPES)
@@ -472,11 +474,12 @@ def community_feed(request: Request, conn=Depends(get_db)):
     return templates.TemplateResponse(
         request, "admin/_community_cards.html",
         {"request": request, "cards": cards,
-         "next_cursor": ranked.next_cursor})
+         "next_cursor": ranked.next_cursor},
+        headers={"X-Feed-Reset": "1"} if ranked.reset else {})
 
 
 @router.get("/community/date/{did}", response_class=HTMLResponse)
-def community_widget(did: int, request: Request, conn=Depends(get_db)):
+def community_widget(did: ObjectId, request: Request, conn=Depends(get_db)):
     """Мини-виджет одного события из ленты (открывается в модалке). Только
     публичное активное чужое событие; иначе 404."""
     r = conn.execute(
@@ -625,6 +628,22 @@ def export_json(request: Request, conn=Depends(get_db)):
                              f'attachment; filename="date4you-export-{day}.json"'})
 
 
+def _spreadsheet_safe_cell(value: str | int) -> str | int:
+    """Префикс ' делает формулу текстом только в CSV; исходная строка сохранена.
+
+    При поиске формулы пропускаем ведущие пробелы и управляющие/форматирующие
+    Unicode-символы, включая BOM. Числа и обычный текст остаются без изменений.
+    """
+    if isinstance(value, str):
+        for char in value:
+            if char.isspace() or unicodedata.category(char) in {"Cc", "Cf"}:
+                continue
+            if char in "=+-@":
+                return "'" + value
+            break
+    return value
+
+
 @router.get("/export/csv")
 def export_csv(request: Request, conn=Depends(get_db)):
     _require_operator(request)
@@ -635,7 +654,7 @@ def export_csv(request: Request, conn=Depends(get_db)):
     w.writerow(["id", "Название", "Место", "Начало", "Конец", "Оплата", "Модерация",
                 "Архив", "Источник", "Выборы", "Кто выбрал", "Категории", "Ссылки"])
     for d in data["dates"]:
-        w.writerow([
+        row = [
             d["id"], d["name"], d["place"] or "", d["starts_at"] or "", d["ends_at"] or "",
             pay_label(d["pay_split"]).replace("💸 ", ""),
             "да" if d["is_draft"] else "",
@@ -645,7 +664,8 @@ def export_csv(request: Request, conn=Depends(get_db)):
             ", ".join(d["booked_by"]),
             ", ".join(cat_names.get(c, "?") for c in d["categories"]),
             " ".join(d["links"]),
-        ])
+        ]
+        w.writerow(_spreadsheet_safe_cell(cell) for cell in row)
     day = now_naive().strftime("%Y-%m-%d")
     return Response("\ufeff" + buf.getvalue(),       # BOM — чтобы Excel понял UTF-8
                     media_type="text/csv; charset=utf-8",
@@ -983,6 +1003,7 @@ def category_create(request: Request, bg: BackgroundTasks, name: str = Form(...)
 def _cat_or_404(conn, cid: int, user):
     """Категория, которой можно управлять. Владелец — только свою; админ
     (is_operator) — любую (пункт «админ правит чужое»)."""
+    cid = require_object_id(cid)
     if user["is_operator"]:
         cat = conn.execute("SELECT * FROM categories WHERE id=?", (cid,)).fetchone()
         if not cat:
@@ -1009,7 +1030,7 @@ def _normalize_og_focus(value: str | None, *, required: bool = False) -> str | N
 
 
 @router.post("/categories/{cid}/clone")
-def category_clone(cid: int, request: Request, conn=Depends(get_db)):
+def category_clone(cid: ObjectId, request: Request, conn=Depends(get_db)):
     """Копирует категорию, сохраняя ссылки на уже существующие события.
 
     У копии собственные настройки и секретная ссылка, но ``date_categories``
@@ -1097,7 +1118,7 @@ def category_clone(cid: int, request: Request, conn=Depends(get_db)):
 
 
 @router.get("/categories/{cid}", response_class=HTMLResponse)
-def category_detail(cid: int, request: Request, conn=Depends(get_db)):
+def category_detail(cid: ObjectId, request: Request, conn=Depends(get_db)):
     cat = _cat_or_404(conn, cid, request.state.user)
     voting_events.close_due_once(conn, category_id=cid)
     cat = _cat_or_404(conn, cid, request.state.user)
@@ -1174,7 +1195,7 @@ def category_detail(cid: int, request: Request, conn=Depends(get_db)):
 
 
 @router.post("/categories/{cid}/voting")
-def category_voting_configure(cid: int, request: Request,
+def category_voting_configure(cid: ObjectId, request: Request,
                               choice_mode: str = Form(...),
                               voting_deadline: str = Form(...),
                               conn=Depends(get_db)):
@@ -1215,8 +1236,8 @@ def category_voting_configure(cid: int, request: Request,
 
 
 @router.post("/categories/{cid}/voting/resolve")
-def category_voting_resolve_tie(cid: int, request: Request,
-                                winner_date_id: int = Form(...),
+def category_voting_resolve_tie(cid: ObjectId, request: Request,
+                                winner_date_id: Annotated[ObjectId, Form()] = ...,
                                 conn=Depends(get_db)):
     """При ничьей владелец вручную выбирает одного из фактических лидеров."""
     cat = _cat_or_404(conn, cid, request.state.user)
@@ -1374,7 +1395,7 @@ def prewarm_date_collages(did: int) -> None:
 
 
 @router.get("/categories/{cid}/og-preview")
-def category_og_preview(cid: int, request: Request, skin: str | None = None,
+def category_og_preview(cid: ObjectId, request: Request, skin: str | None = None,
                         v: str | None = None,
                         conn=Depends(get_db)):
     """Коллаж-превью ссылки для редактора категории (когда своей картинки нет).
@@ -1408,7 +1429,7 @@ def category_og_preview(cid: int, request: Request, skin: str | None = None,
 
 
 @router.post("/categories/{cid}/rename")
-def category_rename(cid: int, request: Request, name: str = Form(...),
+def category_rename(cid: ObjectId, request: Request, name: str = Form(...),
                     description: str = Form(""),
                     og_title: str = Form(""), og_desc: str = Form(""),
                     category_skin: str | None = Form(None),
@@ -1469,7 +1490,7 @@ def category_rename(cid: int, request: Request, name: str = Form(...),
 
 @router.post("/categories/{cid}/privacy")
 def category_privacy_save(
-    cid: int,
+    cid: ObjectId,
     request: Request,
     private_profiles: str | None = Form(None),
     prevent_copying: str | None = Form(None),
@@ -1514,7 +1535,7 @@ def category_privacy_save(
 
 
 @router.post("/categories/{cid}/og_image/delete")
-def category_og_image_delete(cid: int, request: Request, conn=Depends(get_db)):
+def category_og_image_delete(cid: ObjectId, request: Request, conn=Depends(get_db)):
     """Убрать свою картинку превью → вернуться к дефолту выбранного skin."""
     cat = _cat_or_404(conn, cid, request.state.user)
     old = cat["og_image"]
@@ -1528,7 +1549,7 @@ def category_og_image_delete(cid: int, request: Request, conn=Depends(get_db)):
 
 
 @router.post("/categories/{cid}/preview/reset")
-def category_preview_reset(cid: int, request: Request, conn=Depends(get_db)):
+def category_preview_reset(cid: ObjectId, request: Request, conn=Depends(get_db)):
     """Сбросить превью ссылки к стандартному виду: убрать свою картинку И текст
     (og_title/og_desc). Дальше превью — дефолтный текст + авто-коллаж из фото."""
     cat = _cat_or_404(conn, cid, request.state.user)
@@ -1547,7 +1568,7 @@ def category_preview_reset(cid: int, request: Request, conn=Depends(get_db)):
 
 
 @router.post("/categories/{cid}/default_preview")
-def category_default_preview(cid: int, request: Request, conn=Depends(get_db)):
+def category_default_preview(cid: ObjectId, request: Request, conn=Depends(get_db)):
     """Фиксирует фирменное превью либо возвращает динамический режим.
 
     Пользовательская картинка сохраняется на диске: после отключения режима она
@@ -1567,7 +1588,7 @@ def category_default_preview(cid: int, request: Request, conn=Depends(get_db)):
 
 
 @router.post("/categories/{cid}/og_focus")
-def category_og_focus(cid: int, request: Request, focus: str = Form(...),
+def category_og_focus(cid: ObjectId, request: Request, focus: str = Form(...),
                       expected_image: Annotated[str, Form()] = "",
                       expected_focus: Annotated[str | None, Form()] = None,
                       conn=Depends(get_db)):
@@ -1602,7 +1623,7 @@ def category_og_focus(cid: int, request: Request, focus: str = Form(...),
 
 
 @router.post("/categories/{cid}/toggle")
-def category_toggle(cid: int, request: Request, conn=Depends(get_db)):
+def category_toggle(cid: ObjectId, request: Request, conn=Depends(get_db)):
     cat = _cat_or_404(conn, cid, request.state.user)
     new_val = 0 if cat["link_enabled"] else 1
     conn.execute("UPDATE categories SET link_enabled=? WHERE id=?", (new_val, cid))
@@ -1614,7 +1635,7 @@ def category_toggle(cid: int, request: Request, conn=Depends(get_db)):
 
 
 @router.post("/categories/{cid}/moderation")
-def category_moderation(cid: int, request: Request, conn=Depends(get_db)):
+def category_moderation(cid: ObjectId, request: Request, conn=Depends(get_db)):
     # Режим модерации предложений — решение платформы, а не владельца категории:
     # переключать может только оператор (обычному пользователю — 404, как на всей
     # операторской поверхности).
@@ -1632,7 +1653,7 @@ def category_moderation(cid: int, request: Request, conn=Depends(get_db)):
 
 
 @router.post("/categories/{cid}/regenerate")
-def category_regenerate(cid: int, request: Request, conn=Depends(get_db)):
+def category_regenerate(cid: ObjectId, request: Request, conn=Depends(get_db)):
     _cat_or_404(conn, cid, request.state.user)
     # Сначала берём блокировку записи, затем заново читаем текущий токен. При двух
     # одновременных регенерациях второй запрос заменит в очереди ссылку первого,
@@ -1682,7 +1703,7 @@ def category_regenerate(cid: int, request: Request, conn=Depends(get_db)):
 
 
 @router.post("/categories/{cid}/delete")
-def category_delete(cid: int, request: Request, bg: BackgroundTasks, conn=Depends(get_db)):
+def category_delete(cid: ObjectId, request: Request, bg: BackgroundTasks, conn=Depends(get_db)):
     cat = _cat_or_404(conn, cid, request.state.user)
     editor_return_url = _safe_category_editor_return(
         request.query_params.get("return_to", ""), int(cat["owner_id"]),
@@ -1716,7 +1737,7 @@ def category_delete(cid: int, request: Request, bg: BackgroundTasks, conn=Depend
 
 
 @router.post("/categories/{cid}/attach")
-def category_attach(cid: int, request: Request, date_id: int = Form(...),
+def category_attach(cid: ObjectId, request: Request, date_id: Annotated[ObjectId, Form()] = ...,
                     conn=Depends(get_db)):
     cat = _cat_or_404(conn, cid, request.state.user)
     cat = _require_category_composition_mutable(conn, cat)
@@ -1739,7 +1760,7 @@ def category_attach(cid: int, request: Request, date_id: int = Form(...),
 
 
 @router.post("/categories/{cid}/dates_reorder")
-def category_dates_reorder(cid: int, request: Request, order: str = Form(...),
+def category_dates_reorder(cid: ObjectId, request: Request, order: str = Form(...),
                            conn=Depends(get_db)):
     """Drag-and-drop порядок событий: order — id через запятую."""
     cat = _cat_or_404(conn, cid, request.state.user)
@@ -1769,7 +1790,7 @@ def category_dates_reorder(cid: int, request: Request, order: str = Form(...),
 
 
 @router.post("/categories/{cid}/detach")
-def category_detach(cid: int, request: Request, date_id: int = Form(...),
+def category_detach(cid: ObjectId, request: Request, date_id: Annotated[ObjectId, Form()] = ...,
                     conn=Depends(get_db)):
     cat = _cat_or_404(conn, cid, request.state.user)
     d = get_owned_date(conn, date_id, cat["owner_id"])
@@ -1839,6 +1860,8 @@ def dates_list(request: Request, conn=Depends(get_db)):
         view = "proposed"
     flt = qp.get("f") if qp.get("f") in FLT_WHERE else ""
     cat = qp.get("cat", "")
+    if cat:
+        cat = str(require_object_id(cat))
     query = _search_query(qp.get("q", ""))
 
     where = VIEW_WHERE[view]
@@ -2058,9 +2081,14 @@ def date_editor_error(request: Request, detail: str):
     """Повторяем GET после отката/закрытия неуспешной транзакции POST."""
     request.state.editor_error = detail
     with closing(db.connect()) as conn:
-        if request.url.path == "/admin/dates/new":
-            return date_new_form(request, conn)
-        return date_edit_form(int(request.path_params["did"]), request, conn)
+        try:
+            if request.url.path == "/admin/dates/new":
+                return date_new_form(request, conn)
+            return date_edit_form(require_object_id(request.path_params["did"]), request, conn)
+        except HTTPException as exc:
+            # Обработчик ошибки уже активен: новое исключение отсюда не должно
+            # превращать некорректный ID/исчезнувшее событие в HTTP 500.
+            return JSONResponse({"ok": False, "detail": exc.detail}, status_code=exc.status_code)
 
 
 def _date_editor_saved(request: Request, target: str, message: str):
@@ -2074,8 +2102,8 @@ def _date_editor_saved(request: Request, target: str, message: str):
 def date_new_form(request: Request, conn=Depends(get_db)):
     checked = set()
     pre = request.query_params.get("category")
-    if pre and pre.isdigit():
-        checked.add(int(pre))
+    if pre:
+        checked.add(require_object_id(pre))
     cats = _all_cats(conn, request.state.user["id"])
     locked_cat_ids = {c["id"] for c in cats if _category_voting_is_closed(c)}
     checked.difference_update(locked_cat_ids)
@@ -2098,7 +2126,7 @@ def date_create(request: Request, bg: BackgroundTasks,
                 capacity: str = Form("1"),
                 pay: str | None = Form(None),
                 is_public: str | None = Form(None),
-                categories: list[int] = Form(default=[]),
+                categories: list[ObjectId] = Form(default=[]),
                 photos: list[UploadFile] = File(default=[], alias="images"),
                 videos: list[UploadFile] = File(default=[], alias="videos"),
                 image_focuses: str = Form(""),
@@ -2197,6 +2225,7 @@ def add_videos(conn, date_id: int, files, existing: int) -> list[str]:
 def _date_or_404(conn, did: int, user):
     """Событие, которым можно управлять. Владелец — только своё; админ
     (is_operator) — любое (пункт «админ правит чужое»)."""
+    did = require_object_id(did)
     if user["is_operator"]:
         d = conn.execute("SELECT * FROM dates WHERE id=?", (did,)).fetchone()
         if not d:
@@ -2267,8 +2296,11 @@ def _safe_date_editor_return(raw: str, owner_id: int,
             clean_dates.append(("sort", query["sort"]))
         if query.get("f") in FLT_WHERE:
             clean_dates.append(("f", query["f"]))
-        if query.get("cat", "").isdigit():
-            clean_dates.append(("cat", str(int(query["cat"]))))
+        if query.get("cat"):
+            try:
+                clean_dates.append(("cat", str(require_object_id(query["cat"]))))
+            except HTTPException:
+                pass  # Некорректный необязательный фильтр возврата не переносим.
         if query.get("q"):
             clean_dates.append(("q", _search_query(query["q"])))
         if query.get("page", "").isdigit() and int(query["page"]) > 1:
@@ -2298,7 +2330,7 @@ def _date_editor_url(did: int, return_to: str, owner_id: int,
 
 
 @router.get("/dates/{did}/edit", response_class=HTMLResponse)
-def date_edit_form(did: int, request: Request, conn=Depends(get_db)):
+def date_edit_form(did: ObjectId, request: Request, conn=Depends(get_db)):
     d = _date_or_404(conn, did, request.state.user)
     photos = conn.execute(
         "SELECT * FROM date_images WHERE date_id=? ORDER BY position, id", (did,)).fetchall()
@@ -2348,14 +2380,14 @@ def date_edit_form(did: int, request: Request, conn=Depends(get_db)):
 
 
 @router.post("/dates/{did}/edit", dependencies=[Depends(_capture_date_draft)])
-def date_update(did: int, request: Request, bg: BackgroundTasks, name: str = Form(...),
+def date_update(did: ObjectId, request: Request, bg: BackgroundTasks, name: str = Form(...),
                 place: str = Form(""),
                 starts_at: str = Form(""), ends_at: str = Form(""),
                 links: str = Form(""), comment: str = Form(""),
                 capacity: str = Form("1"),
                 pay: str | None = Form(None),
                 is_public: str | None = Form(None),
-                categories: list[int] = Form(default=[]),
+                categories: list[ObjectId] = Form(default=[]),
                 photos: list[UploadFile] = File(default=[], alias="images"),
                 videos: list[UploadFile] = File(default=[], alias="videos"),
                 image_focuses: str = Form(""),
@@ -2491,7 +2523,7 @@ def date_update(did: int, request: Request, bg: BackgroundTasks, name: str = For
 
 
 @router.post("/dates/{did}/publish")
-def date_publish(did: int, request: Request, bg: BackgroundTasks,
+def date_publish(did: ObjectId, request: Request, bg: BackgroundTasks,
                  next: str = Form("/admin/dates"), conn=Depends(get_db)):
     d = _date_or_404(conn, did, request.state.user)
     _require_date_not_in_closed_vote(conn, did, "изменить состав событий")
@@ -2612,7 +2644,7 @@ def _bulk_delete_date(conn, d) -> list[str]:
 
 @router.post("/dates/bulk")
 def dates_bulk(request: Request, bg: BackgroundTasks,
-               action: str = Form(...), date_ids: list[int] = Form(default=[]),
+               action: str = Form(...), date_ids: list[ObjectId] = Form(default=[]),
                next: str = Form("/admin/dates"), conn=Depends(get_db)):
     """Одна транзакция: ошибка любого события отменяет весь набор.
 
@@ -2623,7 +2655,7 @@ def dates_bulk(request: Request, bg: BackgroundTasks,
     allowed = {"archive", "restore", "make_public", "make_private", "delete"}
     if action not in allowed:
         raise HTTPException(400, "Неизвестное массовое действие")
-    ids = list(dict.fromkeys(int(did) for did in date_ids if int(did) > 0))
+    ids = list(dict.fromkeys(require_object_id(did) for did in date_ids))
     if not ids:
         raise HTTPException(400, "Выбери хотя бы одно событие")
     if len(ids) > 100:
@@ -2692,7 +2724,7 @@ def dates_bulk(request: Request, bg: BackgroundTasks,
 
 
 @router.post("/dates/{did}/archive")
-def date_archive(did: int, request: Request, next: str = Form("/admin/dates"),
+def date_archive(did: ObjectId, request: Request, next: str = Form("/admin/dates"),
                   conn=Depends(get_db)):
     d = _date_or_404(conn, did, request.state.user)
     _require_date_not_in_closed_vote(conn, did, "перенести событие в архив")
@@ -2734,7 +2766,7 @@ def date_archive(did: int, request: Request, next: str = Form("/admin/dates"),
 
 
 @router.post("/dates/{did}/visibility")
-def date_visibility(did: int, request: Request,
+def date_visibility(did: ObjectId, request: Request,
                     next: str = Form("/admin/dates"), conn=Depends(get_db)):
     """Явно переключает попадание события в публичную коллекцию и ленту.
 
@@ -2750,7 +2782,7 @@ def date_visibility(did: int, request: Request,
 
 
 @router.post("/dates/{did}/delete")
-def date_delete(did: int, request: Request, bg: BackgroundTasks,
+def date_delete(did: ObjectId, request: Request, bg: BackgroundTasks,
                 next: str = Form("/admin/dates"), conn=Depends(get_db)):
     d = _date_or_404(conn, did, request.state.user)
     _require_date_not_in_closed_vote(conn, did, "удалить событие")
@@ -2791,7 +2823,7 @@ def date_delete(did: int, request: Request, bg: BackgroundTasks,
 
 
 @router.post("/dates/{did}/clone")
-def date_clone(did: int, request: Request, bg: BackgroundTasks,
+def date_clone(did: ObjectId, request: Request, bg: BackgroundTasks,
                next: str = Form("/admin/dates"),
                conn=Depends(get_db)):
     """Дубль события: копируем запись, ссылки и файлы (с новыми именами на
@@ -2846,7 +2878,7 @@ def date_clone(did: int, request: Request, bg: BackgroundTasks,
 
 
 @router.post("/bookings/{bid}/delete")
-def booking_delete(bid: int, request: Request, bg: BackgroundTasks,
+def booking_delete(bid: ObjectId, request: Request, bg: BackgroundTasks,
                    next: str = Form("/admin/dates"), conn=Depends(get_db)):
     """Снять чужой выбор со события (например, по просьбе гостя)."""
     row = conn.execute(
@@ -2881,7 +2913,7 @@ def booking_delete(bid: int, request: Request, bg: BackgroundTasks,
 
 
 @router.post("/dates/{did}/videos/{vid}/delete")
-def date_video_delete(did: int, vid: int, request: Request, conn=Depends(get_db)):
+def date_video_delete(did: ObjectId, vid: ObjectId, request: Request, conn=Depends(get_db)):
     _date_or_404(conn, did, request.state.user)
     row = conn.execute(
         "SELECT * FROM date_videos WHERE id=? AND date_id=?", (vid, did)).fetchone()
@@ -2893,7 +2925,7 @@ def date_video_delete(did: int, vid: int, request: Request, conn=Depends(get_db)
 
 
 @router.post("/dates/{did}/images/{img_id}/delete")
-def date_image_delete(did: int, img_id: int, request: Request, conn=Depends(get_db)):
+def date_image_delete(did: ObjectId, img_id: ObjectId, request: Request, conn=Depends(get_db)):
     _date_or_404(conn, did, request.state.user)
     row = conn.execute(
         "SELECT * FROM date_images WHERE id=? AND date_id=?", (img_id, did)).fetchone()
@@ -2905,7 +2937,7 @@ def date_image_delete(did: int, img_id: int, request: Request, conn=Depends(get_
 
 
 @router.post("/dates/{did}/images/reorder")
-def date_images_reorder(did: int, request: Request, order: str = Form(...),
+def date_images_reorder(did: ObjectId, request: Request, order: str = Form(...),
                         conn=Depends(get_db)):
     """Drag-and-drop порядок фото: order — id через запятую, первое = обложка."""
     _date_or_404(conn, did, request.state.user)
@@ -2924,7 +2956,7 @@ def date_images_reorder(did: int, request: Request, order: str = Form(...),
 
 
 @router.post("/dates/{did}/images/{img_id}/focus")
-def date_image_focus(did: int, img_id: int, request: Request, focus: str = Form(...),
+def date_image_focus(did: ObjectId, img_id: ObjectId, request: Request, focus: str = Form(...),
                      conn=Depends(get_db)):
     """Точка фокуса фото для обрезки в карточке: «X% Y%» (X,Y 0..100)."""
     import re as _re
@@ -2971,7 +3003,7 @@ def questions_list(request: Request, conn=Depends(get_db)):
 
 
 @router.post("/questions/reviews/{date_id}/dismiss")
-def review_waiting_dismiss(date_id: int, request: Request,
+def review_waiting_dismiss(date_id: ObjectId, request: Request,
                            conn=Depends(get_db)):
     """Удаляет только напоминание, не событие и не право написать отзыв."""
     if not social_events.clear_review_waiting(
@@ -3029,7 +3061,7 @@ def _notify_answer(bg, conn, q, answer: str) -> None:
 
 
 @router.post("/questions/{qid}/accept_time")
-def question_accept_time(qid: int, request: Request, bg: BackgroundTasks,
+def question_accept_time(qid: ObjectId, request: Request, bg: BackgroundTasks,
                          next: str = Form("/admin/questions"),
                          conn=Depends(get_db)):
     """Принять предложенное гостем время: применяем его к событию."""
@@ -3067,7 +3099,7 @@ def question_accept_time(qid: int, request: Request, bg: BackgroundTasks,
 
 
 @router.post("/questions/{qid}/decline_time")
-def question_decline_time(qid: int, request: Request, bg: BackgroundTasks,
+def question_decline_time(qid: ObjectId, request: Request, bg: BackgroundTasks,
                           next: str = Form("/admin/questions"),
                           conn=Depends(get_db)):
     """Вежливо отказаться от предложенного времени (автор увидит ответ)."""
@@ -3084,7 +3116,7 @@ def question_decline_time(qid: int, request: Request, bg: BackgroundTasks,
 
 
 @router.post("/questions/{qid}/answer")
-def question_answer(qid: int, request: Request, bg: BackgroundTasks,
+def question_answer(qid: ObjectId, request: Request, bg: BackgroundTasks,
                     text: str = Form(""),
                     next: str = Form("/admin/questions"), conn=Depends(get_db)):
     q = _owned_question(conn, qid, request.state.user["id"])
@@ -3105,7 +3137,7 @@ def question_answer(qid: int, request: Request, bg: BackgroundTasks,
 
 
 @router.post("/questions/{qid}/toggle")
-def question_toggle(qid: int, request: Request, next: str = Form("/admin/questions"),
+def question_toggle(qid: ObjectId, request: Request, next: str = Form("/admin/questions"),
                     conn=Depends(get_db)):
     q = _owned_question(conn, qid, request.state.user["id"])
     if not q:
@@ -3117,7 +3149,7 @@ def question_toggle(qid: int, request: Request, next: str = Form("/admin/questio
 
 
 @router.post("/questions/{qid}/delete")
-def question_delete(qid: int, request: Request, next: str = Form("/admin/questions"),
+def question_delete(qid: ObjectId, request: Request, next: str = Form("/admin/questions"),
                     conn=Depends(get_db)):
     q = _owned_question(conn, qid, request.state.user["id"])
     if not q:
@@ -3277,7 +3309,7 @@ def _profile_sections_context(conn, user_id: int, viewer_id: int | None,
 
 
 @user_router.get("/{user_id}", response_class=HTMLResponse)
-def public_profile(user_id: int, request: Request, conn=Depends(get_db)):
+def public_profile(user_id: ObjectId, request: Request, conn=Depends(get_db)):
     u = conn.execute(
         "SELECT id, display_name, avatar_path, birth_date, gender, tg_username "
         "FROM users WHERE id=? AND is_active=1", (user_id,)).fetchone()
@@ -3313,7 +3345,7 @@ def public_profile(user_id: int, request: Request, conn=Depends(get_db)):
 
 
 @user_router.get("/{user_id}/date/{did}/widget", response_class=HTMLResponse)
-def public_profile_date_widget(user_id: int, did: int, request: Request,
+def public_profile_date_widget(user_id: ObjectId, did: ObjectId, request: Request,
                                conn=Depends(get_db)):
     """Встроенная карточка события, которое действительно видно в профиле.
 
@@ -3370,7 +3402,7 @@ def public_profile_date_widget(user_id: int, did: int, request: Request,
 
 
 @user_router.get("/{user_id}/reviews/{review_id}/widget", response_class=HTMLResponse)
-def public_profile_review_widget(user_id: int, review_id: int, request: Request,
+def public_profile_review_widget(user_id: ObjectId, review_id: ObjectId, request: Request,
                                  conn=Depends(get_db)):
     """Отдельный виджет отзыва: не смешивает его с действиями события."""
     row = conn.execute(
@@ -3434,7 +3466,7 @@ def _safe_profile_return(raw: str, user_id: int) -> str:
 
 @user_router.post("/{user_id}/reviews/{review_id}/edit",
                   dependencies=[Depends(current_user)])
-def public_profile_review_edit(user_id: int, review_id: int, request: Request,
+def public_profile_review_edit(user_id: ObjectId, review_id: ObjectId, request: Request,
                                rating: int = Form(...), text: str = Form(""),
                                next: str = Form(""),
                                conn=Depends(get_db)):
@@ -3470,7 +3502,7 @@ def public_profile_review_edit(user_id: int, review_id: int, request: Request,
 
 @user_router.post("/{user_id}/reviews/{review_id}/hide",
                   dependencies=[Depends(current_user)])
-def public_profile_review_hide(user_id: int, review_id: int, request: Request,
+def public_profile_review_hide(user_id: ObjectId, review_id: ObjectId, request: Request,
                                next: str = Form(""),
                                conn=Depends(get_db)):
     if user_id != int(request.state.user["id"]):
@@ -3492,7 +3524,7 @@ def public_profile_review_hide(user_id: int, review_id: int, request: Request,
 
 
 @user_router.get("/{user_id}/avatar")
-def public_avatar(user_id: int, request: Request, w: int | None = None,
+def public_avatar(user_id: ObjectId, request: Request, w: int | None = None,
                   conn=Depends(get_db)):
     """Публичный аватар по id активного пользователя для страницы /u/<id>."""
     row = conn.execute(

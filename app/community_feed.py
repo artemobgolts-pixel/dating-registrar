@@ -17,7 +17,7 @@ import hashlib
 import hmac
 import re
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 
 import community_search
@@ -46,14 +46,15 @@ class FeedPage:
     next_cursor: str | None
     mode: str
     candidate_count: int
+    reset: bool = False
 
 
 def _stamp(value: datetime) -> str:
     return value.replace(microsecond=0).strftime("%Y%m%d%H%M%S")
 
 
-def _ranked_cursor(as_of: datetime, max_id: int, offset: int) -> str:
-    return f"r1.{_stamp(as_of)}.{max_id}.{offset}"
+def _ranked_cursor(as_of: datetime, max_id: int, offset: int, fingerprint: str) -> str:
+    return f"r2.{_stamp(as_of)}.{max_id}.{offset}.{fingerprint}"
 
 
 def _chrono_cursor(before_id: int, last_owner: int | None = None) -> str:
@@ -68,8 +69,45 @@ def _search_signature(query: community_search.SearchQuery) -> str:
 
 
 def _search_cursor(as_of: datetime, max_id: int, offset: int,
-                   query: community_search.SearchQuery) -> str:
-    return f"s1.{_stamp(as_of)}.{max_id}.{offset}.{_search_signature(query)}"
+                   query: community_search.SearchQuery, fingerprint: str) -> str:
+    return f"s2.{_stamp(as_of)}.{max_id}.{offset}.{_search_signature(query)}.{fingerprint}"
+
+
+def _continuation(raw, *, kind, limit, signature=None):
+    """v2 offset применим только к тому же полному порядку выдачи.
+
+    Старые r1/s1 не содержат отпечатка и требуют явного перезапуска.
+    Хронологический c1 остаётся обычным keyset-курсором.
+    """
+    if not isinstance(raw, str) or len(raw) > 160:
+        return None
+    parts = raw.strip().split(".")
+    if len(parts) != (6 if signature else 5) or parts[0] != kind + "2":
+        return None
+    if signature and (not re.fullmatch(r"[0-9a-f]{10}", parts[4])
+                      or not hmac.compare_digest(parts[4], signature)):
+        return None
+    if not re.fullmatch(r"[0-9]{14}", parts[1]) or not re.fullmatch(r"[0-9a-f]{24}", parts[-1]):
+        return None
+    try:
+        as_of = datetime.strptime(parts[1], "%Y%m%d%H%M%S")
+    except ValueError:
+        return None
+    max_id = _cursor_int(parts[2], minimum=1)
+    offset = _cursor_int(parts[3], maximum=limit)
+    if max_id is None or offset is None:
+        return None
+    return as_of, max_id, offset, parts[-1]
+
+
+def _order_fingerprint(rows, viewer_id, boundary, has_tail=False):
+    # Рейтинг/affinity/diversity не допускают неизменного keyset по score.
+    # Любая перестановка или изменение состава явно отменяет старый offset.
+    ordered = ",".join(f"{row['id']}:{row['owner_id']}" for row in rows)
+    return hashlib.blake2s(
+        f"{viewer_id}|{boundary}|{int(has_tail)}|{ordered}".encode("ascii"),
+        digest_size=12,
+    ).hexdigest()
 
 
 def _cursor_int(raw: object, *, minimum: int = 0,
@@ -392,19 +430,19 @@ def _search_page(
     page_size: int,
     pool_size: int,
 ) -> FeedPage:
-    parsed_cursor = _parse_search_cursor(cursor, query)
+    parsed_cursor = _continuation(cursor, kind="s", limit=pool_size,
+                                  signature=_search_signature(query))
     if parsed_cursor:
-        as_of, max_id, offset = parsed_cursor
+        as_of, max_id, offset, expected = parsed_cursor
     else:
         as_of, max_id, offset = current, None, 0
 
     candidates = _candidate_rows(
-        conn, viewer_id, as_of, limit=pool_size + 1, max_id=max_id,
+        conn, viewer_id, current, limit=pool_size + 1,
     )
     if not candidates:
-        return FeedPage([], None, "search", 0)
-    if max_id is None:
-        max_id = int(candidates[0]["id"])
+        return FeedPage([], None, "search", 0, reset=bool(cursor))
+    max_id = int(candidates[0]["id"])
     pool = candidates[:pool_size]
     links = _links_for_rows(conn, pool)
     scored = [
@@ -415,7 +453,7 @@ def _search_page(
     ]
     matches = [(row, score) for row, score in scored if score > 0]
     if not matches:
-        return FeedPage([], None, "search", len(pool))
+        return FeedPage([], None, "search", len(pool), reset=bool(cursor))
 
     match_rows = [row for row, _ in matches]
     wants, copies = _popularity(conn, viewer_id, match_rows)
@@ -452,13 +490,15 @@ def _search_page(
         previous_owner = int(group[-1]["owner_id"])
         index = end
 
-    if offset >= len(ranked):
-        return FeedPage([], None, "search", len(pool))
+    fingerprint = _order_fingerprint(ranked, viewer_id, (max_id, int(pool[-1]["id"])))
+    if parsed_cursor and (parsed_cursor[1] != max_id
+                          or not hmac.compare_digest(expected, fingerprint) or offset >= len(ranked)):
+        return replace(_search_page(conn, viewer_id, None, query, current, page_size, pool_size), reset=True)
     page_rows = ranked[offset:offset + page_size]
     next_offset = offset + len(page_rows)
-    next_cursor = _search_cursor(as_of, max_id, next_offset, query) \
+    next_cursor = _search_cursor(as_of, max_id, next_offset, query, fingerprint) \
         if next_offset < len(ranked) else None
-    return FeedPage(page_rows, next_cursor, "search", len(pool))
+    return FeedPage(page_rows, next_cursor, "search", len(pool), reset=bool(cursor) and not parsed_cursor)
 
 
 def _chronological_page(
@@ -519,41 +559,39 @@ def page(
             conn, viewer_id, before_id, current, safe_page_size, previous_owner,
         )
 
-    if cursor_kind == "ranked":
-        as_of, max_id, offset = cursor_data
+    continuation = _continuation(cursor, kind="r", limit=safe_pool_size)
+    if continuation:
+        as_of, max_id, offset, expected = continuation
     else:
         as_of, max_id, offset = current, None, 0
 
     recent = _candidate_rows(
         conn,
         viewer_id,
-        as_of,
+        current,
         limit=safe_pool_size + 1,
-        max_id=max_id,
     )
     if not recent:
-        return FeedPage([], None, "general", 0)
-    if max_id is None:
-        max_id = int(recent[0]["id"])
+        return FeedPage([], None, "general", 0, reset=bool(cursor))
+    max_id = int(recent[0]["id"])
 
     has_older = len(recent) > safe_pool_size
     pool = recent[:safe_pool_size]
     ranked, mode = _ranked_rows(conn, viewer_id, pool, as_of)
-    if offset >= len(ranked):
-        if has_older and pool:
-            return _chronological_page(
-                conn, viewer_id, int(pool[-1]["id"]), as_of, safe_page_size,
-            )
-        return FeedPage([], None, mode, len(pool))
+    fingerprint = _order_fingerprint(ranked, viewer_id, max_id, has_older)
+    if continuation and (continuation[1] != max_id
+                         or not hmac.compare_digest(expected, fingerprint) or offset >= len(ranked)):
+        return replace(page(conn, viewer_id, now=current, page_size=safe_page_size,
+                            pool_size=safe_pool_size), reset=True)
 
     page_rows = ranked[offset:offset + safe_page_size]
     next_offset = offset + len(page_rows)
     if next_offset < len(ranked):
-        next_cursor = _ranked_cursor(as_of, max_id, next_offset)
+        next_cursor = _ranked_cursor(as_of, max_id, next_offset, fingerprint)
     elif has_older:
         next_cursor = _chrono_cursor(
             int(pool[-1]["id"]), int(page_rows[-1]["owner_id"]),
         )
     else:
         next_cursor = None
-    return FeedPage(page_rows, next_cursor, mode, len(pool))
+    return FeedPage(page_rows, next_cursor, mode, len(pool), reset=bool(cursor) and not continuation)

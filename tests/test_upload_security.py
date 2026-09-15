@@ -16,6 +16,8 @@ import httpx
 from PIL import Image
 from starlette.testclient import TestClient
 
+from media_fixtures import video_bytes
+
 APP = Path(__file__).resolve().parents[1] / "app"
 sys.path.insert(0, str(APP))
 os.chdir(APP)
@@ -38,7 +40,7 @@ def png():
     return data.getvalue()
 
 
-VIDEO = b"\x00\x00\x00\x18ftypmp42" + b"synthetic video payload"
+VIDEO = video_bytes()
 
 
 class UploadSecurityTests(unittest.TestCase):

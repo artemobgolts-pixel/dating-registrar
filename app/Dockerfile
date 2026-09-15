@@ -5,9 +5,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# ffmpeg используется только для быстрого remux MP4 (`+faststart`, без
-# перекодирования). Если конкретный файл не удаётся обработать, приложение
-# безопасно оставляет исходник.
+# ffprobe/ffmpeg проверяют контейнер и видеокадр до сохранения загрузки;
+# ffmpeg также выполняет необязательный remux MP4 (`+faststart`).
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg \
     && rm -rf /var/lib/apt/lists/* \

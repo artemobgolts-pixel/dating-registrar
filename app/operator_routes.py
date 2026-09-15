@@ -25,6 +25,7 @@ import voting
 import voting_events
 from config import BASE_URL
 from helpers import now_iso, now_naive
+from object_ids import ObjectId
 from users import current_operator, get_user
 from web import get_db, redir, templates
 
@@ -302,7 +303,7 @@ def _target(conn, uid: int):
 
 
 @router.get("/users/{uid}", response_class=HTMLResponse)
-def user_card(uid: int, request: Request, events_page: int = 1,
+def user_card(uid: ObjectId, request: Request, events_page: int = 1,
               votes_page: int = 1, conn=Depends(get_db)):
     u = _target(conn, uid)
     cats = conn.execute(
@@ -359,7 +360,7 @@ def _back(uid: int) -> str:
 
 
 @router.post("/users/{uid}/ban")
-def user_ban(uid: int, request: Request, conn=Depends(get_db)):
+def user_ban(uid: ObjectId, request: Request, conn=Depends(get_db)):
     u = _target(conn, uid)
     if u["id"] == request.state.user["id"]:
         raise HTTPException(400, "Нельзя забанить самого себя")
@@ -375,7 +376,7 @@ def user_ban(uid: int, request: Request, conn=Depends(get_db)):
 
 
 @router.post("/users/{uid}/quota")
-def user_quota(uid: int, request: Request, date_limit: int = Form(...),
+def user_quota(uid: ObjectId, request: Request, date_limit: int = Form(...),
                conn=Depends(get_db)):
     _target(conn, uid)
     lim = max(0, min(10000, int(date_limit)))
@@ -385,7 +386,7 @@ def user_quota(uid: int, request: Request, date_limit: int = Form(...),
 
 
 @router.post("/users/{uid}/operator")
-def user_operator(uid: int, request: Request, conn=Depends(get_db)):
+def user_operator(uid: ObjectId, request: Request, conn=Depends(get_db)):
     # Сериализуем выдачу роли с переключением suspicious: две параллельные
     # формы не должны оставить взаимоисключающие флаги одновременно.
     if conn.execute("UPDATE users SET id=id WHERE id=?", (uid,)).rowcount == 0:
@@ -410,7 +411,7 @@ def user_operator(uid: int, request: Request, conn=Depends(get_db)):
 
 
 @router.post("/users/{uid}/suspicious")
-def user_suspicious(uid: int, request: Request, enabled: int = Form(...),
+def user_suspicious(uid: ObjectId, request: Request, enabled: int = Form(...),
                     conn=Depends(get_db)):
     """Идемпотентно включает адресную премодерацию будущего контента."""
     if enabled not in (0, 1):
@@ -441,7 +442,7 @@ def user_suspicious(uid: int, request: Request, enabled: int = Form(...),
 
 
 @router.post("/users/{uid}/delete")
-def user_delete(uid: int, request: Request, conn=Depends(get_db)):
+def user_delete(uid: ObjectId, request: Request, conn=Depends(get_db)):
     """Удаляет пользователя со всеми данными (каскад FK) и файлами с диска."""
     u = _target(conn, uid)
     if u["id"] == request.state.user["id"]:
@@ -581,7 +582,7 @@ def _get_report(conn, rid: int):
 
 
 @router.post("/reports/{rid}/resolve")
-def report_resolve(rid: int, request: Request, action: str = Form("resolved"),
+def report_resolve(rid: ObjectId, request: Request, action: str = Form("resolved"),
                    conn=Depends(get_db)):
     """Закрыть жалобу без удаления контента: обработана или отклонена."""
     _get_report(conn, rid)
@@ -594,7 +595,7 @@ def report_resolve(rid: int, request: Request, action: str = Form("resolved"),
 
 
 @router.post("/reports/{rid}/takedown")
-def report_takedown(rid: int, request: Request, conn=Depends(get_db)):
+def report_takedown(rid: ObjectId, request: Request, conn=Depends(get_db)):
     """Удалить контент по жалобе (takedown) и закрыть жалобу. Удаляет также
     ВСЕ прочие открытые жалобы на тот же объект — он больше не существует."""
     r = _get_report(conn, rid)
@@ -704,7 +705,7 @@ def _cat_or_404(conn, cid: int):
 
 
 @router.post("/categories/{cid}/toggle")
-def cat_toggle(cid: int, request: Request, conn=Depends(get_db)):
+def cat_toggle(cid: ObjectId, request: Request, conn=Depends(get_db)):
     c = _cat_or_404(conn, cid)
     new = 0 if c["link_enabled"] else 1
     conn.execute("UPDATE categories SET link_enabled=? WHERE id=?", (new, cid))
@@ -719,7 +720,7 @@ def cat_toggle(cid: int, request: Request, conn=Depends(get_db)):
 
 
 @router.post("/categories/{cid}/delete")
-def cat_delete(cid: int, request: Request, conn=Depends(get_db)):
+def cat_delete(cid: ObjectId, request: Request, conn=Depends(get_db)):
     """Удаляет категорию (связи date_categories — каскадом). События остаются
     у владельца, как и в кабинете."""
     cat = _cat_or_404(conn, cid)
@@ -823,7 +824,7 @@ def _date_or_404(conn, did: int):
 
 
 @router.post("/dates/{did}/archive")
-def date_archive(did: int, request: Request, conn=Depends(get_db)):
+def date_archive(did: ObjectId, request: Request, conn=Depends(get_db)):
     d = _date_or_404(conn, did)
     _require_date_not_frozen(conn, did)
     d = _date_or_404(conn, did)
@@ -842,7 +843,7 @@ def date_archive(did: int, request: Request, conn=Depends(get_db)):
 
 
 @router.post("/dates/{did}/delete")
-def date_delete(did: int, request: Request, conn=Depends(get_db)):
+def date_delete(did: ObjectId, request: Request, conn=Depends(get_db)):
     """Удаляет событие со всеми медиа (файлы с диска) и закрывает открытые
     жалобы на него."""
     _date_or_404(conn, did)
@@ -874,7 +875,7 @@ def date_delete(did: int, request: Request, conn=Depends(get_db)):
 
 @router.get("/bookings", response_class=HTMLResponse)
 def bookings_list(request: Request, q: str = "", kind: str = "", state: str = "",
-                  voter_id: int | None = None, page: int = 1,
+                  voter_id: ObjectId | None = None, page: int = 1,
                   conn=Depends(get_db)):
     q = _search_query(q)
     kind = kind if kind in {"account", "legacy"} else ""
@@ -927,7 +928,7 @@ def bookings_list(request: Request, q: str = "", kind: str = "", state: str = ""
 
 
 @router.post("/bookings/{bid}/delete")
-def booking_delete(bid: int, request: Request, conn=Depends(get_db)):
+def booking_delete(bid: ObjectId, request: Request, conn=Depends(get_db)):
     """Снять голос для разбора спорной ситуации и освободить одно место."""
     b = conn.execute(
         "SELECT c.*, b.id AS booking_id, b.user_id AS vote_user_id, "
@@ -1055,7 +1056,7 @@ def review_queue(request: Request, users_page: int = 1,
 
 
 @router.post("/review/user/{uid}/approve")
-def review_user_approve(uid: int, request: Request, conn=Depends(get_db)):
+def review_user_approve(uid: ObjectId, request: Request, conn=Depends(get_db)):
     _target(conn, uid)
     conn.execute("UPDATE users SET is_reviewed=1 WHERE id=?", (uid,))
     conn.commit()
@@ -1067,7 +1068,7 @@ def review_user_approve(uid: int, request: Request, conn=Depends(get_db)):
 
 
 @router.post("/review/category/{cid}/approve")
-def review_category_approve(cid: int, request: Request, conn=Depends(get_db)):
+def review_category_approve(cid: ObjectId, request: Request, conn=Depends(get_db)):
     if conn.execute("UPDATE categories SET id=id WHERE id=?", (cid,)).rowcount == 0:
         raise HTTPException(404)
     _cat_or_404(conn, cid)
@@ -1086,7 +1087,7 @@ def review_category_approve(cid: int, request: Request, conn=Depends(get_db)):
 
 
 @router.post("/review/date/{did}/approve")
-def review_date_approve(did: int, request: Request, conn=Depends(get_db)):
+def review_date_approve(did: ObjectId, request: Request, conn=Depends(get_db)):
     d = _date_or_404(conn, did)
     if not d["operator_review_pending"]:
         return redir("/operator/review", "Событие уже проверено")
@@ -1111,7 +1112,7 @@ def review_date_approve(did: int, request: Request, conn=Depends(get_db)):
 
 
 @router.post("/review/category/{cid}/reject")
-def review_category_reject(cid: int, request: Request, conn=Depends(get_db)):
+def review_category_reject(cid: ObjectId, request: Request, conn=Depends(get_db)):
     if conn.execute("UPDATE categories SET id=id WHERE id=?", (cid,)).rowcount == 0:
         raise HTTPException(404)
     cat = _cat_or_404(conn, cid)
@@ -1136,7 +1137,7 @@ def review_category_reject(cid: int, request: Request, conn=Depends(get_db)):
 
 
 @router.post("/review/date/{did}/reject")
-def review_date_reject(did: int, request: Request, conn=Depends(get_db)):
+def review_date_reject(did: ObjectId, request: Request, conn=Depends(get_db)):
     if conn.execute("UPDATE dates SET id=id WHERE id=?", (did,)).rowcount == 0:
         raise HTTPException(404)
     d = _date_or_404(conn, did)

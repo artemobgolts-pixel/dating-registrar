@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import csv
 import io
 import os
 import sqlite3
@@ -142,6 +143,112 @@ class ExportArchiveTests(unittest.TestCase):
         self.assertIn("Чужое событие", response.text)
         self.assertNotIn("Своё событие", response.text)
         self.assertIn("attachment;", response.headers["content-disposition"])
+
+    def _export_csv_row(self):
+        self.http_user = self.operator
+        response = self.client.get("/admin/export/csv")
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.content.startswith(b"\xef\xbb\xbf"))
+        rows = list(csv.reader(
+            io.StringIO(response.content.decode("utf-8-sig"), newline=""),
+            delimiter=";", strict=True,
+        ))
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(len(rows[0]), 13)
+        self.assertEqual(len(rows[1]), 13)
+        return dict(zip(rows[0], rows[1]))
+
+    def test_operator_csv_neutralizes_formula_names_and_places(self):
+        for value in ("=1+1", "+SUM(1,1)", "-1+2", "@SUM(1,1)"):
+            with self.subTest(value=value):
+                self.conn.execute(
+                    "UPDATE dates SET name=?,place=? WHERE id=2", (value, value),
+                )
+                self.conn.commit()
+                row = self._export_csv_row()
+                self.assertEqual(row["Название"], "'" + value)
+                self.assertEqual(row["Место"], "'" + value)
+
+    def test_operator_csv_neutralizes_formulas_after_whitespace_and_controls(self):
+        prefixes = (
+            " ", "\t", "\r", "\n", "\x00", "\x1b", "\x7f", "\x85",
+            "\u00a0", "\u2003", "\u200b", "\ufeff", " \t\x00\ufeff",
+        )
+        for prefix in prefixes:
+            for formula in ("=1+1", "+SUM(1,1)", "-1+2", "@SUM(1,1)"):
+                value = prefix + formula
+                with self.subTest(value=value):
+                    self.conn.execute(
+                        "UPDATE dates SET name=?,place=? WHERE id=2", (value, value),
+                    )
+                    self.conn.commit()
+                    row = self._export_csv_row()
+                    self.assertEqual(row["Название"], "'" + value)
+                    self.assertEqual(row["Место"], "'" + value)
+
+    def test_operator_csv_protects_all_text_fields_without_changing_db_or_json(self):
+        values = {
+            "Название": "=1+1", "Место": "+SUM(1,1)", "Начало": "-1+2",
+            "Конец": "@SUM(1,1)", "Кто выбрал": "\t=1+1",
+            "Категории": "\ufeff+SUM(1,1)", "Ссылки": " \n@SUM(1,1)",
+        }
+        self.conn.execute(
+            "UPDATE dates SET name=?,place=?,starts_at=?,ends_at=? WHERE id=2",
+            tuple(values[key] for key in ("Название", "Место", "Начало", "Конец")),
+        )
+        self.conn.execute("UPDATE categories SET name=? WHERE id=2", (values["Категории"],))
+        self.conn.execute("INSERT INTO date_categories(date_id,category_id) VALUES(2,2)")
+        self.conn.execute(
+            "INSERT INTO date_links(date_id,url) VALUES(2,?)", (values["Ссылки"],),
+        )
+        self.conn.execute(
+            "INSERT INTO guests(token,name,created_at) VALUES('csv-guest',?,?)",
+            (values["Кто выбрал"], STAMP),
+        )
+        self.conn.execute(
+            "INSERT INTO bookings(date_id,category_id,guest_token,created_at) "
+            "VALUES(2,2,'csv-guest',?)", (STAMP,),
+        )
+        self.conn.commit()
+        before_db = list(self.conn.iterdump())
+        self.http_user = self.operator
+        before_json = self.client.get("/admin/export/json").json()
+
+        row = self._export_csv_row()
+        for column, value in values.items():
+            with self.subTest(column=column):
+                self.assertEqual(row[column], "'" + value)
+        self.assertEqual(row["id"], "2")
+        self.assertEqual(row["Выборы"], "1")
+        self.assertEqual(list(self.conn.iterdump()), before_db)
+        after_json = self.client.get("/admin/export/json").json()
+        before_json.pop("exported_at")
+        after_json.pop("exported_at")
+        self.assertEqual(after_json, before_json)
+        exported_date = after_json["dates"][0]
+        self.assertEqual(exported_date["name"], values["Название"])
+        self.assertEqual(exported_date["place"], values["Место"])
+        self.assertEqual(exported_date["starts_at"], values["Начало"])
+        self.assertEqual(exported_date["ends_at"], values["Конец"])
+        self.assertEqual(exported_date["booked_by"], [values["Кто выбрал"]])
+        self.assertEqual(exported_date["links"], [values["Ссылки"]])
+        self.assertEqual(after_json["categories"][0]["name"], values["Категории"])
+
+    def test_operator_csv_preserves_normal_text_unicode_and_csv_quoting(self):
+        for value in (
+            "Обычное событие", "Кафе, парк; терраса", 'Встреча "Лето"',
+            "Первая строка\nВторая строка", "Первая\r\nВторая", "東京 — Москва 🥐",
+            "  Текст с пробелами", "\tОбычный текст", "\ufeffНазвание", "", " \t\n",
+            "Текст =1+1", "'Уже текст", ",=1+1", ";=1+1", '"=1+1',
+        ):
+            with self.subTest(value=value):
+                self.conn.execute(
+                    "UPDATE dates SET name=?,place=? WHERE id=2", (value, value),
+                )
+                self.conn.commit()
+                row = self._export_csv_row()
+                self.assertEqual(row["Название"], value)
+                self.assertEqual(row["Место"], value)
 
     def test_platform_backup_is_operator_only_and_contains_snapshot_plus_all_uploads(self):
         snapshot = self.root / "consistent-snapshot.db"

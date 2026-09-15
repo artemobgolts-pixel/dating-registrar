@@ -1625,10 +1625,22 @@
       };
       if (activeRequest) options.signal = activeRequest.signal;
       fetch(requestUrl(cursor), options)
-        .then(function (r) { return r.ok ? r.text() : Promise.reject(); })
-        .then(function (html) {
+        .then(function (r) {
+          if (!r.ok) return Promise.reject();
+          return r.text().then(function (html) {
+            return { html: html, reset: r.headers.get("X-Feed-Reset") === "1" };
+          });
+        })
+        .then(function (result) {
           if (generation !== requestGeneration) return;
-          feed.insertAdjacentHTML("beforeend", html.trim());
+          if (result.reset) {
+            feed.replaceChildren();
+            loadedAny = false;
+            if (emptyEl) emptyEl.hidden = true;
+            if (endEl) endEl.hidden = true;
+            toast("Лента обновилась. Показываем актуальные события.");
+          }
+          feed.insertAdjacentHTML("beforeend", result.html.trim());
           if (sentinel) sentinel.remove();
           var hasCards = feed.querySelector(".cfeed-card");
           if (hasCards) loadedAny = true;
@@ -1762,15 +1774,16 @@
         openReport(report);
         return;
       }
-      if (e.target.closest("[data-stop]")) return;
       var card = e.target.closest(".cfeed-card");
-      if (card) openWidget(card.getAttribute("data-widget"));
-    });
-    feed.addEventListener("keydown", function (e) {
-      if (e.key !== "Enter" && e.key !== " ") return;
-      if (e.target.closest("[data-stop]")) return;
-      var card = e.target.closest(".cfeed-card");
-      if (card) { e.preventDefault(); openWidget(card.getAttribute("data-widget")); }
+      if (!card) return;
+      // Нативная кнопка сама обрабатывает Enter/Space. Остальные элементы,
+      // включая ссылки в описании, сохраняют собственное действие.
+      if (e.target.closest("[data-community-open]")) {
+        openWidget(card.getAttribute("data-widget"));
+        return;
+      }
+      if (e.target.closest("[data-stop], a, button, input, select, textarea, summary, [contenteditable]")) return;
+      openWidget(card.getAttribute("data-widget"));
     });
 
     if (cwidClose) cwidClose.addEventListener("click", closeWidget);

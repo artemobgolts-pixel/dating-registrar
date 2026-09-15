@@ -29,6 +29,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 import metrics
 import sessions
+import oauth_flows
 import users
 from config import (BASE_URL, SUPPORT_CONTACT, TG_BOT_USERNAME, TG_MINI_APP_URL,
                     TG_WEBHOOK_SECRET, OAUTH_PROVIDERS, OAUTH_LABELS, OAUTH_META)
@@ -1004,7 +1005,7 @@ async def tg_webhook(request: Request, conn=Depends(get_db)):
 # соцсеть к текущему аккаунту, не создавая новый.
 #
 # Провайдер не настроен (нет client_id) → 503, но кнопка на входе видна. state
-# кладём в сессию (CSRF-защита колбэка). redirect_uri обязан совпадать с тем,
+# храним на сервере, browser proof — в signed cookie. redirect_uri совпадает с тем,
 # что вписан в настройках приложения провайдера: <BASE_URL>/auth/<provider>/callback.
 
 def _oauth_redirect_uri(provider: str) -> str:
@@ -1012,7 +1013,7 @@ def _oauth_redirect_uri(provider: str) -> str:
 
 
 @router.get("/auth/{provider}")
-def oauth_start(provider: str, request: Request):
+def oauth_start(provider: str, request: Request, conn=Depends(get_db)):
     """Старт OAuth: редирект на страницу авторизации провайдера. Параметр
     ?link=1 запоминает, что это привязка к текущему аккаунту (из профиля)."""
     if provider not in OAUTH_PROVIDERS:
@@ -1034,16 +1035,12 @@ def oauth_start(provider: str, request: Request):
         raise HTTPException(429, "Слишком много попыток входа. Подожди немного.")
 
     meta = OAUTH_META[provider]
-    state = secrets.token_urlsafe(24)
-    request.session["oauth_state"] = state
-    request.session["oauth_provider"] = provider
-    # режим привязки — только если пользователь уже вошёл
-    request.session["oauth_link"] = bool(
-        request.query_params.get("link") and request.session.get("user_id"))
-    # куда вернуться после входа (для обычного логина)
-    nxt = _safe_next(request.query_params.get("next"))
-    if nxt:
-        request.session["login_next"] = nxt
+    mode = "link" if request.query_params.get("link") else "login"
+    nxt = (_safe_next(request.query_params.get("next"))
+           or _safe_next(request.session.get("login_next")))
+    state = oauth_flows.create(conn, request.session, provider, mode, nxt)
+    if state is None:
+        raise HTTPException(403, "Для привязки войди в аккаунт и начни заново.")
 
     params = {
         "client_id": client_id,
@@ -1122,6 +1119,7 @@ def _oauth_fetch_identity(provider: str, code: str) -> dict:
 @router.get("/auth/{provider}/callback")
 def oauth_callback(provider: str, request: Request, conn=Depends(get_db)):
     """Колбэк провайдера: сверяем state, меняем code на профиль, логиним/привязываем."""
+    flow = oauth_flows.consume(conn, request.session, request.query_params.get("state"), provider)
     if provider not in OAUTH_PROVIDERS:
         metrics.observe_auth(flow="oauth", provider=provider, result="invalid")
         raise HTTPException(404, "Неизвестный провайдер входа")
@@ -1131,17 +1129,13 @@ def oauth_callback(provider: str, request: Request, conn=Depends(get_db)):
         )
         raise HTTPException(503, "Провайдер не настроен")
 
+    if flow is None:
+        metrics.observe_auth(flow="oauth", provider=provider, result="expired")
+        raise HTTPException(403, "Проверка state не прошла. Начни вход заново.")
     if request.query_params.get("error"):
         metrics.observe_auth(flow="oauth", provider=provider, result="cancelled")
         return RedirectResponse("/login?msg=" +
                                 quote("Вход отменён."), status_code=303)
-    state = request.query_params.get("state")
-    saved = request.session.pop("oauth_state", None)
-    is_link = request.session.pop("oauth_link", False)
-    request.session.pop("oauth_provider", None)
-    if not state or not saved or not secrets.compare_digest(state, saved):
-        metrics.observe_auth(flow="oauth", provider=provider, result="expired")
-        raise HTTPException(403, "Проверка state не прошла. Начни вход заново.")
     code = request.query_params.get("code")
     if not code:
         metrics.observe_auth(flow="oauth", provider=provider, result="invalid")
@@ -1155,9 +1149,14 @@ def oauth_callback(provider: str, request: Request, conn=Depends(get_db)):
         )
         raise
 
-    # режим привязки: пользователь уже вошёл — привязываем соцсеть к его аккаунту
-    if is_link and request.session.get("user_id"):
-        uid = request.session["user_id"]
+    # Logout/отзыв во время внешнего обмена code тоже запрещает мутацию.
+    conn.execute("BEGIN IMMEDIATE")
+    if (int(time.time()) >= flow["expires_at"]
+            or not oauth_flows.context_matches(conn, request.session, flow)):
+        conn.rollback()
+        raise HTTPException(403, "Сессия изменилась. Начни вход заново.")
+    if flow["mode"] == "link":
+        uid = flow["user_id"]
         ok = users.link_oauth_account(conn, uid, provider, ident["uid"],
                                       email=ident["email"])
         metrics.observe_auth(
@@ -1170,11 +1169,14 @@ def oauth_callback(provider: str, request: Request, conn=Depends(get_db)):
 
     # обычный вход/регистрация
     uid = users.upsert_oauth_login(conn, provider, ident["uid"],
-                                   display_name=ident["name"], email=ident["email"])
+                                   display_name=ident["name"], email=ident["email"], commit=False)
     user = users.get_user(conn, uid)
     if not user or not user["is_active"]:
         metrics.observe_auth(flow="oauth", provider=provider, result="banned")
         raise HTTPException(403, "Доступ закрыт. Напиши в поддержку.")
-    sessions.issue_session(request, conn, uid)
+    sessions.issue_session(request, conn, uid, commit=False)
+    conn.commit()
     metrics.observe_auth(flow="oauth", provider=provider, result="success")
-    return RedirectResponse(_post_login_redirect(request), status_code=303)
+    if _safe_next(request.session.get("login_next")) == flow["next_url"]:
+        request.session.pop("login_next", None)
+    return RedirectResponse(flow["next_url"] or "/admin/", status_code=303)
