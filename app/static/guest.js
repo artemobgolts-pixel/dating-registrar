@@ -602,13 +602,17 @@
   const timeDlg = $("#timeDlg"), timeForm = $("#timeForm");
   UI.dateChips(timeDlg, $("#timeStart"), $("#timeEnd"));
   document.querySelectorAll(".chip-suggest").forEach((b) => {
-    b.addEventListener("click", () => requireAuth(() => {
-      $("#timeDateId").value = b.dataset.id;
-      $("#timeTitle").textContent = b.dataset.name;
-      timeForm.reset();
-      $("#timeDateId").value = b.dataset.id;
-      openModal(timeDlg, b, "#timeStart");
-    }, "time", b));
+    b.addEventListener("click", () => {
+      const disclosure = b.closest(".event-card-menu");
+      const trigger = disclosure && disclosure.querySelector("summary");
+      if (disclosure) disclosure.open = false;
+      requireAuth(() => {
+        $("#timeTitle").textContent = b.dataset.name;
+        timeForm.reset();
+        $("#timeDateId").value = b.dataset.id;
+        openModal(timeDlg, trigger || b, "#timeStart");
+      }, "time", b);
+    });
   });
   $("#timeCancel").onclick = () => timeDlg.close();
   timeForm.addEventListener("submit", async (e) => {

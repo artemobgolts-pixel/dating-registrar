@@ -837,11 +837,14 @@ class EventCardGeometryBrowserTests(unittest.TestCase):
           const action = document.querySelector('.category-event-action .btn').getBoundingClientRect();
           const drag = document.querySelector('.drag-handle').getBoundingClientRect();
           const progress = document.querySelector('.category-event-capacity progress');
+          const time = document.querySelector('.category-event-time').getBoundingClientRect();
+          const capacity = document.querySelector('.category-event-capacity').getBoundingClientRect();
           const label = getComputedStyle(
             document.querySelector('.category-event-time'), '::before'
           );
           return {
             rowHeight: row.height,
+            dateGap: time.top - capacity.bottom,
             rowWidth: row.width,
             actionWidth: action.width,
             actionHeight: action.height,
@@ -853,7 +856,9 @@ class EventCardGeometryBrowserTests(unittest.TestCase):
           };
         }""")
 
-        self.assertLessEqual(geometry["rowHeight"], 96)
+        # Дата занимает отдельную строку, чтобы не обрезаться рядом с действиями.
+        self.assertLessEqual(geometry["rowHeight"], 112)
+        self.assertGreaterEqual(geometry["dateGap"], 2)
         self.assertLessEqual(geometry["overflow"], 1)
         self.assertLess(geometry["actionWidth"], geometry["rowWidth"] * .45)
         self.assertGreaterEqual(geometry["actionHeight"], 44)

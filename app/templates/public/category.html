@@ -173,12 +173,14 @@
   {% macro eventmenu(d, surface) -%}
   {% set can_report = not viewer_is_owner and not d.past and not d.pending and not d.editable %}
   {% set can_copy = not cat['prevent_copying'] and not d.pending and d.share_token %}
-  {% if can_report or can_copy %}
+  {% set can_suggest = not d.starts_at and not d.past and not d.pending %}
+  {% if can_report or can_copy or can_suggest %}
   <details class="event-card-menu event-card-menu--{{ surface }}">
     <summary aria-label="Действия с событием «{{ d.name }}»">
       <svg class="event-card-menu-dots" viewBox="0 0 20 6" aria-hidden="true"><circle cx="3" cy="3" r="1.5"/><circle cx="10" cy="3" r="1.5"/><circle cx="17" cy="3" r="1.5"/></svg>
     </summary>
     <div class="event-card-menu-popover">
+      {% if can_suggest %}<button type="button" class="chip-suggest suggest" data-id="{{ d.id }}" data-name="{{ d.name }}">предложить дату</button>{% endif %}
       {% if can_copy %}
       <button type="button" class="copy-event-link" data-copy-link="/d/{{ d.share_token }}">Скопировать ссылку</button>
       <form method="post" action="/d/{{ d.share_token }}/add" class="copy-event-form" data-copy-event-form>
@@ -240,18 +242,16 @@
       {# компактная плашка статуса для карточек без фото (большого оверлея нет):
          архив всегда помечаем «Было», активные — только когда есть голос #}
       {% if not d.images and not d.videos and d.is_winner %}<div class="winner-ribbon inflow">{% if d.booked_by_me %}{{ icon('check', 'winner-check') }}{% endif %}<span>Общий выбор</span></div>{% endif %}
+      {% set date_markup = event_date(d.starts_at, d.ends_at) %}
+      {% if date_markup or d.place %}
       <div class="meta">
+        {% if date_markup %}
         <div class="when">
-          {{ event_date(d.starts_at, d.ends_at) }}
+          {{ date_markup }}
           {% if d.starts_at and not d.past and d.gcal %}
           <a href="#" class="cal-link" data-gcal="{{ d.gcal }}"
              data-ics="/c/{{ token }}/ics/{{ d.id }}">в календарь</a>
           {% endif %}
-        </div>
-        {% if not d.starts_at and not d.past and not d.pending %}
-        <div class="when">
-          <button type="button" class="chip-suggest suggest"
-                  data-id="{{ d.id }}" data-name="{{ d.name }}">{{ icon('calendar') }} предложить дату</button>
         </div>
         {% endif %}
         {% if d.place %}
@@ -260,6 +260,7 @@
         </div>
         {% endif %}
       </div>
+      {% endif %}
       {% if d.comment %}<p class="comment">{{ d.comment | rich }}</p>{% endif %}
       {% if d.links %}
       <div class="links">

@@ -503,7 +503,7 @@ span.oauth-ico { display: grid; place-items: center; font-weight: 700; font-size
 }
 
 /* --- карточки ------------------------------------------------------------ */
-.cards { display: grid; gap: 22px; }
+.cards { display: grid; align-items: start; gap: 22px; }
 
 /* --- архив: свёрнут в выпадающий список ----------------------------------- */
 .archive-fold { margin-top: 26px; }
@@ -3719,17 +3719,17 @@ html[data-skin="friends"] .media-badge--booking { --media-badge-mark: var(--rose
 
 /* A copied action behaves like a native menu row and never steals permanent
    space from the card. Participant links keep the exact pill geometry. */
-.event-card-menu-popover :is(.report-link, .copy-event-link, .copy-event-button) {
+html .event-card-menu .event-card-menu-popover :is(.report-link, .copy-event-link, .copy-event-button, .chip-suggest) {
   display: flex; align-items: center;
   width: 100%; min-height: 44px; margin: 0; padding: 9px 11px;
   color: var(--ink); opacity: 1; border: 0; border-radius: 9px;
   background: transparent; font: inherit; text-align: left; text-decoration: none;
   cursor: pointer;
 }
-.event-card-menu-popover :is(.report-link, .copy-event-link, .copy-event-button):active {
+html .event-card-menu .event-card-menu-popover :is(.report-link, .copy-event-link, .copy-event-button, .chip-suggest):active {
   transform: scale(.98); background: var(--material-control);
 }
-.event-card-menu-popover :is(.report-link, .copy-event-link, .copy-event-button):focus-visible {
+html .event-card-menu .event-card-menu-popover :is(.report-link, .copy-event-link, .copy-event-button, .chip-suggest):focus-visible {
   outline: 2px solid var(--rose); outline-offset: -2px;
 }
 .event-card-menu-popover .copy-event-form { margin: 0; }
@@ -3743,7 +3743,7 @@ a.participant:active { transform: scale(.97); }
 .public-share-page .share-cta + .notify-cta { margin-top: 18px; }
 
 @media (hover: hover) {
-  .event-card-menu-popover :is(.report-link, .copy-event-link, .copy-event-button):hover {
+  html .event-card-menu .event-card-menu-popover :is(.report-link, .copy-event-link, .copy-event-button, .chip-suggest):hover {
     background: var(--material-control);
   }
   a.participant:hover { border-color: color-mix(in srgb, var(--rose) 46%, var(--line)); }
@@ -3752,6 +3752,6 @@ a.participant:active { transform: scale(.97); }
   .pin-access-card { background: var(--card); -webkit-backdrop-filter: none; backdrop-filter: none; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .event-card-menu-popover :is(.report-link, .copy-event-link, .copy-event-button):active,
+  html .event-card-menu .event-card-menu-popover :is(.report-link, .copy-event-link, .copy-event-button, .chip-suggest):active,
   a.participant:active { transform: none; }
 }

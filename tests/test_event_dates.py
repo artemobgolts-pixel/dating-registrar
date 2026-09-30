@@ -5,7 +5,7 @@ from datetime import datetime
 from unittest.mock import patch
 
 import httpx
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import expect, sync_playwright
 
 from live_backend import LiveBackend
 
@@ -17,6 +17,7 @@ class EventDatesTests(unittest.TestCase):
         cls.uid, cls.cookie = cls.backend.user_cookie()
         conn = cls.backend.db.connect()
         stamp = cls.backend.main.now_iso()
+        cls.compact = {}
         try:
             conn.execute("UPDATE users SET is_operator=1 WHERE id=?", (cls.uid,))
             other = conn.execute(
@@ -57,6 +58,18 @@ class EventDatesTests(unittest.TestCase):
                             "INSERT INTO date_reviews(user_id,date_id,rating,is_public,created_at,updated_at) VALUES(?,?,5,1,?,?)",
                             (cls.uid, reviewed, stamp, stamp),
                         ).lastrowid
+                cls.compact[prefix] = []
+                for suffix, start, end in (
+                    ('dated', '2099-12-31T23:30', '2100-01-01T02:00'),
+                    ('undated', None, None),
+                ):
+                    did = conn.execute(
+                        "INSERT INTO dates(owner_id,name,comment,share_token,starts_at,ends_at,is_public,created_at) "
+                        "VALUES(?,'Стримуха','Залипнуть под любимый стрим.',?,?,?,?,?)",
+                        (owner, f'{prefix}-{suffix}', start, end, 1, stamp),
+                    ).lastrowid
+                    conn.execute("INSERT INTO date_categories(date_id,category_id) VALUES(?,?)", (did, cat))
+                    cls.compact[prefix].append(did)
             conn.execute(
                 "INSERT INTO dates(owner_id,name,starts_at,ends_at,operator_review_pending,created_at) "
                 "VALUES(?,'На проверке','2099-12-31T23:30','2100-01-01T02:00',1,?)",
@@ -121,13 +134,13 @@ class EventDatesTests(unittest.TestCase):
                 self.assertIn('datetime="2100-01-01T02:00+03:00"', response.text)
         for path in ['/admin/community', '/admin/dates', '/d/other1', '/c/other', f'/u/{self.other_user}']:
             with self.subTest(undated=path):
-                self.assertIn('Дата уточняется', self.client.get(path).text)
+                self.assertNotIn('Дата уточняется', self.client.get(path).text)
         self.client.cookies.set('layout', 'list')
         try:
             listing = self.client.get('/admin/dates').text
             self.assertIn('class="drow', listing)
             self.assertIn('datetime="2099-12-31T23:30+03:00"', listing)
-            self.assertIn('Дата уточняется', listing)
+            self.assertNotIn('Дата уточняется', listing)
         finally:
             self.client.cookies.delete('layout')
         # Экспорт в календарь и возможность предложить дату остаются доступны.
@@ -143,7 +156,7 @@ class EventDatesTests(unittest.TestCase):
                 page = context.new_page()
                 for width in (320, 390, 1280):
                     page.set_viewport_size({'width': width, 'height': 900})
-                    for path in ['/admin/', '/admin/dates', '/c/other', '/d/other0',
+                    for path in ['/admin/', '/admin/dates', f'/admin/categories/{self.cat}', '/c/other', '/d/other0',
                                  f'/u/{self.other_user}', f'/u/{self.uid}?tab=reviews',
                                  f'/d/reviewed/review/{self.review}']:
                         page.goto(self.backend.url + path)
@@ -161,6 +174,132 @@ class EventDatesTests(unittest.TestCase):
                                 })""")
                                 self.assertEqual(failures, [], (width, path, skin, theme))
                                 self.assertEqual(page.locator('.event-date time').first.get_attribute('datetime'), '2099-12-31T23:30+03:00')
+                                if path == f'/admin/categories/{self.cat}' and width <= 720:
+                                    dated = page.locator(f'tr[data-did="{self.compact["own"][0]}"]')
+                                    undated = page.locator(f'tr[data-did="{self.compact["own"][1]}"]')
+                                    expect(undated.locator('.category-event-time')).to_be_hidden()
+                                    self.assertGreater(dated.bounding_box()['height'], undated.bounding_box()['height'] + 8)
+                context.close()
+            finally:
+                browser.close()
+
+    def test_undated_cards_remove_date_row_and_shrink_to_content(self):
+        own_dated, own_undated = self.compact['own']
+        other_dated, other_undated = self.compact['other']
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            try:
+                context = browser.new_context(reduced_motion='reduce')
+                context.add_cookies([self.cookie])
+                page = context.new_page()
+                surfaces = [
+                    ('/admin/', 'cards', f'.cfeed-card[data-widget="{other_dated}"]', f'.cfeed-card[data-widget="{other_undated}"]'),
+                    (f'/admin/dates?cat={self.cat}', 'cards', f'.dcard:has(.ttl a[href^="/admin/dates/{own_dated}/"])', f'.dcard:has(.ttl a[href^="/admin/dates/{own_undated}/"])'),
+                    ('/admin/dates', 'list', f'.drow:has(.drow-ttl a[href^="/admin/dates/{own_dated}/"])', f'.drow:has(.drow-ttl a[href^="/admin/dates/{own_undated}/"])'),
+                    ('/c/other', 'cards', f'#date-{other_dated}', f'#date-{other_undated}'),
+                    (f'/u/{self.other_user}', 'cards', '.pub-card[href="/d/other-dated"]', '.pub-card[href="/d/other-undated"]'),
+                ]
+                for width in (320, 390, 1280):
+                    page.set_viewport_size({'width': width, 'height': 900})
+                    for path, layout, dated_selector, undated_selector in surfaces:
+                        # На телефоне приложение автоматически заменяет список карточками.
+                        if layout == 'list' and width <= 720:
+                            continue
+                        context.add_cookies([{'name': 'layout', 'value': layout, 'url': self.backend.url}])
+                        page.goto(self.backend.url + path)
+                        dated, undated = page.locator(dated_selector), page.locator(undated_selector)
+                        dated.wait_for()
+                        undated.wait_for()
+                        page.evaluate('document.fonts.ready')
+                        for skin in ('friends', 'romantic'):
+                            for theme in ('light', 'dark'):
+                                with self.subTest(width=width, path=path, layout=layout, skin=skin, theme=theme):
+                                    page.evaluate("([skin, theme]) => { document.documentElement.dataset.skin = skin; document.documentElement.dataset.theme = theme; }", [skin, theme])
+                                    self.assertEqual(undated.locator('.event-date, .when').count(), 0)
+                                    self.assertEqual(undated.locator('.meta:not(:has(*))').count(), 0)
+                                    dated_height = dated.evaluate('(el) => el.getBoundingClientRect().height')
+                                    undated_height = undated.evaluate('(el) => el.getBoundingClientRect().height')
+                                    self.assertGreater(dated_height - undated_height, 8)
+                context.close()
+            finally:
+                browser.close()
+
+    def test_undated_guest_page_is_compact_and_suggestion_remains_in_menu(self):
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            try:
+                context = browser.new_context(reduced_motion='reduce')
+                context.add_cookies([self.cookie])
+                page = context.new_page()
+                for width in (320, 390, 1280):
+                    page.set_viewport_size({'width': width, 'height': 900})
+                    heights = {}
+                    for suffix in ('dated', 'undated'):
+                        page.goto(self.backend.url + f'/d/other-{suffix}')
+                        page.evaluate('document.fonts.ready')
+                        card = page.locator('article.card')
+                        for skin in ('friends', 'romantic'):
+                            for theme in ('light', 'dark'):
+                                page.evaluate("([skin, theme]) => { document.documentElement.dataset.skin = skin; document.documentElement.dataset.theme = theme; }", [skin, theme])
+                                heights[suffix, skin, theme] = card.evaluate('(el) => el.getBoundingClientRect().height')
+                    self.assertEqual(card.locator('.event-date, .meta').count(), 0)
+                    for skin in ('friends', 'romantic'):
+                        for theme in ('light', 'dark'):
+                            with self.subTest(width=width, skin=skin, theme=theme):
+                                self.assertGreater(heights['dated', skin, theme] - heights['undated', skin, theme], 8)
+                    for path, selector in (
+                        ('/d/other-undated', 'article.card'),
+                        ('/c/other', f'#date-{self.compact["other"][1]}'),
+                    ):
+                        page.goto(self.backend.url + path)
+                        card = page.locator(selector)
+                        menu = card.locator('.event-card-menu')
+                        button = menu.locator('.chip-suggest')
+                        expect(button).to_be_hidden()
+                        menu.locator('summary').click()
+                        for skin in ('friends', 'romantic'):
+                            for theme in ('light', 'dark'):
+                                page.evaluate("([skin, theme]) => { document.documentElement.dataset.skin = skin; document.documentElement.dataset.theme = theme; }", [skin, theme])
+                                self.assertEqual(button.evaluate('(el) => getComputedStyle(el).backgroundColor'), 'rgba(0, 0, 0, 0)')
+                                self.assertGreaterEqual(button.evaluate('(el) => el.offsetHeight'), 44)
+                        button.click()
+                        expect(page.locator('#timeDlg')).to_be_visible()
+                        expect(page.locator('#timeDateId')).to_have_value(str(self.compact['other'][1]))
+                        self.assertFalse(menu.evaluate('(el) => el.open'))
+                        page.locator('#timeCancel').click()
+                        expect(menu.locator('summary')).to_be_focused()
+                context.close()
+            finally:
+                browser.close()
+
+    def test_widget_date_has_space_below_author(self):
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            try:
+                context = browser.new_context(reduced_motion='reduce')
+                context.add_cookies([self.cookie])
+                page = context.new_page()
+                for width in (320, 390, 1280):
+                    page.set_viewport_size({'width': width, 'height': 900})
+                    for surface in ('feed', 'profile'):
+                        if surface == 'feed':
+                            page.goto(self.backend.url + '/admin/')
+                            page.locator(f'[data-widget="{self.other_date}"] [data-community-open]').click()
+                            widget = page.locator('#communityDlg[open] .cwid')
+                        else:
+                            page.goto(self.backend.url + f'/u/{self.other_user}')
+                            page.locator('.pub-card[href="/d/other0"]').click()
+                            widget = page.locator('#profileEventDlg[open] .cwid')
+                        widget.locator('.event-date').wait_for()
+                        for skin in ('friends', 'romantic'):
+                            for theme in ('light', 'dark'):
+                                with self.subTest(width=width, surface=surface, skin=skin, theme=theme):
+                                    page.evaluate("([skin, theme]) => { document.documentElement.dataset.skin = skin; document.documentElement.dataset.theme = theme; }", [skin, theme])
+                                    gap = widget.evaluate("""el =>
+                                      el.querySelector('.event-date').getBoundingClientRect().top
+                                      - el.querySelector('.cfeed-owner').getBoundingClientRect().bottom
+                                    """)
+                                    self.assertGreaterEqual(gap, 8)
                 context.close()
             finally:
                 browser.close()

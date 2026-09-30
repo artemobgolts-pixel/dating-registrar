@@ -144,6 +144,7 @@
             <svg class="event-card-menu-dots" viewBox="0 0 20 6" aria-hidden="true"><circle cx="3" cy="3" r="1.5"/><circle cx="10" cy="3" r="1.5"/><circle cx="17" cy="3" r="1.5"/></svg>
           </summary>
           <div class="event-card-menu-popover">
+            {% if not d.starts_at and can_question %}<button type="button" class="chip-suggest suggest" data-id="{{ d.id }}" data-name="{{ d.name }}">предложить дату</button>{% endif %}
             <button type="button" class="report-link" data-id="{{ d.id }}" data-name="{{ d.name }}">Пожаловаться</button>
           </div>
         </details>
@@ -179,6 +180,7 @@
             <svg class="event-card-menu-dots" viewBox="0 0 20 6" aria-hidden="true"><circle cx="3" cy="3" r="1.5"/><circle cx="10" cy="3" r="1.5"/><circle cx="17" cy="3" r="1.5"/></svg>
           </summary>
           <div class="event-card-menu-popover">
+            {% if not d.starts_at and can_question %}<button type="button" class="chip-suggest suggest" data-id="{{ d.id }}" data-name="{{ d.name }}">предложить дату</button>{% endif %}
             <button type="button" class="report-link" data-id="{{ d.id }}" data-name="{{ d.name }}">Пожаловаться</button>
           </div>
         </details>
@@ -187,18 +189,16 @@
         <div class="badges media-badges media-badges--inflow inflow"><span class="badge pay media-badge media-badge--pay" data-pay-value="{{ d.pay_split }}">{{ d.pay_split | pay_label }}</span></div>
         {% endif %}
         <h2 class="title">{{ d.name }}</h2>
+        {% set date_markup = event_date(d.starts_at, d.ends_at) %}
+        {% if date_markup or d.place %}
         <div class="meta">
+          {% if date_markup %}
           <div class="when">
-            {{ event_date(d.starts_at, d.ends_at) }}
+            {{ date_markup }}
             {% if d.starts_at and d.gcal %}
             <a href="#" class="cal-link" data-gcal="{{ d.gcal }}"
                data-ics="/d/{{ token }}/ics">в календарь</a>
             {% endif %}
-          </div>
-          {% if not d.starts_at and can_question %}
-          <div class="when">
-            <button type="button" class="chip-suggest suggest"
-                    data-id="{{ d.id }}" data-name="{{ d.name }}">{{ icon('calendar') }} предложить дату</button>
           </div>
           {% endif %}
           {% if d.place %}
@@ -207,6 +207,7 @@
           </div>
           {% endif %}
         </div>
+        {% endif %}
         {% if d.comment %}<p class="comment">{{ d.comment | rich }}</p>{% endif %}
         {% if d.links %}
         <div class="links">

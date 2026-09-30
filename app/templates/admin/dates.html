@@ -137,12 +137,15 @@
         {{ event_lifecycle(r) }}
         {{ event_visibility(r) }}
       </div>
+      {% set date_markup = event_date(r['starts_at'], r['ends_at']) %}
+      {% if date_markup or r['place'] or r['books'] or (not cat and r['cats']) %}
       <div class="meta">
-        {{ event_date(r['starts_at'], r['ends_at']) }}
+        {{ date_markup }}
         {% if r['place'] %}<span class="mrow">{% with icon='pin' %}{% include "admin/_icon.html" %}{% endwith %} {{ r['place'] | placename }}</span>{% endif %}
         {% if r['books'] %}<span class="mrow">{% with icon='check' %}{% include "admin/_icon.html" %}{% endwith %} {{ r['books'] }} {{ r['books'] | plural('голос', 'голоса', 'голосов') }}</span>{% endif %}
         {% if not cat and r['cats'] %}<span class="mrow mcats">{% with icon='categories' %}{% include "admin/_icon.html" %}{% endwith %} {{ r['cats'] }}</span>{% endif %}
       </div>
+      {% endif %}
       <div class="foot">
         <a class="edit-hint" href="/admin/dates/{{ r['id'] }}/edit?{{ editor_return_query }}">Редактировать</a>
         {% if r['share_token'] and not r['operator_review_pending'] %}

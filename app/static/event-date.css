@@ -31,11 +31,10 @@
 .event-date-hour { white-space: nowrap; }
 .event-date-dot { padding: 0 .1em; }
 .event-date-zone { color: var(--muted, var(--op-muted)); font-size: .85em; white-space: nowrap; }
-.event-date--unscheduled { color: var(--muted, var(--op-muted)); }
-.event-date--unscheduled .event-date-icon { stroke: currentColor; }
 .when > .event-date { flex: 0 1 auto; font-size: .875rem; }
 .when:has(> .event-date) { align-items: baseline; column-gap: .75rem; }
 .drow-main > .event-date, .pub-card .event-date,
 .review-card-body > .event-date, .notif-meta > .event-date,
 .profile-review-widget-body > .event-date { margin-top: .375rem; }
+.cwid-body > .event-date { margin-top: .5rem; }
 .category-event-time .event-date { min-width: 0; }
