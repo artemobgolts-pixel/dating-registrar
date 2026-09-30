@@ -1725,7 +1725,7 @@ def shared_profile_review(token: str, review_id: ObjectId, request: Request,
     row = conn.execute(
         "SELECT r.id AS review_id, r.user_id, r.rating, r.text AS review_text, "
         "r.is_public AS review_public, d.id AS date_id, d.name, d.share_token, "
-        "d.owner_id AS event_owner_id, "
+        "d.owner_id AS event_owner_id, d.starts_at, d.ends_at, "
         "d.is_public AS date_public, d.is_draft AS date_draft, "
         "u.display_name, u.tg_username "
         "FROM date_reviews r JOIN dates d ON d.id=r.date_id "

@@ -1,4 +1,5 @@
 {% from "public/_icons.html" import icon %}
+{% from "_event_date.html" import event_date %}
 {% set active_skin = category_skin if category_skin is defined else 'friends' %}
 <!doctype html>
 <html lang="ru" data-skin="{{ active_skin }}">
@@ -16,6 +17,7 @@
   {% from "_appearance_assets.html" import appearance_assets %}
   {{ appearance_assets(active_skin) }}
   <link rel="stylesheet" href="{{ asset('public.css') }}">
+  <link rel="stylesheet" href="{{ asset('event-date.css') }}" data-turbo-track="reload">
   <link rel="stylesheet" href="{{ asset('auth.css') }}">
   <style>
     .share-cta {
@@ -186,15 +188,14 @@
         {% endif %}
         <h2 class="title">{{ d.name }}</h2>
         <div class="meta">
-          {% if d.starts_at %}
-          <div class="when"><span class="meta-icon" aria-hidden="true">{{ icon('clock') }}</span>
-            <span>{{ d.starts_at | when(d.ends_at) }}</span>
-            {% if d.gcal %}
+          <div class="when">
+            {{ event_date(d.starts_at, d.ends_at) }}
+            {% if d.starts_at and d.gcal %}
             <a href="#" class="cal-link" data-gcal="{{ d.gcal }}"
                data-ics="/d/{{ token }}/ics">в календарь</a>
             {% endif %}
           </div>
-          {% elif can_question %}
+          {% if not d.starts_at and can_question %}
           <div class="when">
             <button type="button" class="chip-suggest suggest"
                     data-id="{{ d.id }}" data-name="{{ d.name }}">{{ icon('calendar') }} предложить дату</button>

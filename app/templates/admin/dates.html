@@ -1,4 +1,5 @@
 {% extends "admin/base.html" %}
+{% from "_event_date.html" import event_date %}
 {% from "admin/_entity_status.html" import event_lifecycle, event_tone, event_visibility %}
 {% block title %}События{% endblock %}
 {# Список меняется после каждой правки (активные/архив). Запрещаем Turbo
@@ -136,12 +137,8 @@
         {{ event_lifecycle(r) }}
         {{ event_visibility(r) }}
       </div>
-      {% set when_str = r['starts_at'] | when(r['ends_at']) %}
-      {# Показываем ТОЛЬКО заполненные поля — без пустых строк-подсказок
-         «назначить дату»/«указать место» (по просьбе: не заполнять карточку
-         пустотой). Дозаполнить всё равно можно через «Редактировать». #}
       <div class="meta">
-        {% if when_str %}<span class="mrow">{% with icon='calendar' %}{% include "admin/_icon.html" %}{% endwith %} {{ when_str }}</span>{% endif %}
+        {{ event_date(r['starts_at'], r['ends_at']) }}
         {% if r['place'] %}<span class="mrow">{% with icon='pin' %}{% include "admin/_icon.html" %}{% endwith %} {{ r['place'] | placename }}</span>{% endif %}
         {% if r['books'] %}<span class="mrow">{% with icon='check' %}{% include "admin/_icon.html" %}{% endwith %} {{ r['books'] }} {{ r['books'] | plural('голос', 'голоса', 'голосов') }}</span>{% endif %}
         {% if not cat and r['cats'] %}<span class="mrow mcats">{% with icon='categories' %}{% include "admin/_icon.html" %}{% endwith %} {{ r['cats'] }}</span>{% endif %}
@@ -207,12 +204,11 @@
         {{ event_lifecycle(r) }}
         {{ event_visibility(r) }}
       </div>
-      {% set when_str = r['starts_at'] | when(r['ends_at']) %}
-      {% if when_str or r['cats'] or r['books'] %}
+      {{ event_date(r['starts_at'], r['ends_at']) }}
+      {% if r['cats'] or r['books'] %}
       <div class="drow-meta">
-        {% if when_str %}<span>{{ when_str }}</span>{% endif %}
-        {% if r['cats'] %}<span>{% if when_str %}· {% endif %}{{ r['cats'] }}</span>{% endif %}
-        {% if r['books'] %}<span>{% if when_str or r['cats'] %}· {% endif %}{% with icon='check' %}{% include "admin/_icon.html" %}{% endwith %} {{ r['booked_names'] }}</span>{% endif %}
+        {% if r['cats'] %}<span>{{ r['cats'] }}</span>{% endif %}
+        {% if r['books'] %}<span>{% if r['cats'] %}· {% endif %}{% with icon='check' %}{% include "admin/_icon.html" %}{% endwith %} {{ r['booked_names'] }}</span>{% endif %}
       </div>
       {% endif %}
     </div>

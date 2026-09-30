@@ -1,3 +1,4 @@
+{% from "_event_date.html" import event_date %}
 {# Мини-виджет события из ленты комьюнити (внутри модалки на главной).
    Категорию и модификатор оплаты не показываем. Кнопка «Добавить» шлёт
    fetch на /d/<share_token>/add и отвечает JSON — лента не прерывается. #}
@@ -36,11 +37,10 @@
       {% endif %}
       <span class="cfeed-owner-name">{{ d['owner_display'] }}</span>
     </a>
-    {% set when_str = d['starts_at'] | when(d['ends_at']) %}
-    {% if when_str or d['place'] %}
+    {{ event_date(d['starts_at'], d['ends_at']) }}
+    {% if d['place'] %}
     <div class="cwid-meta">
-      {% if when_str %}<div>🕐 {{ when_str }}</div>{% endif %}
-      {% if d['place'] %}<div>📍 <a href="{{ d['place_url'] or (d['place'] | ymaps) }}" target="_blank" rel="noopener">{{ d['place'] | placename }}</a></div>{% endif %}
+      <div>📍 <a href="{{ d['place_url'] or (d['place'] | ymaps) }}" target="_blank" rel="noopener">{{ d['place'] | placename }}</a></div>
     </div>
     {% endif %}
     {% if d['comment'] %}<p class="cwid-desc">{{ d['comment'] | rich }}</p>{% endif %}

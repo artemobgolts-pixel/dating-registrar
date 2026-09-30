@@ -1,4 +1,5 @@
 {% extends "operator/base.html" %}
+{% from "_event_date.html" import event_date %}
 {% block title %}События{% endblock %}
 {% block page_eyebrow %}Контент платформы{% endblock %}
 {% block page_title %}События <span class="count">{{ total }}</span>{% endblock %}
@@ -48,7 +49,7 @@
         {% for d in rows %}
         <tr>
           <td data-label="Событие">
-            <span class="cell-primary">{{ d['name'] }}</span>
+            <span class="cell-primary">{{ d['name'] }}</span>{{ event_date(d['starts_at'], d['ends_at']) }}
             <span class="cell-secondary">
               ID {{ d['id'] }}{% if d['origin']=='guest' %} · предложено гостем{% endif %}
             </span>

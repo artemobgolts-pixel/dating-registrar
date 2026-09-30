@@ -1,0 +1,41 @@
+/* Общая метаинформация: без отдельной плашки, с акцентом на самой дате. */
+.event-date {
+  display: flex;
+  align-items: flex-start;
+  gap: .45rem;
+  min-width: 0;
+  max-width: 100%;
+  color: var(--ink, var(--op-ink, inherit));
+  font-family: var(--sans, inherit);
+  font-size: .8125rem;
+  line-height: 1.55;
+  letter-spacing: .005em;
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+}
+.event-date-icon {
+  flex: none;
+  width: 1rem;
+  height: 1rem;
+  margin-top: .12rem;
+  fill: none;
+  stroke: var(--accent, var(--rose-2, var(--op-accent, currentColor)));
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.event-date-content { min-width: 0; }
+.event-date-point { display: inline-block; max-width: 100%; }
+.event-date-day { font-weight: 600; }
+.event-date-hour, .event-date-range { color: var(--muted, var(--op-muted)); font-weight: 400; }
+.event-date-hour { white-space: nowrap; }
+.event-date-dot { padding: 0 .1em; }
+.event-date-zone { color: var(--muted, var(--op-muted)); font-size: .85em; white-space: nowrap; }
+.event-date--unscheduled { color: var(--muted, var(--op-muted)); }
+.event-date--unscheduled .event-date-icon { stroke: currentColor; }
+.when > .event-date { flex: 0 1 auto; font-size: .875rem; }
+.when:has(> .event-date) { align-items: baseline; column-gap: .75rem; }
+.drow-main > .event-date, .pub-card .event-date,
+.review-card-body > .event-date, .notif-meta > .event-date,
+.profile-review-widget-body > .event-date { margin-top: .375rem; }
+.category-event-time .event-date { min-width: 0; }

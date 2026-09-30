@@ -1,3 +1,4 @@
+{% from "_event_date.html" import event_date %}
 <article class="profile-review-widget">
   {% if review['images'] %}
   <div class="profile-review-cover">
@@ -12,6 +13,7 @@
   <div class="profile-review-widget-body">
     <span class="profile-review-kicker">Отзыв о событии</span>
     <h3 class="profile-review-title serif">{{ review['name'] }}</h3>
+    {{ event_date(review['starts_at'], review['ends_at']) }}
     <p class="profile-review-author">{{ reviewer_display }}</p>
     {# В редакторе те же данные уже показаны интерактивными звёздами и textarea.
        Сохранённый preview нужен только читателю публичного отзыва. #}

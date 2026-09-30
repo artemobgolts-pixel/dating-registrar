@@ -12,7 +12,7 @@ from jinja2.ext import Extension
 
 import db
 from config import BASE_URL, SUPPORT_URL, VPN_URL
-from helpers import (fmt_host, fmt_short, fmt_ts, fmt_when, fmt_ymaps,
+from helpers import (event_schedule, fmt_host, fmt_short, fmt_ts, fmt_when, fmt_ymaps,
                      pay_label, placename, plural, rich)
 
 _STATIC_DIR = "static"
@@ -63,6 +63,7 @@ templates = Jinja2Templates(directory="templates",
 templates.env.add_extension(StripHtmlComments)
 templates.env.globals["asset"] = asset
 templates.env.filters["when"] = fmt_when
+templates.env.filters["event_schedule"] = event_schedule
 templates.env.filters["ts"] = fmt_ts
 templates.env.filters["short"] = fmt_short
 templates.env.filters["host"] = fmt_host

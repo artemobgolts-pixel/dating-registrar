@@ -319,7 +319,7 @@ def user_card(uid: ObjectId, request: Request, events_page: int = 1,
         events_page, dates_total, USER_CARD_PAGE,
     )
     dates = conn.execute(
-        "SELECT id, name, archived_at, is_draft, operator_review_pending, origin "
+        "SELECT id, name, starts_at, ends_at, archived_at, is_draft, operator_review_pending, origin "
         "FROM dates "
         "WHERE owner_id=? ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?",
         (uid, USER_CARD_PAGE, (events_page - 1) * USER_CARD_PAGE),
@@ -330,7 +330,7 @@ def user_card(uid: ObjectId, request: Request, events_page: int = 1,
     votes_page, votes_pages = _page_number(votes_page, votes_total, USER_CARD_PAGE)
     votes = conn.execute(
         "SELECT b.id, b.created_at, b.participation_withdrawn_at, "
-        "d.id AS date_id, d.name AS date_name, c.id AS category_id, "
+        "d.id AS date_id, d.name AS date_name, d.starts_at, d.ends_at, c.id AS category_id, "
         "c.name AS category_name, c.owner_id, "
         "COALESCE(owner.display_name, owner.tg_username, 'Без имени') AS owner_name "
         "FROM bookings b JOIN dates d ON d.id=b.date_id "
@@ -551,7 +551,7 @@ def reports_list(request: Request, status: str = "open", target: str = "",
         "CASE WHEN r.target_type='category' THEN c.owner_id ELSE d.owner_id END "
         " AS target_owner_id, "
         "CASE WHEN r.target_type='category' THEN cu.display_name ELSE du.display_name END "
-        " AS target_owner, c.link_token AS target_link_token "
+        " AS target_owner, c.link_token AS target_link_token, d.starts_at, d.ends_at "
         f"{joins}{where} "
         "ORDER BY r.created_at DESC, r.id DESC LIMIT ? OFFSET ?",
         args + [PAGE, (page - 1) * PAGE]).fetchall()
@@ -795,7 +795,7 @@ def dates_list(request: Request, q: str = "", flt: str = "", page: int = 1,
     page, pages = _page_number(page, total)
     rows = conn.execute(
         f"SELECT d.id, d.name, d.is_draft, d.operator_review_pending, "
-        f"d.origin, d.archived_at, d.owner_id, "
+        f"d.origin, d.archived_at, d.owner_id, d.starts_at, d.ends_at, "
         f"u.display_name AS owner, "
         f"(SELECT COUNT(*) FROM bookings b WHERE b.date_id=d.id) AS books, "
         f"{report_count_sql} AS reports "
@@ -917,7 +917,7 @@ def bookings_list(request: Request, q: str = "", kind: str = "", state: str = ""
     rows = conn.execute(
         f"SELECT b.id, b.created_at, b.user_id, b.participation_withdrawn_at, "
         f"COALESCE(vu.display_name, vu.tg_username, g.name, '—') AS guest, "
-        f"d.name AS date_name, c.name AS cat_name, c.owner_id, "
+        f"d.name AS date_name, d.starts_at, d.ends_at, c.name AS cat_name, c.owner_id, "
         f"u.display_name AS owner {joins}"
         f"{where} ORDER BY b.created_at DESC, b.id DESC LIMIT ? OFFSET ?",
         args + [PAGE, (page - 1) * PAGE]).fetchall()
@@ -1032,7 +1032,7 @@ def review_queue(request: Request, users_page: int = 1,
     ).fetchone()[0])
     dates_page, dates_pages = _page_number(dates_page, dates_total, PAGE)
     dates_q = conn.execute(
-        "SELECT d.id, d.name, d.created_at, d.owner_id, d.origin, d.is_draft, "
+        "SELECT d.id, d.name, d.starts_at, d.ends_at, d.created_at, d.owner_id, d.origin, d.is_draft, "
         "COALESCE(owner.display_name, owner.tg_username, 'Без имени') AS owner, "
         "COALESCE(author.display_name, author.tg_username, "
         "owner.display_name, owner.tg_username, 'Без имени') AS author, "

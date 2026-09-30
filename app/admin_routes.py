@@ -2983,7 +2983,7 @@ def questions_list(request: Request, conn=Depends(get_db)):
     rows = []
     if f != "reviews":
         rows = conn.execute(
-            f"SELECT q.*, d.name AS date_name, d.id AS did, c.name AS cat_name, "
+            f"SELECT q.*, d.name AS date_name, d.id AS did, d.starts_at, d.ends_at, c.name AS cat_name, "
             f"{GNAME_SQL.format(t='q.guest_token')} AS gname "
             f"FROM questions q JOIN dates d ON d.id=q.date_id "
             f"LEFT JOIN categories c ON c.id=q.category_id "
@@ -3408,7 +3408,7 @@ def public_profile_review_widget(user_id: ObjectId, review_id: ObjectId, request
     row = conn.execute(
         "SELECT r.id AS review_id, r.user_id, r.rating, r.text AS review_text, "
         "r.is_public AS review_public, "
-        "d.id AS date_id, d.name, d.share_token, d.is_public AS date_public, "
+        "d.id AS date_id, d.name, d.share_token, d.starts_at, d.ends_at, d.is_public AS date_public, "
         "d.is_draft AS date_draft, d.operator_review_pending, "
         "u.display_name, u.tg_username "
         "FROM date_reviews r JOIN dates d ON d.id=r.date_id "

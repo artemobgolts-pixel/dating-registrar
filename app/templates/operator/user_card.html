@@ -1,4 +1,5 @@
 {% extends "operator/base.html" %}
+{% from "_event_date.html" import event_date %}
 {% block title %}{{ u['display_name'] or 'Пользователь' }}{% endblock %}
 {% block page_eyebrow %}Пользователи / Карточка{% endblock %}
 {% block page_title %}Карточка пользователя{% endblock %}
@@ -219,7 +220,7 @@
         <tbody>
           {% for d in dates %}
           <tr>
-            <td data-label="Событие"><span class="cell-primary">{{ d['name'] }}</span></td>
+            <td data-label="Событие"><span class="cell-primary">{{ d['name'] }}</span>{{ event_date(d['starts_at'], d['ends_at']) }}</td>
             <td data-label="Статус">
               {% if d['operator_review_pending'] %}<span class="badge warning">проверка администратора</span>
               {% elif d['archived_at'] %}<span class="badge neutral">архив</span>
@@ -284,6 +285,7 @@
           <tr>
             <td data-label="Событие">
               <a class="link cell-primary" href="/admin/dates/{{ vote['date_id'] }}/edit">{{ vote['date_name'] }}</a>
+              {{ event_date(vote['starts_at'], vote['ends_at']) }}
             </td>
             <td data-label="Подборка">{{ vote['category_name'] }}</td>
             <td data-label="Владелец">

@@ -1,4 +1,5 @@
 {% extends "operator/base.html" %}
+{% from "_event_date.html" import event_date %}
 {% block title %}На проверке{% endblock %}
 {% block page_eyebrow %}Модерация{% endblock %}
 {% block page_title %}На проверке <span class="count">{{ users_total + categories_total + dates_total }}</span>{% endblock %}
@@ -134,7 +135,7 @@
       <tbody>
         {% for d in dates_q %}
         <tr>
-          <td data-label="Событие"><span class="cell-primary">{{ d['name'] }}</span><span class="cell-secondary">ID {{ d['id'] }}{% if d['is_draft'] %} · также ждёт владельца{% endif %}</span></td>
+          <td data-label="Событие"><span class="cell-primary">{{ d['name'] }}</span>{{ event_date(d['starts_at'], d['ends_at']) }}<span class="cell-secondary">ID {{ d['id'] }}{% if d['is_draft'] %} · также ждёт владельца{% endif %}</span></td>
           <td data-label="Автор" class="muted">{{ d['author'] }}</td>
           <td data-label="Владелец"><a class="link" href="/operator/users/{{ d['owner_id'] }}">{{ d['owner'] }}</a></td>
           <td data-label="Подборки" class="muted">{{ d['categories'] or 'Не привязано' }}</td>

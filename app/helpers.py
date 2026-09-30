@@ -60,6 +60,30 @@ def fmt_when(starts: str | None, ends: str | None = None) -> str:
     return f"{_fmt_point(a)} — {_fmt_point(b)}"
 
 
+def event_schedule(starts: str | None, ends: str | None = None) -> dict | None:
+    """Части даты для карточек; naive-время хранится в МСК, как и в редакторе."""
+    start, end = _parse(starts), _parse(ends)
+    if not start:
+        return None
+    start = start.astimezone(MSK) if start.tzinfo else start.replace(tzinfo=MSK)
+    if end:
+        end = end.astimezone(MSK) if end.tzinfo else end.replace(tzinfo=MSK)
+    show_year = start.year != now_naive().year or bool(end and end.year != start.year)
+
+    def point(moment):
+        day = f"{moment.day} {RU_MONTHS[moment.month - 1]}"
+        if show_year:
+            day += f" {moment.year}"
+        return {"date": day, "time": moment.strftime("%H:%M"),
+                "iso": moment.isoformat(timespec="minutes")}
+
+    return {
+        "start": point(start), "end": point(end) if end else None,
+        "same_day": bool(end and start.date() == end.date()),
+        "label": fmt_when(start.isoformat(), end.isoformat() if end else None) + " · мск",
+    }
+
+
 def fmt_ts(s: str | None) -> str:
     dt = _parse(s)
     if not dt:

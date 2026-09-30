@@ -1,4 +1,5 @@
 {% extends "operator/base.html" %}
+{% from "_event_date.html" import event_date %}
 {% block title %}Голоса{% endblock %}
 {% block page_eyebrow %}Активность{% endblock %}
 {% block page_title %}Голоса <span class="count">{{ total }}</span>{% endblock %}
@@ -83,7 +84,7 @@
               </span>
             </div>
           </td>
-          <td data-label="Событие"><span class="cell-primary">{{ b['date_name'] }}</span></td>
+          <td data-label="Событие"><span class="cell-primary">{{ b['date_name'] }}</span>{{ event_date(b['starts_at'], b['ends_at']) }}</td>
           <td data-label="Подборка">{{ b['cat_name'] }}</td>
           <td data-label="Владелец">
             <a class="link" href="/operator/users/{{ b['owner_id'] }}">{{ b['owner'] or 'Без имени' }}</a>

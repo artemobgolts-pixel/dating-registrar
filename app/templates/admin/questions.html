@@ -1,4 +1,5 @@
 {% extends "admin/base.html" %}
+{% from "_event_date.html" import event_date %}
 {% from "admin/_entity_status.html" import status %}
 {% block title %}Уведомления{% endblock %}
 {% block content %}
@@ -81,8 +82,8 @@
     <div class="notif-meta">
       <div class="notif-who"><b>{{ review['date_name'] }}</b>{{ status('Ждёт отзыва', 'warning') }}</div>
       <div class="notif-sub">
-        {{ review['starts_at'] | when(review['ends_at']) or 'Дата события не указана' }}
-        · напоминание от {{ review['updated_at'] | ts }}
+        {{ event_date(review['starts_at'], review['ends_at']) }}
+        Напоминание от {{ review['updated_at'] | ts }}
       </div>
     </div>
   </div>
@@ -126,6 +127,7 @@
     <div class="notif-meta">
       <div class="notif-who"><b>{{ q['gname'] }}</b>{% if q['answer'] %}{{ status('Отвечено', 'success') }}{% elif not q['is_read'] %}{{ status('Новое', 'info') }}{% endif %}</div>
       <div class="notif-sub">к событию «<a href="/admin/dates/{{ q['did'] }}/edit">{{ q['date_name'] }}</a>»{% if q['cat_name'] %} · {{ q['cat_name'] }}{% endif %} · {{ q['created_at'] | ts }}</div>
+      {{ event_date(q['starts_at'], q['ends_at']) }}
     </div>
   </div>
 

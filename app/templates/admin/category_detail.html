@@ -1,4 +1,5 @@
 {% extends "admin/base.html" %}
+{% from "_event_date.html" import event_date %}
 {% from "admin/_entity_status.html" import category_voting, event_lifecycle, event_tone, event_visibility, status %}
 {% block title %}{{ cat['name'] }}{% endblock %}
 {% block head %}
@@ -320,7 +321,7 @@
           <span class="entity-status-inline">{{ event_lifecycle(d) }} {{ event_visibility(d) }}</span>
         </span>
       </td>
-      <td class="category-event-time muted" data-label="Когда">{{ d['starts_at'] | when(d['ends_at']) or '—' }}</td>
+      <td class="category-event-time muted" data-label="Когда">{{ event_date(d['starts_at'], d['ends_at']) }}</td>
       <td class="category-event-capacity" data-label="Голоса / мест">
         <b>{{ d['books'] }}/{{ d['capacity'] }}</b>
         <progress class="vote-progress" value="{{ d['books'] }}" max="{{ d['capacity'] }}">{{ d['books'] }}/{{ d['capacity'] }}</progress>

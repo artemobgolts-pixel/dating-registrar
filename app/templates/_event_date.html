@@ -1,0 +1,20 @@
+{# Одинаковая дата события в карточках, списках и подробностях. #}
+{% macro event_date(starts, ends=none) -%}
+{% set schedule = starts | event_schedule(ends) %}
+<span class="event-date{{ ' event-date--unscheduled' if not schedule else '' }}"{% if schedule %} title="{{ schedule.label }}"{% endif %}>
+  <svg class="event-date-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M7.5 3v4M16.5 3v4M3.5 9.5h17"/></svg>
+  {% if schedule %}
+  <span class="event-date-content">
+    <span class="event-date-point">
+      <time datetime="{{ schedule.start.iso }}"><span class="event-date-day">{{ schedule.start.date }}</span><span class="event-date-hour"><span class="event-date-dot" aria-hidden="true"> · </span>{{ schedule.start.time }}</span></time>{% if schedule.same_day %}<span class="event-date-hour">–<time datetime="{{ schedule.end.iso }}">{{ schedule.end.time }}</time></span>{% endif %}
+      {%- if not schedule.end or schedule.same_day %}&nbsp;<span class="event-date-zone">мск</span>{% endif %}
+    </span>
+    {% if schedule.end and not schedule.same_day %}
+    <span class="event-date-point"><span class="event-date-range">— </span><time datetime="{{ schedule.end.iso }}"><span class="event-date-day">{{ schedule.end.date }}</span><span class="event-date-hour"><span class="event-date-dot" aria-hidden="true"> · </span>{{ schedule.end.time }}</span></time>&nbsp;<span class="event-date-zone">мск</span></span>
+    {% endif %}
+  </span>
+  {% else %}
+  <span>Дата уточняется</span>
+  {% endif %}
+</span>
+{%- endmacro %}

@@ -1,3 +1,4 @@
+{% from "_event_date.html" import event_date %}
 {# Карточки ленты событий (фрагмент для бесконечного скролла). Категорию и
    модификатор оплаты НЕ показываем. Клик по карточке открывает мини-виджет,
    а основное действие сразу добавляет отдельную копию в коллекцию. #}
@@ -49,11 +50,10 @@
       {% endif %}
       <span class="cfeed-owner-name">{{ d['owner_display'] }}</span>
     </a>
-    {% set when_str = d['starts_at'] | when(d['ends_at']) %}
-    {% if when_str or d['place'] %}
+    {{ event_date(d['starts_at'], d['ends_at']) }}
+    {% if d['place'] %}
     <div class="cfeed-meta">
-      {% if when_str %}<span>🕐 {{ when_str }}</span>{% endif %}
-      {% if d['place'] %}<span>📍 {{ d['place'] | placename }}</span>{% endif %}
+      <span>📍 {{ d['place'] | placename }}</span>
     </div>
     {% endif %}
     {% if d['comment'] %}<p class="cfeed-desc">{{ d['comment'] | rich }}</p>{% endif %}
