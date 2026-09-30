@@ -3359,11 +3359,12 @@ html[data-theme="dark"][data-skin="friends"] .share-qr {
 }
 .cfeed-body:has(> .cfeed-menu--body) .cfeed-ttl { padding-right: 52px; }
 .cfeed-card-actions {
-  display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
-  align-items: center; gap: 10px; margin-top: auto; padding-top: 5px;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 7rem), 1fr));
+  align-items: stretch; gap: 10px; margin-top: auto; padding-top: 5px;
   min-width: 0;
 }
 .cfeed-add, .cfeed-share {
+  display: flex; align-items: center; justify-content: center; text-align: center;
   width: 100%; min-width: 0; min-height: 44px; appearance: none; cursor: pointer;
   border: 1px solid var(--line); border-radius: 999px;
   padding: 10px 12px; font-family: inherit; font-size: 13px;

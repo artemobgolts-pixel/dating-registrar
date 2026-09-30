@@ -507,9 +507,6 @@ class CopyActionTests(unittest.TestCase):
         self.assertIn(".dates-status-tabs a {", css)
         self.assertIn("font-size: 15.5px;", css)
         self.assertIn("background: var(--accent);", css)
-        self.assertIn(
-            "grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);", css,
-        )
         self.assertIn("@media (prefers-reduced-motion: reduce)", css)
         self.assertIn("cubic-bezier(.2, .75, .3, 1)", css)
 

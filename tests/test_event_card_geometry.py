@@ -948,6 +948,75 @@ class EventCardGeometryBrowserTests(unittest.TestCase):
                 self.assertAlmostEqual(geometry["title"]["left"], geometry["body"]["left"] + 16, delta=2)
                 self.assertAlmostEqual(geometry["title"]["right"], geometry["body"]["right"] - 16, delta=2)
 
+    def test_feed_actions_are_equal_and_labels_fit_narrow_cards(self):
+        page = self.page_with_styles(f"""
+          <html><body><section class="cfeed" style="grid-template-columns:minmax(0,1fr)">
+            <article class="cfeed-card">
+              <div class="cfeed-ph"><img src="{PHOTO}" alt=""></div>
+              <div class="cfeed-body">
+                <h3 class="cfeed-ttl"><button class="cfeed-open">Стримуха</button></h3>
+                <a class="cfeed-owner cfeed-card-owner"><span>Анна</span></a>
+                <p class="cfeed-desc">Зачилиться по полной</p>
+                <div class="cfeed-card-actions">
+                  <button class="cfeed-add">Добавить</button>
+                  <button class="cfeed-share">Поделиться</button>
+                </div>
+              </div>
+            </article>
+          </section></body></html>
+        """, "static/admin.css")
+        for width in (190, 230, 300, 430):
+            page.locator('.cfeed').evaluate('(el, width) => el.style.width = width + "px"', width)
+            for skin in ('friends', 'romantic'):
+                for theme in ('light', 'dark'):
+                    with self.subTest(width=width, skin=skin, theme=theme):
+                        page.evaluate('([s,t]) => { document.documentElement.dataset.skin=s; document.documentElement.dataset.theme=t; }', [skin, theme])
+                        buttons = page.locator('.cfeed-card-actions button').evaluate_all("""buttons => buttons.map(el => {
+                          const box = el.getBoundingClientRect(), style = getComputedStyle(el);
+                          const range = document.createRange(); range.selectNodeContents(el);
+                          const text = range.getBoundingClientRect();
+                          return {width:box.width, height:box.height,
+                            fits:text.left >= box.left + parseFloat(style.paddingLeft) - 1
+                              && text.right <= box.right - parseFloat(style.paddingRight) + 1};
+                        })""")
+                        self.assertTrue(all(button['fits'] for button in buttons), buttons)
+                        self.assertTrue(all(button['height'] >= 44 for button in buttons), buttons)
+                        self.assertAlmostEqual(buttons[0]['width'], buttons[1]['width'], delta=1)
+                        self.assertAlmostEqual(buttons[0]['height'], buttons[1]['height'], delta=1)
+
+    def test_empty_vote_message_is_centered_when_counter_is_hidden(self):
+        page = self.page_with_styles("""
+          <html><body><article class="card"><div class="body">
+            <div class="vote-progress">
+              <div class="vote-progress-head" hidden><b>0 / 1</b><span>участников</span></div>
+              <div class="vote-progress-track" hidden><i></i></div>
+              <p class="vote-empty">Пока без голосов — можно стать первым.</p>
+            </div>
+          </div></article></body></html>
+        """, "static/public.css")
+        for width in (320, 390, 1280):
+            page.set_viewport_size({'width':width, 'height':900})
+            for skin in ('friends', 'romantic'):
+                for theme in ('light', 'dark'):
+                    with self.subTest(width=width, skin=skin, theme=theme):
+                        page.evaluate('([s,t]) => { document.documentElement.dataset.skin=s; document.documentElement.dataset.theme=t; }', [skin, theme])
+                        # Состояние меняется и после отмены последнего голоса без перезагрузки.
+                        for hidden in (False, True):
+                            page.locator('.vote-progress-head, .vote-progress-track').evaluate_all('(els, hidden) => els.forEach(el => el.hidden=hidden)', hidden)
+                            geometry = page.locator('.vote-progress').evaluate("""el => {
+                              const box = el.getBoundingClientRect(), message = el.querySelector('.vote-empty');
+                              const range = document.createRange(); range.selectNodeContents(message);
+                              const text = range.getBoundingClientRect();
+                              return {vertical:(text.top+text.bottom-box.top-box.bottom)/2,
+                                horizontal:(text.left+text.right-box.left-box.right)/2,
+                                gap:text.top - el.querySelector('.vote-progress-track').getBoundingClientRect().bottom};
+                            }""")
+                            if hidden:
+                                self.assertAlmostEqual(geometry['vertical'], 0, delta=2)
+                                self.assertAlmostEqual(geometry['horizontal'], 0, delta=2)
+                            else:
+                                self.assertGreaterEqual(geometry['gap'], 8)
+
     def test_community_report_dialog_restores_focus_to_the_visible_menu_button(self):
         page = self.page_with_styles("""
           <html data-skin="friends"><body data-csrf="csrf">
