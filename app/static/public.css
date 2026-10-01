@@ -819,6 +819,8 @@ html[data-skin="friends"] .card { --vote-feedback-accent: var(--friends-teal); }
   transition: background .2s, border .2s, transform .18s var(--ease);
 }
 .chip-suggest:hover { background: var(--rose-soft); border-style: solid; transform: translateY(-1px); }
+.date-suggestion { display: flex; margin-block: 8px; }
+.date-suggestion .chip-suggest { min-height: 44px; justify-content: center; }
 .comment { margin: 10px 0; white-space: pre-line; }
 .links { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 2px; }
 .links a {

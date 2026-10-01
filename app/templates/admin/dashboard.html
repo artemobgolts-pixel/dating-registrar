@@ -50,8 +50,7 @@
       <b>Поделиться</b>
       {% if share_cats | length > 1 %}
       <form method="get" action="/admin/" class="share-pick">
-        <label for="shareCollection">Подборка</label>
-        <select id="shareCollection" name="share" data-autosubmit>
+        <select id="shareCollection" name="share" aria-label="Подборка для отправки" data-autosubmit>
           {% for c in share_cats %}<option value="{{ c['id'] }}" {{ 'selected' if c['id'] == share['id'] }}>{{ c['name'] }}</option>{% endfor %}
         </select>
       </form>

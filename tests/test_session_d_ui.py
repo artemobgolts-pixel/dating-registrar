@@ -163,7 +163,7 @@ class SessionDUiTests(unittest.TestCase):
                 expect(self.page.locator('#loginDlg')).not_to_be_visible()
                 expect(self.page.locator('#loginOpen')).to_be_focused()
 
-    def test_names_visible_label_focus_keyboard_and_filter_autosubmit(self):
+    def test_names_focus_keyboard_and_filter_autosubmit(self):
         self.goto('/admin/profile')
         for label, selector in (('Имя', '#profileName'), ('Дата рождения', '#profileBirthDate')):
             self.page.locator('label[for="' + selector[1:] + '"]').click()
@@ -173,9 +173,11 @@ class SessionDUiTests(unittest.TestCase):
         self.page.keyboard.press('Tab')
         expect(self.page.locator('#profileBirthDate')).to_be_focused()
         self.goto('/admin/?share=' + str(self.cats[0]))
-        self.page.locator('label[for="shareCollection"]').click()
-        expect(self.page.get_by_role('combobox', name='Подборка')).to_be_focused()
-        self.page.get_by_role('combobox', name='Подборка').select_option(str(self.cats[1]))
+        expect(self.page.locator('label[for="shareCollection"]')).to_have_count(0)
+        share_picker = self.page.get_by_role('combobox', name='Подборка для отправки', exact=True)
+        share_picker.focus()
+        expect(share_picker).to_be_focused()
+        share_picker.select_option(str(self.cats[1]))
         expect(self.page).to_have_url(self.backend.url + '/admin/?share=' + str(self.cats[1]))
         self.goto('/admin/dates')
         for name, value, parameter in (('Сортировка событий','when','sort'), ('Фильтр событий','public','f'), ('Подборка',str(self.cats[0]),'cat')):

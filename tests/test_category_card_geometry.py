@@ -34,17 +34,16 @@ class CategoryCardTemplateTests(unittest.TestCase):
         )[0]
         self.assertIn('class="entity-status-row cat-status-row"', status_row)
 
-    def test_menu_lives_in_media_and_body_has_no_tail_reservation(self):
+    def test_menu_is_anchored_to_the_card_outside_the_preview(self):
         source = (APP / "templates/admin/categories.html").read_text("utf-8")
-        css = (APP / "static/admin.css").read_text("utf-8")
 
         media = source.split('<div class="cat-media">', 1)[1].split(
-            '<div class="cat-body">', 1,
+            '</div>', 1,
         )[0]
-        self.assertIn('class="menu-wrap cat-card-menu"', media)
+        self.assertNotIn('class="menu-wrap cat-card-menu"', media)
         self.assertIn('class="cat-thumb"', media)
+        self.assertIn('class="menu-wrap cat-card-menu"', source)
         self.assertNotIn("cat-tail", source)
-        self.assertNotIn("padding-right: 44px", css)
 
     def test_each_disclosure_menu_has_a_contextual_name_and_control(self):
         source = (APP / "templates/admin/categories.html").read_text("utf-8")
@@ -90,10 +89,10 @@ class CategoryCardGeometryBrowserTests(unittest.TestCase):
                 <a class="cat-link" href="#opened" aria-describedby="cat-status-1"></a>
                 <div class="cat-media">
                   <img class="cat-thumb" alt="" src="{PHOTO}">
-                  <div class="menu-wrap cat-card-menu">
-                    <button type="button" class="more" aria-label="Ещё действия">⋯</button>
-                    <div class="menu"><button>Удалить подборку</button></div>
-                  </div>
+                </div>
+                <div class="menu-wrap cat-card-menu">
+                  <button type="button" class="more" aria-label="Ещё действия">⋯</button>
+                  <div class="menu"><button>Удалить подборку</button></div>
                 </div>
                 <div class="cat-body">
                   <div class="cat-heading-line">
@@ -191,6 +190,34 @@ class CategoryCardGeometryBrowserTests(unittest.TestCase):
         self.assertGreaterEqual(geometry["body"]["left"], geometry["media"]["right"])
         self.assertLessEqual(geometry["body"]["top"], geometry["media"]["bottom"])
         self.assertGreaterEqual(geometry["body"]["bottom"], geometry["media"]["top"])
+
+    def test_desktop_menu_stays_at_card_corner_clear_of_long_text(self):
+        for width in (900, 1280):
+            with self.subTest(width=width):
+                page = self.page(width, enlarged_text=True)
+                page.locator(".cat-name").evaluate("el => el.textContent = 'Подборка'.repeat(25)")
+                geometry = page.evaluate("""() => {
+                  const card = document.querySelector('.cat-card').getBoundingClientRect();
+                  const menu = document.querySelector('.cat-card-menu .more').getBoundingClientRect();
+                  const name = document.querySelector('.cat-name').getBoundingClientRect();
+                  const heading = document.querySelector('.cat-heading-line').getBoundingClientRect();
+                  const button = document.querySelector('.cat-card-menu .more');
+                  return {
+                    overflow: document.documentElement.scrollWidth - innerWidth,
+                    rightGap: card.right - menu.right,
+                    topGap: menu.top - card.top,
+                    menuLeft: menu.left,
+                    nameRight: name.right,
+                    headingRight: heading.right,
+                    clickable: button.contains(document.elementFromPoint(menu.x + menu.width / 2, menu.y + menu.height / 2)),
+                  };
+                }""")
+                self.assertLessEqual(geometry["overflow"], 1)
+                self.assertAlmostEqual(geometry["rightGap"], 8, delta=2)
+                self.assertAlmostEqual(geometry["topGap"], 8, delta=2)
+                self.assertLessEqual(geometry["nameRight"], geometry["menuLeft"] - 3)
+                self.assertLessEqual(geometry["headingRight"], geometry["menuLeft"] - 3)
+                self.assertTrue(geometry["clickable"])
 
     def test_enlarged_text_wraps_without_overflow_or_menu_collision(self):
         for width in (320, 390):

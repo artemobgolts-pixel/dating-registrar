@@ -61,6 +61,8 @@ class FreePriceModifierTests(unittest.TestCase):
         page_source = """
           <html data-theme="dark"><body>
             <span class="media-badge media-badge--pay" data-pay-value="4">Бесплатно</span>
+            <label class="pay-opt"><input type="radio" value="4">Бесплатно</label>
+            <span id="changing-modifier" class="media-badge media-badge--pay" data-pay-value="1">💸 50/50</span>
           </body></html>
         """
         for stylesheet in ("static/admin.css", "static/public.css"):
@@ -73,12 +75,30 @@ class FreePriceModifierTests(unittest.TestCase):
                         page = browser.new_page()
                         page.set_content(page_source)
                         page.add_style_tag(content=(APP / stylesheet).read_text("utf-8"))
+                        page.add_style_tag(content=(APP / 'static/pay-icons.css').read_text("utf-8"))
                         colors = page.locator("[data-pay-value='4']").evaluate("""badge => {
                           const style = getComputedStyle(badge);
                           return { background: style.backgroundColor, color: style.color };
                         }""")
                         self.assertEqual(colors["background"], "rgb(21, 115, 74)")
                         self.assertEqual(colors["color"], "rgb(255, 255, 255)")
+                        # Иконка появляется и на модификаторе, и в выборе оплаты;
+                        # смена превью сохраняет её через data-pay-value.
+                        for selector in ("[data-pay-value='4']", ".pay-opt"):
+                            icon = page.locator(selector).evaluate("""el => {
+                              const css = getComputedStyle(el, '::before');
+                              return {content: css.content, decoration: css.textDecorationLine,
+                                width: parseFloat(css.width), height: parseFloat(css.height), background: css.backgroundColor};
+                            }""")
+                            self.assertIn('💸', icon['content'])
+                            self.assertEqual(icon['decoration'], 'line-through')
+                            self.assertGreater(icon['width'], 10)
+                            self.assertGreater(icon['height'], 10)
+                            self.assertEqual(icon['background'], 'rgba(0, 0, 0, 0)')
+                        badge = page.locator("#changing-modifier")
+                        self.assertNotIn('💸', badge.evaluate("el => getComputedStyle(el, '::before').content"))
+                        badge.evaluate("el => { el.dataset.payValue = '4'; el.textContent = 'Бесплатно'; }")
+                        self.assertIn('💸', badge.evaluate("el => getComputedStyle(el, '::before').content"))
                     finally:
                         browser.close()
 

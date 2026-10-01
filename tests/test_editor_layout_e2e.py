@@ -58,6 +58,17 @@ class EditorLayoutBrowserTests(unittest.TestCase):
                                     "el => el.scrollWidth <= el.clientWidth + 1"), selector)
                             self.assertTrue(page.evaluate(
                                 "document.documentElement.scrollWidth <= window.innerWidth"))
+                            actions = page.locator("#edCard .acts button").evaluate_all('''buttons =>
+                                buttons.map(button => {
+                                    const box = button.getBoundingClientRect();
+                                    const icon = button.querySelector('svg').getBoundingClientRect();
+                                    return {width:box.width, height:box.height,
+                                        iconOffset:icon.y+icon.height/2-box.y-box.height/2};
+                                })''')
+                            self.assertAlmostEqual(actions[0]["width"], actions[1]["width"], delta=1)
+                            self.assertAlmostEqual(actions[0]["height"], actions[1]["height"], delta=1)
+                            for action in actions:
+                                self.assertAlmostEqual(action["iconOffset"], 0, delta=1)
                         finally:
                             context.close()
 

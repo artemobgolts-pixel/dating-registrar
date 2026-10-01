@@ -52,6 +52,26 @@ class LiveSearchBrowserTests(unittest.TestCase):
         self.errors = []
         self.page.on("pageerror", lambda error: self.errors.append(str(error)))
 
+    def test_desktop_search_reaches_right_edge_of_its_content(self):
+        page = self.page
+        for width in (1280, 1600):
+            page.set_viewport_size({"width": width, "height": 900})
+            for path, field, content in (
+                ("/admin/dates", ".admin-search-input input", "[data-live-search-results]"),
+                ("/admin/categories", ".admin-search-input input", "[data-live-search-results]"),
+                ("/admin/", "#communitySearchInput", "#communityFeed"),
+                ("/operator/categories", ".search-field input", ".toolbar"),
+            ):
+                with self.subTest(width=width, path=path):
+                    page.goto(self.backend.url + path)
+                    expect(page.locator(field)).to_be_visible()
+                    edges = page.evaluate('''selectors => {
+                        const input = document.querySelector(selectors[0]).getBoundingClientRect();
+                        const content = document.querySelector(selectors[1]).getBoundingClientRect();
+                        return {input: input.right, content: content.right};
+                    }''', [field, content])
+                    self.assertAlmostEqual(edges["input"], edges["content"], delta=1)
+
     def test_events_filter_while_typing_keep_focus_and_reinitialize_card_actions(self):
         page = self.page
         page.goto(self.backend.url + "/admin/dates?f=public")

@@ -228,8 +228,8 @@
   <form class="voting-form" id="categoryVotingForm" method="post" action="/admin/categories/{{ cat['id'] }}/voting?return_to={{ editor_return_url | urlencode }}" data-preserve-scroll>
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <div class="field" style="margin:0">
-      <label class="field-label">Сколько вариантов может выбрать один человек<sup class="required-mark" aria-hidden="true">*</sup></label>
-      <div class="choice-pick">
+      <label class="field-label" id="categoryChoiceLabel">Сколько вариантов может выбрать один человек<sup class="required-mark" aria-hidden="true">*</sup></label>
+      <div class="choice-pick" role="radiogroup" aria-labelledby="categoryChoiceLabel">
         <label class="choice-opt choice-card">
           <input type="radio" name="choice_mode" value="single"
                  {% if voting_state.choice_mode != 'multiple' %}checked{% endif %}>
@@ -245,15 +245,17 @@
     <div class="field deadline-picker" style="margin:0" data-deadline-picker
          data-deadline-mode="extend">
       <label class="field-label" for="votingDeadline">Дедлайн голосования<sup class="required-mark" aria-hidden="true">*</sup></label>
-      <input type="datetime-local" name="voting_deadline" id="votingDeadline"
-             min="{{ deadline_min }}" required data-picker-only
-             value="{{ voting_state.voting_deadline[:16] if voting_state.voting_deadline else '' }}">
-      <div class="deadline-presets" aria-label="Быстрое продление дедлайна">
-        <span>Продлить:</span>
-        <button type="button" class="deadline-preset choice-chip" data-deadline-hours="3" aria-pressed="false">+3 часа</button>
-        <button type="button" class="deadline-preset choice-chip" data-deadline-hours="24" aria-pressed="false">+1 день</button>
+      <div class="voting-deadline-controls">
+        <input type="datetime-local" name="voting_deadline" id="votingDeadline"
+               min="{{ deadline_min }}" required data-picker-only
+               value="{{ voting_state.voting_deadline[:16] if voting_state.voting_deadline else '' }}">
+        <div class="deadline-presets" aria-label="Быстрое продление дедлайна">
+          <span>Продлить:</span>
+          <button type="button" class="deadline-preset choice-chip" data-deadline-hours="3" aria-pressed="false">+3 часа</button>
+          <button type="button" class="deadline-preset choice-chip" data-deadline-hours="24" aria-pressed="false">+1 день</button>
+        </div>
+        <small class="deadline-readable" data-deadline-readable aria-live="polite"></small>
       </div>
-      <small class="deadline-readable" data-deadline-readable aria-live="polite"></small>
     </div>
     <button class="btn primary" type="submit">
       {% if voting_state.status == 'unconfigured' %}Запустить голосование
@@ -285,7 +287,7 @@
     <thead><tr><th></th><th>Название</th><th>Когда</th><th>Голоса / мест</th><th></th></tr></thead>
     <tbody {% if can_change_composition %}id="catRows" data-cid="{{ cat['id'] }}"{% endif %}>
     {% for d in dates %}
-    <tr class="{% if can_change_composition %}drag-row{% endif %}{% if cat['winner_date_id'] == d['id'] %} voting-winner{% endif %}"
+    <tr class="{% if can_change_composition %}drag-row{% endif %}{% if d['cover'] %} has-event-thumb{% endif %}{% if cat['winner_date_id'] == d['id'] %} voting-winner{% endif %}"
         data-status-tone="{{ event_tone(d) }}"
         {% if can_change_composition %}data-sort="1" data-sort-label="{{ d['name'] }}"{% endif %} data-did="{{ d['id'] }}">
       <td class="drag-h" data-label="Порядок">
@@ -295,13 +297,20 @@
           aria-keyshortcuts="Space ArrowUp ArrowDown">⋮⋮</button>{% else %}<span aria-hidden="true">·</span>{% endif %}
       </td>
       <td class="category-event-summary" data-label="Событие">
-        <a href="/admin/dates/{{ d['id'] }}/edit?return_to={{ (editor_self_url ~ '#categoryDates') | urlencode }}" title="{{ d['name'] }}">{{ d['name'] }}</a>
-        <span class="category-event-statuses">
-          {% if cat['winner_date_id'] == d['id'] %}{{ status('Победитель', 'success') }}{% endif %}
-          {% if voting_state.status == 'tie' and d['id'] in leader_ids %}{{ status('Лидер', 'warning') }}{% endif %}
-          {% if d['origin'] == 'guest' %}<span class="badge badge-meta media-badge media-badge--guest media-badge--inflow">💡 предложено</span>{% endif %}
-          {% if d['operator_review_pending'] or d['archived_at'] or d['is_draft'] %}{{ event_lifecycle(d) }}{% endif %}
-        </span>
+        {% if d['cover'] %}
+        <img class="category-event-thumb" src="/admin/uploads/{{ d['cover'] }}?w=96"
+             width="44" height="44" alt="" loading="lazy" decoding="async"
+             {% if d['cover_focus'] %}style="object-position:{{ d['cover_focus'] }}"{% endif %}>
+        {% endif %}
+        <div class="category-event-copy">
+          <a href="/admin/dates/{{ d['id'] }}/edit?return_to={{ (editor_self_url ~ '#categoryDates') | urlencode }}" title="{{ d['name'] }}">{{ d['name'] }}</a>
+          <span class="category-event-statuses">
+            {% if cat['winner_date_id'] == d['id'] %}{{ status('Победитель', 'success') }}{% endif %}
+            {% if voting_state.status == 'tie' and d['id'] in leader_ids %}{{ status('Лидер', 'warning') }}{% endif %}
+            {% if d['origin'] == 'guest' %}<span class="badge badge-meta media-badge media-badge--guest media-badge--inflow">💡 предложено</span>{% endif %}
+            {% if d['operator_review_pending'] or d['archived_at'] or d['is_draft'] %}{{ event_lifecycle(d) }}{% endif %}
+          </span>
+        </div>
       </td>
       <td class="category-event-time muted" data-label="Когда">{{ event_date(d['starts_at'], d['ends_at']) }}</td>
       <td class="category-event-capacity" data-label="Голоса / мест">

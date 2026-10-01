@@ -712,9 +712,9 @@ with TestClient(main.app, follow_redirects=False) as c:
 
     # ---------- «Назначить дату»: гость предлагает время ----------
     card2 = re.search(r'id="date-%d".*?</article>' % did2, page2, re.S).group(0)
-    assert "предложить дату" in card2 and "chip-suggest" in card2
+    assert "Предложить дату" in card2 and "chip-suggest" in card2
     card1 = re.search(r'id="date-%d".*?</article>' % did, page2, re.S).group(0)
-    assert "предложить дату" not in card1        # у события со временем чипа нет
+    assert "Предложить дату" not in card1        # у события со временем чипа нет
     r = ga.post(f"/c/{tok}/suggest_time",
                data={"date_id": did, "starts_at": "2030-08-01T19:00"})
     assert r.status_code == 400 and "уже назначено" in r.json()["detail"]
@@ -739,7 +739,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert drow["starts_at"] == "2030-08-01T19:00" and drow["ends_at"] == "2030-08-01T21:00"
     page = ga.get(f"/c/{tok}").text
     card2 = re.search(r'<article[^>]*id="date-%d".*?</article>' % did2, page, re.S).group(0)
-    assert "1 августа 2030" in card2 and "предложить дату" not in card2
+    assert "1 августа 2030" in card2 and "Предложить дату" not in card2
     assert "✅ Принято" in card2                  # автор видит авто-ответ
     assert "Принять время" not in c.get("/admin/questions").text
 
@@ -756,7 +756,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert db_one("SELECT starts_at FROM dates WHERE id=?", (kid,))["starts_at"] is None
     page = ga.get(f"/c/{tok}").text
     cardk = re.search(r'<article[^>]*id="date-%d".*?</article>' % kid, page, re.S).group(0)
-    assert "не получится" in cardk and "предложить дату" in cardk   # чип остался
+    assert "не получится" in cardk and "Предложить дату" in cardk   # чип остался
 
     # next из формы не должен уводить наружу (open redirect)
     for bad in ("https://evil.com", "//evil.com/x"):

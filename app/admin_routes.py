@@ -1124,6 +1124,10 @@ def category_detail(cid: ObjectId, request: Request, conn=Depends(get_db)):
     cat = _cat_or_404(conn, cid, request.state.user)
     dates = conn.execute(
         "SELECT d.*, "
+        "(SELECT filename FROM date_images di WHERE di.date_id=d.id "
+        " ORDER BY di.position, di.id LIMIT 1) AS cover, "
+        "(SELECT focus FROM date_images di WHERE di.date_id=d.id "
+        " ORDER BY di.position, di.id LIMIT 1) AS cover_focus, "
         "(SELECT COUNT(*) FROM bookings b WHERE b.date_id=d.id AND b.category_id=?) AS books, "
         "(SELECT GROUP_CONCAT(COALESCE(u.display_name, u.tg_username, g.name, "
         "'#' || substr(b.guest_token,1,6)), ', ') "

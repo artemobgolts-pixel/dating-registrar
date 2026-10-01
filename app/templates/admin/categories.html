@@ -32,35 +32,35 @@
     <img class="cat-thumb"
          src="/admin/categories/{{ c['id'] }}/og-preview?skin={{ c['category_skin'] }}&amp;v={{ c['preview_revision'] }}"
          alt="" loading="lazy" decoding="async">
-    <div class="menu-wrap cat-card-menu">
-      <button type="button" class="more"
-              aria-label="Ещё действия с подборкой «{{ c['name'] }}»"
-              aria-controls="cat-menu-{{ c['id'] }}" aria-expanded="false">⋯</button>
-      <div class="menu" id="cat-menu-{{ c['id'] }}">
-        {% if c['link_enabled'] and not c['operator_review_pending'] %}
-        <a href="/c/{{ c['link_token'] }}" target="_blank" rel="noopener" data-turbo="false">Открыть</a>
-        <button type="button" data-copy="{{ BASE_URL }}/c/{{ c['link_token'] }}">Скопировать ссылку</button>
-        {% endif %}
-        <form method="post" action="/admin/categories/{{ c['id'] }}/toggle?return_to={{ current_list_url | urlencode }}">
-          <input type="hidden" name="csrf" value="{{ csrf }}">
-          <button type="submit">{{ 'Отключить ссылку' if c['link_enabled'] else 'Включить ссылку' }}</button>
-        </form>
-        <form method="post" action="/admin/categories/{{ c['id'] }}/regenerate?return_to={{ current_list_url | urlencode }}"
-              data-confirm="Сгенерировать новую ссылку? Старая перестанет работать, но все голоса и вопросы сохранятся.">
-          <input type="hidden" name="csrf" value="{{ csrf }}">
-          <button type="submit">Перегенерировать ссылку</button>
-        </form>
-        <form method="post" action="/admin/categories/{{ c['id'] }}/clone">
-          <input type="hidden" name="csrf" value="{{ csrf }}">
-          <button type="submit">Скопировать подборку</button>
-        </form>
-        <div class="sepa"></div>
-        <form method="post" action="/admin/categories/{{ c['id'] }}/delete?return_to={{ current_list_url | urlencode }}"
-              data-confirm="Удалить подборку? События останутся, но голоса в этой подборке удалятся, а ссылка перестанет работать.">
-          <input type="hidden" name="csrf" value="{{ csrf }}">
-          <button type="submit" class="danger">Удалить подборку</button>
-        </form>
-      </div>
+  </div>
+  <div class="menu-wrap cat-card-menu">
+    <button type="button" class="more"
+            aria-label="Ещё действия с подборкой «{{ c['name'] }}»"
+            aria-controls="cat-menu-{{ c['id'] }}" aria-expanded="false">⋯</button>
+    <div class="menu" id="cat-menu-{{ c['id'] }}">
+      {% if c['link_enabled'] and not c['operator_review_pending'] %}
+      <a href="/c/{{ c['link_token'] }}" target="_blank" rel="noopener" data-turbo="false">Открыть</a>
+      <button type="button" data-copy="{{ BASE_URL }}/c/{{ c['link_token'] }}">Скопировать ссылку</button>
+      {% endif %}
+      <form method="post" action="/admin/categories/{{ c['id'] }}/toggle?return_to={{ current_list_url | urlencode }}">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button type="submit">{{ 'Отключить ссылку' if c['link_enabled'] else 'Включить ссылку' }}</button>
+      </form>
+      <form method="post" action="/admin/categories/{{ c['id'] }}/regenerate?return_to={{ current_list_url | urlencode }}"
+            data-confirm="Сгенерировать новую ссылку? Старая перестанет работать, но все голоса и вопросы сохранятся.">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button type="submit">Перегенерировать ссылку</button>
+      </form>
+      <form method="post" action="/admin/categories/{{ c['id'] }}/clone">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button type="submit">Скопировать подборку</button>
+      </form>
+      <div class="sepa"></div>
+      <form method="post" action="/admin/categories/{{ c['id'] }}/delete?return_to={{ current_list_url | urlencode }}"
+            data-confirm="Удалить подборку? События останутся, но голоса в этой подборке удалятся, а ссылка перестанет работать.">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button type="submit" class="danger">Удалить подборку</button>
+      </form>
     </div>
   </div>
   <div class="cat-body">

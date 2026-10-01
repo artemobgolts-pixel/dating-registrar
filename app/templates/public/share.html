@@ -18,6 +18,7 @@
   {{ appearance_assets(active_skin) }}
   <link rel="stylesheet" href="{{ asset('public.css') }}">
   <link rel="stylesheet" href="{{ asset('event-date.css') }}" data-turbo-track="reload">
+  <link rel="stylesheet" href="{{ asset('pay-icons.css') }}">
   <link rel="stylesheet" href="{{ asset('auth.css') }}">
   <style>
     .share-cta {
@@ -144,7 +145,7 @@
             <svg class="event-card-menu-dots" viewBox="0 0 20 6" aria-hidden="true"><circle cx="3" cy="3" r="1.5"/><circle cx="10" cy="3" r="1.5"/><circle cx="17" cy="3" r="1.5"/></svg>
           </summary>
           <div class="event-card-menu-popover">
-            {% if not d.starts_at and can_question %}<button type="button" class="chip-suggest suggest" data-id="{{ d.id }}" data-name="{{ d.name }}">предложить дату</button>{% endif %}
+            {% if not d.starts_at and can_question %}<button type="button" class="chip-suggest suggest" data-id="{{ d.id }}" data-name="{{ d.name }}">Предложить дату</button>{% endif %}
             <button type="button" class="report-link" data-id="{{ d.id }}" data-name="{{ d.name }}">Пожаловаться</button>
           </div>
         </details>
@@ -180,7 +181,7 @@
             <svg class="event-card-menu-dots" viewBox="0 0 20 6" aria-hidden="true"><circle cx="3" cy="3" r="1.5"/><circle cx="10" cy="3" r="1.5"/><circle cx="17" cy="3" r="1.5"/></svg>
           </summary>
           <div class="event-card-menu-popover">
-            {% if not d.starts_at and can_question %}<button type="button" class="chip-suggest suggest" data-id="{{ d.id }}" data-name="{{ d.name }}">предложить дату</button>{% endif %}
+            {% if not d.starts_at and can_question %}<button type="button" class="chip-suggest suggest" data-id="{{ d.id }}" data-name="{{ d.name }}">Предложить дату</button>{% endif %}
             <button type="button" class="report-link" data-id="{{ d.id }}" data-name="{{ d.name }}">Пожаловаться</button>
           </div>
         </details>
@@ -189,6 +190,11 @@
         <div class="badges media-badges media-badges--inflow inflow"><span class="badge pay media-badge media-badge--pay" data-pay-value="{{ d.pay_split }}">{{ d.pay_split | pay_label }}</span></div>
         {% endif %}
         <h2 class="title">{{ d.name }}</h2>
+        {% if not d.starts_at and can_question %}
+        <div class="date-suggestion">
+          <button type="button" class="chip-suggest suggest" data-id="{{ d.id }}" data-name="{{ d.name }}">Предложить дату</button>
+        </div>
+        {% endif %}
         {% set date_markup = event_date(d.starts_at, d.ends_at) %}
         {% if date_markup or d.place %}
         <div class="meta">

@@ -71,12 +71,12 @@
     <span class="dates-bulk-count" data-bulk-count aria-live="polite">Выбрано: 0</span>
   </div>
   <div class="dates-bulk-actions" aria-label="Действия с выбранными событиями">
+    <button type="submit" class="btn ghost bulk-action" name="action" value="make_public" disabled>Сделать публичными</button>
     {% if view == 'archived' %}
     <button type="submit" class="btn ghost bulk-action" name="action" value="restore" disabled>Вернуть из архива</button>
     {% else %}
     <button type="submit" class="btn ghost bulk-action" name="action" value="archive" disabled>В архив</button>
     {% endif %}
-    <button type="submit" class="btn ghost bulk-action" name="action" value="make_public" disabled>Сделать публичными</button>
     <button type="submit" class="btn ghost bulk-action" name="action" value="make_private" disabled>Сделать непубличными</button>
     <button type="submit" class="btn danger bulk-action bulk-danger" name="action" value="delete" disabled
             data-confirm="Удалить выбранные события безвозвратно? Фото, голоса и вопросы к ним тоже удалятся.">Удалить</button>

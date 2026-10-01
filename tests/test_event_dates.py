@@ -149,7 +149,7 @@ class EventDatesTests(unittest.TestCase):
             self.client.cookies.delete('layout')
         # Экспорт в календарь и возможность предложить дату остаются доступны.
         self.assertIn('data-ics="/d/other0/ics"', self.client.get('/d/other0').text)
-        self.assertIn('предложить дату', self.client.get('/d/other1').text)
+        self.assertIn('Предложить дату', self.client.get('/d/other1').text)
 
     def test_mobile_and_desktop_dates_fit_both_skins_and_themes(self):
         with sync_playwright() as playwright:
@@ -221,12 +221,19 @@ class EventDatesTests(unittest.TestCase):
                                     self.assertEqual(undated.locator('.meta:not(:has(*))').count(), 0)
                                     dated_height = dated.evaluate('(el) => el.getBoundingClientRect().height')
                                     undated_height = undated.evaluate('(el) => el.getBoundingClientRect().height')
+                                    # Прямое действие занимает своё место, но пустой строки даты нет.
+                                    undated_height -= undated.evaluate("""el => {
+                                      const action = el.querySelector('.date-suggestion');
+                                      if (!action) return 0;
+                                      const css = getComputedStyle(action);
+                                      return action.offsetHeight + parseFloat(css.marginTop) + parseFloat(css.marginBottom);
+                                    }""")
                                     self.assertGreater(dated_height - undated_height, 8)
                 context.close()
             finally:
                 browser.close()
 
-    def test_undated_guest_page_is_compact_and_suggestion_remains_in_menu(self):
+    def test_undated_guest_page_has_direct_and_menu_suggestions(self):
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=True)
             try:
@@ -243,7 +250,12 @@ class EventDatesTests(unittest.TestCase):
                         for skin in ('friends', 'romantic'):
                             for theme in ('light', 'dark'):
                                 page.evaluate("([skin, theme]) => { document.documentElement.dataset.skin = skin; document.documentElement.dataset.theme = theme; }", [skin, theme])
-                                heights[suffix, skin, theme] = card.evaluate('(el) => el.getBoundingClientRect().height')
+                                heights[suffix, skin, theme] = card.evaluate("""el => {
+                                  const action = el.querySelector('.date-suggestion');
+                                  const css = action && getComputedStyle(action);
+                                  return el.getBoundingClientRect().height - (action
+                                    ? action.offsetHeight + parseFloat(css.marginTop) + parseFloat(css.marginBottom) : 0);
+                                }""")
                     self.assertEqual(card.locator('.event-date, .meta').count(), 0)
                     for skin in ('friends', 'romantic'):
                         for theme in ('light', 'dark'):
@@ -255,8 +267,17 @@ class EventDatesTests(unittest.TestCase):
                     ):
                         page.goto(self.backend.url + path)
                         card = page.locator(selector)
+                        direct = card.locator('.date-suggestion .chip-suggest')
+                        expect(direct).to_be_visible()
+                        expect(direct).to_have_text('Предложить дату')
+                        direct.click()
+                        expect(page.locator('#timeDlg')).to_be_visible()
+                        expect(page.locator('#timeDateId')).to_have_value(str(self.compact['other'][1]))
+                        page.locator('#timeCancel').click()
+                        expect(direct).to_be_focused()
                         menu = card.locator('.event-card-menu')
                         button = menu.locator('.chip-suggest')
+                        expect(button).to_have_text('Предложить дату')
                         expect(button).to_be_hidden()
                         menu.locator('summary').click()
                         for skin in ('friends', 'romantic'):
@@ -304,6 +325,66 @@ class EventDatesTests(unittest.TestCase):
                                     self.assertGreaterEqual(gap, 8)
                 context.close()
             finally:
+                browser.close()
+
+    def test_direct_guest_date_suggestion_sends_to_both_guest_endpoints(self):
+        did = self.compact['other'][1]
+        start = '2099-10-05T20:00'
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            context = browser.new_context(reduced_motion='reduce', viewport={'width': 390, 'height': 900})
+            context.add_cookies([self.cookie])
+            page = context.new_page()
+            try:
+                for path, category_token in (('/d/other-undated', None), ('/c/other', 'other')):
+                    page.goto(self.backend.url + path)
+                    page.locator(f'#date-{did} .date-suggestion .chip-suggest').click()
+                    page.locator('#timeStart').fill(start)
+                    with page.expect_response(lambda response: response.url.endswith(path + '/suggest_time')) as response, \
+                            page.expect_navigation(wait_until='domcontentloaded'):
+                        page.locator('#timeForm [type="submit"]').click()
+                    self.assertEqual(response.value.status, 200)
+                    conn = self.backend.db.connect()
+                    try:
+                        question = conn.execute(
+                            'SELECT * FROM questions WHERE date_id=? AND user_id=? AND suggest_starts=? ORDER BY id DESC LIMIT 1',
+                            (did, self.uid, start),
+                        ).fetchone()
+                        self.assertIsNotNone(question)
+                        expected_category = conn.execute(
+                            'SELECT id FROM categories WHERE link_token=?', (category_token,),
+                        ).fetchone()['id'] if category_token else None
+                        self.assertEqual(question['category_id'], expected_category)
+                        self.assertIn('Предлагаю назначить', question['text'])
+                    finally:
+                        conn.close()
+                    expect(page.locator(f'#date-{did} .qa-q').last).to_contain_text('Предлагаю назначить')
+            finally:
+                context.close()
+                browser.close()
+                conn = self.backend.db.connect()
+                try:
+                    conn.execute('DELETE FROM questions WHERE date_id=? AND user_id=? AND suggest_starts=?',
+                                 (did, self.uid, start))
+                    conn.commit()
+                finally:
+                    conn.close()
+
+    def test_direct_guest_date_suggestion_keeps_anonymous_login_requirement(self):
+        did = self.compact['other'][1]
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            context = browser.new_context(reduced_motion='reduce')
+            page = context.new_page()
+            try:
+                for path in ('/d/other-undated', '/c/other'):
+                    page.goto(self.backend.url + path)
+                    page.locator(f'#date-{did} .date-suggestion .chip-suggest').click()
+                    expect(page.locator('#loginDlg')).to_be_visible()
+                    expect(page.locator('#loginDlgTitle')).to_have_text('Войти, чтобы предложить дату')
+                    expect(page.locator('#timeDlg')).to_be_hidden()
+            finally:
+                context.close()
                 browser.close()
 
 

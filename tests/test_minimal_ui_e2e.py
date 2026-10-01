@@ -58,10 +58,49 @@ class MinimalUiBrowserTests(unittest.TestCase):
         self.assertEqual(toolbar.evaluate("el => getComputedStyle(el).position"), "fixed")
         expect(toolbar.locator("[data-bulk-count]")).to_have_text("Выбрано: 1")
         expect(toolbar.locator("button[value=archive]")).to_be_enabled()
+        self.assertEqual(toolbar.locator(".dates-bulk-actions button").evaluate_all(
+            "buttons => buttons.map(button => button.value)"),
+            ["make_public", "archive", "make_private", "delete"])
         self.page.locator("[data-bulk-all]").check()
         expect(toolbar.locator("[data-bulk-count]")).to_have_text("Выбрано: 2")
         self.page.locator("[data-bulk-all]").uncheck()
         expect(toolbar).to_be_hidden()
+
+    def test_tab_numbers_share_text_metrics_and_stay_centered(self):
+        page = self.page
+        page.goto(self.backend.url + "/admin/dates")
+        page.locator(".dates-status-tabs a").evaluate_all('''tabs => {
+            tabs.forEach(tab => {
+                if (!tab.querySelector('.count-badge')) {
+                    const count = document.createElement('span');
+                    count.className = 'pill count-badge'; count.textContent = '128';
+                    tab.append(count);
+                }
+            });
+        }''')
+        for width in (320, 390, 1280):
+            page.set_viewport_size({"width": width, "height": 900})
+            for skin in ("friends", "romantic"):
+                for theme in ("light", "dark"):
+                    page.locator("html").evaluate(
+                        "(el, values) => {el.dataset.skin=values[0];el.dataset.theme=values[1]}",
+                        [skin, theme])
+                    metrics = page.locator(".dates-status-tabs .count-badge").first.evaluate('''el => {
+                        const parent = el.closest('a'), r = el.getBoundingClientRect(), p = parent.getBoundingClientRect();
+                        const text = getComputedStyle(parent), count = getComputedStyle(el);
+                        return {offset: r.y+r.height/2-p.y-p.height/2,
+                            textFont: text.fontSize, countFont: count.fontSize,
+                            textLine: text.lineHeight, countLine: count.lineHeight};
+                    }''')
+                    self.assertAlmostEqual(metrics["offset"], 0, delta=.6)
+                    self.assertEqual(metrics["textFont"], metrics["countFont"])
+                    self.assertEqual(metrics["textLine"], metrics["countLine"])
+                    self.assertTrue(page.locator(".dates-status-tabs a").evaluate_all('''tabs =>
+                        tabs.every(tab => {
+                            const count = tab.querySelector('.count-badge').getBoundingClientRect();
+                            const link = tab.getBoundingClientRect();
+                            return count.left >= link.left && count.right <= link.right;
+                        })'''), "Счётчик выходит за границы вкладки")
 
     def test_short_feed_card_does_not_clip_menu(self):
         page = self.page

@@ -1,0 +1,32 @@
+/* Бесплатное участие: тот же смайлик денег, перечёркнутый без HTML в подписях. */
+:is(.media-badge--pay[data-pay-value="4"], .pay-opt:has(input[value="4"]))::before {
+  content: "💸";
+  display: inline-grid;
+  place-items: center;
+  position: static;
+  width: 1.25em;
+  height: 1.25em;
+  border-radius: 0;
+  background: none;
+  mask: none;
+  -webkit-mask: none;
+  flex: none;
+  font-size: 1.1em;
+  line-height: 1;
+  text-decoration: line-through;
+  text-decoration-color: currentColor;
+  text-decoration-thickness: 2px;
+}
+.pay-opt:has(input[value="4"]) { gap: 5px; }
+@media (max-width: 720px) {
+  .pay-opt:has(input[value="4"]),
+  #dateForm .date-participation .pay-opt:has(input[value="4"]) {
+    flex-direction: column;
+    gap: 2px;
+    font-size: 11px;
+    overflow-wrap: anywhere;
+  }
+}
+@media (max-width: 360px) {
+  #dateForm .date-participation .pay-opt:has(input[value="4"]) { font-size: 12px; }
+}

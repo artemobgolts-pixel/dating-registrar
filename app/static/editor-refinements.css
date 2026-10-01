@@ -53,6 +53,31 @@
 #edCard .ed-mm { box-sizing: border-box; width: 24px; white-space: nowrap; }
 #edCard .ed-yy { box-sizing: border-box; width: 44px; white-space: nowrap; }
 
+/* Иконки и подписи делят один центр, независимо от браузерного шрифта кнопки. */
+#edCard .acts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+#edCard .acts button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  font-family: inherit;
+  line-height: 1.2;
+}
+#descToolbar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-family: inherit;
+  line-height: 1;
+}
+#edCard .acts .admin-icon,
+#descToolbar .admin-icon { flex: none; }
+
 /* Одинаковые интервалы между заголовком, подписями и контролами условий. */
 #dateForm .date-participation {
   display: grid;
@@ -82,3 +107,9 @@
   line-height: 1.2;
 }
 #dateForm .ed-side-col > .sec { margin-bottom: 0; }
+
+@media (max-width: 360px) {
+  #dateForm .date-participation .pay-pick {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
