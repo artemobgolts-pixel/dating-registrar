@@ -2374,6 +2374,7 @@ html[data-theme="dark"][data-skin="friends"] .share-qr {
   --qr-ink: #e3e7ff;
   border-color: rgba(255,255,255,.12);
 }
+.share-heading { display: block; margin-bottom: 8px; }
 .share-cat { font-weight: 600; margin-bottom: 8px; overflow-wrap: anywhere; }
 .share-pick { margin-bottom: 12px; }
 .share-pick select { width: auto; min-width: min(200px, 100%); max-width: 100%; }
@@ -5269,7 +5270,6 @@ dialog:is(.is-closing, [data-closing="true"]) {
   display: inline-flex; align-items: center; justify-content: center;
   min-width: 0; height: auto; padding: 0;
   font: inherit; vertical-align: baseline;
-  transform: translateY(var(--count-optical-offset, 0px));
   background: transparent;
   color: inherit; box-shadow: none;
 }

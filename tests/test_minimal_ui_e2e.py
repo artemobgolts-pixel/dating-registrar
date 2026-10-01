@@ -2,10 +2,8 @@
 
 import unittest
 import re
-from io import BytesIO
 from pathlib import Path
 
-from PIL import Image
 from playwright.sync_api import expect, sync_playwright
 
 from live_backend import LiveBackend
@@ -68,27 +66,17 @@ class MinimalUiBrowserTests(unittest.TestCase):
         self.page.locator("[data-bulk-all]").uncheck()
         expect(toolbar).to_be_hidden()
 
-    def test_tab_numbers_center_visible_glyphs_instead_of_only_their_boxes(self):
+    def test_tab_numbers_share_the_text_line_at_every_status(self):
         page = self.page
         page.goto(self.backend.url + "/admin/dates")
         page.add_style_tag(content="*, *::before, *::after {transition:none!important;animation:none!important}")
-        # Однородная подложка отделяет пиксели букв от бликов и скруглений,
-        # сохраняя реальные шрифты, размеры и положение элементов.
-        page.add_style_tag(content='''
-            .dates-status-tabs, .dates-status-tabs :is(a, .tab-ind) {
-                background:#000!important; border-color:#000!important;
-                border-radius:0!important; box-shadow:none!important;
-            }
-            .dates-status-tabs a, .dates-status-tabs .count-badge {color:#fff!important}
-        ''')
+        # Трёхзначный счётчик также должен помещаться в узкой вкладке.
         page.locator(".dates-status-tabs a").evaluate_all('''tabs => {
             tabs.forEach(tab => {
-                const text = tab.firstChild, label = document.createElement('span');
-                label.dataset.opticalLabel = ''; label.textContent = text.textContent.trim();
-                text.replaceWith(label);
                 if (!tab.querySelector('.count-badge')) {
                     const count = document.createElement('span');
-                    count.className = 'pill count-badge count-badge--tab'; count.textContent = '128';
+                    count.className = 'pill count-badge count-badge--tab';
+                    count.textContent = '128';
                     tab.append(count);
                 }
             });
@@ -97,43 +85,36 @@ class MinimalUiBrowserTests(unittest.TestCase):
             const tabs = document.querySelector('.dates-status-tabs');
             delete tabs._d4yGlassReady; UI.glassTabs(tabs);
         }''')
-
-        def visible_center(locator):
-            ink = locator.evaluate("el => getComputedStyle(el).color.match(/[\\d.]+/g).slice(0,3).map(Number)")
-            photo = Image.open(BytesIO(locator.screenshot())).convert("RGB")
-            top = locator.bounding_box()["y"]
-            rows = [y for y in range(photo.height) if any(
-                max(abs(channel - target) for channel, target in zip(photo.getpixel((x, y)), ink)) < 35
-                for x in range(photo.width))]
-            self.assertTrue(rows, "На снимке отсутствует видимый текст")
-            return top + (min(rows) + max(rows) + 1) / 2
-
+        page.evaluate("() => document.fonts.ready")
         for width in (320, 390, 1280):
             page.set_viewport_size({"width": width, "height": 900})
             for skin in ("friends", "romantic"):
                 for theme in ("light", "dark"):
-                    page.locator("html").evaluate(
-                        "(el, values) => {el.dataset.skin=values[0];el.dataset.theme=values[1]}",
-                        [skin, theme])
-                    metrics = page.locator(".dates-status-tabs .count-badge").first.evaluate('''el => {
-                        const parent = el.closest('a'), r = el.getBoundingClientRect(), p = parent.getBoundingClientRect();
-                        const text = getComputedStyle(parent), count = getComputedStyle(el);
-                        return {offset: r.y+r.height/2-p.y-p.height/2,
-                            textFont: text.fontSize, countFont: count.fontSize,
-                            textLine: text.lineHeight, countLine: count.lineHeight};
-                    }''')
-                    self.assertEqual(metrics["textFont"], metrics["countFont"])
-                    self.assertEqual(metrics["textLine"], metrics["countLine"])
-                    for tab in page.locator(".dates-status-tabs a").all():
-                        self.assertAlmostEqual(visible_center(tab.locator(".count-badge")),
-                            visible_center(tab.locator("[data-optical-label]")), delta=1,
-                            msg=f"Цифра оптически не центрирована: {width}/{skin}/{theme}: {tab.inner_text()}")
-                    self.assertTrue(page.locator(".dates-status-tabs a").evaluate_all('''tabs =>
-                        tabs.every(tab => {
-                            const count = tab.querySelector('.count-badge').getBoundingClientRect();
-                            const link = tab.getBoundingClientRect();
-                            return count.left >= link.left && count.right <= link.right;
-                        })'''), "Счётчик выходит за границы вкладки")
+                    with self.subTest(width=width, skin=skin, theme=theme):
+                        page.locator("html").evaluate(
+                            "(el, values) => {el.dataset.skin=values[0];el.dataset.theme=values[1]}",
+                            [skin, theme])
+                        metrics = page.locator(".dates-status-tabs a").evaluate_all('''tabs => tabs.map(tab => {
+                            const name = [...tab.childNodes].find(node => node.nodeType === 3 && node.textContent.trim());
+                            const text = name.textContent.trim(), start = name.textContent.indexOf(text);
+                            const label = document.createRange();
+                            label.setStart(name, start); label.setEnd(name, start + text.length);
+                            const count = tab.querySelector('.count-badge');
+                            const number = document.createRange(); number.selectNodeContents(count);
+                            const n = number.getBoundingClientRect(), l = label.getBoundingClientRect();
+                            const c = count.getBoundingClientRect(), t = tab.getBoundingClientRect();
+                            const labelStyle = getComputedStyle(tab), numberStyle = getComputedStyle(count);
+                            return {label: text, lineOffset: n.y+n.height/2-l.y-l.height/2,
+                                labelFont: [labelStyle.fontSize,labelStyle.fontFamily,labelStyle.fontWeight,labelStyle.lineHeight],
+                                numberFont: [numberStyle.fontSize,numberStyle.fontFamily,numberStyle.fontWeight,numberStyle.lineHeight],
+                                insideTab: c.left >= t.left && c.right <= t.right && c.top >= t.top && c.bottom <= t.bottom};
+                        })''')
+                        self.assertEqual(len(metrics), 3)
+                        for metric in metrics:
+                            self.assertEqual(metric["numberFont"], metric["labelFont"], metric["label"])
+                            self.assertAlmostEqual(metric["lineOffset"], 0, delta=.5,
+                                msg=f"Цифра смещена относительно строки: {metric['label']}")
+                            self.assertTrue(metric["insideTab"], "Счётчик выходит за границы вкладки")
 
     def test_short_feed_card_does_not_clip_menu(self):
         page = self.page

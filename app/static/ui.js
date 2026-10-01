@@ -987,25 +987,6 @@ window.UI = (() => {
     container.dataset.glassReady = "1";
     const tabs = [...container.querySelectorAll("a")];
     if (!tabs.length) return;
-    const counts = [...container.querySelectorAll(".count-badge--tab, .notif-tab-count")];
-    const textContext = counts.length ? document.createElement("canvas").getContext("2d") : null;
-    const centerCounts = () => {
-      if (!textContext) return;
-      counts.forEach(count => {
-        const label = count.parentElement.cloneNode(true);
-        label.querySelectorAll(".count-badge, svg, .sr-only").forEach(node => node.remove());
-        const style = getComputedStyle(count);
-        textContext.font = [style.fontStyle, style.fontWeight, style.fontSize, style.fontFamily].join(" ");
-        const name = textContext.measureText(label.textContent.trim());
-        const number = textContext.measureText(count.textContent.trim());
-        // Центры видимых букв и цифр: «д» и «р» выступают ниже строки,
-        // поэтому одинаковые line-height и рамки ещё не дают оптический центр.
-        const offset = (number.actualBoundingBoxAscent - number.actualBoundingBoxDescent -
-          name.actualBoundingBoxAscent + name.actualBoundingBoxDescent) / 2;
-        if (Number.isFinite(offset)) count.style.setProperty("--count-optical-offset", offset + "px");
-      });
-    };
-    centerCounts();
     // Ключ переноса позиции между переходами: явный ключ важнее общей роли.
     // Без него разные `.tabs` могли наследовать чужую ширину/позицию, что
     // выглядело как короткий рывок сразу после Turbo-перехода.
@@ -1061,7 +1042,6 @@ window.UI = (() => {
     _tabRepos = _tabRepos.filter(function (fn) { return fn.alive(); });
     var repos = function () {
       if (!container.isConnected) return false;
-      centerCounts();
       put(geom(active()), false);
       return true;
     };
@@ -1075,7 +1055,6 @@ window.UI = (() => {
         if (!container.isConnected) return;
         requestAnimationFrame(function () {
           if (container.isConnected) {
-            centerCounts();
             put(geom(active()), true);
           }
         });
