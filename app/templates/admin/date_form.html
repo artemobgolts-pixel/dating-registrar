@@ -58,6 +58,8 @@
 {# Редактор = само превью-карточка (кликаешь по нему и правишь). Отдельных полей
    больше нет. Значения пишутся в скрытые input формы — бэкенд не меняется.
    Порядок: 1) редактируемое превью 2) модификаторы 3) категории. #}
+{# admin.js сам отправляет FormData и переходит через Turbo.visit после JSON-ответа.
+   Turbo не должен параллельно отправлять эту форму: при ошибке сохраняем текст и файлы. #}
 <form method="post" enctype="multipart/form-data" id="dateForm" data-turbo="false"
       data-draft-owner="{{ user['id'] }}" aria-describedby="editorError"
       {% if date %}data-preserve-scroll{% endif %}

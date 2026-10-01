@@ -280,10 +280,17 @@
         editorNavigationPending = true;
         var target = opener.dataset.profileEditor;
         var pendingSave = window.d4yProfileSave;
+        function visitEditor() {
+          // После другого Turbo-перехода отложенное сохранение старого
+          // профиля уже не должно открывать редактор поверх новой страницы.
+          if (!section.isConnected) return;
+          if (window.Turbo) window.Turbo.visit(target);
+          else window.location.assign(target);
+        }
         if (pendingSave && typeof pendingSave.finally === "function") {
-          pendingSave.finally(function () { window.location.assign(target); });
+          pendingSave.finally(visitEditor);
         } else {
-          window.location.assign(target);
+          visitEditor();
         }
       } else {
         openWidget(opener.dataset.profileWidget);

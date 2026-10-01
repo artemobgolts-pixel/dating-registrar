@@ -6,6 +6,11 @@
 (function () {
   "use strict";
 
+  // Скрипт подключён в body и повторно встречается при Turbo-переходах.
+  // Новые блоки инициализирует уже установленный обработчик turbo:load.
+  if (window.__d4yAuthInstalled) return;
+  window.__d4yAuthInstalled = true;
+
   function loadDialogLogo(dialog) {
     if (!dialog.open) return;
     var skin = document.documentElement.dataset.skin === "romantic" ? "romantic" : "friends";
@@ -170,9 +175,11 @@
     }
 
     function poll(code) {
+      if (!box.isConnected) { clearInterval(timer); return; }
       fetch("/auth/poll?code=" + encodeURIComponent(code), { credentials: "same-origin" })
         .then(function (r) { return r.json(); })
         .then(function (d) {
+          if (!box.isConnected) { clearInterval(timer); return; }
           if (d.status === "ok") { window.location = d.redirect || "/admin/"; return; }
           if (d.status === "expired") { clearInterval(timer); showError("Код истёк — нажми кнопку ещё раз."); return; }
           if (d.status === "banned") { clearInterval(timer); showError("Доступ закрыт. Напиши в поддержку."); return; }

@@ -4,7 +4,7 @@
 {% block title %}{{ cat['name'] }}{% endblock %}
 {% block head %}
 <meta name="turbo-cache-control" content="no-cache">
-<link rel="stylesheet" href="{{ asset('category-settings.css') }}" data-turbo-track="reload">
+<link rel="stylesheet" href="{{ asset('category-settings.css') }}" data-turbo-track="dynamic">
 <style nonce="{{ csp_nonce }}">
   .category-privacy-card{display:grid;gap:16px}
   .category-privacy-head h2{font-size:20px;margin:0 0 4px}

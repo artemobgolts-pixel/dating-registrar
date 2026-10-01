@@ -66,7 +66,8 @@
       }
     });
     document.addEventListener("change", function (e) {
-      if (e.target.matches("[data-autosubmit]")) e.target.form.submit();
+      // submit() обходит событие submit и Turbo: фон начинал анимацию заново.
+      if (e.target.matches("[data-autosubmit]") && e.target.form) e.target.form.requestSubmit();
     });
     document.addEventListener("click", function (e) {
       document.querySelectorAll(".mobile-account-menu[open]").forEach(function (menu) {
@@ -1192,12 +1193,28 @@
   // --- профиль: автосохранение полей, отдельный сабмит аватара ----------------
   function initProfile() {
     var form = document.getElementById("profileForm");
-    if (!form) return;
+    if (!form || form._d4yProfileReady) return;
+    form._d4yProfileReady = true;
     var inp = document.getElementById("avatarInput");
     var note = document.getElementById("autosaveNote");
+    var avatarSelection = 0;
 
     if (inp) inp.addEventListener("change", function () {
-      if (inp.files && inp.files.length) form.submit();
+      var selection = ++avatarSelection;
+      if (!inp.files || !inp.files.length) return;
+      clearTimeout(timer);
+      // Предыдущий снимок профиля не должен перезаписать поля после аватара.
+      // Пока он сохранялся, могла добавиться новая правка или смениться фото.
+      function submitAfterSaves() {
+        var pending = saveChain;
+        pending.catch(function () {}).then(function () {
+          if (selection !== avatarSelection || !form.isConnected || !inp.files || !inp.files.length) return;
+          if (pending !== saveChain) { submitAfterSaves(); return; }
+          clearTimeout(timer);
+          form.requestSubmit();
+        });
+      }
+      submitAfterSaves();
     });
 
     var timer = null;
@@ -1262,6 +1279,8 @@
       return true;
     }
     function runSave() {
+      // Таймер старой страницы не должен сохранять поля после Turbo-перехода.
+      if (!form.isConnected) return Promise.resolve(false);
       var name = form.querySelector('[name="display_name"]');
       if (name && !name.value.trim()) {
         flash("Имя не может быть пустым", false);
@@ -1277,7 +1296,7 @@
       queuedSaves += 1;
       form.dataset.saving = "1";
       var pending = saveChain.catch(function () {}).then(function () {
-        return save(fd, revision);
+        return form.isConnected ? save(fd, revision) : false;
       });
       saveChain = pending;
       // profile.js дождётся именно этого запроса перед переходом в редактор:
@@ -1290,7 +1309,9 @@
       });
       return pending;
     }
-    function schedule() {
+    function schedule(event) {
+      // Аватар отправляет всю форму отдельно, включая актуальные текстовые поля.
+      if (event.target === inp) return;
       draftRevision += 1;
       form.dataset.dirty = "1";
       flash("Изменения сохраняются автоматически");
