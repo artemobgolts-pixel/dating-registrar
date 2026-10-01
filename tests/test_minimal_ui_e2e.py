@@ -2,8 +2,10 @@
 
 import unittest
 import re
+from io import BytesIO
 from pathlib import Path
 
+from PIL import Image
 from playwright.sync_api import expect, sync_playwright
 
 from live_backend import LiveBackend
@@ -66,18 +68,46 @@ class MinimalUiBrowserTests(unittest.TestCase):
         self.page.locator("[data-bulk-all]").uncheck()
         expect(toolbar).to_be_hidden()
 
-    def test_tab_numbers_share_text_metrics_and_stay_centered(self):
+    def test_tab_numbers_center_visible_glyphs_instead_of_only_their_boxes(self):
         page = self.page
         page.goto(self.backend.url + "/admin/dates")
+        page.add_style_tag(content="*, *::before, *::after {transition:none!important;animation:none!important}")
+        # Однородная подложка отделяет пиксели букв от бликов и скруглений,
+        # сохраняя реальные шрифты, размеры и положение элементов.
+        page.add_style_tag(content='''
+            .dates-status-tabs, .dates-status-tabs :is(a, .tab-ind) {
+                background:#000!important; border-color:#000!important;
+                border-radius:0!important; box-shadow:none!important;
+            }
+            .dates-status-tabs a, .dates-status-tabs .count-badge {color:#fff!important}
+        ''')
         page.locator(".dates-status-tabs a").evaluate_all('''tabs => {
             tabs.forEach(tab => {
+                const text = tab.firstChild, label = document.createElement('span');
+                label.dataset.opticalLabel = ''; label.textContent = text.textContent.trim();
+                text.replaceWith(label);
                 if (!tab.querySelector('.count-badge')) {
                     const count = document.createElement('span');
-                    count.className = 'pill count-badge'; count.textContent = '128';
+                    count.className = 'pill count-badge count-badge--tab'; count.textContent = '128';
                     tab.append(count);
                 }
             });
         }''')
+        page.evaluate('''() => {
+            const tabs = document.querySelector('.dates-status-tabs');
+            delete tabs._d4yGlassReady; UI.glassTabs(tabs);
+        }''')
+
+        def visible_center(locator):
+            ink = locator.evaluate("el => getComputedStyle(el).color.match(/[\\d.]+/g).slice(0,3).map(Number)")
+            photo = Image.open(BytesIO(locator.screenshot())).convert("RGB")
+            top = locator.bounding_box()["y"]
+            rows = [y for y in range(photo.height) if any(
+                max(abs(channel - target) for channel, target in zip(photo.getpixel((x, y)), ink)) < 35
+                for x in range(photo.width))]
+            self.assertTrue(rows, "На снимке отсутствует видимый текст")
+            return top + (min(rows) + max(rows) + 1) / 2
+
         for width in (320, 390, 1280):
             page.set_viewport_size({"width": width, "height": 900})
             for skin in ("friends", "romantic"):
@@ -92,9 +122,12 @@ class MinimalUiBrowserTests(unittest.TestCase):
                             textFont: text.fontSize, countFont: count.fontSize,
                             textLine: text.lineHeight, countLine: count.lineHeight};
                     }''')
-                    self.assertAlmostEqual(metrics["offset"], 0, delta=.6)
                     self.assertEqual(metrics["textFont"], metrics["countFont"])
                     self.assertEqual(metrics["textLine"], metrics["countLine"])
+                    for tab in page.locator(".dates-status-tabs a").all():
+                        self.assertAlmostEqual(visible_center(tab.locator(".count-badge")),
+                            visible_center(tab.locator("[data-optical-label]")), delta=1,
+                            msg=f"Цифра оптически не центрирована: {width}/{skin}/{theme}: {tab.inner_text()}")
                     self.assertTrue(page.locator(".dates-status-tabs a").evaluate_all('''tabs =>
                         tabs.every(tab => {
                             const count = tab.querySelector('.count-badge').getBoundingClientRect();

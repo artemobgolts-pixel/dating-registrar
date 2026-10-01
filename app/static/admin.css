@@ -5269,6 +5269,7 @@ dialog:is(.is-closing, [data-closing="true"]) {
   display: inline-flex; align-items: center; justify-content: center;
   min-width: 0; height: auto; padding: 0;
   font: inherit; vertical-align: baseline;
+  transform: translateY(var(--count-optical-offset, 0px));
   background: transparent;
   color: inherit; box-shadow: none;
 }
