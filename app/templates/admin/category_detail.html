@@ -1,9 +1,10 @@
 {% extends "admin/base.html" %}
 {% from "_event_date.html" import event_date %}
-{% from "admin/_entity_status.html" import category_voting, event_lifecycle, event_tone, event_visibility, status %}
+{% from "admin/_entity_status.html" import category_voting, event_lifecycle, event_tone, status %}
 {% block title %}{{ cat['name'] }}{% endblock %}
 {% block head %}
 <meta name="turbo-cache-control" content="no-cache">
+<link rel="stylesheet" href="{{ asset('category-settings.css') }}" data-turbo-track="reload">
 <style nonce="{{ csp_nonce }}">
   .category-privacy-card{display:grid;gap:16px}
   .category-privacy-head h2{font-size:20px;margin:0 0 4px}
@@ -41,7 +42,7 @@
 {% set category_appearance %}
 <details class="card category-appearance-card" id="categoryAppearance">
   <summary class="category-appearance-summary">
-    <span><strong>Оформление ссылки</strong><small>Название, описание, тема и превью — необязательная тонкая настройка</small></span>
+    <span><strong>Оформление ссылки</strong></span>
     <span class="category-appearance-chevron" aria-hidden="true"></span>
   </summary>
   <div class="category-appearance-content">
@@ -72,7 +73,7 @@
               aria-describedby="categorySkinHint">
       <legend>Оформление страницы</legend>
       <p class="muted skin-setting-hint" id="categorySkinHint">
-        Эту тему увидят люди, которые перейдут по ссылке. Содержание и голоса при смене не изменятся.
+        Эту тему увидят люди, которые перейдут по ссылке.
       </p>
       <div class="skin-pick">
         <label class="skin-option">
@@ -102,7 +103,7 @@
       </div>
     </fieldset>
 
-    <label style="margin-top:4px">Превью ссылки в мессенджере</label>
+    <div class="category-preview-label">Превью ссылки</div>
     {# Редактируемое превью: клик по картинке открывает выбор своей; клик по
        заголовку/описанию — правка на месте (пишет в скрытые og_title/og_desc).
        Отдельных полей больше нет (#12). #}
@@ -142,7 +143,6 @@
       </div>
     </div>
     <p class="og-focus-status" id="ogFocusStatus" role="status" aria-live="polite"></p>
-    <p class="muted" style="font-size:12px;margin:2px 0 0">Кликай по тексту и картинке — правь прямо здесь. Пусто — покажем стандартный текст{% if cat['use_default_preview'] %} и зафиксированную фирменную фотографию{% elif auto_og %} и коллаж из фото событий{% endif %}.</p>
 
     <div class="og-warn" id="ogWarn" role="alert" hidden>
       <span class="og-warn-ic" aria-hidden="true">⚠</span>
@@ -220,20 +220,9 @@
 {% set category_voting_section %}
 <div class="card voting-settings" id="categoryVoting" data-tour="category-voting">
   <div class="bar voting-head">
-    <div>
-      <b>Голосование</b>
-      <div class="muted tiny">Настройки действуют только внутри этой подборки.</div>
-    </div>
+    <b>Голосование</b>
     {{ category_voting(voting_state.status, voting_state.status == 'open' and not can_change_composition) }}
   </div>
-
-  {% if voting_state.status != 'unconfigured' %}
-  <div class="voting-summary">
-    <span><b>{{ voting_state.total_votes }}</b> {{ voting_state.total_votes | plural('голос', 'голоса', 'голосов') }}</span>
-    <span>{{ 'Один вариант' if voting_state.choice_mode == 'single' else 'Несколько вариантов' }}</span>
-    {% if voting_state.voting_deadline %}<span>Дедлайн: <b>{{ voting_state.voting_deadline | ts }} МСК</b></span>{% endif %}
-  </div>
-  {% endif %}
 
   {% if voting_state.status in ('unconfigured', 'open', 'tie', 'resolved', 'no_winner') %}
   <form class="voting-form" id="categoryVotingForm" method="post" action="/admin/categories/{{ cat['id'] }}/voting?return_to={{ editor_return_url | urlencode }}" data-preserve-scroll>
@@ -263,13 +252,8 @@
         <span>Продлить:</span>
         <button type="button" class="deadline-preset choice-chip" data-deadline-hours="3" aria-pressed="false">+3 часа</button>
         <button type="button" class="deadline-preset choice-chip" data-deadline-hours="24" aria-pressed="false">+1 день</button>
-        <button type="button" class="deadline-preset choice-chip" data-deadline-hours="72" aria-pressed="false">+3 дня</button>
-        <button type="button" class="deadline-preset choice-chip" data-deadline-hours="168" aria-pressed="false">+1 неделя</button>
       </div>
       <small class="deadline-readable" data-deadline-readable aria-live="polite"></small>
-      {% if voting_state.status in ('tie', 'resolved', 'no_winner') %}
-      <small class="muted">Новый будущий дедлайн снова откроет голосование: отданные голоса сохранятся, а прежний итог будет сброшен.</small>
-      {% endif %}
     </div>
     <button class="btn primary" type="submit">
       {% if voting_state.status == 'unconfigured' %}Запустить голосование
@@ -280,20 +264,18 @@
   {% endif %}
   {% if voting_state.status == 'tie' %}
   <div class="voting-tie-note">
-    У лидеров одинаковое число голосов. Выбери победителя кнопкой в таблице ниже — доступны только лидеры.
+    У лидеров одинаковое число голосов. Выбери победителя в списке событий — доступны только лидеры.
   </div>
   {% endif %}
 </div>
 {% endset %}
 
-<div class="card category-events-card" id="categoryDates">
+<div class="card category-events-card category-events-compact{% if not can_change_composition %} category-events-locked{% endif %}" id="categoryDates">
   <div class="bar category-fill-head" data-tour="category-dates">
     <b>События в подборке</b>
     {% if can_change_composition %}
       <a class="btn small primary"
          href="/admin/dates/new?category={{ cat['id'] }}&amp;return_to={{ (editor_self_url ~ '#categoryDates') | urlencode }}">+ Новое событие</a>
-    {% else %}
-      {{ status('Состав зафиксирован', 'neutral') }}
     {% endif %}
   </div>
 
@@ -313,19 +295,17 @@
           aria-keyshortcuts="Space ArrowUp ArrowDown">⋮⋮</button>{% else %}<span aria-hidden="true">·</span>{% endif %}
       </td>
       <td class="category-event-summary" data-label="Событие">
-        <a href="/admin/dates/{{ d['id'] }}/edit?return_to={{ (editor_self_url ~ '#categoryDates') | urlencode }}">{{ d['name'] }}</a>
+        <a href="/admin/dates/{{ d['id'] }}/edit?return_to={{ (editor_self_url ~ '#categoryDates') | urlencode }}" title="{{ d['name'] }}">{{ d['name'] }}</a>
         <span class="category-event-statuses">
           {% if cat['winner_date_id'] == d['id'] %}{{ status('Победитель', 'success') }}{% endif %}
           {% if voting_state.status == 'tie' and d['id'] in leader_ids %}{{ status('Лидер', 'warning') }}{% endif %}
           {% if d['origin'] == 'guest' %}<span class="badge badge-meta media-badge media-badge--guest media-badge--inflow">💡 предложено</span>{% endif %}
-          <span class="entity-status-inline">{{ event_lifecycle(d) }} {{ event_visibility(d) }}</span>
+          {% if d['operator_review_pending'] or d['archived_at'] or d['is_draft'] %}{{ event_lifecycle(d) }}{% endif %}
         </span>
       </td>
       <td class="category-event-time muted" data-label="Когда">{{ event_date(d['starts_at'], d['ends_at']) }}</td>
       <td class="category-event-capacity" data-label="Голоса / мест">
-        <b>{{ d['books'] }}/{{ d['capacity'] }}</b>
-        <progress class="vote-progress" value="{{ d['books'] }}" max="{{ d['capacity'] }}">{{ d['books'] }}/{{ d['capacity'] }}</progress>
-        {% if d['booked_names'] %}<div class="muted tiny">{{ d['booked_names'] }}</div>{% endif %}
+        <span title="{{ d['booked_names'] or 'Пока без голосов' }}"><b>{{ d['books'] }}</b><span aria-hidden="true"> / {{ d['capacity'] }}</span><span class="sr-only"> {{ d['books'] | plural('голос', 'голоса', 'голосов') }}, мест: {{ d['capacity'] }}{% if d['booked_names'] %}. {{ d['booked_names'] }}{% endif %}</span></span>
       </td>
       <td class="category-event-action{% if voting_state.status == 'tie' and d['id'] in leader_ids %} category-event-action--winner{% endif %}" data-label="Действия">
         {% if voting_state.status == 'tie' and d['id'] in leader_ids %}
@@ -340,7 +320,7 @@
               data-confirm="Убрать событие из подборки? Голоса за него в этой подборке удалятся.">
           <input type="hidden" name="csrf" value="{{ csrf }}">
           <input type="hidden" name="date_id" value="{{ d['id'] }}">
-          <button class="btn small">Убрать</button>
+          <button class="btn small category-event-remove" aria-label="Убрать событие «{{ d['name'] }}» из подборки" title="Убрать из подборки"><svg class="admin-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m7 7 10 10M17 7 7 17"/></svg></button>
         </form>
         {% endif %}
       </td>
@@ -349,15 +329,15 @@
     </tbody>
   </table>
   </div>
-  {% if can_change_composition %}<p class="muted" id="categorySortHelp" style="font-size:12.5px;margin:8px 0 0">Перетащи за ручку или нажми на ней Space и используй стрелки. Этот порядок увидят гости.</p>{% endif %}
+  {% if can_change_composition %}<p class="sr-only" id="categorySortHelp">Перетащи за ручку или нажми на ней Space и используй стрелки. Этот порядок увидят гости.</p>{% endif %}
   {% else %}
   <p class="muted">В подборке пока нет событий.</p>
   {% endif %}
 
   {% if attachable and can_change_composition %}
-  <form method="post" action="/admin/categories/{{ cat['id'] }}/attach?return_to={{ editor_return_url | urlencode }}" style="display:flex;gap:10px;margin-top:14px">
+  <form class="category-attach-form" method="post" action="/admin/categories/{{ cat['id'] }}/attach?return_to={{ editor_return_url | urlencode }}">
     <input type="hidden" name="csrf" value="{{ csrf }}">
-    <select name="date_id" required style="flex:1">
+    <select name="date_id" required aria-label="Существующее событие">
       <option value="" disabled selected>Добавить существующее событие…</option>
       {% for a in attachable %}<option value="{{ a['id'] }}">{{ a['name'] }}</option>{% endfor %}
     </select>
@@ -371,7 +351,6 @@
 <section class="card category-privacy-card" id="categoryPrivacy" aria-labelledby="categoryPrivacyTitle">
   <div class="category-privacy-head">
     <h2 id="categoryPrivacyTitle">Приватность</h2>
-    <p class="muted">Управляй тем, что смогут увидеть и сделать люди по гостевой ссылке.</p>
   </div>
   <form class="category-privacy-form" id="categoryPrivacyForm" method="post" data-preserve-scroll
         action="/admin/categories/{{ cat['id'] }}/privacy?return_to={{ editor_return_url | urlencode }}">
@@ -426,7 +405,7 @@
     <span class="muted">Подборка отправлена администратору. После одобрения здесь появятся действия для проверки и отправки ссылки.</span>
     <a class="btn ghost" href="/admin/categories">К списку подборок</a>
     {% elif cat['link_enabled'] %}
-    <a class="btn ghost" href="/c/{{ cat['link_token'] }}" target="_blank" rel="noopener">Проверить страницу</a>
+    <a class="btn ghost" href="/c/{{ cat['link_token'] }}" target="_blank" rel="noopener">Проверить подборку</a>
     <button type="button" class="btn primary" data-copy="{{ BASE_URL }}/c/{{ cat['link_token'] }}">Скопировать ссылку</button>
     {% else %}
     <span class="muted">Ссылка выключена. Включи её в списке подборок после проверки.</span>

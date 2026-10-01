@@ -503,7 +503,7 @@ span.oauth-ico { display: grid; place-items: center; font-weight: 700; font-size
 }
 
 /* --- карточки ------------------------------------------------------------ */
-.cards { display: grid; align-items: start; gap: 22px; }
+.cards { display: grid; align-items: start; gap: 22px; max-width: 680px; margin-inline: auto; }
 
 /* --- архив: свёрнут в выпадающий список ----------------------------------- */
 .archive-fold { margin-top: 26px; }
@@ -2415,15 +2415,15 @@ html[data-skin="friends"] .cat-desc { color: #55566a; }
 html[data-skin="friends"] .card {
   overflow: hidden;
   border: 1px solid rgba(85, 78, 174, .22);
-  border-radius: 18px 28px 28px 18px;
+  border-radius: 22px;
   background: var(--card);
-  box-shadow: inset 4px 0 var(--friends-indigo), var(--shadow-soft);
+  box-shadow: var(--shadow-soft);
 }
 html[data-skin="friends"] .card:nth-child(3n + 2) {
-  box-shadow: inset 4px 0 var(--friends-teal), var(--shadow-soft);
+  box-shadow: var(--shadow-soft);
 }
 html[data-skin="friends"] .card:nth-child(3n) {
-  box-shadow: inset 4px 0 var(--friends-amber), var(--shadow-soft);
+  box-shadow: var(--shadow-soft);
 }
 html[data-skin="friends"] .card .body {
   position: relative;
@@ -2597,10 +2597,7 @@ html[data-skin="friends"][data-theme="dark"] .card,
 html[data-skin="friends"][data-theme="dark"] .card.booked-me {
   background: var(--card);
   border-color: rgba(145,140,231,.31);
-  border-left-color: var(--friends-indigo);
 }
-html[data-skin="friends"][data-theme="dark"] .card:nth-child(3n + 2) { border-left-color: var(--friends-teal); }
-html[data-skin="friends"][data-theme="dark"] .card:nth-child(3n) { border-left-color: var(--friends-amber); }
 html[data-skin="friends"][data-theme="dark"] .card .body { background-color: transparent; }
 html[data-skin="friends"][data-theme="dark"] .card .title { color: var(--ink); }
 html[data-skin="friends"][data-theme="dark"] .when,
@@ -3465,9 +3462,9 @@ dialog:is(.is-closing, [data-closing="true"]):not(.lightbox)::backdrop {
   list-style: none;
   cursor: pointer;
   color: #fff;
-  border: 1px solid rgba(255, 255, 255, .42);
+  border: 1px solid rgba(255, 255, 255, .28);
   border-radius: 50%;
-  background: rgba(31, 27, 30, .72);
+  background: rgba(24, 25, 31, .38);
   box-shadow: 0 3px 12px rgba(20, 16, 19, .22);
 }
 .event-card-menu > summary::-webkit-details-marker { display: none; }
@@ -3757,4 +3754,10 @@ a.participant:active { transform: scale(.97); }
 @media (prefers-reduced-motion: reduce) {
   html .event-card-menu .event-card-menu-popover :is(.report-link, .copy-event-link, .copy-event-button, .chip-suggest):active,
   a.participant:active { transform: none; }
+}
+
+/* Меню короткой карточки остаётся доступным за её нижней границей. */
+html .card:has(.event-card-menu[open]) { overflow: visible; z-index: 20; }
+.event-card-menu--media > summary {
+  -webkit-backdrop-filter: blur(7px); backdrop-filter: blur(7px);
 }

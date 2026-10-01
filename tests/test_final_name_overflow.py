@@ -65,7 +65,8 @@ class FinalNameOverflowTests(unittest.TestCase):
         page.on("pageerror", lambda error: errors.append(str(error)))
         artifacts = os.environ.get("UI_REMEDIATION_ARTIFACTS")
         for surface, path, pairs in (
-            ("list", "/admin/dates", [(".drow-ttl a", ".drow-main"), (".drow-act .btn", ".drow"), (".drow-select", ".drow")]),
+            # Старый layout=list также открывает единственный вид карточек.
+            ("list", "/admin/dates", [(".dcard .ttl a", ".b"), (".dcard .foot a", ".dcard"), (".dcard-select", ".dcard")]),
             ("cards", "/admin/dates", [(".dcard .ttl", ".dcard"), (".dcard .foot a", ".dcard"), (".dcard .more", ".dcard")]),
             ("public", "/c/long-names", [(".hero h1 .display-ink", ".hero"), (".author-name", ".author"), (".author", ".hero"), (".corner-actions .corner-control", ".corner-actions")]),
         ):
@@ -75,6 +76,8 @@ class FinalNameOverflowTests(unittest.TestCase):
                 self.assertEqual(response.status, 200)
                 expect(page.locator("html")).to_have_attribute("data-skin", skin)
                 expect(page.locator("html")).to_have_attribute("data-theme", theme)
+                if surface in ("list", "cards"):
+                    expect(page.locator(".drow, .dlist, .viewtog")).to_have_count(0)
                 page.evaluate("document.fonts.ready")
                 if artifacts:
                     output = Path(artifacts)

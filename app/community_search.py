@@ -100,12 +100,10 @@ def prepare_query(value: object) -> SearchQuery:
     terms: list[SearchTerm] = []
     seen: set[tuple[str, ...]] = set()
     for word in normalized.split():
-        if len(word) < 2:
-            continue
         variants: list[str] = []
         for alias in _ALIASES.get(word, (word,)):
             for variant in (alias, _transliterate(alias)):
-                if len(variant) >= 2 and variant not in variants:
+                if variant and variant not in variants:
                     variants.append(variant)
         key = tuple(variants)
         if key and key not in seen:
@@ -175,7 +173,7 @@ def _match_quality(term: SearchTerm, field: _Field) -> int:
             if alternative == word:
                 best = max(best, 10)
                 continue
-            if len(alternative) >= 3 and word.startswith(alternative):
+            if word.startswith(alternative):
                 best = max(best, 8)
                 continue
             # Опечатки допускаются только в достаточно длинном слове и не

@@ -29,7 +29,7 @@
        href="/operator/users?state={{ state }}&amp;role={{ role }}&amp;risk={{ value }}{% if q %}&amp;q={{ q | urlencode }}{% endif %}">{{ label }}</a>
     {% endfor %}
   </nav>
-  <form class="search-form" method="get" action="/operator/users" role="search">
+  <form class="search-form" method="get" action="/operator/users" role="search" data-live-search>
     <input type="hidden" name="state" value="{{ state }}">
     <input type="hidden" name="role" value="{{ role }}">
     <input type="hidden" name="risk" value="{{ risk }}">
@@ -41,8 +41,7 @@
              autocomplete="off" data-op-search>
       <span class="search-shortcut" aria-hidden="true">/</span>
     </label>
-    <button class="btn primary" type="submit">Найти</button>
-    {% if q %}<a class="btn" href="/operator/users?state={{ state }}&amp;role={{ role }}&amp;risk={{ risk }}">Сбросить поиск</a>{% endif %}
+    <a data-live-search-clear {% if not q %}hidden{% endif %} class="btn" href="/operator/users?state={{ state }}&amp;role={{ role }}&amp;risk={{ risk }}">Сбросить поиск</a>
   </form>
 </div>
 

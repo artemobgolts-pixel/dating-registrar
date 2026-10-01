@@ -1,4 +1,4 @@
-"""Static UI contracts for review editing and the desktop date collection."""
+"""Static UI contracts for review editing and the single date card collection."""
 
 from __future__ import annotations
 
@@ -115,6 +115,7 @@ class ReviewCollectionUiTests(unittest.TestCase):
         admin_css = source("static/admin.css")
         profile_css = source("static/profile.css")
         admin_js = source("static/admin.js")
+        date_actions = source("templates/admin/_date_actions.html")
 
         self.assertIn('action="/admin/dates/bulk"', dates)
         self.assertIn('name="date_ids"', dates)
@@ -123,36 +124,24 @@ class ReviewCollectionUiTests(unittest.TestCase):
         self.assertIn("data-bulk-all", dates)
         self.assertIn("data-bulk-count", dates)
         self.assertIn("Удалить выбранные события безвозвратно?", dates)
+        self.assertIn('{% include "admin/_date_actions.html" %}', dates)
         self.assertIn(
-            'data-copy="{{ BASE_URL }}/d/{{ r[\'share_token\'] }}">Поделиться</button>',
-            dates,
+            'data-copy="{{ BASE_URL }}/d/{{ action_event[\'share_token\'] }}">Поделиться</button>',
+            date_actions,
         )
 
         self.assertIn(
             "grid-template-columns: repeat(auto-fill, minmax(320px, 1fr))",
             rule(admin_css, ".grid"),
         )
-        self.assertIn(
-            ".dlist {\n"
-            "    display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));",
-            admin_css,
-        )
-        self.assertIn(
-            ".drow {\n"
-            "    display: flex; flex-direction: column; align-items: stretch; gap: 0;",
-            admin_css,
-        )
-        self.assertIn(
-            ".drow-cover {\n"
-            "    width: 100%; height: auto; aspect-ratio: 16 / 9;",
-            admin_css,
-        )
-        self.assertIn(
-            ".drow:not(:has(.drow-cover)) .drow-main {\n"
-            "    min-height: 62px; padding-left: 68px;",
-            admin_css,
-        )
-        self.assertIn(".drow:has(.menu.open)", admin_css)
+        self.assertNotIn('class="dlist"', dates)
+        self.assertNotIn('class="viewtog"', dates)
+        self.assertIn('class="dcard-select"', dates)
+        self.assertIn('form="datesBulkForm" data-bulk-item', dates)
+        self.assertIn("display: flex; flex-direction: column", rule(admin_css, ".dcard"))
+        self.assertIn("aspect-ratio: 16 / 9", rule(admin_css, ".dcard .ph"))
+        self.assertIn("padding-top: 58px", rule(admin_css, ".dcard.nocover:has(.dcard-select) .b"))
+        self.assertIn(".dcard:has(.menu.open)", admin_css)
         self.assertIn(
             ".grid { grid-template-columns: minmax(0, 1fr); gap: 14px; }",
             admin_css,
@@ -166,7 +155,8 @@ class ReviewCollectionUiTests(unittest.TestCase):
             admin_css,
         )
         self.assertIn(".cfeed { grid-template-columns: minmax(0, 1fr); }", admin_css)
-        self.assertIn(".dates-bulk-form, .drow-select { display: none; }", admin_css)
+        self.assertIn("display: none", rule(admin_css, ".dates-bulk-form[hidden]"))
+        self.assertRegex(admin_css, r"\.dates-bulk-form\s*\{[^}]*position:\s*fixed")
         self.assertIn("profile-tab-{{ tab }}", profile_sections)
         self.assertIn(
             "sizes=\"(min-width: 980px) 360px, (min-width: 641px) 44vw, calc(100vw - 28px)\"",
@@ -210,24 +200,32 @@ class ReviewCollectionUiTests(unittest.TestCase):
         self.assertIn('document.getElementById("datesBulkForm")', admin_js)
         self.assertIn("bulkAll.indeterminate", admin_js)
         self.assertIn('row.classList.toggle("is-selected", item.checked)', admin_js)
-        self.assertIn('var dlist = document.querySelector(".dlist")', admin_js)
+        self.assertIn('bulkForm.hidden = selected === 0', admin_js)
+        self.assertIn('document.body.classList.toggle("has-bulk-selection", selected > 0)', admin_js)
+        self.assertNotIn('var dlist = document.querySelector(".dlist")', admin_js)
         self.assertNotIn('sessionStorage.getItem("forcedCards")', admin_js)
         self.assertNotIn('sessionStorage.setItem("forcedCards"', admin_js)
 
         bulk_form = dates.split('<form class="dates-bulk-form"', 1)[1].split(
             "</form>", 1,
         )[0]
+        self.assertIn('id="datesBulkForm" hidden', bulk_form)
         self.assertNotIn('class="btn small', bulk_form)
         self.assertGreaterEqual(bulk_form.count("bulk-action"), 4)
         self.assertGreaterEqual(bulk_form.count(" disabled"), 4)
         self.assertIn("bulk-danger", bulk_form)
 
-        checkbox = rule(admin_css, ".dates-bulk-all input, .drow-check")
+        selector = rule(admin_css, ".dcard-select")
+        self.assertIn("width: 44px", selector)
+        self.assertIn("height: 44px", selector)
+        self.assertIn("background: none", selector)
+        checkbox = rule(admin_css, ".dcard-select .drow-check, .dates-bulk-all input")
         self.assertIn("appearance: none", checkbox)
-        self.assertIn("width: 26px", checkbox)
-        self.assertIn("height: 26px", checkbox)
-        self.assertIn("var(--accent)", checkbox)
-        self.assertIn(".dates-bulk-all input:checked, .drow-check:checked", admin_css)
+        self.assertIn("width: 28px", checkbox)
+        self.assertIn("height: 28px", checkbox)
+        self.assertIn("background: var(--card)", checkbox)
+        self.assertIn(".dcard-select .drow-check:checked", admin_css)
+        self.assertIn("html .dcard.is-selected[data-status-tone]", admin_css)
         self.assertIn(".dates-bulk-all input:indeterminate", admin_css)
         bulk_buttons = rule(admin_css, ".dates-bulk-actions .btn")
         self.assertIn("min-height: 42px", bulk_buttons)

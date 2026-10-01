@@ -244,8 +244,8 @@ class NotificationUiTests(unittest.TestCase):
         css = (APP / "static/admin.css").read_text(encoding="utf-8")
 
         self.assertEqual(
-            dates.count('data-status-tone="{{ event_tone(r) }}"'), 2,
-            "карточки и строки событий должны получать тон из одного макроса",
+            dates.count('data-status-tone="{{ event_tone(r) }}"'), 1,
+            "единственный вид карточек событий получает тон из общего макроса",
         )
         self.assertIn(
             'data-status-tone="{{ \'success\' if c[\'is_active\'] else \'neutral\' }}"',
@@ -258,8 +258,17 @@ class NotificationUiTests(unittest.TestCase):
             css,
         )
         self.assertIn(".category-events-card tr[data-status-tone] > td", css)
-        self.assertIn('border-inline-start: 4px solid var(--entity-surface-tone)', css)
-        self.assertIn('--entity-surface-wash: color-mix(', css)
+        self.assertIn("border-inline-start-width: 1px;", css)
+        self.assertIn("border-inline-start-color: var(--line);", css)
+        self.assertNotIn("border-inline-start: 4px solid var(--entity-surface-tone)", css)
+        row_style = css.split(".category-events-card tr[data-status-tone] > td {", 1)[1].split("}", 1)[0]
+        self.assertIn("background-color: transparent;", row_style)
+        first_cell_style = css.split(".category-events-card tr[data-status-tone] > td:first-child {", 1)[1].split("}", 1)[0]
+        self.assertIn("border-inline-start: 0;", first_cell_style)
+        self.assertIn("{{ event_lifecycle(r) }}", dates)
+        self.assertIn("{{ event_visibility(r) }}", dates)
+        self.assertIn('class="entity-status-row cat-status-row"', categories)
+        self.assertIn("{{ event_lifecycle(d) }}", detail)
 
         env = Environment(loader=FileSystemLoader(APP / "templates"))
         template = env.from_string(

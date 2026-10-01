@@ -149,17 +149,20 @@ class FrontendMediaContractTests(unittest.TestCase):
         dates = (APP / "templates/admin/dates.html").read_text("utf-8")
         css = (APP / "static/public.css").read_text("utf-8")
         self.assertIn(
-            'sizes="(max-width: 899px) calc(100vw - 32px), 820px"',
+            'sizes="(max-width: 899px) calc(100vw - 32px), 680px"',
             category,
         )
         self.assertIn(
             'sizes="(max-width: 899px) calc(100vw - 32px), 680px"',
             share,
         )
-        self.assertIn(
-            'sizes="(max-width: 720px) 64px, 380px"',
+        self.assertRegex(
             dates,
+            r'sizes="\(max-width: 720px\) calc\(100vw - 36px\),\s+'
+            r'\(max-width: 950px\) and \(max-height: 600px\) calc\(100vw - 36px\),\s+'
+            r'380px"',
         )
+        self.assertNotIn('sizes="(max-width: 720px) 64px, 380px"', dates)
         self.assertIn('class="public-event-page public-category-page"', category)
         self.assertIn('class="public-event-page public-share-page"', share)
         self.assertIn("@media (min-width: 900px)", css)
@@ -168,10 +171,7 @@ class FrontendMediaContractTests(unittest.TestCase):
         self.assertIn(".public-event-page.public-category-page .cards", css)
         self.assertIn(".public-event-page.public-share-page .cards", css)
         self.assertIn("grid-template-columns: minmax(0, 1fr)", css)
-        self.assertIn(
-            ".public-event-page.public-category-page .cards { width: min(100%, 820px); }",
-            css,
-        )
+        self.assertRegex(css, r'\.cards \{[^}]*max-width: 680px;')
         self.assertIn(
             ".public-event-page.public-share-page .cards { width: min(100%, 680px); }",
             css,

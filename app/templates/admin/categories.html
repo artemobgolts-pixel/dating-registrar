@@ -11,18 +11,17 @@
   <a class="btn primary category-create-btn" href="/admin/categories/new">Создать подборку</a>
 </div>
 
-<form class="admin-list-search" method="get" action="/admin/categories" role="search">
+<form class="admin-list-search" method="get" action="/admin/categories" role="search" data-live-search>
   <label class="admin-search-input">
     <span class="sr-only">Поиск по подборкам</span>
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg>
     <input type="search" name="q" value="{{ q }}" maxlength="200"
            placeholder="Поиск по подборкам" autocomplete="off">
-    {% if q %}<a class="admin-search-clear" href="/admin/categories" aria-label="Очистить поиск">✕</a>{% endif %}
+    <a class="admin-search-clear" href="/admin/categories" aria-label="Очистить поиск" data-live-search-clear {% if not q %}hidden{% endif %}>✕</a>
   </label>
-  <button class="btn primary" type="submit">Найти</button>
 </form>
 
-<div data-tour="categories-collection">
+<div data-tour="categories-collection" data-live-search-results>
 {% for c in cats %}
 <div class="card cat-card has-thumb"
      data-status-tone="{{ 'success' if c['is_active'] else 'neutral' }}"

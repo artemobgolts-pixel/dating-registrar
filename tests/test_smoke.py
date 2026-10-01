@@ -1576,18 +1576,22 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert 'name="name"' in nf and 'name="csrf"' in nf and 'name="categories"' in nf
     assert 'name="starts_at"' in nf and 'name="comment"' in nf and 'name="images"' in nf
 
-    # список карточками по умолчанию: сетка, бейджи, меню ⋯, переключатель вида
+    # Единственный вид событий: карточки с меню ⋯ и массовым выбором.
     lp = c.get("/admin/dates").text
     assert 'class="grid"' in lp and 'class="dcard' in lp
-    assert 'class="more"' in lp and 'id="viewtog"' in lp
+    assert 'class="more"' in lp and 'data-bulk-item' in lp
+    assert 'id="datesBulkForm" hidden' in lp
+    assert 'id="viewtog"' not in lp and 'class="dlist"' not in lp
     assert "без даты" not in lp                       # #13: пустую дату не подписываем
     assert 'class="dcard-link"' in lp                 # вся карточка кликабельна (#7)
     # карточки несут CSRF в формах действий (меню ⋯)
     assert lp.count('name="csrf"') >= 3
-    # переключение вида через cookie → SSR рисует стеклянный список (.dlist)
+    # Сохранённый старый cookie списка не возвращает удалённый формат.
     c.cookies.set("layout", "list")
     lt = c.get("/admin/dates").text
-    assert 'class="dlist"' in lt and 'class="grid"' not in lt
+    assert 'class="grid"' in lt and 'class="dcard' in lt
+    assert 'data-bulk-item' in lt and 'id="datesBulkForm" hidden' in lt
+    assert 'id="viewtog"' not in lt and 'class="dlist"' not in lt
     c.cookies.set("layout", "cards")
     assert 'class="grid"' in c.get("/admin/dates").text
 
@@ -1600,7 +1604,7 @@ with TestClient(main.app, follow_redirects=False) as c:
     assert "date4you" in c.get("/admin/dates").text   # ребренд в шапке
     # терминология: «гость/гостья» в админке заменены
     assert "Вопросы гостей" not in c.get("/admin/questions").text
-    step("редизайн: сплит-форма с превью, список карточками + переключатель, QR на дашборде")
+    step("редизайн: сплит-форма с превью, карточки с массовым выбором, QR на дашборде")
 
     # ---------- выбор зоны фокуса фото (v7) ----------
     pk = db_one("SELECT id, link_token FROM categories WHERE name='Поделись-кат'")
@@ -2994,6 +2998,7 @@ with TestClient(main.app, follow_redirects=False) as cnata, \
     assert "Публичные события других людей" not in dash
     assert 'id="communityFeed"' in dash
     assert 'id="communitySearchForm"' in dash
+    assert 'data-live-search="submit"' in dash and '>Найти</button>' not in dash
     assert 'placeholder="Название, место или ссылка"' in dash
     assert 'id="communityReportDlg"' in dash and 'id="communityReportForm"' in dash
 
@@ -3018,6 +3023,10 @@ with TestClient(main.app, follow_redirects=False) as cnata, \
     assert "Пикник на закате" in cgosha.get(
         "/admin/community", params={"q": "плед"},
     ).text
+    # Поиск по вводу начинается с первого символа и сохраняет приватность.
+    first_character_feed = cgosha.get("/admin/community", params={"q": "п"}).text
+    assert "Пикник на закате" in first_character_feed
+    assert "Секретный ужин" not in first_character_feed
     link_conn = dbm.connect()
     link_conn.execute(
         "INSERT INTO date_links(date_id,url,position) VALUES(?,?,0)",

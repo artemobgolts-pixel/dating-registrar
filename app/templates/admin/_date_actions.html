@@ -1,0 +1,35 @@
+{# Общие действия для карточки события и его редактора.
+   action_event: запись события; action_has_categories: есть связанные подборки;
+   action_next_url: безопасный адрес возврата после изменения. #}
+{% if action_event['share_token'] and not action_event['operator_review_pending'] %}
+<button type="button" data-copy="{{ BASE_URL }}/d/{{ action_event['share_token'] }}">Поделиться</button>
+{% endif %}
+{% if action_event['is_draft'] and not action_event['archived_at'] and action_has_categories %}
+<form method="post" action="/admin/dates/{{ action_event['id'] }}/publish">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="next" value="{{ action_next_url }}">
+  <button type="submit">Опубликовать</button>
+</form>
+{% endif %}
+<form method="post" action="/admin/dates/{{ action_event['id'] }}/clone">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="next" value="{{ action_next_url }}">
+  <button type="submit">Скопировать событие</button>
+</form>
+<form method="post" action="/admin/dates/{{ action_event['id'] }}/archive">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="next" value="{{ action_next_url }}">
+  <button type="submit">{{ 'Вернуть из архива' if action_event['archived_at'] else 'В архив' }}</button>
+</form>
+<form method="post" action="/admin/dates/{{ action_event['id'] }}/visibility">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="next" value="{{ action_next_url }}">
+  <button type="submit">{{ 'Сделать непубличным' if action_event['is_public'] else 'Сделать публичным' }}</button>
+</form>
+<div class="sepa"></div>
+<form method="post" action="/admin/dates/{{ action_event['id'] }}/delete"
+      data-confirm="Удалить событие безвозвратно? Фото, голоса и вопросы к нему тоже удалятся.">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="next" value="{{ action_next_url }}">
+  <button type="submit" class="danger">Удалить</button>
+</form>

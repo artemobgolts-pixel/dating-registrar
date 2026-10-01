@@ -1,0 +1,84 @@
+/* У полей постоянная ширина: длинные названия и URL увеличивают только высоту. */
+#edCard .body { min-width: 0; }
+#edCard .required-title {
+  display: flex;
+  align-items: baseline;
+  width: 100%;
+  min-width: 0;
+  gap: 2px;
+}
+#edCard .ttl .ed-field {
+  display: block;
+  flex: 1;
+  min-width: 0;
+}
+#edCard .required-mark { flex: none; }
+#edCard .ed-field {
+  box-sizing: border-box;
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+#edCard .ed-desc {
+  width: 100%;
+  padding-inline: 0;
+}
+#edCard .ed-place-row,
+#edCard .ed-links-row {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: start;
+  gap: 6px;
+}
+#edCard .ed-place-row > [aria-hidden],
+#edCard .ed-links-row > [aria-hidden] {
+  display: flex;
+  align-items: center;
+  min-height: 22px;
+}
+#edCard .ed-place,
+#edCard .ed-links {
+  display: block;
+  width: 100%;
+  min-height: 22px;
+  padding: 1px 0;
+}
+#edCard .ed-links { white-space: pre-wrap; }
+#edCard .ed-date,
+#edCard .ed-time { flex: none; }
+#edCard .ed-dd,
+#edCard .ed-mo { box-sizing: border-box; width: 30px; white-space: nowrap; }
+#edCard .ed-hh,
+#edCard .ed-mm { box-sizing: border-box; width: 24px; white-space: nowrap; }
+#edCard .ed-yy { box-sizing: border-box; width: 44px; white-space: nowrap; }
+
+/* Одинаковые интервалы между заголовком, подписями и контролами условий. */
+#dateForm .date-participation {
+  display: grid;
+  gap: 18px;
+}
+#dateForm .date-participation > h2,
+#dateForm .date-participation .field { margin: 0; }
+#dateForm .date-participation .field {
+  display: grid;
+  gap: 8px;
+}
+#dateForm .date-participation .payment-field > label { margin: 0; }
+#dateForm .date-participation .pay-pick {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-auto-rows: minmax(50px, auto);
+  gap: 8px;
+}
+#dateForm .date-participation .pay-any { grid-column: 1 / -1; }
+#dateForm .date-participation .pay-opt {
+  min-width: 0;
+  min-height: 48px;
+  margin: 0;
+  padding: 8px 6px;
+  white-space: normal;
+  text-align: center;
+  line-height: 1.2;
+}
+#dateForm .ed-side-col > .sec { margin-bottom: 0; }

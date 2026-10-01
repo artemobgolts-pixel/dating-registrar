@@ -24,8 +24,8 @@ class TimeAndDeadlineContractTests(unittest.TestCase):
                 self.assertIn("data-deadline-readable", source)
                 self.assertIn('data-deadline-hours="3"', source)
                 self.assertIn('data-deadline-hours="24"', source)
-                self.assertIn('data-deadline-hours="72"', source)
-                self.assertIn('data-deadline-hours="168"', source)
+                self.assertNotIn('data-deadline-hours="72"', source)
+                self.assertNotIn('data-deadline-hours="168"', source)
 
         new_source = (APP / "templates/admin/category_new.html").read_text("utf-8")
         detail_source = (APP / "templates/admin/category_detail.html").read_text("utf-8")
@@ -450,9 +450,7 @@ class TimeAndDeadlineBrowserTests(unittest.TestCase):
             }""")
 
         for surface in ("public-category-page", "public-share-page"):
-            expected_desktop_width = (
-                820 if surface == "public-category-page" else 680
-            )
+            expected_desktop_width = 680
             page.locator("body").evaluate(
                 "(node, value) => node.className = 'public-event-page ' + value",
                 surface,

@@ -3,7 +3,10 @@
 {# Форма со server-rendered состоянием (отмеченные категории, фото). Запрещаем
    Turbo кэшировать/превьюить страницу — иначе при входе показывался устаревший
    снимок формы (категории выглядели «сброшенными»). #}
-{% block head %}<meta name="turbo-cache-control" content="no-cache">{% endblock %}
+{% block head %}
+<meta name="turbo-cache-control" content="no-cache">
+<link rel="stylesheet" href="{{ asset('editor-refinements.css') }}">
+{% endblock %}
 {% block content %}
 <a class="btn ghost editor-back date-editor-back" href="{{ editor_return_url | default('/admin/dates', true) }}">← Назад</a>
 <div class="crumb">События › {{ 'Редактирование' if date else 'Новое' }}</div>
@@ -82,7 +85,6 @@
   <div class="ed-cols">
   <!-- РЕДАКТИРУЕМОЕ ПРЕВЬЮ -->
   <div class="ed-preview-col">
-    <div class="preview-cap">{{ 'Карточка пользователя' if operator_context else 'Карточка события' }} <span class="muted" style="font-weight:400;font-size:12px">— текст меняется прямо здесь; листай фото, а кадр настраивай отдельной кнопкой</span></div>
     <div class="pcard editable" id="edCard" data-tour="date-card-editor"
          data-token="{{ date['share_token'] if date else '' }}">
       <!-- галерея фото/видео: листание + добавление кнопкой + -->
@@ -195,9 +197,9 @@
 
   <!-- МОДИФИКАТОРЫ + КАТЕГОРИИ -->
   <div class="ed-side-col">
-    <div class="sec" data-tour="date-modifiers">
+    <div class="sec date-participation" data-tour="date-modifiers">
       <h2 class="serif"><span class="n">1</span> Условия участия</h2>
-      <div class="field" style="margin:0">
+      <div class="field payment-field">
         <label>Оплата</label>
         <div class="pay-pick" id="payPick">
           <label class="pay-opt pay-any choice-chip"><input type="radio" name="pay" value="0" data-bind="pay" {% if not (draft['pay_split']) %}checked{% endif %}> Не важно</label>
@@ -222,7 +224,6 @@
 
     <div class="sec" data-tour="date-visibility">
       <h2 class="serif"><span class="n">2</span> Подборки</h2>
-      <p class="muted" style="margin:0 0 10px;font-size:13px">Подборки нужны для общего голосования. Событие без подборки всё равно остаётся активным в твоей коллекции.</p>
       <div class="chips-cat">
         {% for c in cats %}
         <label class="chip-cat choice-chip{% if c['id'] in locked_cat_ids %} locked{% endif %}"
@@ -261,11 +262,9 @@
     <button type="button" class="more cat-editor-more" aria-label="Другие действия с событием"
             aria-haspopup="true" aria-expanded="false">⋯</button>
     <div class="menu cat-editor-menu">
-      <form method="post" action="/admin/dates/{{ date['id'] }}/clone">
-        <input type="hidden" name="csrf" value="{{ csrf }}">
-        <input type="hidden" name="next" value="{{ editor_return_url | default('/admin/dates', true) }}">
-        <button type="submit">Скопировать событие</button>
-      </form>
+      {% with action_event=date, action_has_categories=checked, action_next_url=editor_return_url | default('/admin/dates', true) %}
+      {% include "admin/_date_actions.html" %}
+      {% endwith %}
     </div>
   </div>
   {% endif %}

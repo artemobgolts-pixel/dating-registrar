@@ -134,23 +134,25 @@ class EventCardGeometryBrowserTests(unittest.TestCase):
                   <span class="cat-name">Категория</span>
                 </div>
               </article>
-              <section class="dlist">
-                <article class="drow" data-status-tone="neutral">
-                  <label class="drow-select"><input class="drow-check" type="checkbox"></label>
-                  <a class="drow-cover"><img alt="" src="{PHOTO}"></a>
-                  <div class="drow-main"><h2 class="drow-ttl">Событие списка</h2></div>
-                  <div class="drow-act">
-                    <button class="btn">Редактировать</button>
-                    <div class="menu-wrap">
-                      <button class="more">⋯</button>
-                      <div class="menu open"><button>Удалить</button></div>
-                    </div>
+              <section class="grid">
+                <article id="selectable" class="dcard" data-status-tone="neutral">
+                  <label class="dcard-select"><input class="drow-check" type="checkbox" aria-label="Выбрать событие"></label>
+                  <div class="ph"><img alt="" src="{PHOTO}"></div>
+                  <div class="b">
+                    <h2 class="ttl">Выбираемое событие</h2>
+                    <div class="foot"><button class="btn">Редактировать</button></div>
+                  </div>
+                  <div class="menu-wrap card-menu">
+                    <button class="more">⋯</button>
+                    <div class="menu open"><button>Удалить</button></div>
                   </div>
                 </article>
-                <article class="drow drow-without-cover" data-status-tone="success">
-                  <label class="drow-select"><input class="drow-check" type="checkbox"></label>
-                  <div class="drow-main"><h2 class="drow-ttl">Событие без фото</h2></div>
-                  <div class="drow-act"><button class="btn">Редактировать</button></div>
+                <article id="without-cover" class="dcard nocover" data-status-tone="success">
+                  <label class="dcard-select"><input class="drow-check" type="checkbox" aria-label="Выбрать событие без фото"></label>
+                  <div class="b">
+                    <h2 class="ttl">Событие без фото</h2>
+                    <div class="foot"><button class="btn">Редактировать</button></div>
+                  </div>
                 </article>
               </section>
               <section class="card category-events-card">
@@ -192,7 +194,7 @@ class EventCardGeometryBrowserTests(unittest.TestCase):
                 "admin-editor-preview", ".pcard.editable",
                 ".pcard.editable > .ed-gallery", ".pcard.editable > .body",
             ),
-            ("admin-list", ".drow", ".drow > .drow-cover", ".drow > .drow-main"),
+            ("selectable-card", "#selectable", "#selectable > .ph", "#selectable > .b"),
             ("feed", ".cfeed-card", ".cfeed-card > .cfeed-ph", ".cfeed-card > .cfeed-body"),
             (
                 "admin-widget", "#communityDlg .cwid.has-media",
@@ -207,32 +209,36 @@ class EventCardGeometryBrowserTests(unittest.TestCase):
                 measured = self.geometry(page, outer, media, body)
                 self.assert_vertical(measured, (name, skin, "desktop"))
                 self.assertLessEqual(measured["cardWidth"], 682, (name, skin))
-                if name in {"collection", "admin-list", "feed", "admin-widget"}:
+                if name in {"collection", "selectable-card", "feed", "admin-widget"}:
                     self.assertEqual(measured["direction"], "column", (name, skin))
-            list_media = page.locator(".drow-cover").bounding_box()
-            list_actions = page.locator(
-                ".drow:not(.drow-without-cover) .drow-act",
+            card_media = page.locator("#selectable .ph").bounding_box()
+            card_actions = page.locator(
+                "#selectable .foot",
             ).bounding_box()
-            checkbox = page.locator(".drow-check").first.bounding_box()
+            checkbox = page.locator("#selectable .drow-check").bounding_box()
             no_cover_checkbox = page.locator(
-                ".drow-without-cover .drow-select",
+                "#without-cover .dcard-select",
             ).bounding_box()
             no_cover_title = page.locator(
-                ".drow-without-cover .drow-ttl",
+                "#without-cover .ttl",
             ).bounding_box()
-            open_menu = page.locator(".drow .menu.open").bounding_box()
+            open_menu = page.locator("#selectable .menu.open").bounding_box()
             self.assertGreaterEqual(
-                list_actions["y"], list_media["y"] + list_media["height"] - 2,
+                card_actions["y"], card_media["y"] + card_media["height"] - 2,
                 skin,
             )
             self.assertIsNotNone(checkbox, skin)
+            self.assertGreaterEqual(checkbox["x"], card_media["x"], skin)
+            self.assertGreaterEqual(checkbox["y"], card_media["y"], skin)
+            self.assertGreaterEqual(no_cover_checkbox["width"], 44, skin)
+            self.assertGreaterEqual(no_cover_checkbox["height"], 44, skin)
             self.assertLessEqual(
-                no_cover_checkbox["x"] + no_cover_checkbox["width"],
-                no_cover_title["x"],
+                no_cover_checkbox["y"] + no_cover_checkbox["height"],
+                no_cover_title["y"],
                 skin,
             )
             self.assertEqual(
-                page.locator(".drow").first.evaluate(
+                page.locator("#selectable").evaluate(
                     "node => getComputedStyle(node).overflow",
                 ),
                 "visible",
@@ -246,29 +252,23 @@ class EventCardGeometryBrowserTests(unittest.TestCase):
                 return {
                   edgeWidth: style.borderInlineStartWidth,
                   edgeColor: style.borderInlineStartColor,
-                  wash: style.backgroundColor,
+                  endWidth: style.borderInlineEndWidth,
                 };
               };
               return {
                 warning: read('.dcard[data-status-tone="warning"]'),
                 danger: read('.cat-card[data-status-tone="danger"]'),
-                neutral: read('.drow[data-status-tone="neutral"]'),
-                success: read('.drow[data-status-tone="success"]'),
+                neutral: read('#selectable'),
+                success: read('#without-cover'),
               };
             }""")
             for tone in ("warning", "danger", "neutral", "success"):
-                self.assertEqual(status_surfaces[tone]["edgeWidth"], "4px", (skin, tone))
-            for tone in ("warning", "danger", "neutral"):
-                self.assertNotIn(
-                    status_surfaces[tone]["wash"], ("transparent", "rgba(0, 0, 0, 0)"),
-                    (skin, tone),
+                self.assertEqual(status_surfaces[tone]["edgeWidth"], "1px", (skin, tone))
+                self.assertEqual(
+                    status_surfaces[tone]["edgeWidth"], status_surfaces[tone]["endWidth"],
+                    (skin, tone, "uniform border width"),
                 )
-            self.assertIn(
-                status_surfaces["success"]["wash"],
-                ("transparent", "rgba(0, 0, 0, 0)"),
-                skin,
-            )
-            self.assertNotEqual(
+            self.assertEqual(
                 status_surfaces["warning"]["edgeColor"],
                 status_surfaces["danger"]["edgeColor"],
                 skin,
@@ -279,8 +279,8 @@ class EventCardGeometryBrowserTests(unittest.TestCase):
               const style = getComputedStyle(node);
               return {edgeWidth: style.borderInlineStartWidth, wash: style.backgroundColor};
             }""")
-            self.assertEqual(table_status["edgeWidth"], "4px", skin)
-            self.assertNotIn(
+            self.assertEqual(table_status["edgeWidth"], "0px", skin)
+            self.assertIn(
                 table_status["wash"], ("transparent", "rgba(0, 0, 0, 0)"), skin,
             )
 
@@ -296,9 +296,6 @@ class EventCardGeometryBrowserTests(unittest.TestCase):
                 "(node, value) => node.dataset.skin = value", skin,
             )
             for name, outer, media, body in surfaces:
-                if name == "admin-list":
-                    # Мобильный list-view сохраняет прежнюю компактную строку.
-                    continue
                 self.assert_vertical(
                     self.geometry(page, outer, media, body),
                     (name, skin, "mobile"),
@@ -319,9 +316,9 @@ class EventCardGeometryBrowserTests(unittest.TestCase):
                 cellEdgeWidth: first.borderInlineStartWidth,
               };
             }""")
-            self.assertEqual(mobile_table_status["edgeWidth"], "4px", skin)
+            self.assertEqual(mobile_table_status["edgeWidth"], "0px", skin)
             self.assertEqual(mobile_table_status["cellEdgeWidth"], "0px", skin)
-            self.assertNotIn(
+            self.assertIn(
                 mobile_table_status["wash"],
                 ("transparent", "rgba(0, 0, 0, 0)"),
                 skin,
@@ -345,13 +342,13 @@ class EventCardGeometryBrowserTests(unittest.TestCase):
                 for selector in (
                     '.dcard[data-status-tone="warning"]',
                     '.cat-card[data-status-tone="danger"]',
-                    '.drow[data-status-tone="neutral"]',
+                    '#selectable',
                 ):
                     self.assertEqual(
                         page.locator(selector).evaluate(
                             "node => getComputedStyle(node).borderInlineStartWidth",
                         ),
-                        "4px",
+                        "1px",
                         (skin, theme, selector),
                     )
 
@@ -502,13 +499,16 @@ class EventCardGeometryBrowserTests(unittest.TestCase):
             )
         dates_template = (APP / "templates/admin/dates.html").read_text("utf-8")
         self.assertIn(
-            "badge badge-meta media-badge media-badge--guest media-badge--inflow",
+            "bdg guest media-badge media-badge--guest",
             dates_template,
         )
         self.assertIn(
-            "badge badge-split media-badge media-badge--pay media-badge--inflow",
+            "bdg pay media-badge media-badge--pay",
             dates_template,
         )
+        self.assertIn('class="badges media-badges media-badges--inflow inflow"', dates_template)
+        self.assertNotIn('class="dlist"', dates_template)
+        self.assertNotIn('class="viewtog"', dates_template)
 
         admin = self.page_with_styles(f"""
           <html data-skin="romantic" data-theme="light"><body>
@@ -597,10 +597,21 @@ class EventCardGeometryBrowserTests(unittest.TestCase):
               };
               const style = getComputedStyle(node);
               const foreground = compositeOnWhite(parse(style.color));
-              const background = compositeOnWhite(parse(style.backgroundColor));
               const a = luminance(foreground);
-              const b = luminance(background);
-              return (Math.max(a, b) + .05) / (Math.min(a, b) + .05);
+              let surface = node;
+              let backgrounds = [parse(style.backgroundColor)];
+              // У счётчика вкладки нет собственной подложки: сравниваем текст
+              // с реальным фоном вкладки и каждым концом её градиента.
+              while (backgrounds.every(value => value[3] === 0) && surface.parentElement) {
+                surface = surface.parentElement;
+                const parentStyle = getComputedStyle(surface);
+                const stops = parentStyle.backgroundImage.match(/rgba?\\([^)]*\\)/g);
+                backgrounds = stops ? stops.map(parse) : [parse(parentStyle.backgroundColor)];
+              }
+              return Math.min(...backgrounds.map(value => {
+                const b = luminance(compositeOnWhite(value));
+                return (Math.max(a, b) + .05) / (Math.min(a, b) + .05);
+              }));
             }""")
 
         self.assertEqual(badge_styles(admin, "#count")["radius"], "7px")
@@ -614,6 +625,11 @@ class EventCardGeometryBrowserTests(unittest.TestCase):
                       node.dataset.theme = appearance.theme;
                     }""", {"skin": skin, "theme": theme})
                     context = (label, skin, theme)
+                    if label == "admin":
+                        tab = badge_styles(page, "#tab-count")
+                        self.assertEqual(tab["background"], "rgba(0, 0, 0, 0)", context)
+                        self.assertEqual(tab["shadow"], "none", context)
+                        self.assertEqual(tab["radius"], "0px", context)
                     photo = badge_styles(page, "#photo")
                     inflow = badge_styles(page, "#inflow")
                     editor_photo = badge_styles(page, "#editor-photo")

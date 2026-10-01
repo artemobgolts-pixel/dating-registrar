@@ -17,7 +17,7 @@
     {% endfor %}
   </nav>
 
-  <form class="search-form" method="get" action="/operator/dates" role="search">
+  <form class="search-form" method="get" action="/operator/dates" role="search" data-live-search>
     <input type="hidden" name="flt" value="{{ flt }}">
     <label class="search-field">
       <span class="sr-only">Поиск событий</span>
@@ -26,8 +26,7 @@
              autocomplete="off" data-op-search>
       <span class="search-shortcut" aria-hidden="true">/</span>
     </label>
-    <button class="btn primary" type="submit">Найти</button>
-    {% if q %}<a class="btn" href="/operator/dates?flt={{ flt }}">Сбросить</a>{% endif %}
+    <a data-live-search-clear {% if not q %}hidden{% endif %} class="btn" href="/operator/dates?flt={{ flt }}">Сбросить</a>
   </form>
 </div>
 

@@ -262,6 +262,33 @@ class CommunityFeedTests(unittest.TestCase):
         self.assertEqual(self._names(infrastructure_noise), [])
         self.assertEqual(by_map.mode, "search")
 
+    def test_search_matches_from_first_character_and_keeps_pagination(self):
+        owner = self._user("Автор")
+        expected = {
+            self._event(owner, f"Кино {index}") for index in range(5)
+        }
+        self._event(owner, "Прогулка")
+        self._event(owner, "Кино скрытое", is_public=0)
+        seen = []
+        cursor = None
+        for _ in range(4):
+            result = community_feed.page(
+                self.conn, self.viewer, now=NOW, query="к", cursor=cursor,
+                page_size=2,
+            )
+            self.assertEqual(result.mode, "search")
+            seen.extend(int(row["id"]) for row in result.rows)
+            cursor = result.next_cursor
+            if not cursor:
+                break
+        self.assertEqual(set(seen), expected)
+        self.assertEqual(len(seen), len(expected))
+        self.assertIsNone(cursor)
+        result = community_feed.page(
+            self.conn, self.viewer, now=NOW, query="ки",
+        )
+        self.assertEqual({int(row["id"]) for row in result.rows}, expected)
+
     def test_search_allows_small_typo_but_does_not_guess_other_meanings(self):
         owner = self._user("Автор")
         self._event(owner, "Шоколадница на Невском")

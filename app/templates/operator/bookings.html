@@ -31,7 +31,7 @@
     <button class="btn" type="submit">Применить</button>
     {% if kind or state %}<a class="btn" href="/operator/bookings?q={{ q | urlencode }}{% if voter_id %}&amp;voter_id={{ voter_id }}{% endif %}">Сбросить фильтры</a>{% endif %}
   </form>
-  <form class="search-form" method="get" action="/operator/bookings" role="search">
+  <form class="search-form" method="get" action="/operator/bookings" role="search" data-live-search>
     <input type="hidden" name="kind" value="{{ kind }}">
     <input type="hidden" name="state" value="{{ state }}">
     {% if voter_id %}<input type="hidden" name="voter_id" value="{{ voter_id }}">{% endif %}
@@ -43,8 +43,7 @@
              autocomplete="off" data-op-search>
       <span class="search-shortcut" aria-hidden="true">/</span>
     </label>
-    <button class="btn primary" type="submit">Найти</button>
-    {% if q %}<a class="btn" href="/operator/bookings?kind={{ kind }}&amp;state={{ state }}{% if voter_id %}&amp;voter_id={{ voter_id }}{% endif %}">Сбросить поиск</a>{% endif %}
+    <a data-live-search-clear {% if not q %}hidden{% endif %} class="btn" href="/operator/bookings?kind={{ kind }}&amp;state={{ state }}{% if voter_id %}&amp;voter_id={{ voter_id }}{% endif %}">Сбросить поиск</a>
   </form>
 </div>
 

@@ -14,6 +14,7 @@
 <link rel="stylesheet" href="{{ asset('event-date.css') }}" data-turbo-track="reload">
 <script src="{{ asset('confirm.js') }}" defer></script>
 <script src="{{ asset('operator.js') }}" defer></script>
+<script src="{{ asset('live-search.js') }}" defer></script>
 <script src="{{ asset('ink.js') }}"
         data-runtime-src="{{ asset('ink-runtime.js') }}"
         data-worker-src="{{ asset('ink-worker.js') }}"
@@ -255,7 +256,7 @@
       </div>
     </header>
 
-    <main class="op-content" id="operatorContent" tabindex="-1">
+    <main class="op-content" id="operatorContent" tabindex="-1" data-live-search-results>
       <div class="op-page-head">
         <div class="op-page-head__copy">
           <p class="op-eyebrow">{% block page_eyebrow %}Управление платформой{% endblock %}</p>

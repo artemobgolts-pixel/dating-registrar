@@ -227,8 +227,10 @@ class CommunityFeedBrowserTests(unittest.TestCase):
         self.ignore_transport_abort()
         self.open_feed()
         held = self.hold_page(query="")
+        # Ввод больше не кликает кнопку наверху страницы. Возвращаем viewport
+        # сами, чтобы не загрузить корректную вторую страницу новой выдачи.
+        self.page.evaluate("window.scrollTo(0, 0)")
         self.page.locator("#communitySearchInput").fill("Пикник")
-        self.page.get_by_role("button", name="Найти", exact=True).click()
         expect(self.cards).to_have_count(12)
         expect(self.page.locator("#communitySearchStatus")).to_contain_text("Результаты")
         search_first = self.card_ids()

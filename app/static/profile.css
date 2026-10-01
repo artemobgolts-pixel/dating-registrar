@@ -673,3 +673,14 @@ html[data-theme="dark"] .profile-public-page .review-card {
     transition: opacity 160ms linear !important;
   }
 }
+
+/* Публичные события в профиле и кабинете повторяют пропорции ленты. */
+@media (max-width: 720px) {
+  .pub-dates:not(.profile-tab-reviews) .pub-grid { grid-template-columns: minmax(0, 1fr); }
+  .pub-card .ph,
+  .profile-public-page .profile-tab-events .pub-card .ph,
+  .profile-public-page .profile-tab-interests .pub-card .ph {
+    height: auto; aspect-ratio: 16 / 9;
+  }
+  .pub-card .cb { padding: 15px 16px 16px; }
+}

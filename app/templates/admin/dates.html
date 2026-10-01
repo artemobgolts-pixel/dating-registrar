@@ -13,7 +13,7 @@
   <a class="btn primary" href="/admin/dates/new?{{ editor_return_query }}" data-tour="dates-create">+ Новое событие</a>
 </div>
 
-<form class="admin-list-search" method="get" action="/admin/dates" role="search">
+<form class="admin-list-search" method="get" action="/admin/dates" role="search" data-live-search>
   <input type="hidden" name="view" value="{{ view }}">
   {% if sort != 'new' %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
   {% if flt %}<input type="hidden" name="f" value="{{ flt }}">{% endif %}
@@ -23,11 +23,11 @@
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg>
     <input type="search" name="q" value="{{ q }}" maxlength="200"
            placeholder="Название, место или подборка" autocomplete="off">
-    {% if q %}<a class="admin-search-clear" href="{{ clear_search_url }}" aria-label="Очистить поиск">✕</a>{% endif %}
+    <a class="admin-search-clear" href="{{ clear_search_url }}" aria-label="Очистить поиск" data-live-search-clear{% if not q %} hidden{% endif %}>✕</a>
   </label>
-  <button class="btn primary" type="submit">Найти</button>
 </form>
 
+<div data-live-search-results>
 <div class="controls">
   <div class="tabs dates-status-tabs" data-tour="dates-statuses"
        data-glass-key="dates-status" aria-label="Раздел событий">
@@ -57,54 +57,46 @@
     </select>
   </form>
 
-  <div class="viewtog" id="viewtog">
-    <a href="#" data-layout="cards" class="{{ 'on' if layout == 'cards' else '' }}">🪟 Карточки</a>
-    <a href="#" data-layout="list" class="{{ 'on' if layout == 'list' else '' }}">☰ Список</a>
-  </div>
 </div>
 
 {% if rows %}
-{% if layout == 'cards' %}
+<form class="dates-bulk-form" id="datesBulkForm" hidden method="post" action="/admin/dates/bulk">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="next" value="{{ current_list_url }}">
+  <div class="dates-bulk-selection">
+    <label class="dates-bulk-all">
+      <input type="checkbox" data-bulk-all>
+      <span>Выбрать все</span>
+    </label>
+    <span class="dates-bulk-count" data-bulk-count aria-live="polite">Выбрано: 0</span>
+  </div>
+  <div class="dates-bulk-actions" aria-label="Действия с выбранными событиями">
+    {% if view == 'archived' %}
+    <button type="submit" class="btn ghost bulk-action" name="action" value="restore" disabled>Вернуть из архива</button>
+    {% else %}
+    <button type="submit" class="btn ghost bulk-action" name="action" value="archive" disabled>В архив</button>
+    {% endif %}
+    <button type="submit" class="btn ghost bulk-action" name="action" value="make_public" disabled>Сделать публичными</button>
+    <button type="submit" class="btn ghost bulk-action" name="action" value="make_private" disabled>Сделать непубличными</button>
+    <button type="submit" class="btn danger bulk-action bulk-danger" name="action" value="delete" disabled
+            data-confirm="Удалить выбранные события безвозвратно? Фото, голоса и вопросы к ним тоже удалятся.">Удалить</button>
+  </div>
+</form>
 <div class="grid" data-tour="dates-collection">
   {% for r in rows %}
   <div class="dcard{{ ' archived' if r['archived_at'] else '' }}{{ ' nocover' if not r['cover'] else '' }}"
        data-status-tone="{{ event_tone(r) }}">
+    <label class="dcard-select" title="Выбрать «{{ r['name'] }}»">
+      <input type="checkbox" class="drow-check" name="date_ids" value="{{ r['id'] }}"
+             form="datesBulkForm" data-bulk-item aria-label="Выбрать «{{ r['name'] }}»">
+    </label>
     <a class="dcard-link" href="/admin/dates/{{ r['id'] }}/edit?{{ editor_return_query }}" aria-label="Редактировать «{{ r['name'] }}»"></a>
     <div class="menu-wrap card-menu">
       <button type="button" class="more" aria-label="Ещё действия" aria-haspopup="true" aria-expanded="false">⋯</button>
       <div class="menu">
-        {% if r['is_draft'] and not r['archived_at'] and r['cats'] %}
-        <form method="post" action="/admin/dates/{{ r['id'] }}/publish">
-          <input type="hidden" name="csrf" value="{{ csrf }}">
-          <input type="hidden" name="next" value="{{ current_list_url }}">
-          <button type="submit">Опубликовать</button>
-        </form>
-        {% endif %}
-        <form method="post" action="/admin/dates/{{ r['id'] }}/clone">
-          <input type="hidden" name="csrf" value="{{ csrf }}">
-          <input type="hidden" name="next" value="{{ current_list_url }}">
-          <button type="submit">Скопировать событие</button>
-        </form>
-        {% if r['share_token'] and not r['operator_review_pending'] %}
-        <button type="button" data-copy="{{ BASE_URL }}/d/{{ r['share_token'] }}">{% with icon='link' %}{% include "admin/_icon.html" %}{% endwith %} Поделиться</button>
-        {% endif %}
-        <form method="post" action="/admin/dates/{{ r['id'] }}/archive">
-          <input type="hidden" name="csrf" value="{{ csrf }}">
-          <input type="hidden" name="next" value="{{ current_list_url }}">
-          <button type="submit">{{ 'Вернуть из архива' if r['archived_at'] else 'В архив' }}</button>
-        </form>
-        <form method="post" action="/admin/dates/{{ r['id'] }}/visibility">
-          <input type="hidden" name="csrf" value="{{ csrf }}">
-          <input type="hidden" name="next" value="{{ current_list_url }}">
-          <button type="submit">{{ 'Сделать непубличным' if r['is_public'] else 'Сделать публичным' }}</button>
-        </form>
-        <div class="sepa"></div>
-        <form method="post" action="/admin/dates/{{ r['id'] }}/delete"
-              data-confirm="Удалить событие безвозвратно? Фото, голоса и вопросы к нему тоже удалятся.">
-          <input type="hidden" name="csrf" value="{{ csrf }}">
-          <input type="hidden" name="next" value="{{ current_list_url }}">
-          <button type="submit" class="danger">Удалить</button>
-        </form>
+        {% with action_event=r, action_has_categories=r['cats'], action_next_url=current_list_url %}
+          {% include "admin/_date_actions.html" %}
+        {% endwith %}
       </div>
     </div>
     {% if r['cover'] %}
@@ -156,111 +148,6 @@
   </div>
   {% endfor %}
 </div>
-{% else %}
-<form class="dates-bulk-form" id="datesBulkForm" method="post" action="/admin/dates/bulk">
-  <input type="hidden" name="csrf" value="{{ csrf }}">
-  <input type="hidden" name="next" value="{{ current_list_url }}">
-  <div class="dates-bulk-selection">
-    <label class="dates-bulk-all">
-      <input type="checkbox" data-bulk-all>
-      <span>Выбрать все</span>
-    </label>
-    <span class="dates-bulk-count" data-bulk-count aria-live="polite">Выбрано: 0</span>
-  </div>
-  <div class="dates-bulk-actions" aria-label="Действия с выбранными событиями">
-    {% if view == 'archived' %}
-    <button type="submit" class="btn ghost bulk-action" name="action" value="restore" disabled>Вернуть из архива</button>
-    {% else %}
-    <button type="submit" class="btn ghost bulk-action" name="action" value="archive" disabled>В архив</button>
-    {% endif %}
-    <button type="submit" class="btn ghost bulk-action" name="action" value="make_public" disabled>Сделать публичными</button>
-    <button type="submit" class="btn ghost bulk-action" name="action" value="make_private" disabled>Сделать непубличными</button>
-    <button type="submit" class="btn danger bulk-action bulk-danger" name="action" value="delete" disabled
-            data-confirm="Удалить выбранные события безвозвратно? Фото, голоса и вопросы к ним тоже удалятся.">Удалить</button>
-  </div>
-</form>
-<div class="dlist" data-tour="dates-collection">
-  {% for r in rows %}
-  <div class="drow{{ ' archived' if r['archived_at'] else '' }}"
-       data-status-tone="{{ event_tone(r) }}">
-    <label class="drow-select" title="Выбрать «{{ r['name'] }}»">
-      <input type="checkbox" class="drow-check" name="date_ids" value="{{ r['id'] }}"
-             form="datesBulkForm" data-bulk-item aria-label="Выбрать «{{ r['name'] }}»">
-    </label>
-    <a class="drow-link" href="/admin/dates/{{ r['id'] }}/edit?{{ editor_return_query }}" aria-label="Редактировать «{{ r['name'] }}»"></a>
-    {% if r['cover'] %}
-    <a class="drow-cover g{{ r['id'] % 4 }}" href="/admin/dates/{{ r['id'] }}/edit?{{ editor_return_query }}" aria-label="Редактировать">
-      <img src="/admin/uploads/{{ r['cover'] }}?w=480"
-        srcset="/admin/uploads/{{ r['cover'] }}?w=480 480w,
-                /admin/uploads/{{ r['cover'] }}?w=960 960w"
-        sizes="(max-width: 720px) 64px, 380px" alt="" loading="lazy" fetchpriority="low" decoding="async"
-        {% if r['cover_focus'] %}style="object-position:{{ r['cover_focus'] }}"{% endif %}>
-    </a>
-    {% endif %}
-    <div class="drow-main">
-      <div class="drow-ttl">
-        <a href="/admin/dates/{{ r['id'] }}/edit?{{ editor_return_query }}" class="serif">{{ r['name'] }}</a>
-        {% if r['origin'] == 'guest' %}<span class="badge badge-meta media-badge media-badge--guest media-badge--inflow">💡 предложено</span>{% endif %}
-        {% if r['pay_split'] %}<span class="badge badge-split media-badge media-badge--pay media-badge--inflow" data-pay-value="{{ r['pay_split'] }}">{{ r['pay_split'] | pay_label }}</span>{% endif %}
-      </div>
-      <div class="entity-status-row drow-status-row">
-        {{ event_lifecycle(r) }}
-        {{ event_visibility(r) }}
-      </div>
-      {{ event_date(r['starts_at'], r['ends_at']) }}
-      {% if r['cats'] or r['books'] %}
-      <div class="drow-meta">
-        {% if r['cats'] %}<span>{{ r['cats'] }}</span>{% endif %}
-        {% if r['books'] %}<span>{% if r['cats'] %}· {% endif %}{% with icon='check' %}{% include "admin/_icon.html" %}{% endwith %} {{ r['booked_names'] }}</span>{% endif %}
-      </div>
-      {% endif %}
-    </div>
-    <div class="drow-act">
-      <a class="btn small" href="/admin/dates/{{ r['id'] }}/edit?{{ editor_return_query }}">Редактировать</a>
-      {% if r['share_token'] and not r['operator_review_pending'] %}
-      <a class="btn small open-date" href="/d/{{ r['share_token'] }}" target="_blank" rel="noopener">Открыть</a>
-      <button type="button" class="btn small" data-copy="{{ BASE_URL }}/d/{{ r['share_token'] }}">Поделиться</button>
-      {% endif %}
-      <div class="menu-wrap">
-      <button type="button" class="more" aria-label="Ещё действия" aria-haspopup="true" aria-expanded="false">⋯</button>
-      <div class="menu">
-        {% if r['is_draft'] and not r['archived_at'] and r['cats'] %}
-        <form method="post" action="/admin/dates/{{ r['id'] }}/publish">
-          <input type="hidden" name="csrf" value="{{ csrf }}">
-          <input type="hidden" name="next" value="{{ current_list_url }}">
-          <button type="submit">Опубликовать</button>
-        </form>
-        {% endif %}
-        <form method="post" action="/admin/dates/{{ r['id'] }}/clone">
-          <input type="hidden" name="csrf" value="{{ csrf }}">
-          <input type="hidden" name="next" value="{{ current_list_url }}">
-          <button type="submit">Скопировать событие</button>
-        </form>
-        <form method="post" action="/admin/dates/{{ r['id'] }}/archive">
-          <input type="hidden" name="csrf" value="{{ csrf }}">
-          <input type="hidden" name="next" value="{{ current_list_url }}">
-          <button type="submit">{{ 'Вернуть из архива' if r['archived_at'] else 'В архив' }}</button>
-        </form>
-        <form method="post" action="/admin/dates/{{ r['id'] }}/visibility">
-          <input type="hidden" name="csrf" value="{{ csrf }}">
-          <input type="hidden" name="next" value="{{ current_list_url }}">
-          <button type="submit">{{ 'Сделать непубличным' if r['is_public'] else 'Сделать публичным' }}</button>
-        </form>
-        <div class="sepa"></div>
-        <form method="post" action="/admin/dates/{{ r['id'] }}/delete"
-              data-confirm="Удалить событие безвозвратно? Фото, голоса и вопросы к нему тоже удалятся.">
-          <input type="hidden" name="csrf" value="{{ csrf }}">
-          <input type="hidden" name="next" value="{{ current_list_url }}">
-          <button type="submit" class="danger">Удалить</button>
-        </form>
-      </div>
-      </div>
-    </div>
-  </div>
-  {% endfor %}
-</div>
-{% endif %}
-
 {% if pages > 1 %}
 <div class="pager">
   {% if page > 1 %}<a class="btn small" href="/admin/dates?view={{ view }}{{ qs_keep }}&page={{ page - 1 }}">← Назад</a>{% endif %}
@@ -289,4 +176,5 @@
   </div>
 </div>
 {% endif %}
+</div>
 {% endblock %}

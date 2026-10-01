@@ -138,7 +138,11 @@ class EventDatesTests(unittest.TestCase):
         self.client.cookies.set('layout', 'list')
         try:
             listing = self.client.get('/admin/dates').text
-            self.assertIn('class="drow', listing)
+            # Старое предпочтение больше не меняет единственный вид карточек.
+            self.assertIn('class="dcard', listing)
+            self.assertNotIn('class="drow ', listing)
+            self.assertNotIn('class="dlist"', listing)
+            self.assertNotIn('class="viewtog"', listing)
             self.assertIn('datetime="2099-12-31T23:30+03:00"', listing)
             self.assertNotIn('Дата уточняется', listing)
         finally:
@@ -195,16 +199,14 @@ class EventDatesTests(unittest.TestCase):
                 surfaces = [
                     ('/admin/', 'cards', f'.cfeed-card[data-widget="{other_dated}"]', f'.cfeed-card[data-widget="{other_undated}"]'),
                     (f'/admin/dates?cat={self.cat}', 'cards', f'.dcard:has(.ttl a[href^="/admin/dates/{own_dated}/"])', f'.dcard:has(.ttl a[href^="/admin/dates/{own_undated}/"])'),
-                    ('/admin/dates', 'list', f'.drow:has(.drow-ttl a[href^="/admin/dates/{own_dated}/"])', f'.drow:has(.drow-ttl a[href^="/admin/dates/{own_undated}/"])'),
+                    ('/admin/dates', 'list', f'.dcard:has(.ttl a[href^="/admin/dates/{own_dated}/"])', f'.dcard:has(.ttl a[href^="/admin/dates/{own_undated}/"])'),
                     ('/c/other', 'cards', f'#date-{other_dated}', f'#date-{other_undated}'),
                     (f'/u/{self.other_user}', 'cards', '.pub-card[href="/d/other-dated"]', '.pub-card[href="/d/other-undated"]'),
                 ]
                 for width in (320, 390, 1280):
                     page.set_viewport_size({'width': width, 'height': 900})
                     for path, layout, dated_selector, undated_selector in surfaces:
-                        # На телефоне приложение автоматически заменяет список карточками.
-                        if layout == 'list' and width <= 720:
-                            continue
+                        # Legacy cookie=list также должен давать карточки на любом экране.
                         context.add_cookies([{'name': 'layout', 'value': layout, 'url': self.backend.url}])
                         page.goto(self.backend.url + path)
                         dated, undated = page.locator(dated_selector), page.locator(undated_selector)

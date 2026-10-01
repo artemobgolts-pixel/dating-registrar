@@ -310,7 +310,7 @@ class EditorScrollAndFeedGeometryTests(unittest.TestCase):
             ),
         )
         self.assertNotIn(">Сбросить</button>", search)
-        self.assertIn('<span aria-hidden="true">⟲</span>', search)
+        self.assertIn('<span aria-hidden="true">×</span>', search)
         self.assertNotIn(
             "Ищем также в описании и читаемой части ссылок на карты.", template,
         )
@@ -333,10 +333,9 @@ class EditorScrollAndFeedGeometryTests(unittest.TestCase):
                 <input id="communitySearchInput" type="search">
                 <button id="communitySearchClear" class="cfeed-search-clear"
                         type="button" aria-label="Сбросить поиск" hidden>
-                  <span aria-hidden="true">⟲</span>
+                  <span aria-hidden="true">×</span>
                 </button>
               </div>
-              <button type="submit" class="btn primary">Найти</button>
             </div>
           </form>
           <div id="communityFeed" data-feed-url="/admin/community"></div>

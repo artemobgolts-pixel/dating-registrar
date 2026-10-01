@@ -229,26 +229,13 @@
     }
   }
 
-  // --- список событий: меню ⋯, стеклянные вкладки, переключатель вида -------
+  // --- карточки событий: меню ⋯, вкладки и массовый выбор -------------------
   function initDates() {
     if (window.UI && UI.cardMenu) UI.cardMenu(document);
     if (window.UI && UI.glassTabs) UI.glassTabs(document.querySelector(".tabs"));
 
-    // На телефоне — только карточки: если сервер всё же отдал list-разметку,
-    // каждый раз исправляем cookie и перезагружаем страницу. После перезагрузки
-    // `.dlist` исчезнет, поэтому отдельный sessionStorage-флаг от цикла не нужен.
-    // Он, напротив, ломал сценарий mobile → desktop/list → mobile в одной вкладке.
-    var dlist = document.querySelector(".dlist");
-    if (dlist && window.matchMedia(
-          "(max-width: 720px), (max-width: 950px) and (max-height: 600px) and (pointer: coarse)"
-        ).matches) {
-      document.cookie = "layout=cards;path=/admin;max-age=31536000;samesite=lax";
-      if (window.Turbo && Turbo.visit) Turbo.visit(location.href, { action: "replace" });
-      else location.reload();
-      return;
-    }
-
     var bulkForm = document.getElementById("datesBulkForm");
+    if (!bulkForm) document.body.classList.remove("has-bulk-selection");
     if (bulkForm && !bulkForm.dataset.ready) {
       bulkForm.dataset.ready = "1";
       var bulkAll = bulkForm.querySelector("[data-bulk-all]");
@@ -258,6 +245,8 @@
 
       function syncBulkSelection() {
         var selected = bulkItems.filter(function (item) { return item.checked; }).length;
+        bulkForm.hidden = selected === 0;
+        document.body.classList.toggle("has-bulk-selection", selected > 0);
         if (bulkCount) bulkCount.textContent = "Выбрано: " + selected;
         if (bulkAll) {
           bulkAll.checked = bulkItems.length > 0 && selected === bulkItems.length;
@@ -265,7 +254,7 @@
         }
         bulkActions.forEach(function (button) { button.disabled = selected === 0; });
         bulkItems.forEach(function (item) {
-          var row = item.closest(".drow");
+          var row = item.closest(".dcard, .drow");
           if (row) row.classList.toggle("is-selected", item.checked);
         });
       }
@@ -280,22 +269,6 @@
       syncBulkSelection();
     }
 
-    var tog = document.getElementById("viewtog");
-    if (tog && !tog.dataset.ready) {
-      tog.dataset.ready = "1";
-      tog.addEventListener("click", function (e) {
-        var a = e.target.closest("[data-layout]");
-        if (!a) return;
-        e.preventDefault();
-        var v = a.getAttribute("data-layout");
-        document.cookie = "layout=" + v + ";path=/admin;max-age=31536000;samesite=lax";
-        if (window.Turbo && typeof Turbo.visit === "function") {
-          Turbo.visit(location.href, { action: "replace" });
-        } else {
-          location.reload();
-        }
-      });
-    }
   }
 
   // --- редактор события: РЕДАКТИРУЕМОЕ ПРЕВЬЮ (click-to-edit + галерея) ------
@@ -1451,7 +1424,7 @@
       if (typeof normalized.normalize === "function") normalized = normalized.normalize("NFKC");
       normalized = normalized.replace(/\s+/g, " ").trim().slice(0, 80).trim();
       var words = normalized.match(/[0-9A-Za-zА-Яа-яЁё]+/g) || [];
-      return words.some(function (word) { return word.length >= 2; }) ? normalized : "";
+      return words.length ? normalized : "";
     }
 
     function updateSearchControls() {
@@ -2086,6 +2059,7 @@
   // Turbo вызывает turbo:load и при первой загрузке, и после каждого перехода.
   // Если Turbo нет (или ещё не инициализировался) — инициализируем сами один раз.
   document.addEventListener("turbo:load", initPage);
+  document.addEventListener("live-search:render", initPage);
   if (!window.Turbo) {
     if (document.readyState !== "loading") initPage();
     else document.addEventListener("DOMContentLoaded", initPage, { once: true });

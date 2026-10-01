@@ -1938,8 +1938,6 @@ def dates_list(request: Request, conn=Depends(get_db)):
     editor_return_query = urlencode({"return_to": current_list_url})
 
     # вид списка (карточки/таблица) — cookie, читается на сервере для SSR
-    layout = request.cookies.get("layout")
-    layout = layout if layout in ("cards", "list") else "cards"
 
     return templates.TemplateResponse(
         request, "admin/dates.html",
@@ -1950,7 +1948,7 @@ def dates_list(request: Request, conn=Depends(get_db)):
              qs_keep=qs_keep, current_list_url=current_list_url,
              clear_search_url=clear_search_url,
              editor_return_query=editor_return_query,
-             page=page, pages=pages, layout=layout))
+             page=page, pages=pages))
 
 
 def _all_cats(conn, uid: int):

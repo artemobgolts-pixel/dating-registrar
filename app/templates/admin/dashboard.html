@@ -39,7 +39,7 @@
   <a class="btn primary" href="/admin/dates/new">Создать событие</a>
   {% if share %}
   <button type="button" class="btn ghost" data-copy="{{ share_url }}" data-tour="dashboard-share">{% with icon='link' %}{% include "admin/_icon.html" %}{% endwith %} <span class="lbl-full">Скопировать ссылку</span><span class="lbl-short">Ссылка</span></button>
-  <a class="btn ghost" href="/c/{{ share['link_token'] }}" target="_blank" rel="noopener">{% with icon='gather' %}{% include "admin/_icon.html" %}{% endwith %} Проверить страницу</a>
+  <a class="btn ghost" href="/c/{{ share['link_token'] }}" target="_blank" rel="noopener">{% with icon='gather' %}{% include "admin/_icon.html" %}{% endwith %} Проверить подборку</a>
   {% endif %}
 </div>
 
@@ -47,8 +47,7 @@
 <div class="card">
   <div class="share-grid">
     <div>
-      <b>{% with icon='link' %}{% include "admin/_icon.html" %}{% endwith %} Поделиться</b>
-      <p class="muted" style="margin:6px 0 14px;font-size:13.5px">Отправь эту ссылку — по ней человек откроет твою подборку событий.</p>
+      <b>Поделиться</b>
       {% if share_cats | length > 1 %}
       <form method="get" action="/admin/" class="share-pick">
         <label for="shareCollection">Подборка</label>
@@ -113,20 +112,19 @@
   </div>
   {% if community_search_enabled %}
   <form class="cfeed-search" id="communitySearchForm" method="get" action="/admin/"
-        role="search" aria-label="Поиск по ленте событий">
+        role="search" aria-label="Поиск по ленте событий" data-live-search="submit">
     <label class="sr-only" for="communitySearchInput">Название, место, описание или ссылка</label>
     <div class="cfeed-search-row">
       <div class="cfeed-search-input">
         <input type="search" id="communitySearchInput" name="q"
                value="{{ community_query }}" maxlength="80" autocomplete="off"
                placeholder="Название, место или ссылка">
-        <button type="button" class="cfeed-search-clear" id="communitySearchClear"
+        <button type="button" class="cfeed-search-clear" id="communitySearchClear" data-live-search-clear
                 aria-label="Сбросить поиск" title="Сбросить поиск"
                 {% if not community_query %}hidden{% endif %}>
-          <span aria-hidden="true">⟲</span>
+          <span aria-hidden="true">×</span>
         </button>
       </div>
-      <button type="submit" class="btn primary">Найти</button>
     </div>
   </form>
   <p class="muted cfeed-search-status" id="communitySearchStatus"
