@@ -4,15 +4,16 @@
 from __future__ import annotations
 
 import unittest
+from io import BytesIO
 from pathlib import Path
 
+from PIL import Image
+from playwright.sync_api import expect, sync_playwright
+
+from live_backend import LiveBackend
 
 ROOT = Path(__file__).resolve().parents[1]
 APP = ROOT / "app"
-PHOTO = (
-    "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' "
-    "width='1200' height='630'/%3E"
-)
 
 
 class CategoryCardTemplateTests(unittest.TestCase):
@@ -59,64 +60,69 @@ class CategoryCardTemplateTests(unittest.TestCase):
 class CategoryCardGeometryBrowserTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        try:
-            from playwright.sync_api import sync_playwright
-        except Exception as exc:  # pragma: no cover - зависит от dev-окружения
-            raise unittest.SkipTest(f"playwright недоступен: {exc!r}") from exc
-        try:
-            cls.playwright = sync_playwright().start()
-            cls.browser = cls.playwright.chromium.launch(headless=True)
-        except Exception as exc:  # pragma: no cover - браузер может отсутствовать
-            if getattr(cls, "playwright", None):
-                cls.playwright.stop()
-            raise unittest.SkipTest(f"playwright chromium недоступен: {exc!r}") from exc
+        cls.backend = LiveBackend()
+        cls.playwright = sync_playwright().start()
+        cls.browser = cls.playwright.chromium.launch(headless=True)
 
     @classmethod
     def tearDownClass(cls):
-        if getattr(cls, "browser", None):
-            cls.browser.close()
-        if getattr(cls, "playwright", None):
-            cls.playwright.stop()
+        cls.browser.close()
+        cls.playwright.stop()
+        cls.backend.close()
 
-    def page(self, width: int, *, enlarged_text: bool = False):
-        page = self.browser.new_page(viewport={"width": width, "height": 844})
-        self.addCleanup(page.close)
-        page.set_content(f"""
-          <html data-skin="friends"><body>
-            <main class="wrap">
-              <article class="card cat-card has-thumb"
-                       data-status-tone="neutral" data-category-active="false">
-                <a class="cat-link" href="#opened" aria-describedby="cat-status-1"></a>
-                <div class="cat-media">
-                  <img class="cat-thumb" alt="" src="{PHOTO}">
-                </div>
-                <div class="menu-wrap cat-card-menu">
-                  <button type="button" class="more" aria-label="Ещё действия">⋯</button>
-                  <div class="menu"><button>Удалить подборку</button></div>
-                </div>
-                <div class="cat-body">
-                  <div class="cat-heading-line">
-                    <span class="cat-name">Очень длинное название подборки для телефона</span>
-                    <span class="badge">12 событий</span>
-                  </div>
-                  <div class="entity-status-row cat-status-row">
-                    <span class="entity-status entity-status--neutral">
-                      <span class="entity-status-dot"></span><span>Дедлайн прошёл</span>
-                    </span>
-                    <span class="entity-status entity-status--danger">
-                      <span class="entity-status-dot"></span><span>Ссылка выключена</span>
-                    </span>
-                    <span class="entity-status entity-status--warning">
-                      <span class="entity-status-dot"></span><span>Нужен выбор</span>
-                    </span>
-                  </div>
-                  <span class="sr-only" id="cat-status-1">Подборка неактивна.</span>
-                </div>
-              </article>
-            </main>
-          </body></html>
-        """)
-        page.add_style_tag(content=(APP / "static/admin.css").read_text("utf-8"))
+    def setUp(self):
+        self.uid, self.cookie = self.backend.user_cookie()
+        import images
+        # Чисто белый кадр выявляет недостаточное затемнение текста поверх фото.
+        Image.new("RGB", (1200, 630), "white").save(
+            images.UPLOAD_DIR / "category-white-preview.webp", "WEBP",
+        )
+        self.long_name = "ПодборкаБезПробелов" * 10
+        self.categories = {}
+        conn = self.backend.db.connect()
+        try:
+            for count in (0, 1, 2, 5, 11, 21):
+                name = self.long_name if count == 5 else f"Прогулка {count}"
+                cid = conn.execute(
+                    "INSERT INTO categories(owner_id,name,link_token,og_image,choice_mode,"
+                    "voting_deadline,voting_status,created_at) "
+                    "VALUES(?,?,?,?,'single','2099-01-01T12:00','open',?)",
+                    (self.uid, name, f"category-geometry-{count}",
+                     "category-white-preview.webp", self.backend.main.now_iso()),
+                ).lastrowid
+                self.categories[count] = {"id": cid, "name": name}
+                for index in range(count):
+                    did = conn.execute(
+                        "INSERT INTO dates(owner_id,name,created_at) VALUES(?,?,?)",
+                        (self.uid, f"Событие {count}-{index}", self.backend.main.now_iso()),
+                    ).lastrowid
+                    conn.execute(
+                        "INSERT INTO date_categories(date_id,category_id,position) VALUES(?,?,?)",
+                        (did, cid, index),
+                    )
+            # Состав закрытой подборки сначала формируется при открытом голосовании.
+            conn.execute(
+                "UPDATE categories SET voting_deadline='2026-01-01T12:00', "
+                "voting_status='tie',closed_at='2026-01-01T12:00', "
+                "link_enabled=0,operator_review_pending=1 WHERE id=?",
+                (self.categories[5]["id"],),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        self.context = self.browser.new_context(
+            viewport={"width": 1280, "height": 900}, reduced_motion="reduce",
+        )
+        self.addCleanup(self.context.close)
+        self.context.add_cookies([self.cookie])
+        self.page = self.context.new_page()
+
+    def open_list(self, width=1280, *, enlarged_text=False):
+        page = self.page
+        page.set_viewport_size({"width": width, "height": 900})
+        page.goto(self.backend.url + "/admin/categories")
+        expect(page.locator(".cat-card")).to_have_count(6)
+        page.evaluate("document.fonts.ready")
         page.add_style_tag(content="""
           *, *::before, *::after {
             animation: none !important;
@@ -127,120 +133,174 @@ class CategoryCardGeometryBrowserTests(unittest.TestCase):
             page.add_style_tag(content="""
               .cat-card .cat-name { font-size: 1.5rem !important; }
               .cat-card .entity-status { font-size: 1.125rem !important; }
-              .cat-card .badge { font-size: 1rem !important; }
+              .cat-card .cat-preview-count { font-size: 1rem !important; }
             """)
         return page
 
-    def test_mobile_media_menu_and_body_geometry_at_320_and_390(self):
-        for width in (320, 390):
-            with self.subTest(width=width):
-                page = self.page(width)
-                geometry = page.evaluate("""() => {
-                  const card = document.querySelector('.cat-card').getBoundingClientRect();
-                  const media = document.querySelector('.cat-media').getBoundingClientRect();
-                  const image = document.querySelector('.cat-thumb').getBoundingClientRect();
-                  const body = document.querySelector('.cat-body').getBoundingClientRect();
-                  const menu = document.querySelector('.cat-card-menu .more').getBoundingClientRect();
-                  return {
-                    pageOverflow: document.documentElement.scrollWidth - innerWidth,
-                    card: {left: card.left, right: card.right},
-                    media: {left: media.left, right: media.right, top: media.top, bottom: media.bottom},
-                    image: {width: image.width, height: image.height},
-                    body: {left: body.left, right: body.right, top: body.top},
-                    menu: {left: menu.left, right: menu.right, top: menu.top, bottom: menu.bottom,
-                           width: menu.width, height: menu.height},
-                  };
-                }""")
-                self.assertLessEqual(geometry["pageOverflow"], 1)
-                self.assertAlmostEqual(
-                    geometry["image"]["width"] / geometry["image"]["height"],
-                    1200 / 630,
-                    delta=0.03,
-                )
-                self.assertGreaterEqual(geometry["menu"]["width"], 44)
-                self.assertGreaterEqual(geometry["menu"]["height"], 44)
-                self.assertGreaterEqual(geometry["menu"]["left"], geometry["media"]["left"])
-                self.assertLessEqual(geometry["menu"]["right"], geometry["media"]["right"])
-                self.assertLessEqual(geometry["menu"]["top"], geometry["media"]["top"] + 12)
-                self.assertAlmostEqual(
-                    geometry["menu"]["right"], geometry["media"]["right"] - 8,
-                    delta=3,
-                )
-                self.assertLessEqual(geometry["menu"]["bottom"], geometry["media"]["bottom"])
-                self.assertAlmostEqual(
-                    geometry["media"]["bottom"] - geometry["media"]["top"],
-                    geometry["image"]["height"],
-                    delta=2,
-                )
-                self.assertGreaterEqual(geometry["body"]["top"], geometry["media"]["bottom"] - 1)
-                self.assertAlmostEqual(
-                    geometry["body"]["right"] - geometry["body"]["left"],
-                    geometry["media"]["right"] - geometry["media"]["left"],
-                    delta=24,
-                )
+    def card(self, count=5):
+        return self.page.locator(f".cat-card:has(#cat-status-{self.categories[count]['id']})")
 
-    def test_desktop_keeps_preview_beside_the_card_body(self):
-        page = self.page(900)
-        geometry = page.evaluate("""() => {
-          const media = document.querySelector('.cat-media').getBoundingClientRect();
-          const body = document.querySelector('.cat-body').getBoundingClientRect();
-          return {media: {right: media.right, top: media.top, bottom: media.bottom},
-                  body: {left: body.left, top: body.top, bottom: body.bottom}};
+    @staticmethod
+    def appearance(page, skin, theme):
+        page.evaluate("""([skin, theme]) => {
+          document.documentElement.dataset.skin = skin;
+          document.body.dataset.skin = skin;
+          document.documentElement.dataset.theme = theme;
+        }""", [skin, theme])
+
+    def assert_text_contrast(self, locator):
+        """Проверяем фактический фон текста на белом фото, без привязки к scrim CSS."""
+        locator.evaluate("el => el.scrollIntoView({block:'center',inline:'nearest'})")
+        self.assertTrue(locator.evaluate("""el => {
+          const r=el.getBoundingClientRect(), card=el.closest('.cat-card');
+          return [r.y+r.height/4,r.y+r.height*3/4].every(y =>
+            [r.x+r.width/4,r.x+r.width*3/4].every(x => {
+              const hit=document.elementFromPoint(x,y);return hit && card.contains(hit);
+            }));
+        }"""), "Замер текста перекрыт шапкой страницы или другим элементом")
+        appearance = locator.evaluate(r"""el => {
+          const style = getComputedStyle(el);
+          let opacity = 1;
+          for (let node = el; node; node = node.parentElement) opacity *= Number(getComputedStyle(node).opacity);
+          return {color: style.color.match(/[\d.]+/g).map(Number), opacity};
         }""")
-        self.assertGreaterEqual(geometry["body"]["left"], geometry["media"]["right"])
-        self.assertLessEqual(geometry["body"]["top"], geometry["media"]["bottom"])
-        self.assertGreaterEqual(geometry["body"]["bottom"], geometry["media"]["top"])
+        old_style = locator.get_attribute("style")
+        locator.evaluate("el => {el.style.setProperty('color','transparent','important');el.style.setProperty('text-shadow','none','important')}")
+        pixels = Image.open(BytesIO(locator.screenshot())).convert("RGB")
+        locator.evaluate("(el, previous) => previous === null ? el.removeAttribute('style') : el.setAttribute('style', previous)", old_style)
+        color = appearance["color"]
+        alpha = (color[3] if len(color) > 3 else 1) * appearance["opacity"]
 
-    def test_desktop_menu_stays_at_card_corner_clear_of_long_text(self):
-        for width in (900, 1280):
-            with self.subTest(width=width):
-                page = self.page(width, enlarged_text=True)
-                page.locator(".cat-name").evaluate("el => el.textContent = 'Подборка'.repeat(25)")
-                geometry = page.evaluate("""() => {
-                  const card = document.querySelector('.cat-card').getBoundingClientRect();
-                  const menu = document.querySelector('.cat-card-menu .more').getBoundingClientRect();
-                  const name = document.querySelector('.cat-name').getBoundingClientRect();
-                  const heading = document.querySelector('.cat-heading-line').getBoundingClientRect();
-                  const button = document.querySelector('.cat-card-menu .more');
-                  return {
-                    overflow: document.documentElement.scrollWidth - innerWidth,
-                    rightGap: card.right - menu.right,
-                    topGap: menu.top - card.top,
-                    menuLeft: menu.left,
-                    nameRight: name.right,
-                    headingRight: heading.right,
-                    clickable: button.contains(document.elementFromPoint(menu.x + menu.width / 2, menu.y + menu.height / 2)),
-                  };
-                }""")
-                self.assertLessEqual(geometry["overflow"], 1)
-                self.assertAlmostEqual(geometry["rightGap"], 8, delta=2)
-                self.assertAlmostEqual(geometry["topGap"], 8, delta=2)
-                self.assertLessEqual(geometry["nameRight"], geometry["menuLeft"] - 3)
-                self.assertLessEqual(geometry["headingRight"], geometry["menuLeft"] - 3)
-                self.assertTrue(geometry["clickable"])
+        def luminance(rgb):
+            channels = [v / 255 for v in rgb]
+            channels = [v / 12.92 if v <= .04045 else ((v + .055) / 1.055) ** 2.4 for v in channels]
+            return .2126 * channels[0] + .7152 * channels[1] + .0722 * channels[2]
 
-    def test_enlarged_text_wraps_without_overflow_or_menu_collision(self):
-        for width in (320, 390):
-            with self.subTest(width=width):
-                page = self.page(width, enlarged_text=True)
-                geometry = page.evaluate("""() => {
-                  const body = document.querySelector('.cat-body').getBoundingClientRect();
-                  const name = document.querySelector('.cat-name').getBoundingClientRect();
-                  const statuses = document.querySelector('.cat-status-row').getBoundingClientRect();
-                  const menu = document.querySelector('.cat-card-menu .more').getBoundingClientRect();
-                  return {
-                    overflow: document.documentElement.scrollWidth - innerWidth,
-                    bodyRight: body.right,
-                    nameRight: name.right,
-                    statusesRight: statuses.right,
-                    bodyTop: body.top,
-                    menuBottom: menu.bottom,
-                  };
+        for x in (pixels.width // 4, pixels.width * 3 // 4):
+            for y in (pixels.height // 4, pixels.height * 3 // 4):
+                background = pixels.getpixel((x, y))
+                foreground = [color[i] * alpha + background[i] * (1 - alpha) for i in range(3)]
+                a, b = sorted((luminance(background), luminance(foreground)))
+                self.assertGreaterEqual((b + .05) / (a + .05), 4.5)
+
+    def test_photo_overlay_wraps_all_text_at_each_size_and_appearance(self):
+        for enlarged in (False, True):
+            for width in (320, 390, 900, 1280):
+                page = self.open_list(width, enlarged_text=enlarged)
+                card = self.card()
+                card.scroll_into_view_if_needed()
+                page.wait_for_function("el => el.complete && el.naturalWidth > 0", arg=card.locator("img").element_handle())
+                expect(card.locator(".cat-name")).to_have_text(self.long_name)
+                expect(card.locator(".cat-status-row .entity-status")).to_have_count(4)
+                for skin in ("friends", "romantic"):
+                    for theme in ("light", "dark"):
+                        with self.subTest(width=width, enlarged=enlarged, skin=skin, theme=theme):
+                            self.appearance(page, skin, theme)
+                            card.locator(".more").evaluate("el => el.scrollIntoView({block:'center',inline:'nearest'})")
+                            geometry = card.evaluate("""el => {
+                              const rect = node => {const r=node.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,height:r.height}};
+                              const media=el.querySelector('.cat-media'), body=el.querySelector('.cat-body');
+                              const name=el.querySelector('.cat-name'), button=el.querySelector('.more');
+                              const range=document.createRange();range.selectNodeContents(name);
+                              return {overflow:document.documentElement.scrollWidth-innerWidth,
+                                card:rect(el),media:rect(media),image:rect(el.querySelector('.cat-thumb')),
+                                body:rect(body),name:rect(name),count:rect(el.querySelector('.cat-preview-count')),
+                                status:rect(el.querySelector('.cat-status-row')),menu:rect(button),
+                                titleLines:[...range.getClientRects()].map(r=>({left:r.left,right:r.right,top:r.top,bottom:r.bottom})),
+                                textOverflow:Math.max(name.scrollHeight-name.clientHeight,body.scrollHeight-body.clientHeight),
+                                interactive:button.contains(document.elementFromPoint(rect(button).left+22,rect(button).top+22)),
+                                overlay:media.contains(body), gridColumns:getComputedStyle(el.parentElement).gridTemplateColumns.split(' ').length};
+                            }""")
+                            self.assertLessEqual(geometry["overflow"], 1)
+                            self.assertTrue(geometry["overlay"])
+                            self.assertLessEqual(geometry["textOverflow"], 1)
+                            media = geometry["media"]
+                            for key in ("body", "name", "status", "count", "menu"):
+                                box = geometry[key]
+                                self.assertGreaterEqual(box["left"], media["left"] - 1)
+                                self.assertLessEqual(box["right"], media["right"] + 1)
+                                self.assertGreaterEqual(box["top"], media["top"] - 1)
+                                self.assertLessEqual(box["bottom"], media["bottom"] + 1)
+                            for line in geometry["titleLines"]:
+                                self.assertLessEqual(line["right"], geometry["body"]["right"] + 1)
+                                self.assertGreaterEqual(line["top"], geometry["body"]["top"] - 1)
+                                self.assertLessEqual(line["bottom"], geometry["body"]["bottom"] + 1)
+                            self.assertGreaterEqual(geometry["name"]["top"], geometry["menu"]["bottom"] + 2)
+                            self.assertLessEqual(geometry["count"]["right"], geometry["menu"]["left"] - 4)
+                            self.assertGreaterEqual(geometry["menu"]["width"], 44)
+                            self.assertGreaterEqual(geometry["menu"]["height"], 44)
+                            self.assertTrue(geometry["interactive"])
+                            self.assertAlmostEqual(geometry["image"]["width"], media["width"], delta=2)
+                            self.assertAlmostEqual(geometry["image"]["height"], media["height"], delta=2)
+                            self.assertEqual(geometry["gridColumns"] == 1, width < 900)
+                            self.assert_text_contrast(card.locator(".cat-name"))
+                            self.assert_text_contrast(card.locator(".cat-count-number"))
+                            self.assert_text_contrast(card.locator(".cat-count-label"))
+                            self.assert_text_contrast(card.locator(".cat-status-row .entity-status > span:last-child").first)
+
+    def test_preview_counts_use_actual_event_totals_and_russian_plural(self):
+        self.open_list()
+        endings = {0: "событий", 1: "событие", 2: "события", 5: "событий", 11: "событий", 21: "событие"}
+        for count, ending in endings.items():
+            with self.subTest(count=count):
+                label = self.card(count).locator(".cat-preview-count")
+                expect(label).to_have_text(f"{count} {ending}")
+                geometry = label.evaluate("""el => {
+                  const style=getComputedStyle(el);
+                  return {insidePhoto:!!el.closest('.cat-media'),background:style.backgroundColor,
+                    border:parseFloat(style.borderTopWidth),shadow:style.boxShadow};
                 }""")
-                self.assertLessEqual(geometry["overflow"], 1)
-                self.assertLessEqual(geometry["nameRight"], geometry["bodyRight"] + 1)
-                self.assertLessEqual(geometry["statusesRight"], geometry["bodyRight"] + 1)
-                self.assertGreaterEqual(geometry["bodyTop"], geometry["menuBottom"] - 1)
+                self.assertTrue(geometry["insidePhoto"])
+                self.assertIn(geometry["background"], ("rgba(0, 0, 0, 0)", "transparent"))
+                self.assertEqual(geometry["border"], 0)
+                self.assertEqual(geometry["shadow"], "none")
+
+    def test_last_menu_item_is_visible_clickable_and_title_opens_editor(self):
+        for width in (320, 1280):
+            with self.subTest(width=width):
+                page = self.open_list(width)
+                card = self.card(1)
+                card.scroll_into_view_if_needed()
+                card.locator(".more").click()
+                expect(card.locator(".more")).to_have_attribute("aria-expanded", "true")
+                last = card.get_by_role("button", name="Удалить подборку", exact=True)
+                expect(last).to_be_visible()
+                last.scroll_into_view_if_needed()
+                hit = last.evaluate("""el => {const r=el.getBoundingClientRect();return el.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))}""")
+                self.assertTrue(hit, "Последний пункт меню обрезан карточкой или перекрыт ссылкой")
+                last.click()
+                expect(page.get_by_role("alertdialog")).to_be_visible()
+                page.get_by_role("button", name="Отмена", exact=True).click()
+                expect(page.get_by_role("alertdialog")).to_be_hidden()
+                self.assertIsNotNone(self.backend.row("SELECT id FROM categories WHERE id=?", (self.categories[1]["id"],)))
+                page.keyboard.press("Escape")
+                title = card.locator(".cat-name")
+                title.scroll_into_view_if_needed()
+                bounds = title.bounding_box()
+                page.mouse.click(bounds["x"] + bounds["width"] / 2, bounds["y"] + bounds["height"] / 2)
+                expected_url = self.backend.url + f"/admin/categories/{self.categories[1]['id']}?"
+                page.wait_for_url(lambda url: url.startswith(expected_url))
+                expect(page.locator("#categoryVotingForm")).to_be_visible()
+
+    def test_live_search_returns_matching_preview_and_preserves_card_actions(self):
+        page = self.open_list(390)
+        search = page.get_by_role("searchbox", name="Поиск по подборкам")
+        search.fill("Прогулка 21")
+        expect(page.locator(".cat-card")).to_have_count(1)
+        expect(page.locator(".cat-name")).to_have_text("Прогулка 21")
+        expect(page.locator(".cat-preview-count")).to_have_text("21 событие")
+        card = self.card(21)
+        card.locator(".more").click()
+        expect(card.get_by_role("button", name="Отключить ссылку", exact=True)).to_be_visible()
+        card.get_by_role("button", name="Отключить ссылку", exact=True).click()
+        expect(page.locator("#categoryVotingForm")).to_be_visible()
+        page.get_by_role("link", name="← Назад", exact=True).click()
+        expect(page.locator(".cat-card")).to_have_count(1)
+        expect(page.locator(".cat-status-row")).to_contain_text("Ссылка выключена")
+        expect(page.get_by_role("searchbox", name="Поиск по подборкам")).to_have_value("Прогулка 21")
+        self.assertEqual(self.backend.row("SELECT link_enabled FROM categories WHERE id=?", (self.categories[21]["id"],))["link_enabled"], 0)
+        page.get_by_role("link", name="Очистить поиск", exact=True).click()
+        expect(page.locator(".cat-card")).to_have_count(6)
 
 
 if __name__ == "__main__":

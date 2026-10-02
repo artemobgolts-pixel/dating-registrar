@@ -32,6 +32,16 @@ class EditorLayoutBrowserTests(unittest.TestCase):
                             page = context.new_page()
                             page.goto(self.backend.url + "/admin/dates/new")
                             page.locator("html").evaluate("(el, theme) => el.dataset.theme = theme", theme)
+                            modifiers = page.locator('#payPick .pay-opt:not(.pay-any)')
+                            fonts = modifiers.evaluate_all('''options => options.map(option => {
+                                const style = getComputedStyle(option);
+                                return [style.fontSize, style.lineHeight, style.fontWeight];
+                            })''')
+                            self.assertTrue(all(font == fonts[0] for font in fonts))
+                            expect(modifiers.last).to_have_text("Бесплатно")
+                            self.assertNotIn('💸', modifiers.last.evaluate(
+                                "el => getComputedStyle(el, '::before').content"))
+                            expect(page.locator('[data-tour="date-visibility"] .toggle .muted')).to_have_count(0)
                             for selector, value in (("[data-tr-dd]", "21"), ("[data-tr-mo]", "10"),
                                                     ("[data-tr-yy]", "2030"), ("[data-tr-hh]", "18")):
                                 field = page.locator(selector)
@@ -71,6 +81,55 @@ class EditorLayoutBrowserTests(unittest.TestCase):
                                 self.assertAlmostEqual(action["iconOffset"], 0, delta=1)
                         finally:
                             context.close()
+
+    def test_guest_free_modifier_matches_other_prices_and_fits_small_screens(self):
+        uid, cookie = self.backend.user_cookie()
+        conn = self.backend.db.connect()
+        try:
+            cid = conn.execute(
+                "INSERT INTO categories(owner_id,name,link_token,choice_mode,voting_deadline,voting_status,created_at) "
+                "VALUES(?,?,?,'single','2030-09-13T23:00','open',?)",
+                (uid, "Условия участия", "guest-free-modifier", self.backend.main.now_iso()),
+            ).lastrowid
+            conn.commit()
+        finally:
+            conn.close()
+        context = self.browser.new_context()
+        context.add_cookies([cookie])
+        self.addCleanup(context.close)
+        page = context.new_page()
+        for skin in ("friends", "romantic"):
+            conn = self.backend.db.connect()
+            try:
+                conn.execute("UPDATE categories SET category_skin=? WHERE id=?", (skin, cid))
+                conn.commit()
+            finally:
+                conn.close()
+            for theme in ("light", "dark"):
+                for width in (320, 390, 1280):
+                    with self.subTest(skin=skin, theme=theme, width=width):
+                        page.set_viewport_size({"width": width, "height": 900})
+                        page.goto(self.backend.url + "/c/guest-free-modifier")
+                        page.locator("html").evaluate("(el, theme) => el.dataset.theme = theme", theme)
+                        page.locator("#propDlg").evaluate("dialog => dialog.showModal()")
+                        modifiers = page.locator("#propDlg .pay-opt:not(.pay-any)")
+                        expect(modifiers.last).to_have_text("Бесплатно")
+                        metrics = modifiers.evaluate_all('''options => options.map(option => {
+                            const style = getComputedStyle(option);
+                            return {font: [style.fontSize, style.lineHeight, style.fontWeight],
+                                content: getComputedStyle(option, '::before').content,
+                                overflow: option.scrollWidth - option.clientWidth,
+                                height: option.getBoundingClientRect().height};
+                        })''')
+                        self.assertTrue(all(metric["font"] == metrics[0]["font"] for metric in metrics))
+                        self.assertNotIn("💸", metrics[-1]["content"])
+                        for metric in metrics:
+                            self.assertLessEqual(metric["overflow"], 2)
+                            self.assertAlmostEqual(metric["height"], metrics[0]["height"], delta=1)
+                        modifiers.last.click()
+                        expect(page.locator("#propPayPill")).to_have_text("Бесплатно")
+                        self.assertNotIn("💸", page.locator("#propPayPill").evaluate(
+                            "el => getComputedStyle(el, '::before').content"))
 
     def test_editor_menu_has_share_first_and_all_event_actions(self):
         uid, cookie = self.backend.user_cookie()

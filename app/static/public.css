@@ -1252,6 +1252,14 @@ details.endtime[open] summary { margin-bottom: 10px; }
 }
 .date-widget-dialog .pay-opt.pay-any { flex-basis: 100%; }
 .date-widget-dialog .pay-opt input { position: absolute; opacity: 0; pointer-events: none; }
+@media (max-width: 360px) {
+  .date-widget-dialog .pay-pick {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-auto-rows: minmax(50px, auto);
+  }
+  .date-widget-dialog .pay-opt.pay-any { grid-column: 1 / -1; }
+}
 .date-widget-dialog .pay-opt:has(input:checked) {
   color: #fff; border-color: transparent;
   background: linear-gradient(135deg, #34b36b, #15734a);

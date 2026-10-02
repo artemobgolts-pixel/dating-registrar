@@ -128,11 +128,12 @@ class EventCardGeometryBrowserTests(unittest.TestCase):
               <article class="card cat-card has-thumb" data-status-tone="danger">
                 <div class="cat-media">
                   <img class="cat-thumb" alt="" src="{PHOTO}">
-                  <div class="menu-wrap cat-card-menu"><button class="more">⋯</button></div>
+                  <div class="cat-preview-count">3 события</div>
+                  <div class="cat-body">
+                    <span class="cat-name">Категория</span>
+                  </div>
                 </div>
-                <div class="cat-body">
-                  <span class="cat-name">Категория</span>
-                </div>
+                <div class="menu-wrap cat-card-menu"><button class="more">⋯</button></div>
               </article>
               <section class="grid">
                 <article id="selectable" class="dcard" data-status-tone="neutral">

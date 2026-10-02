@@ -194,8 +194,13 @@ class BackgroundNavigationBrowserTests(unittest.TestCase):
         self.assert_background_retained(page, initial)
         page.locator("#categoryAppearance > summary").click()
         page.locator('#categoryEditForm [name="name"]').fill("Подборка сохранена")
-        page.locator('button[form="categoryEditForm"][type="submit"]').click()
-        expect(page.locator("h1")).to_have_text("Подборка сохранена")
+        with page.expect_response(
+                lambda response: response.request.method == "POST" and
+                urlparse(response.url).path == f"/admin/categories/{self.cid}/rename",
+                timeout=15000) as renamed:
+            page.locator('button[form="categoryEditForm"][type="submit"]').click()
+        self.assertEqual(renamed.value.status, 303)
+        expect(page.locator("h1")).to_have_text("Подборка сохранена", timeout=15000)
         self.assert_background_retained(page, initial)
         self.assertEqual(self.backend.row("SELECT name FROM categories WHERE id=?", (self.cid,))["name"],
                          "Подборка сохранена")

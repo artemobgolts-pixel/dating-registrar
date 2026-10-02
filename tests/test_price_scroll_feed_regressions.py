@@ -52,7 +52,7 @@ class FreePriceModifierTests(unittest.TestCase):
                 self.assertIn('"4": "Бесплатно"', source)
                 self.assertIn("dataset.payValue", source)
 
-    def test_free_price_badge_gets_the_selected_modifier_green(self):
+    def test_free_price_badge_keeps_selected_green_without_an_emoji(self):
         admin_template = (APP / "templates/admin/date_form.html").read_text("utf-8")
         guest_template = (APP / "templates/public/category.html").read_text("utf-8")
         for template in (admin_template, guest_template):
@@ -75,30 +75,21 @@ class FreePriceModifierTests(unittest.TestCase):
                         page = browser.new_page()
                         page.set_content(page_source)
                         page.add_style_tag(content=(APP / stylesheet).read_text("utf-8"))
-                        page.add_style_tag(content=(APP / 'static/pay-icons.css').read_text("utf-8"))
                         colors = page.locator("[data-pay-value='4']").evaluate("""badge => {
                           const style = getComputedStyle(badge);
                           return { background: style.backgroundColor, color: style.color };
                         }""")
                         self.assertEqual(colors["background"], "rgb(21, 115, 74)")
                         self.assertEqual(colors["color"], "rgb(255, 255, 255)")
-                        # Иконка появляется и на модификаторе, и в выборе оплаты;
-                        # смена превью сохраняет её через data-pay-value.
+                        # Бесплатный вариант использует обычный текст без эмодзи:
+                        # это сохраняется и после динамической смены превью.
                         for selector in ("[data-pay-value='4']", ".pay-opt"):
-                            icon = page.locator(selector).evaluate("""el => {
-                              const css = getComputedStyle(el, '::before');
-                              return {content: css.content, decoration: css.textDecorationLine,
-                                width: parseFloat(css.width), height: parseFloat(css.height), background: css.backgroundColor};
-                            }""")
-                            self.assertIn('💸', icon['content'])
-                            self.assertEqual(icon['decoration'], 'line-through')
-                            self.assertGreater(icon['width'], 10)
-                            self.assertGreater(icon['height'], 10)
-                            self.assertEqual(icon['background'], 'rgba(0, 0, 0, 0)')
+                            self.assertNotIn('💸', page.locator(selector).evaluate(
+                                "el => getComputedStyle(el, '::before').content"))
                         badge = page.locator("#changing-modifier")
                         self.assertNotIn('💸', badge.evaluate("el => getComputedStyle(el, '::before').content"))
                         badge.evaluate("el => { el.dataset.payValue = '4'; el.textContent = 'Бесплатно'; }")
-                        self.assertIn('💸', badge.evaluate("el => getComputedStyle(el, '::before').content"))
+                        self.assertNotIn('💸', badge.evaluate("el => getComputedStyle(el, '::before').content"))
                     finally:
                         browser.close()
 

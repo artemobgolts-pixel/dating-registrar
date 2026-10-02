@@ -128,6 +128,8 @@ class CollectionThumbnailBrowserTests(unittest.TestCase):
         for width in (320, 390, 821, 900, 1280):
             page.set_viewport_size({"width": width, "height": 900})
             page.goto(self.backend.url + f"/admin/categories/{self.cid}")
+            expect(page.locator('#categoryVotingForm .choice-opt small')).to_have_count(0)
+            expect(page.locator('#categoryVotingForm .choice-opt b')).to_have_text(["Один", "Неограниченное"])
             page.add_style_tag(content="#categoryChoiceLabel { font-size:24px; }")
             for skin in ("friends", "romantic"):
                 for theme in ("light", "dark"):

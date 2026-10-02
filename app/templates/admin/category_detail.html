@@ -233,12 +233,12 @@
         <label class="choice-opt choice-card">
           <input type="radio" name="choice_mode" value="single"
                  {% if voting_state.choice_mode != 'multiple' %}checked{% endif %}>
-          <span><b>Один</b><small>Новый выбор заменит предыдущий</small></span>
+          <span><b>Один</b></span>
         </label>
         <label class="choice-opt choice-card">
           <input type="radio" name="choice_mode" value="multiple"
                  {% if voting_state.choice_mode == 'multiple' %}checked{% endif %}>
-          <span><b>Несколько</b><small>Можно отметить сколько угодно событий</small></span>
+          <span><b>Неограниченное</b></span>
         </label>
       </div>
     </div>
