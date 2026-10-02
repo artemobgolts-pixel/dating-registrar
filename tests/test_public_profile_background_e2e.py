@@ -14,6 +14,8 @@ GL_FLAGS = ["--use-gl=angle", "--use-angle=swiftshader",
 TRANSITION_TIMEOUT = 15000
 PROBE = """() => {
   const probe=window.profileGraphicsProbe={workers:0,inits:0,stops:0,contexts:0,programs:0};
+  const lifecycle=window.profileNavigationLifecycle={loads:[]};
+  document.addEventListener('turbo:load',()=>lifecycle.loads.push(location.href));
   const WorkerBase=window.Worker;
   window.Worker=function(url,options) {
     const worker=new WorkerBase(url,options);
@@ -109,6 +111,27 @@ class PublicProfileBackgroundBrowserTests(unittest.TestCase):
         self.assertNotEqual(state["csrf"], "устаревший-token")
         self.assertTrue(state["validCsrf"])
 
+    def wait_completed(self, page, *, tab, number=1, previous_loads=0):
+        # Подмена body предшествует turbo:load; smooth-scroll к якорю может
+        # продолжаться после него. Реальные клики ждут обе стадии перехода.
+        page.wait_for_function("""({tab,number,previous}) => {
+          const loads=window.profileNavigationLifecycle.loads;
+          if(loads.length<=previous)return false;
+          const url=new URL(loads[loads.length-1]);
+          return url.searchParams.get('tab')===tab && Number(url.searchParams.get('page')||1)===number;
+        }""", arg={"tab": tab, "number": number, "previous": previous_loads}, timeout=TRANSITION_TIMEOUT)
+        # При уменьшении страницы браузер ограничивает scrollTop без scrollend.
+        # Проверяем устойчивое положение непосредственно, а не ждём это событие.
+        page.evaluate("""() => new Promise(resolve => {
+          let x=NaN,y=NaN,stable=0;
+          function frame() {
+            if(scrollX===x && scrollY===y)stable++;else stable=0;
+            x=scrollX;y=scrollY;
+            if(stable>=3)resolve();else requestAnimationFrame(frame);
+          }
+          requestAnimationFrame(frame);
+        })""")
+
     def run_tabs(self, *, authenticated=False, force_main=False, mobile=False, skin="friends"):
         context = self.browser.new_context(
             viewport={"width": 390 if mobile else 1000, "height": 800},
@@ -129,6 +152,7 @@ class PublicProfileBackgroundBrowserTests(unittest.TestCase):
         page.on("request", lambda request: widget_requests.append(request)
                 if urlparse(request.url).path == widget_path else None)
         page.goto(self.backend.url + f"/u/{self.uid}?tab=events&skin={skin}")
+        self.wait_completed(page, tab="events")
         page.wait_for_function("() => window.__inkStats && window.__inkStats().firstFrameReady")
         if authenticated and not mobile:
             page.wait_for_function("() => window.__inkStats().mode==='interactive'")
@@ -150,12 +174,14 @@ class PublicProfileBackgroundBrowserTests(unittest.TestCase):
                 return parts.path == f"/u/{self.uid}" and query.get("tab") == [tab] and query.get("page", ["1"]) == [str(number)]
 
             previous_body = page.query_selector("body")
+            previous_loads = page.evaluate("profileNavigationLifecycle.loads.length")
             with page.expect_response(lambda response: response.request.method == "GET" and matches(response.url),
                                       timeout=TRANSITION_TIMEOUT) as loaded:
                 action()
             self.assertEqual(loaded.value.status, 200)
             page.wait_for_url(matches, timeout=TRANSITION_TIMEOUT)
             page.wait_for_function("body => document.body !== body", arg=previous_body, timeout=TRANSITION_TIMEOUT)
+            self.wait_completed(page, tab=tab, number=number, previous_loads=previous_loads)
             expect(page.locator("#profileCollection")).to_have_class(re.compile(rf"\bprofile-tab-{tab}\b"), timeout=TRANSITION_TIMEOUT)
             self.assertEqual(parse_qs(urlparse(page.url).query).get("skin"), [skin])
             self.assert_retained(page, initial)

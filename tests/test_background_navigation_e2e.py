@@ -20,6 +20,18 @@ BACKGROUND_PROBE = """() => {
     const probe = window.backgroundProbe = {workers:0, inits:0, stops:0,
         contexts:0, programs:0, turboLoads:0, skinChanges:0};
     const listen = document.addEventListener;
+    window.navigationLifecycle = {loads: [], events: []};
+    ['turbo:visit', 'turbo:render', 'turbo:load', 'mousedown', 'mouseup', 'click'].forEach(type => {
+        listen.call(document, type, event => {
+            const link = event.target.closest && event.target.closest('a[href]');
+            const entry = {type, path:location.pathname,
+                href:link ? new URL(link.href).pathname : null,
+                scroll:scrollY, restoring:!!sessionStorage.getItem('d4y_editor_scroll')};
+            navigationLifecycle.events.push(entry);
+            if (navigationLifecycle.events.length > 30) navigationLifecycle.events.shift();
+            if (type === 'turbo:load') navigationLifecycle.loads.push(location.pathname);
+        }, true);
+    });
     document.addEventListener = function(type, ...options) {
         if (type === 'turbo:load') probe.turboLoads++;
         if (type === 'd4y:skinchange') probe.skinChanges++;
@@ -126,10 +138,21 @@ class BackgroundNavigationBrowserTests(unittest.TestCase):
                 [...document.querySelectorAll('input[name=csrf]')].every(el=>el.value===csrf);
         }"""), "После перехода CSRF форм расходится с новым body")
 
+    def wait_completed(self, page, path, previous_loads=0):
+        # Новый HTML появляется до turbo:load и двух кадров восстановления scroll.
+        # Следующий реальный клик делаем лишь после полного завершения перехода.
+        page.wait_for_function("""({path, previous}) => {
+            const loads = window.navigationLifecycle.loads;
+            return loads.length > previous && loads[loads.length - 1] === path &&
+                !document.documentElement.classList.contains('turbo-loading') &&
+                !sessionStorage.getItem('d4y_editor_scroll');
+        }""", arg={"path": path, "previous": previous_loads}, timeout=TRANSITION_TIMEOUT)
+
     def open_route(self, page, action, path):
         # Software WebGL делит CPU с Turbo. Проверяем ответ и завершённый render,
         # а не используем появление первой карточки как конец навигации.
         previous_body = page.query_selector("body")
+        previous_loads = page.evaluate("navigationLifecycle.loads.length")
         with page.expect_response(
                 lambda response: response.request.method == "GET" and
                 urlparse(response.url).path == path,
@@ -140,6 +163,7 @@ class BackgroundNavigationBrowserTests(unittest.TestCase):
                           timeout=TRANSITION_TIMEOUT)
         page.wait_for_function("body => document.body !== body", arg=previous_body,
                                timeout=TRANSITION_TIMEOUT)
+        self.wait_completed(page, path, previous_loads)
 
     def run_navigation(self, *, force_main=False, mobile=False, reduced=False):
         context = self.browser.new_context(
@@ -176,6 +200,7 @@ class BackgroundNavigationBrowserTests(unittest.TestCase):
                 print("Navigation failure: " + json.dumps({
                     "path": urlparse(page.url).path, "pageerrors": errors,
                     "responses": responses[-30:], "requestfailed": failed_requests[-10:],
+                    "lifecycle": page.evaluate("window.navigationLifecycle"),
                 }, ensure_ascii=False), flush=True)
 
         self.addCleanup(report_failure)
@@ -183,6 +208,7 @@ class BackgroundNavigationBrowserTests(unittest.TestCase):
         page.wait_for_function("() => window.__inkStats && window.__inkStats().firstFrameReady")
         if not reduced:
             page.wait_for_function("() => window.__inkStats().mode === 'interactive'")
+        self.wait_completed(page, "/admin/dates")
         initial = page.evaluate("""() => {
             const host=document.getElementById('bg-smoke');
             window.keptBackground={host, controller:host.__d4yInkController,
@@ -207,11 +233,23 @@ class BackgroundNavigationBrowserTests(unittest.TestCase):
         self.assert_background_retained(page, initial)
         page.locator("#edTitle").fill("Сохранено без перезапуска фона")
         page.locator("#mediaInput").set_input_files(self.photo)
-        with page.expect_response(lambda response: response.request.method == "POST" and
-                                  urlparse(response.url).path == f"/admin/dates/{self.did}/edit") as saved:
+        previous_body = page.query_selector("body")
+        previous_loads = page.evaluate("navigationLifecycle.loads.length")
+        with (
+            page.expect_response(lambda response: response.request.method == "POST" and
+                urlparse(response.url).path == f"/admin/dates/{self.did}/edit",
+                timeout=TRANSITION_TIMEOUT) as saved,
+            page.expect_response(lambda response: response.request.method == "GET" and
+                urlparse(response.url).path == f"/admin/dates/{self.did}/edit",
+                timeout=TRANSITION_TIMEOUT) as reloaded,
+        ):
             page.locator('button[form="dateForm"]').filter(has_text="Сохранить").click()
         self.assertEqual(saved.value.status, 200)
         self.assertTrue(saved.value.json()["ok"])
+        self.assertEqual(reloaded.value.status, 200)
+        page.wait_for_function("body => document.body !== body", arg=previous_body,
+                               timeout=TRANSITION_TIMEOUT)
+        self.wait_completed(page, f"/admin/dates/{self.did}/edit", previous_loads)
         expect(page.locator(".flash").filter(has_text="Сохранено")).to_be_visible(timeout=15000)
         expect(page.locator("#edTitle")).to_have_text("Сохранено без перезапуска фона")
         expect(page.locator(".ed-slide[data-pid] img")).to_have_count(1)
@@ -237,6 +275,7 @@ class BackgroundNavigationBrowserTests(unittest.TestCase):
         page.locator("#categoryAppearance > summary").click()
         page.locator('#categoryEditForm [name="name"]').fill("Подборка сохранена")
         previous_body = page.query_selector("body")
+        previous_loads = page.evaluate("navigationLifecycle.loads.length")
         with page.expect_response(
                 lambda response: response.request.method == "POST" and
                 urlparse(response.url).path == f"/admin/categories/{self.cid}/rename",
@@ -245,6 +284,7 @@ class BackgroundNavigationBrowserTests(unittest.TestCase):
         self.assertEqual(renamed.value.status, 303)
         page.wait_for_function("body => document.body !== body", arg=previous_body,
                                timeout=TRANSITION_TIMEOUT)
+        self.wait_completed(page, f"/admin/categories/{self.cid}", previous_loads)
         expect(page.locator("h1")).to_have_text("Подборка сохранена", timeout=TRANSITION_TIMEOUT)
         self.assert_background_retained(page, initial)
         self.assertEqual(self.backend.row("SELECT name FROM categories WHERE id=?", (self.cid,))["name"],
@@ -252,13 +292,17 @@ class BackgroundNavigationBrowserTests(unittest.TestCase):
 
         # Возврат не должен показать старое имя из кэша или старый контроллер.
         body = page.query_selector("body")
+        previous_loads = page.evaluate("navigationLifecycle.loads.length")
         page.go_back()
         page.wait_for_function("body => document.body !== body", arg=body)
+        self.wait_completed(page, f"/admin/categories/{self.cid}", previous_loads)
         expect(page.locator("#categoryAppearance")).to_be_visible()
         self.assert_background_retained(page, initial)
         body = page.query_selector("body")
+        previous_loads = page.evaluate("navigationLifecycle.loads.length")
         page.go_back()
         page.wait_for_function("body => document.body !== body", arg=body)
+        self.wait_completed(page, "/admin/categories", previous_loads)
         expect(page.locator(".cat-card .cat-name")).to_have_text("Подборка сохранена")
         expect(page.locator('head link[href*="category-settings.css"]')).to_have_count(0)
         self.assert_background_retained(page, initial)
@@ -269,7 +313,13 @@ class BackgroundNavigationBrowserTests(unittest.TestCase):
         self.assert_background_retained(page, initial)
         # Повторный render не должен регистрировать второй upload listener.
         page.evaluate("document.dispatchEvent(new Event('live-search:render'))")
-        page.locator("#avatarInput").set_input_files(self.photo)
+        previous_loads = page.evaluate("navigationLifecycle.loads.length")
+        with page.expect_response(lambda response: response.request.method == "POST" and
+                                  urlparse(response.url).path == "/admin/profile",
+                                  timeout=TRANSITION_TIMEOUT) as avatar_saved:
+            page.locator("#avatarInput").set_input_files(self.photo)
+        self.assertEqual(avatar_saved.value.status, 303)
+        self.wait_completed(page, "/admin/profile", previous_loads)
         expect(page.locator("#profileForm .avatar-img")).to_be_visible(timeout=TRANSITION_TIMEOUT)
         self.assert_background_retained(page, initial)
         profile_posts = [request for request in posts
