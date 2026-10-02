@@ -3770,7 +3770,6 @@ html[data-theme="dark"] .notif-settings-icon {
   background: rgba(105,62,76,.55);
   border-color: rgba(255,255,255,.1);
 }
-html[data-theme="dark"] .notif-tab-count { background: rgba(255,255,255,.08); }
 html[data-theme="dark"] .og-preview {
   background: rgba(31, 25, 30, .94);
   border-color: var(--line);

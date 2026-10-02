@@ -4,16 +4,19 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
+<meta name="turbo-cache-control" content="no-cache">
+<meta name="turbo-prefetch" content="false">
 <title>{{ u['display_name'] or 'Профиль' }} · date4you</title>
 {% from "_appearance_assets.html" import appearance_assets %}
 {{ appearance_assets(profile_skin) }}
 <meta name="theme-color" content="{{ '#554eae' if profile_skin == 'friends' else '#b65f6f' }}">
-<script src="{{ asset('theme.js') }}"></script>
-<link rel="stylesheet" href="{{ asset('public.css') }}">
-<link rel="stylesheet" href="{{ asset('profile.css') }}">
+<script src="{{ asset('theme.js') }}" data-turbo-track="reload"></script>
+<link rel="stylesheet" href="{{ asset('public.css') }}" data-turbo-track="reload">
+<link rel="stylesheet" href="{{ asset('profile.css') }}" data-turbo-track="reload">
 <link rel="stylesheet" href="{{ asset('event-date.css') }}" data-turbo-track="reload">
-<script src="{{ asset('confirm.js') }}" defer></script>
-<script src="{{ asset('profile.js') }}" defer></script>
+<script src="{{ asset('confirm.js') }}" data-turbo-track="reload" defer></script>
+<script src="{{ asset('vendor/turbo.min.js') }}" data-turbo-track="reload" defer></script>
+<script src="{{ asset('profile.js') }}" data-turbo-track="reload" defer></script>
 <script src="{{ asset('ink.js') }}"
         data-runtime-src="{{ asset('ink-runtime.js') }}"
         data-worker-src="{{ asset('ink-worker.js') }}"
@@ -22,10 +25,13 @@
         data-static-friends-dark="{{ asset('ink-static-friends-dark.webp') }}"
         data-static-romantic-light="{{ asset('ink-static-romantic-light.webp') }}"
         data-static-romantic-dark="{{ asset('ink-static-romantic-dark.webp') }}"
-        defer></script>
+        data-turbo-track="reload" defer></script>
 </head>
-<body class="profile-public-page" data-skin="{{ profile_skin }}" data-csrf="{{ csrf }}"
+<body class="profile-public-page" data-turbo="false" data-skin="{{ profile_skin }}" data-csrf="{{ csrf }}"
       data-ink-interactive="{{ '1' if me and me['cursor_effects'] else '0' }}">
+{# Turbo включается только для вкладок и пагинации профиля. Весь фон,
+   включая CSS-декорации, переживает замену body без перезапуска анимаций. #}
+<div id="profile-background" data-turbo-permanent aria-hidden="true">
 {% if profile_skin == 'friends' %}
 <div class="bg-gather" aria-hidden="true">
   <span class="orbit o1"></span><span class="orbit o2"></span>
@@ -38,6 +44,7 @@
 </div>
 {% endif %}
 {% include "public/_bg.html" %}
+</div>
 
 <div class="profile-public-actions">
   {% if me %}

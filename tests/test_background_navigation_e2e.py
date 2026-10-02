@@ -1,6 +1,7 @@
 """Фон кабинета сохраняет DOM и графический backend при реальной навигации."""
 
 from io import BytesIO
+import json
 import re
 import unittest
 from urllib.parse import urlparse
@@ -13,6 +14,7 @@ from live_backend import LiveBackend
 
 GL_FLAGS = ["--use-gl=angle", "--use-angle=swiftshader",
             "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"]
+TRANSITION_TIMEOUT = 15000
 
 BACKGROUND_PROBE = """() => {
     const probe = window.backgroundProbe = {workers:0, inits:0, stops:0,
@@ -124,6 +126,21 @@ class BackgroundNavigationBrowserTests(unittest.TestCase):
                 [...document.querySelectorAll('input[name=csrf]')].every(el=>el.value===csrf);
         }"""), "После перехода CSRF форм расходится с новым body")
 
+    def open_route(self, page, action, path):
+        # Software WebGL делит CPU с Turbo. Проверяем ответ и завершённый render,
+        # а не используем появление первой карточки как конец навигации.
+        previous_body = page.query_selector("body")
+        with page.expect_response(
+                lambda response: response.request.method == "GET" and
+                urlparse(response.url).path == path,
+                timeout=TRANSITION_TIMEOUT) as loaded:
+            action()
+        self.assertEqual(loaded.value.status, 200, path)
+        page.wait_for_url(lambda url: urlparse(url).path == path,
+                          timeout=TRANSITION_TIMEOUT)
+        page.wait_for_function("body => document.body !== body", arg=previous_body,
+                               timeout=TRANSITION_TIMEOUT)
+
     def run_navigation(self, *, force_main=False, mobile=False, reduced=False):
         context = self.browser.new_context(
             viewport={"width": 390 if mobile else 900, "height": 700},
@@ -138,9 +155,30 @@ class BackgroundNavigationBrowserTests(unittest.TestCase):
         page = context.new_page()
         posts = []
         errors = []
+        responses = []
+        failed_requests = []
         page.on("pageerror", lambda error: errors.append(str(error)))
         page.on("request", lambda request: posts.append(request)
                 if request.method == "POST" else None)
+        page.on("response", lambda response: responses.append({
+            "method": response.request.method, "path": urlparse(response.url).path,
+            "status": response.status,
+        }))
+        page.on("requestfailed", lambda request: failed_requests.append({
+            "method": request.method, "path": urlparse(request.url).path,
+            "failure": request.failure,
+        }))
+
+        def report_failure():
+            result = self._outcome.result
+            if any(test is self for test, _ in result.failures + result.errors):
+                # Только пути и статусы: токены, query и тела запросов не выводим.
+                print("Navigation failure: " + json.dumps({
+                    "path": urlparse(page.url).path, "pageerrors": errors,
+                    "responses": responses[-30:], "requestfailed": failed_requests[-10:],
+                }, ensure_ascii=False), flush=True)
+
+        self.addCleanup(report_failure)
         page.goto(self.backend.url + "/admin/dates")
         page.wait_for_function("() => window.__inkStats && window.__inkStats().firstFrameReady")
         if not reduced:
@@ -157,12 +195,14 @@ class BackgroundNavigationBrowserTests(unittest.TestCase):
 
         # GET-фильтр должен сменить серверную страницу и CSRF, сохранив документ.
         page.evaluate("document.body.dataset.csrf='устаревшее-значение'")
-        page.get_by_label("Фильтр событий", exact=True).select_option("public")
+        self.open_route(page, lambda: page.get_by_label("Фильтр событий", exact=True)
+                        .select_option("public"), "/admin/dates")
         page.wait_for_url(re.compile(r"[?&]f=public(?:&|$)"))
         expect(page.locator(".dcard")).to_have_count(1)
         self.assert_background_retained(page, initial)
 
-        page.locator(".dcard-link").click()
+        self.open_route(page, lambda: page.locator(".dcard-link").click(),
+                        f"/admin/dates/{self.did}/edit")
         expect(page.locator("#dateForm")).to_be_visible()
         self.assert_background_retained(page, initial)
         page.locator("#edTitle").fill("Сохранено без перезапуска фона")
@@ -185,22 +225,27 @@ class BackgroundNavigationBrowserTests(unittest.TestCase):
         self.assertEqual(len(editor_posts), 1, "Сохранение отправлено повторным обработчиком")
         self.assertIn("multipart/form-data", editor_posts[0].headers["content-type"])
 
-        page.locator('header nav a[href="/admin/categories"]').click()
+        self.open_route(page, lambda: page.locator('header nav a[href="/admin/categories"]').click(),
+                        "/admin/categories")
         expect(page.locator(".cat-card")).to_have_count(1)
         self.assert_background_retained(page, initial)
-        page.locator(".cat-link").click()
+        self.open_route(page, lambda: page.locator(".cat-link").click(),
+                        f"/admin/categories/{self.cid}")
         expect(page.locator("#categoryAppearance")).to_be_visible()
         expect(page.locator('head link[href*="category-settings.css"]')).to_have_count(1)
         self.assert_background_retained(page, initial)
         page.locator("#categoryAppearance > summary").click()
         page.locator('#categoryEditForm [name="name"]').fill("Подборка сохранена")
+        previous_body = page.query_selector("body")
         with page.expect_response(
                 lambda response: response.request.method == "POST" and
                 urlparse(response.url).path == f"/admin/categories/{self.cid}/rename",
-                timeout=15000) as renamed:
+                timeout=TRANSITION_TIMEOUT) as renamed:
             page.locator('button[form="categoryEditForm"][type="submit"]').click()
         self.assertEqual(renamed.value.status, 303)
-        expect(page.locator("h1")).to_have_text("Подборка сохранена", timeout=15000)
+        page.wait_for_function("body => document.body !== body", arg=previous_body,
+                               timeout=TRANSITION_TIMEOUT)
+        expect(page.locator("h1")).to_have_text("Подборка сохранена", timeout=TRANSITION_TIMEOUT)
         self.assert_background_retained(page, initial)
         self.assertEqual(self.backend.row("SELECT name FROM categories WHERE id=?", (self.cid,))["name"],
                          "Подборка сохранена")
@@ -218,19 +263,22 @@ class BackgroundNavigationBrowserTests(unittest.TestCase):
         expect(page.locator('head link[href*="category-settings.css"]')).to_have_count(0)
         self.assert_background_retained(page, initial)
 
-        page.locator('header nav a[href="/admin/profile"]').click()
+        self.open_route(page, lambda: page.locator('header nav a[href="/admin/profile"]').click(),
+                        "/admin/profile")
         expect(page.locator("#profileForm")).to_be_visible()
         self.assert_background_retained(page, initial)
         # Повторный render не должен регистрировать второй upload listener.
         page.evaluate("document.dispatchEvent(new Event('live-search:render'))")
         page.locator("#avatarInput").set_input_files(self.photo)
-        expect(page.locator("#profileForm .avatar-img")).to_be_visible()
+        expect(page.locator("#profileForm .avatar-img")).to_be_visible(timeout=TRANSITION_TIMEOUT)
         self.assert_background_retained(page, initial)
         profile_posts = [request for request in posts
                          if urlparse(request.url).path == "/admin/profile"]
         self.assertEqual(len(profile_posts), 1, "Аватар загружен повторным обработчиком")
         self.assertTrue(self.backend.row("SELECT avatar_path FROM users WHERE id=?", (self.uid,))["avatar_path"])
-        page.locator(f'[data-profile-editor*="/admin/dates/{self.did}/edit"]').click()
+        self.open_route(page, lambda: page.locator(
+            f'[data-profile-editor*="/admin/dates/{self.did}/edit"]').click(),
+            f"/admin/dates/{self.did}/edit")
         expect(page.locator("#dateForm")).to_be_visible()
         self.assert_background_retained(page, initial)
         self.assertEqual(errors, [], "Ошибка JavaScript при внутренних переходах")

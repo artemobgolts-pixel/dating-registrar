@@ -5,6 +5,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from jinja2 import Environment, FileSystemLoader
+from playwright.sync_api import sync_playwright
+
+from live_backend import LiveBackend
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -364,6 +367,62 @@ class NotificationUiTests(unittest.TestCase):
         self.assertIn("grid-template-columns: repeat(2, minmax(0, 1fr))", css)
         self.assertIn('class="btn editor-back category-new-back"', category_new)
         self.assertIn(".editor-back.category-new-back { top: 112px; }", css)
+
+
+class NotificationCounterBrowserTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.backend = LiveBackend()
+        cls.playwright = sync_playwright().start()
+        cls.browser = cls.playwright.chromium.launch(headless=True)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.browser.close()
+        cls.playwright.stop()
+        cls.backend.close()
+
+    def test_tab_counts_have_no_background_and_share_the_label_line(self):
+        for skin in ("friends", "romantic"):
+            _, cookie = self.backend.user_cookie(skin=skin)
+            context = self.browser.new_context()
+            context.add_cookies([cookie])
+            try:
+                page = context.new_page()
+                for view in ("/admin/questions", "/admin/questions?f=reviews"):
+                    page.goto(self.backend.url + view)
+                    page.add_style_tag(content="*,*::before,*::after{transition:none!important;animation:none!important}")
+                    page.evaluate("() => document.fonts.ready")
+                    for width in (320, 390, 1280):
+                        page.set_viewport_size({"width": width, "height": 900})
+                        for theme in ("light", "dark"):
+                            page.locator("html").evaluate("(el, theme) => el.dataset.theme=theme", theme)
+                            for value in ("0", "128"):
+                                with self.subTest(skin=skin, view=view, width=width, theme=theme, value=value):
+                                    page.locator(".notif-tab-count").evaluate_all(
+                                        "(counts,value) => counts.forEach(count => count.textContent=value)", value)
+                                    metrics = page.locator(".notif-controls .tabs a").evaluate_all('''tabs => tabs.map(tab => {
+                                        const labelNode=[...tab.childNodes].find(node => node.nodeType===3 && node.textContent.trim());
+                                        const text=labelNode.textContent.trim(), start=labelNode.textContent.indexOf(text);
+                                        const label=document.createRange();
+                                        label.setStart(labelNode,start);label.setEnd(labelNode,start+text.length);
+                                        const count=tab.querySelector('.notif-tab-count'), number=document.createRange();
+                                        number.selectNodeContents(count);
+                                        const l=label.getBoundingClientRect(),n=number.getBoundingClientRect();
+                                        const labelCss=getComputedStyle(tab),numberCss=getComputedStyle(count);
+                                        return {background:numberCss.backgroundColor,shadow:numberCss.boxShadow,
+                                            labelFont:[labelCss.fontSize,labelCss.fontFamily,labelCss.fontWeight,labelCss.lineHeight],
+                                            numberFont:[numberCss.fontSize,numberCss.fontFamily,numberCss.fontWeight,numberCss.lineHeight],
+                                            offset:n.y+n.height/2-l.y-l.height/2};
+                                    })''')
+                                    self.assertEqual(len(metrics), 2)
+                                    for metric in metrics:
+                                        self.assertEqual(metric["background"], "rgba(0, 0, 0, 0)")
+                                        self.assertEqual(metric["shadow"], "none")
+                                        self.assertEqual(metric["numberFont"], metric["labelFont"])
+                                        self.assertAlmostEqual(metric["offset"], 0, delta=.5)
+            finally:
+                context.close()
 
 
 if __name__ == "__main__":

@@ -7,6 +7,11 @@
     // clone получит свежие listeners, а живой DOM не инициализируется дважды.
     if (!section || section._d4yWidgetReady) return;
     section._d4yWidgetReady = true;
+    if (document.body.classList.contains("profile-public-page")) {
+      section.querySelectorAll(".profile-tabs, .pub-pager").forEach(function (navigation) {
+        navigation.dataset.turbo = "true";
+      });
+    }
 
     var dialog = document.getElementById("profileEventDlg");
     var body = dialog && dialog.querySelector("[data-profile-widget-body]");
@@ -48,6 +53,7 @@
       else dialog.removeAttribute("open");
       if (body) body.replaceChildren();
     }
+    section._d4yWidgetCleanup = closeWidget;
 
     function enableWidgetVideos(root) {
       root.querySelectorAll("video[data-src]").forEach(function (video) {
@@ -354,6 +360,13 @@
     });
   }
 
+  function cleanupProfileCollection() {
+    var section = document.getElementById("profileCollection");
+    if (section && section._d4yWidgetCleanup) section._d4yWidgetCleanup();
+  }
+
+  document.addEventListener("turbo:before-cache", cleanupProfileCollection);
+  document.addEventListener("turbo:before-render", cleanupProfileCollection);
   document.addEventListener("DOMContentLoaded", initProfileCollection);
   document.addEventListener("turbo:load", initProfileCollection);
   if (document.readyState !== "loading") initProfileCollection();
