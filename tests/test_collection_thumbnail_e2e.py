@@ -130,7 +130,7 @@ class CollectionThumbnailBrowserTests(unittest.TestCase):
             page.goto(self.backend.url + f"/admin/categories/{self.cid}")
             expect(page.locator('#categoryVotingForm .choice-opt small')).to_have_count(0)
             expect(page.locator('#categoryVotingForm .choice-opt b')).to_have_text(["Один", "Неограниченное"])
-            page.add_style_tag(content="#categoryChoiceLabel { font-size:24px; }")
+            page.add_style_tag(content="#categoryChoiceLabel { font-size:24px; max-width:340px; }")
             for skin in ("friends", "romantic"):
                 for theme in ("light", "dark"):
                     with self.subTest(width=width, skin=skin, theme=theme):
@@ -158,12 +158,11 @@ class CollectionThumbnailBrowserTests(unittest.TestCase):
                         self.assertGreater(geometry["labelHeight"], geometry["labelLine"])
                         for difference in geometry["radios"]:
                             self.assertLessEqual(difference, 1)
+                        self.assertGreater(geometry["dateTop"], geometry["choicesBottom"])
                         if width >= 821:
-                            self.assertAlmostEqual(geometry["choicesTop"], geometry["dateTop"], delta=1)
                             self.assertAlmostEqual(geometry["submitTop"], geometry["dateTop"], delta=1)
                             self.assertAlmostEqual(geometry["submitCenter"], geometry["dateCenter"], delta=1)
                         else:
-                            self.assertGreater(geometry["dateTop"], geometry["choicesBottom"])
                             self.assertGreater(geometry["submitTop"], geometry["dateTop"])
 
 

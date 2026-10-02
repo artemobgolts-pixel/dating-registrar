@@ -2,11 +2,13 @@
 {% from "_event_date.html" import event_date %}
 {% from "admin/_entity_status.html" import status %}
 {% block title %}Уведомления{% endblock %}
+{% block head %}
+<meta name="turbo-cache-control" content="no-cache">
+{% endblock %}
 {% block content %}
 <div class="notif-page-head">
   <div>
     <h1 class="serif"><span class="display-ink">Уведомления</span></h1>
-    <p>Вопросы, предложения времени и события, которые ждут твоего отзыва.</p>
   </div>
   {% if unread %}
   <span class="notif-new-count count-badge count-badge--label">Требуют внимания: {{ '99+' if unread > 99 else unread }}</span>

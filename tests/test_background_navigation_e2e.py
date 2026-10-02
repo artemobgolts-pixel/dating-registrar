@@ -21,12 +21,16 @@ BACKGROUND_PROBE = """() => {
         contexts:0, programs:0, turboLoads:0, skinChanges:0};
     const listen = document.addEventListener;
     window.navigationLifecycle = {loads: [], events: []};
-    ['turbo:visit', 'turbo:render', 'turbo:load', 'mousedown', 'mouseup', 'click'].forEach(type => {
+    ['turbo:visit', 'turbo:render', 'turbo:load', 'mousedown', 'mouseup', 'click',
+        'submit', 'invalid'].forEach(type => {
         listen.call(document, type, event => {
             const link = event.target.closest && event.target.closest('a[href]');
             const entry = {type, path:location.pathname,
                 href:link ? new URL(link.href).pathname : null,
-                scroll:scrollY, restoring:!!sessionStorage.getItem('d4y_editor_scroll')};
+                scroll:scrollY, restoring:!!sessionStorage.getItem('d4y_editor_scroll'),
+                target:event.target.tagName, id:event.target.id || null,
+                form:event.target.form ? event.target.form.id : null,
+                x:event.clientX, y:event.clientY};
             navigationLifecycle.events.push(entry);
             if (navigationLifecycle.events.length > 30) navigationLifecycle.events.shift();
             if (type === 'turbo:load') navigationLifecycle.loads.push(location.pathname);
@@ -63,6 +67,16 @@ BACKGROUND_PROBE = """() => {
         probe.programs++; return program.call(this);
     };
 }"""
+
+
+def click_and_wait_response(page, button, predicate, *, timeout=TRANSITION_TIMEOUT):
+    # Software WebGL может задержать scroll и проверку кликабельности. Их
+    # budget независим от ожидания сети: проверяем кнопку до запуска таймера.
+    # trial оставляет нативный click и не отправляет форму самостоятельно.
+    button.click(trial=True)
+    with page.expect_response(predicate, timeout=timeout) as response:
+        button.click()
+    return response.value
 
 
 class BackgroundNavigationBrowserTests(unittest.TestCase):
@@ -276,12 +290,11 @@ class BackgroundNavigationBrowserTests(unittest.TestCase):
         page.locator('#categoryEditForm [name="name"]').fill("Подборка сохранена")
         previous_body = page.query_selector("body")
         previous_loads = page.evaluate("navigationLifecycle.loads.length")
-        with page.expect_response(
-                lambda response: response.request.method == "POST" and
-                urlparse(response.url).path == f"/admin/categories/{self.cid}/rename",
-                timeout=TRANSITION_TIMEOUT) as renamed:
-            page.locator('button[form="categoryEditForm"][type="submit"]').click()
-        self.assertEqual(renamed.value.status, 303)
+        renamed = click_and_wait_response(page,
+            page.locator('button[form="categoryEditForm"][type="submit"]'),
+            lambda response: response.request.method == "POST" and
+                urlparse(response.url).path == f"/admin/categories/{self.cid}/rename")
+        self.assertEqual(renamed.status, 303)
         page.wait_for_function("body => document.body !== body", arg=previous_body,
                                timeout=TRANSITION_TIMEOUT)
         self.wait_completed(page, f"/admin/categories/{self.cid}", previous_loads)

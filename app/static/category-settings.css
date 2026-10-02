@@ -15,7 +15,8 @@
 #categoryAppearance .og-preview { margin-top: 0; }
 #categoryPrivacy .category-privacy-head h2 { margin: 0; }
 #categoryVoting .voting-head { align-items: center; margin-bottom: 0; }
-#categoryVoting .voting-form { margin-top: 12px; }
+#categoryVoting .voting-form { grid-template-columns: minmax(0, 1fr); margin-top: 12px; }
+#categoryVoting .voting-form > .btn { justify-self: start; margin-top: 0; }
 #categoryVoting .deadline-readable:empty { display: none; }
 #categoryVoting .choice-pick { margin-top: 4px; }
 #categoryVoting .choice-opt { align-items: center; margin: 0; }
@@ -24,35 +25,50 @@
 
 @media (min-width: 821px) {
   #categoryVoting .voting-form {
-    grid-template-columns: minmax(0, 1.15fr) minmax(0, .95fr) minmax(0, auto);
-    row-gap: 4px;
+    grid-template-columns: minmax(0, 1fr) auto;
   }
-  #categoryVoting .voting-form > .field { display: contents; }
-  #categoryVoting .voting-form > .field > .field-label {
-    grid-row: 1;
-    align-self: end;
-    margin: 0;
-  }
-  #categoryChoiceLabel { grid-column: 1; }
-  #categoryVoting .deadline-picker > .field-label { grid-column: 2; }
-  #categoryVoting .choice-pick {
-    grid-column: 1;
-    grid-row: 2;
-    margin: 0;
-  }
-  #categoryVoting .voting-deadline-controls {
-    grid-column: 2;
-    grid-row: 2;
-  }
+  #categoryVoting .voting-form > .field:first-of-type { grid-column: 1 / -1; }
   #categoryVoting .voting-form > .btn {
-    grid-column: 3;
-    grid-row: 2;
-    margin: 0;
+    margin-top: 29px;
     white-space: normal;
   }
 }
 
-.category-events-compact .category-fill-head { margin-bottom: 8px; }
+#categoryShare h2 { margin-bottom: 0; }
+#categoryShare { gap: 16px; }
+
+.category-events-compact .category-fill-head { align-items: center; gap: 10px; margin-bottom: 8px; }
+.category-events-card:has(.category-add-menu[open]) { z-index: 6; }
+.category-add-menu { flex: none; }
+.category-add-toggle { min-height: 36px; padding: 6px 10px; list-style: none; cursor: pointer; }
+.category-add-toggle::-webkit-details-marker { display: none; }
+.category-add-panel {
+  position: absolute;
+  z-index: 5;
+  right: 18px;
+  width: min(360px, calc(100% - 36px));
+  margin-top: 8px;
+  padding: 10px;
+  display: grid;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+.category-fill-tools { position: relative; z-index: 2; }
+.category-new-event {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  color: var(--ink);
+  font-size: .875rem;
+  text-decoration: none;
+}
+.category-new-event:hover { background: var(--material-control); }
 #categoryDates .table-wrap { background: transparent; border-radius: 0; }
 .category-events-compact table,
 .category-events-compact tbody { display: block; width: 100%; }
@@ -201,15 +217,23 @@
 .category-events-locked .category-event-action--winner { grid-column: 1 / -1; }
 .category-attach-form {
   display: flex;
-  gap: 10px;
-  margin-top: 12px;
+  gap: 6px;
+  margin: 0;
 }
 .category-attach-form select { flex: 1; min-width: 0; }
+#categoryDates .category-attach-submit {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  min-height: 44px;
+  padding: 0;
+  border-radius: 10px;
+  box-shadow: none;
+}
 
 @media (max-width: 520px) {
   .category-events-compact tbody tr[data-status-tone] { column-gap: 6px; }
   .category-events-compact .category-event-copy > a { font-size: .875rem; }
-  .category-attach-form { flex-wrap: wrap; }
-  .category-attach-form select { flex-basis: 100%; }
-  .category-attach-form .btn { width: 100%; }
+  #categoryVoting .voting-form > .btn { justify-self: stretch; }
+  .category-add-panel { right: 0; width: min(360px, 100%); }
 }

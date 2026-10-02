@@ -70,13 +70,13 @@
       if (e.target.matches("[data-autosubmit]") && e.target.form) e.target.form.requestSubmit();
     });
     document.addEventListener("click", function (e) {
-      document.querySelectorAll(".mobile-account-menu[open]").forEach(function (menu) {
+      document.querySelectorAll(".mobile-account-menu[open], .category-add-menu[open]").forEach(function (menu) {
         if (!menu.contains(e.target)) menu.removeAttribute("open");
       });
     });
     document.addEventListener("keydown", function (e) {
       if (e.key !== "Escape") return;
-      var menu = document.querySelector(".mobile-account-menu[open]");
+      var menu = document.querySelector(".mobile-account-menu[open], .category-add-menu[open]");
       if (!menu) return;
       menu.removeAttribute("open");
       var trigger = menu.querySelector("summary");
@@ -1337,9 +1337,11 @@
   }
 
   // --- дашборд: QR-тоггл, скачивание SVG, системное «Поделиться» --------------
+  var dashboardQrObjectUrl = null;
   function initDashboard() {
     var qr = document.getElementById("shareQr");
-    if (!qr) return;
+    if (!qr || qr.dataset.ready) return;
+    qr.dataset.ready = "1";
     var col = qr.closest(".share-qr-col");
     var toggle = document.getElementById("qrToggle");
     if (toggle && col) {
@@ -1354,8 +1356,9 @@
       var markup = new XMLSerializer().serializeToString(svg);
       if (!/^<\?xml/.test(markup)) markup = '<?xml version="1.0" encoding="UTF-8"?>\n' + markup;
       var qrBlob = new Blob([markup], { type: "image/svg+xml;charset=utf-8" });
-      if (dl._qrObjectUrl) URL.revokeObjectURL(dl._qrObjectUrl);
-      dl._qrObjectUrl = URL.createObjectURL(qrBlob);
+      if (dashboardQrObjectUrl) URL.revokeObjectURL(dashboardQrObjectUrl);
+      dashboardQrObjectUrl = URL.createObjectURL(qrBlob);
+      dl._qrObjectUrl = dashboardQrObjectUrl;
       dl.href = dl._qrObjectUrl;
 
       // Safari на iPhone часто игнорирует download для data:-URL. Для
@@ -1431,6 +1434,7 @@
     var requestGeneration = 0;
     var activeRequest = null;
     var io = null;
+    var focusAfterSave = false;
 
     function setFeedState(state) {
       feedState = state;
@@ -1591,6 +1595,14 @@
           }
           button.textContent = "Добавлено ✓";
           toast("Событие добавлено в твою коллекцию");
+          // После Turbo-перехода старый fetch ещё может завершиться. Сохранение
+          // уже прошло, но обновлять ленту и URL другой страницы нельзя.
+          if (!feed.isConnected || document.getElementById("communityFeed") !== feed) return;
+          var sourceCard = button.closest(".cfeed-card");
+          focusAfterSave = Boolean(sourceCard && sourceCard.contains(document.activeElement));
+          // Исключение применяется ко всей цепочке копий на сервере. Обновляем
+          // выдачу сразу после сохранения, сохраняя текущий поисковый запрос.
+          resetFeed(activeQuery);
           if (closeAfter) setTimeout(closeWidget, 900);
         })
         .catch(function () {
@@ -1657,12 +1669,21 @@
           } else {
             setFeedState("idle");
           }
+          if (focusAfterSave) {
+            focusAfterSave = false;
+            var nextAction = feed.querySelector("[data-community-open]") || searchInput;
+            if (nextAction) nextAction.focus();
+          }
         })
         .catch(function () {
           if (generation !== requestGeneration) return;
           // Ошибка не означает конец ленты. Наблюдатель ждёт явного повтора,
           // чтобы видимый маркер не запускал бесконечные неудачные запросы.
           setFeedState("error");
+          if (focusAfterSave && retryEl) {
+            focusAfterSave = false;
+            retryEl.focus();
+          }
           if (searchStatus && activeQuery) {
             searchStatus.hidden = false;
             searchStatus.textContent = "Не удалось выполнить поиск. Попробуй ещё раз.";
@@ -2081,6 +2102,17 @@
   // Если Turbo нет (или ещё не инициализировался) — инициализируем сами один раз.
   document.addEventListener("turbo:load", initPage);
   document.addEventListener("live-search:render", initPage);
+  document.addEventListener("turbo:frame-load", function (event) {
+    if (event.target.id !== "dashboardShare") return;
+    initDashboard();
+    if (window.UI && UI.voteCountdowns) UI.voteCountdowns(event.target);
+    var selected = event.target.querySelector("#shareCollection");
+    if (selected && window.location.pathname === "/admin/") {
+      var url = new URL(window.location.href);
+      url.searchParams.set("share", selected.value);
+      window.history.replaceState(window.history.state, "", url);
+    }
+  });
   if (!window.Turbo) {
     if (document.readyState !== "loading") initPage();
     else document.addEventListener("DOMContentLoaded", initPage, { once: true });

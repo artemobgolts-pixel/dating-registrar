@@ -1,5 +1,6 @@
 """FLOW-05: Chromium → локальный HTTP → SQLite, сбои пагинации и retry."""
 
+import re
 import unittest
 from urllib.parse import parse_qs, urlsplit
 
@@ -134,6 +135,134 @@ class CommunityFeedBrowserTests(unittest.TestCase):
     def test_search_pagination_failure_retries_current_query_and_cursor(self):
         self.fail_and_retry("500", query="Пикник")
         expect(self.page.locator("#communitySearchStatus")).to_contain_text("Результаты по запросу «Пикник»")
+
+    def test_preview_collection_switch_preserves_loaded_feed_and_search(self):
+        conn = self.backend.db.connect()
+        try:
+            collection_ids = []
+            for index in range(2):
+                collection_ids.append(conn.execute(
+                    "INSERT INTO categories(owner_id,name,link_token,link_enabled,created_at) "
+                    "VALUES(?,?,?,1,?)",
+                    (self.uid, f"Подборка {index}", f"preview-collection-{index}",
+                     self.backend.main.now_iso()),
+                ).lastrowid)
+            conn.commit()
+            self.before = list(conn.iterdump())
+        finally:
+            conn.close()
+        self.open_feed("Пикник")
+        self.sentinel.scroll_into_view_if_needed()
+        expect(self.cards).to_have_count(24)
+        self.page.locator("#shareCollection").scroll_into_view_if_needed()
+        before_ids = self.card_ids()
+        before_cursor = self.sentinel.get_attribute("data-next-cursor")
+        self.page.evaluate("""() => {
+          window.previewTestFeed = document.getElementById('communityFeed');
+          window.previewTestFirstCard = window.previewTestFeed.firstElementChild;
+        }""")
+        requests = []
+        self.page.on("request", lambda request: requests.append(request.url)
+                     if urlsplit(request.url).path == "/admin/community" else None)
+        selected = self.page.locator("#shareCollection").input_value()
+        target = next(cid for cid in collection_ids if str(cid) != selected)
+        for collection_id in (target, int(selected), target):
+            with self.page.expect_response(lambda response:
+                                          urlsplit(response.url).path == "/admin/" and
+                                          parse_qs(urlsplit(response.url).query).get("share") == [str(collection_id)]):
+                self.page.locator("#shareCollection").select_option(str(collection_id))
+            expect(self.page.locator(".dashboard-og-preview .og-img")).to_have_attribute(
+                "src", re.compile(rf"/admin/categories/{collection_id}/og-preview\?.*"))
+        self.assertTrue(self.page.evaluate("""() =>
+          document.getElementById('communityFeed') === window.previewTestFeed &&
+          document.getElementById('communityFeed').firstElementChild === window.previewTestFirstCard
+        """), "Changing preview must keep the existing feed DOM")
+        self.assertEqual(self.card_ids(), before_ids)
+        self.assertEqual(self.sentinel.get_attribute("data-next-cursor"), before_cursor)
+        expect(self.page.locator("#communitySearchInput")).to_have_value("Пикник")
+        self.assertEqual(requests, [])
+        expect(self.page.locator("#qrDownload")).to_have_attribute("href", re.compile(r"blob:.*"))
+        expect(self.page.locator("#qrShare")).to_have_attribute(
+            "data-url", re.compile(rf".*/c/preview-collection-{collection_ids.index(target)}"))
+        self.page.set_viewport_size({"width": 390, "height": 844})
+        self.page.locator("#qrToggle").click()
+        expect(self.page.locator(".share-qr-col")).to_have_class(re.compile(r".*\bqr-open\b.*"))
+        self.page.locator("#qrToggle").click()
+        expect(self.page.locator(".share-qr-col")).not_to_have_class(re.compile(r".*\bqr-open\b.*"))
+        self.assert_db_unchanged()
+
+    def test_adding_event_removes_original_and_sibling_from_current_search(self):
+        # Изолируем сохранение от случайной загрузки следующей страницы при
+        # прокрутке к кнопке: оно само должно обновить рекомендации.
+        self.page.add_init_script("delete window.IntersectionObserver;")
+        root = self.search_ids[0]
+        conn = self.backend.db.connect()
+        try:
+            copier = conn.execute(
+                "INSERT INTO users(display_name,created_at) VALUES('Автор копии',?)",
+                (self.backend.main.now_iso(),),
+            ).lastrowid
+            sibling = conn.execute(
+                "INSERT INTO dates(owner_id,name,share_token,is_public,is_draft,created_at,origin,source_date_id) "
+                "VALUES(?,'Пикник копия','feed-sibling',1,0,?,'copy',?)",
+                (copier, self.backend.main.now_iso(), root),
+            ).lastrowid
+            conn.commit()
+        finally:
+            conn.close()
+        self.open_feed("Пикник")
+        saved_card = self.page.locator(f"#communityFeed .cfeed-card[data-widget='{root}']")
+        expect(saved_card).to_be_visible()
+        with self.page.expect_response(lambda response: response.url.endswith("/add")
+                                       and response.request.method == "POST") as response:
+            saved_card.locator("[data-community-add]").press("Enter")
+        self.assertEqual(response.value.status, 200)
+        expect(saved_card).to_have_count(0)
+        expect(self.page.locator(f"#communityFeed .cfeed-card[data-widget='{sibling}']")).to_have_count(0)
+        expect(self.cards).to_have_count(12)
+        expect(self.page.locator("#communitySearchInput")).to_have_value("Пикник")
+        copied = self.backend.row("SELECT COUNT(*) AS n FROM dates WHERE owner_id=? AND source_date_id=?",
+                                  (self.uid, root))
+        self.assertEqual(copied["n"], 1)
+
+    def test_delayed_save_response_preserves_destination_after_turbo_navigation(self):
+        conn = self.backend.db.connect()
+        try:
+            conn.execute(
+                "INSERT INTO categories(owner_id,name,link_token,created_at) VALUES(?,'Выходные','saved-late',?)",
+                (self.uid, self.backend.main.now_iso()),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        self.open_feed("Пикник")
+        source_id = self.card_ids()[0]
+        held = []
+
+        def delay_save(route):
+            held.append((route, route.fetch()))
+            self.page.evaluate("document.body.dataset.heldSave = '1'")
+
+        self.page.route("**/d/*/add", delay_save)
+        self.cards.first.locator("[data-community-add]").click()
+        expect(self.page.locator("body")).to_have_attribute("data-held-save", "1")
+        # Turbo сохраняет окружение JS: отложенный ответ старой страницы всё
+        # ещё может вызвать callback после замены её DOM.
+        self.page.locator("nav.glass-nav a[href='/admin/categories']").click()
+        expect(self.page.locator(".cat-card")).to_have_count(1)
+        destination = self.page.url
+        requests = []
+        self.page.on("request", lambda request: requests.append(request.url)
+                     if urlsplit(request.url).path == "/admin/community" else None)
+        route, response = held[0]
+        route.fulfill(response=response)
+        expect(self.page.locator("#adminToast")).to_have_text("Событие добавлено в твою коллекцию")
+        self.assertEqual(self.page.url, destination)
+        self.assertEqual(requests, [], "Detached feed must not reload after a completed save")
+        self.assertEqual(self.backend.row(
+            "SELECT COUNT(*) AS n FROM dates WHERE owner_id=? AND source_date_id=?",
+            (self.uid, source_id),
+        )["n"], 1)
 
     def archive_seen_item_and_finish(self, *, query=""):
         self.open_feed(query)

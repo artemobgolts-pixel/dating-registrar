@@ -201,13 +201,11 @@ def _candidate_rows(
         # событие даже в коротком окне между стартом и фоновым проходом.
         "(d.starts_at IS NULL OR datetime(d.starts_at) IS NULL "
         "OR datetime(d.starts_at)>datetime(?))",
-        "NOT EXISTS ("
-        "SELECT 1 FROM dates copied WHERE copied.owner_id=? "
-        "AND copied.origin='copy' "
-        "AND copied.source_date_id=COALESCE(d.source_date_id,d.id))",
+        "NOT EXISTS (SELECT 1 FROM saved_dates saved WHERE saved.id=d.id)",
     ]
     params: list[object] = [
-        int(viewer_id), as_of.isoformat(sep="T", timespec="seconds"), int(viewer_id),
+        int(viewer_id), int(viewer_id), int(viewer_id),
+        as_of.isoformat(sep="T", timespec="seconds"),
     ]
     if max_id is not None:
         where.append("d.id<=?")
@@ -217,6 +215,21 @@ def _candidate_rows(
         params.append(int(before_id))
     params.append(max(1, int(limit)))
     return conn.execute(
+        # Сохранённые события остаются знакомыми и после архивации. В старых
+        # записях source_date_id мог вести к промежуточной копии, а origin —
+        # отличаться от copy. Обходим связи в обе стороны, включая отсутствующий
+        # исходник, чтобы не предлагать оригинал, потомков и соседние копии.
+        # UNION устраняет повторы и завершает обход даже на циклических данных.
+        "WITH RECURSIVE saved_dates(id) AS ("
+        " SELECT id FROM dates WHERE owner_id=?"
+        " UNION SELECT dc.date_id FROM date_categories dc"
+        " JOIN categories c ON c.id=dc.category_id WHERE c.owner_id=?"
+        " UNION SELECT source.source_date_id FROM dates source"
+        " JOIN saved_dates saved ON saved.id=source.id"
+        " WHERE source.source_date_id IS NOT NULL"
+        " UNION SELECT copied.id FROM dates copied"
+        " JOIN saved_dates saved ON copied.source_date_id=saved.id"
+        ") "
         "SELECT d.*, u.display_name AS owner_name, "
         "u.tg_username AS owner_username, u.avatar_path AS owner_avatar, "
         "EXISTS(SELECT 1 FROM date_images di WHERE di.date_id=d.id) AS has_image "

@@ -11,7 +11,7 @@
   .category-privacy-head p{margin:0}
   .category-privacy-form{display:grid;gap:16px}
   .category-privacy-options{display:grid;gap:10px}
-  .category-privacy-options .toggle{margin:0;min-height:58px}
+  .category-privacy-options .toggle{margin:0;min-height:44px}
   .category-pin-field{display:grid;gap:6px;margin:2px 0 0;padding:14px;border:1px solid var(--line);border-radius:14px;background:var(--material-control)}
   .category-pin-field input{max-width:220px;height:44px;font-variant-numeric:tabular-nums;letter-spacing:.22em}
   .category-privacy-form:not(:has(input[name="pin_enabled"]:checked)) .category-pin-field{display:none}
@@ -273,12 +273,31 @@
 {% endset %}
 
 <div class="card category-events-card category-events-compact{% if not can_change_composition %} category-events-locked{% endif %}" id="categoryDates">
-  <div class="bar category-fill-head" data-tour="category-dates">
+  <div class="category-fill-tools" data-tour="category-dates">
+  <div class="bar category-fill-head">
     <b>События в подборке</b>
     {% if can_change_composition %}
-      <a class="btn small primary"
-         href="/admin/dates/new?category={{ cat['id'] }}&amp;return_to={{ (editor_self_url ~ '#categoryDates') | urlencode }}">+ Новое событие</a>
+    <details class="category-add-menu">
+      <summary class="btn small ghost category-add-toggle"><span aria-hidden="true">＋</span> Добавить</summary>
+      <div class="category-add-panel">
+        {% if attachable %}
+        <form class="category-attach-form" method="post" data-preserve-scroll
+              action="/admin/categories/{{ cat['id'] }}/attach?return_to={{ editor_return_url | urlencode }}">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <label class="sr-only" for="categoryAttachDate">Существующее событие</label>
+          <select id="categoryAttachDate" name="date_id" required>
+            <option value="" disabled selected>Выбрать событие…</option>
+            {% for a in attachable %}<option value="{{ a['id'] }}">{{ a['name'] }}</option>{% endfor %}
+          </select>
+          <button type="submit" class="btn ghost category-attach-submit" aria-label="Добавить выбранное событие в подборку" title="Добавить в подборку"><svg class="admin-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14"/></svg></button>
+        </form>
+        {% endif %}
+        <a class="category-new-event"
+           href="/admin/dates/new?category={{ cat['id'] }}&amp;return_to={{ (editor_self_url ~ '#categoryDates') | urlencode }}"><span aria-hidden="true">＋</span> Новое событие</a>
+      </div>
+    </details>
     {% endif %}
+  </div>
   </div>
 
   {% if dates %}
@@ -326,6 +345,7 @@
         </form>
         {% elif can_change_composition %}
         <form class="inline" method="post" action="/admin/categories/{{ cat['id'] }}/detach?return_to={{ editor_return_url | urlencode }}"
+              data-preserve-scroll
               data-confirm="Убрать событие из подборки? Голоса за него в этой подборке удалятся.">
           <input type="hidden" name="csrf" value="{{ csrf }}">
           <input type="hidden" name="date_id" value="{{ d['id'] }}">
@@ -343,21 +363,11 @@
   <p class="muted">В подборке пока нет событий.</p>
   {% endif %}
 
-  {% if attachable and can_change_composition %}
-  <form class="category-attach-form" method="post" action="/admin/categories/{{ cat['id'] }}/attach?return_to={{ editor_return_url | urlencode }}">
-    <input type="hidden" name="csrf" value="{{ csrf }}">
-    <select name="date_id" required aria-label="Существующее событие">
-      <option value="" disabled selected>Добавить существующее событие…</option>
-      {% for a in attachable %}<option value="{{ a['id'] }}">{{ a['name'] }}</option>{% endfor %}
-    </select>
-    <button class="btn primary">Добавить</button>
-  </form>
-  {% endif %}
 </div>
 
 {{ category_voting_section }}
 
-<section class="card category-privacy-card" id="categoryPrivacy" aria-labelledby="categoryPrivacyTitle">
+<section class="card category-privacy-card" id="categoryPrivacy" data-tour="category-privacy" aria-labelledby="categoryPrivacyTitle">
   <div class="category-privacy-head">
     <h2 id="categoryPrivacyTitle">Приватность</h2>
   </div>
@@ -370,7 +380,6 @@
         <span class="sw" aria-hidden="true"></span>
         <span class="tcol">
           <span class="t">Приватные профили участников</span>
-          <span class="d">Имена и аватары останутся видны, но ссылки на профили будут отключены.</span>
         </span>
       </label>
       <label class="toggle">
@@ -378,7 +387,6 @@
         <span class="sw" aria-hidden="true"></span>
         <span class="tcol">
           <span class="t">Запретить копирование событий</span>
-          <span class="d">Скроет с карточек действия «Скопировать ссылку» и «Скопировать событие».</span>
         </span>
       </label>
       <label class="toggle">
@@ -407,7 +415,6 @@
   <div>
     <span class="category-share-eyebrow">Последний шаг</span>
     <h2 id="categoryShareTitle">Проверь и поделись</h2>
-    <p class="muted">Перед отправкой открой страницу гостя и убедись, что варианты, правила и список участников отображаются верно.</p>
   </div>
   <div class="category-share-actions">
     {% if cat['operator_review_pending'] %}

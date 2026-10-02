@@ -54,6 +54,8 @@
    должны мигать системной синей заливкой. Клавиатурный :focus-visible ниже
    остаётся доступным и по-прежнему рисует явный outline. */
 a, button, summary, label, [role="button"] { -webkit-tap-highlight-color: transparent; }
+.cat-card, .dcard, .cfeed-card { -webkit-tap-highlight-color: transparent; }
+.more { -webkit-user-select: none; user-select: none; }
 /* overflow-x: clip — глобальный предохранитель от горизонтального «шатания» на
    телефоне (декоративные слои, флекс-строки, широкие элементы). clip, а не
    hidden: не создаёт scroll-контейнер, не ломает position:sticky у шапки и
@@ -1200,11 +1202,10 @@ button.social-service-telegram { cursor: pointer; }
 
 /* страница уведомлений: единая иерархия, настройки и ровные действия */
 .notif-page-head {
-  display: flex; align-items: flex-end; justify-content: space-between; gap: 18px;
-  margin: 0 0 18px;
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  margin: 0 0 14px;
 }
 .notif-page-head h1 { margin: 0; }
-.notif-page-head p { margin: 4px 0 0; color: var(--muted); }
 .notif-new-count {
   display: inline-flex; align-items: center; justify-content: center;
   min-height: 32px; padding: 6px 12px; border-radius: 999px;
@@ -1408,7 +1409,6 @@ button.social-service-telegram { cursor: pointer; }
 
 @media (max-width: 720px) {
   .notif-page-head { align-items: flex-start; margin-bottom: 14px; }
-  .notif-page-head p { font-size: 13px; }
   .notif-new-count { min-height: 29px; padding: 5px 10px; }
   .notif-settings-card { border-radius: 18px; }
   .notif-settings-head { align-items: flex-start; flex-wrap: nowrap; padding: 14px 15px; }
@@ -1424,7 +1424,6 @@ button.social-service-telegram { cursor: pointer; }
 
 @media (max-width: 420px) {
   .notif-page-head { gap: 10px; }
-  .notif-page-head p { max-width: 235px; }
   .notif-head { gap: 10px; }
   .notif-ic { width: 36px; height: 36px; }
   .notif-inline-actions .notif-action-btn { flex-basis: 100%; width: 100%; }
@@ -2375,9 +2374,21 @@ html[data-theme="dark"][data-skin="friends"] .share-qr {
   border-color: rgba(255,255,255,.12);
 }
 .share-heading { display: block; margin-bottom: 8px; }
+#dashboardShare { display: block; }
 .share-cat { font-weight: 600; margin-bottom: 8px; overflow-wrap: anywhere; }
 .share-pick { margin-bottom: 12px; }
 .share-pick select { width: auto; min-width: min(200px, 100%); max-width: 100%; }
+html #shareCollection {
+  appearance: none;
+  padding-right: 36px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='m1 1 5 5 5-5' fill='none' stroke='%23817785' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 12px 8px;
+}
+html[data-theme="dark"] #shareCollection {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='m1 1 5 5 5-5' fill='none' stroke='%23d5cbd7' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
 .qr-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; align-items: stretch; }
 /* #10: обе кнопки QR — одной высоты и с центрированным текстом. «Скачать» —
    это <a class="btn small"> (inline-block, текст съезжал влево и была ниже);
@@ -2414,10 +2425,12 @@ html[data-theme="dark"][data-skin="friends"] .share-qr {
    Ссылка-токен (copy-code) поднята над оверлеем, чтобы клик по ней копировал,
    а не открывал категорию. */
 .cat-card { position: relative; transition: transform .15s, box-shadow .2s, border-color .2s; }
-.cat-card:hover {
-  transform: translateY(-2px);
-  border-color: var(--rose);
-  box-shadow: 0 14px 34px rgba(150, 80, 95, .14);
+@media (hover: hover) and (pointer: fine) {
+  .cat-card:hover:not(:has(.menu-wrap:hover)) {
+    transform: translateY(-2px);
+    border-color: var(--rose);
+    box-shadow: 0 14px 34px rgba(150, 80, 95, .14);
+  }
 }
 .cat-link {
   position: absolute; inset: 0; z-index: 1;   /* НИЖЕ содержимого; клик по всей карточке */
@@ -2469,7 +2482,7 @@ html[data-theme="dark"][data-skin="friends"] .share-qr {
 .cat-card .cat-media::after {
   content: ""; position: absolute; z-index: 0; pointer-events: none;
   inset: 0 0 auto; height: 104px;
-  background: linear-gradient(rgba(12, 15, 22, .78) 0 48px, transparent);
+  background: linear-gradient(rgba(12, 15, 22, .62) 0 48px, transparent);
 }
 .cat-card .cat-preview-count {
   position: relative; z-index: 1; display: flex; align-items: baseline; gap: 5px;
@@ -2485,7 +2498,9 @@ html[data-theme="dark"][data-skin="friends"] .share-qr {
 .cat-card.has-thumb .cat-body {
   position: relative; z-index: 1; min-width: 0; margin-top: auto;
   padding: 28px 16px 16px;
-  background: linear-gradient(transparent, rgba(12, 15, 22, .78) 28px, rgba(12, 15, 22, .94));
+  background: linear-gradient(transparent, rgba(12, 15, 22, .62) 28px, rgba(12, 15, 22, .72));
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
 }
 .cat-card .cat-heading-line { min-width: 0; }
 html .cat-card.has-thumb .cat-media .cat-name {
@@ -3310,7 +3325,9 @@ html .cat-card.has-thumb .cat-media .cat-name {
   cursor: pointer; overflow: hidden;
   transition: transform .18s ease, box-shadow .2s ease;
 }
-.cfeed-card:hover { transform: translateY(-2px); box-shadow: 0 16px 38px rgba(150, 80, 95, .14); }
+@media (hover: hover) and (pointer: fine) {
+  .cfeed-card:hover:not(:has(.menu-wrap:hover)) { transform: translateY(-2px); box-shadow: 0 16px 38px rgba(150, 80, 95, .14); }
+}
 .cfeed-open:focus-visible { outline: 2px solid var(--rose); outline-offset: 2px; border-radius: 3px; }
 .cfeed-ph {
   position: relative; height: auto; aspect-ratio: 16 / 9;
@@ -4433,10 +4450,12 @@ html[data-skin="friends"] .dcard .ph.g0 { background: linear-gradient(135deg, #5
 html[data-skin="friends"] .dcard .ph.g1 { background: linear-gradient(135deg, #36a69e, #246f7c); }
 html[data-skin="friends"] .dcard .ph.g2 { background: linear-gradient(135deg, #e0ad52, #aa7626); }
 html[data-skin="friends"] .dcard .ph.g3 { background: linear-gradient(135deg, #6978b8, #278a86); }
-html[data-skin="friends"] .dcard:hover,
-html[data-skin="friends"] .cat-card:hover {
-  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
-  box-shadow: 0 20px 44px rgba(53,66,103,.17), inset 0 1px 0 rgba(255,255,255,.84);
+@media (hover: hover) and (pointer: fine) {
+  html[data-skin="friends"] .dcard:hover:not(:has(.menu-wrap:hover)),
+  html[data-skin="friends"] .cat-card:hover:not(:has(.menu-wrap:hover)) {
+    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+    box-shadow: 0 20px 44px rgba(53,66,103,.17), inset 0 1px 0 rgba(255,255,255,.84);
+  }
 }
 html[data-skin="friends"] .dcard:hover .ttl a,
 html[data-skin="friends"] .cat-card:hover .cat-name { color: var(--rose-2); }
@@ -4849,9 +4868,13 @@ h1 {
 :is(input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="range"]),
     textarea, select) { min-block-size: 44px; }
 :where(button, .btn, nav a, .tabs a, .bell, .logout-mini, .more,
-       .cat-card, .account-popover a, [role="button"]):not(:disabled):not([aria-disabled="true"]):active {
+       .account-popover a, [role="button"]):not(:disabled):not([aria-disabled="true"]):active {
   transform: scale(.97);
   transition: transform 80ms var(--ease-press);
+}
+.cat-card:has(.cat-link:active) {
+  transform: scale(.97);
+  transition: transform 100ms var(--ease-press);
 }
 
 .oauth-btn.disabled[aria-disabled="true"] {
@@ -5000,6 +5023,7 @@ dialog:is(.is-closing, [data-closing="true"]) {
   }
   .top nav.glass-nav .tab-ind,
   .tabs .tab-ind { transition: none !important; will-change: auto; }
+  .cat-card:has(.cat-link:active) { transform: none; }
 }
 
 /* Category editor follows the task sequence even though appearance stays last

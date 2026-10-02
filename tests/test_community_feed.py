@@ -70,6 +70,89 @@ class CommunityFeedTests(unittest.TestCase):
     def _names(self, page: community_feed.FeedPage) -> list[str]:
         return [str(row["name"]) for row in page.rows]
 
+    def test_saved_copy_excludes_its_whole_lineage_for_only_its_owner(self):
+        author = self._user("Автор оригинала")
+        copier = self._user("Автор копий")
+        root = self._event(author, "Кино оригинал")
+        intermediate = self._event(copier, "Кино копия", source_date_id=root, origin="copy")
+        child = self._event(copier, "Кино цепочка", source_date_id=intermediate, origin="copy")
+        sibling = self._event(self._user("Другой автор копии"), "Кино соседняя копия",
+                              source_date_id=root, origin="copy")
+        saved = self._event(self.viewer, "Моя старая копия", is_public=0,
+                            source_date_id=child, origin="copy")
+        self.conn.execute("UPDATE dates SET archived_at=? WHERE id=?", (STAMP, saved))
+        unrelated = self._event(author, "Кино другое")
+        cold_viewer = self._user("Независимый зритель")
+        for cursor, query in ((None, None), (None, "Кино"), (str(unrelated + 1), None)):
+            with self.subTest(cursor=cursor, query=query):
+                page = community_feed.page(self.conn, self.viewer, cursor, now=NOW, query=query)
+                self.assertEqual({int(row["id"]) for row in page.rows}, {unrelated})
+                other = community_feed.page(self.conn, cold_viewer, cursor, now=NOW, query=query)
+                self.assertEqual({int(row["id"]) for row in other.rows},
+                                 {root, intermediate, child, sibling, unrelated})
+
+    def test_saved_legacy_copy_stays_excluded_when_original_is_missing(self):
+        author = self._user("Автор")
+        missing_root = 9999
+        direct = self._event(author, "Кино копия", source_date_id=missing_root, origin="copy")
+        child = self._event(author, "Кино цепочка", source_date_id=direct, origin="copy")
+        self._event(self.viewer, "Моя старая запись", source_date_id=missing_root,
+                    origin="admin", is_public=0)
+        for query in (None, "Кино"):
+            with self.subTest(query=query):
+                self.assertEqual(community_feed.page(self.conn, self.viewer, now=NOW,
+                                                     query=query).rows, [])
+
+    def test_copies_of_my_original_and_legacy_collection_membership_are_excluded(self):
+        author = self._user("Автор")
+        original = self._event(self.viewer, "Мой оригинал", is_public=0)
+        self._event(author, "Копия моего оригинала", source_date_id=original, origin="copy")
+        linked = self._event(author, "Событие в подборке")
+        category = self.conn.execute(
+            "INSERT INTO categories(owner_id,name,created_at) VALUES(?,?,?)",
+            (self.viewer, "Подборка", STAMP),
+        ).lastrowid
+        self.conn.execute("INSERT INTO date_categories(date_id,category_id) VALUES(?,?)",
+                          (linked, category))
+        self.assertEqual(community_feed.page(self.conn, self.viewer, now=NOW).rows, [])
+
+    def test_saved_lineage_cycle_terminates_without_hiding_unrelated_events(self):
+        author = self._user("Автор")
+        first = self._event(author, "Первая старая копия")
+        second = self._event(author, "Вторая старая копия", source_date_id=first, origin="copy")
+        self.conn.execute("UPDATE dates SET source_date_id=? WHERE id=?", (second, first))
+        self._event(self.viewer, "Моя копия", source_date_id=second, origin="copy", is_public=0)
+        unrelated = self._event(author, "Незнакомое событие")
+        self.assertEqual([int(row["id"]) for row in community_feed.page(
+            self.conn, self.viewer, now=NOW,
+        ).rows], [unrelated])
+
+    def test_saving_after_first_page_resets_cursor_without_losing_unseen_events(self):
+        author = self._user("Автор")
+        ids = [self._event(author, f"Кино {index}") for index in range(7)]
+        for query in (None, "Кино"):
+            with self.subTest(query=query):
+                first = community_feed.page(self.conn, self.viewer, now=NOW,
+                                            page_size=2, query=query)
+                saved = self._event(self.viewer, f"Моя копия {query}", source_date_id=ids[-1],
+                                    origin="admin", is_public=0)
+                try:
+                    restarted = community_feed.page(self.conn, self.viewer, first.next_cursor,
+                                                    now=NOW, page_size=2, query=query)
+                    self.assertTrue(restarted.reset)
+                    seen = [int(row["id"]) for row in restarted.rows]
+                    cursor = restarted.next_cursor
+                    while cursor:
+                        continued = community_feed.page(self.conn, self.viewer, cursor, now=NOW,
+                                                        page_size=2, query=query)
+                        self.assertFalse(continued.reset)
+                        seen.extend(int(row["id"]) for row in continued.rows)
+                        cursor = continued.next_cursor
+                    self.assertEqual(set(seen), set(ids[:-1]))
+                    self.assertEqual(len(seen), len(set(seen)))
+                finally:
+                    self.conn.execute("DELETE FROM dates WHERE id=?", (saved,))
+
     def test_general_ranking_prefers_upcoming_and_excludes_started(self):
         owner = self._user("Автор")
         self._event(owner, "Далёкое", starts_at="2030-09-01T18:00:00")

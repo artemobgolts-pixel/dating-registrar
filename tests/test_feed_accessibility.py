@@ -252,13 +252,14 @@ class FeedAccessibilityTests(unittest.TestCase):
                 report = self.backend.row("SELECT * FROM reports WHERE target_id=?", (did,))
                 self.assertEqual((report["reason"], report["status"]),
                                  ("Проверка независимой жалобы", "open"))
+                name = card.locator(".cfeed-ttl").inner_text()
                 add = card.locator("[data-community-add]")
                 add.press("Enter")
-                expect(add).to_have_text("Добавлено ✓")
-                expect(add).to_be_disabled()
+                expect(card).to_have_count(0)
+                expect(self.page.locator("#communityFeed")).not_to_have_attribute("data-feed-state", "loading")
                 self.assert_no_widget(count)
                 copied = self.backend.row("SELECT * FROM dates WHERE owner_id=? AND name=?",
-                                          (self.uid, card.locator(".cfeed-ttl").inner_text()))
+                                          (self.uid, name))
                 self.assertIsNotNone(copied)
                 self.assertNotEqual(copied["id"], did)
                 media = self.backend.row(
