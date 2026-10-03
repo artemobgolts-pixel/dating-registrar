@@ -1140,6 +1140,58 @@
       }
     }
 
+    var eventsToggle = document.querySelector(".category-events-toggle");
+    if (eventsToggle && !eventsToggle.dataset.ready) {
+      eventsToggle.dataset.ready = "1";
+      var eventsList = document.getElementById(eventsToggle.getAttribute("aria-controls"));
+      var eventsBody = eventsList.querySelector("tbody");
+      var eventsStateKey = "d4y_category_events_" + window.location.pathname;
+      var eventsExpanded = false;
+      try { eventsExpanded = sessionStorage.getItem(eventsStateKey) === "expanded"; } catch (_) {}
+
+      function setEventsExpanded(expanded, animate) {
+        var rows = Array.from(eventsBody.querySelectorAll("tr[data-did]"));
+        rows.forEach(function (row, index) {
+          var reveal = row.hidden && (expanded || index < 5);
+          row.getAnimations().forEach(function (animation) { animation.cancel(); });
+          row.hidden = !expanded && index >= 5;
+          if (reveal && animate && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+            row.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 180, easing: "ease-out" });
+          }
+        });
+        eventsExpanded = expanded;
+        eventsToggle.setAttribute("aria-expanded", String(expanded));
+        eventsToggle.querySelector("[data-events-toggle-label]").textContent = expanded ? "Свернуть" : "Показать ещё";
+        var remaining = eventsToggle.querySelector("[data-events-remaining]");
+        remaining.textContent = String(Math.max(0, rows.length - 5));
+        remaining.hidden = expanded;
+        eventsToggle.hidden = rows.length <= 5;
+        try { sessionStorage.setItem(eventsStateKey, expanded ? "expanded" : "collapsed"); } catch (_) {}
+      }
+
+      setEventsExpanded(eventsExpanded, false);
+      eventsToggle.addEventListener("click", function (event) {
+        var firstHidden = eventsBody.querySelector("tr[hidden] .category-event-copy > a");
+        setEventsExpanded(!eventsExpanded, true);
+        if (eventsExpanded && event.detail === 0 && firstHidden) {
+          firstHidden.focus({ preventScroll: true });
+        } else if (!eventsExpanded) {
+          eventsToggle.scrollIntoView({ block: "nearest", behavior: "instant" });
+        }
+      });
+      // Сортировка видит полный список: скрытая шестая строка не забирает фокус
+      // у пятой при ArrowDown, а сервер всегда получает все ID событий.
+      function expandForSorting(event) {
+        if (!eventsExpanded && event.target.closest("[data-sort-handle]")) {
+          setEventsExpanded(true, false);
+        }
+      }
+      eventsBody.addEventListener("pointerdown", expandForSorting);
+      eventsBody.addEventListener("keydown", function (event) {
+        if (event.key === " " || event.key === "Enter") expandForSorting(event);
+      });
+    }
+
     var tb = document.getElementById("catRows");
     if (tb && !tb.dataset.ready) {
       tb.dataset.ready = "1";

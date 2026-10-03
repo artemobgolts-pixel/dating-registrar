@@ -301,7 +301,7 @@
   </div>
 
   {% if dates %}
-  <div class="table-wrap">
+  <div class="table-wrap" id="categoryEventsList">
   <table>
     <thead><tr><th></th><th>Название</th><th>Когда</th><th>Голоса / мест</th><th></th></tr></thead>
     <tbody {% if can_change_composition %}id="catRows" data-cid="{{ cat['id'] }}"{% endif %}>
@@ -358,6 +358,14 @@
     </tbody>
   </table>
   </div>
+  {% if dates | length > 5 %}
+  <button type="button" class="btn ghost category-events-toggle" hidden
+          aria-expanded="false" aria-controls="categoryEventsList">
+    <span data-events-toggle-label>Показать ещё</span>
+    <span class="category-events-remaining" data-events-remaining>{{ dates | length - 5 }}</span>
+    <svg class="admin-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m7 10 5 5 5-5"/></svg>
+  </button>
+  {% endif %}
   {% if can_change_composition %}<p class="sr-only" id="categorySortHelp">Перетащи за ручку или нажми на ней Space и используй стрелки. Этот порядок увидят гости.</p>{% endif %}
   {% else %}
   <p class="muted">В подборке пока нет событий.</p>

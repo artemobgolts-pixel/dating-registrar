@@ -81,6 +81,130 @@ class CategoryEditorActionsTests(unittest.TestCase):
         self.assertEqual(response.status, 303)
         return parse_qs(urlsplit(response.headers["location"]).query).get("msg", [""])[0]
 
+    def fill_events(self, count):
+        conn = self.backend.db.connect()
+        try:
+            conn.execute("DELETE FROM date_categories WHERE category_id=?", (self.cid,))
+            ids = []
+            for index in range(count):
+                did = self.did if index == 0 else conn.execute(
+                    "INSERT INTO dates(owner_id,name,created_at) VALUES(?,?,?)",
+                    (self.uid, f"Событие {index + 1}", self.backend.main.now_iso()),
+                ).lastrowid
+                ids.append(did)
+                conn.execute(
+                    "INSERT INTO date_categories(date_id,category_id,position) VALUES(?,?,?)",
+                    (did, self.cid, index),
+                )
+            conn.commit()
+            return ids
+        finally:
+            conn.close()
+
+    def test_more_events_are_offered_only_above_five(self):
+        for count in (0, 5, 6, 12):
+            with self.subTest(count=count):
+                self.fill_events(count)
+                self.goto_editor()
+                expect(self.page.locator("#categoryDates tbody tr")).to_have_count(count)
+                expect(self.page.locator("#categoryDates tbody tr:visible")).to_have_count(min(count, 5))
+                toggle = self.page.get_by_role("button", name="Показать ещё")
+                expect(toggle).to_have_count(1 if count > 5 else 0)
+                if count > 5:
+                    expect(toggle).to_have_attribute("aria-expanded", "false")
+                    expect(toggle).to_have_attribute("aria-controls", "categoryEventsList")
+                    expect(toggle.locator("[data-events-remaining]")).to_have_text(str(count - 5))
+
+    def test_reveal_and_collapse_work_with_keyboard_in_each_appearance(self):
+        ids = self.fill_events(12)
+        self.goto_editor()
+        toggle = self.page.locator(".category-events-toggle")
+        for width in (320, 390, 1280):
+            self.page.set_viewport_size({"width": width, "height": 900})
+            for skin in ("friends", "romantic"):
+                for theme in ("light", "dark"):
+                    with self.subTest(width=width, skin=skin, theme=theme):
+                        self.page.locator("html").evaluate(
+                            "(el, v) => {el.dataset.skin=v[0];el.dataset.theme=v[1]}",
+                            [skin, theme],
+                        )
+                        toggle.scroll_into_view_if_needed()
+                        box = toggle.bounding_box()
+                        self.assertGreaterEqual(box["height"], 44)
+                        self.assertGreaterEqual(box["x"], 0)
+                        self.assertLessEqual(box["x"] + box["width"], width)
+                        toggle.focus()
+                        self.page.keyboard.press("Enter")
+                        expect(toggle).to_have_attribute("aria-expanded", "true")
+                        expect(self.page.get_by_role("button", name="Свернуть", exact=True)).to_be_visible()
+                        expect(self.page.locator("#categoryDates tbody tr:visible")).to_have_count(12)
+                        expect(self.page.locator(f'tr[data-did="{ids[5]}"] .category-event-copy > a')).to_be_focused()
+                        self.assertEqual(self.page.locator("#categoryEventsList").evaluate(
+                            "el => el.getAnimations({subtree:true}).length",
+                        ), 0)
+                        toggle.click()
+                        expect(toggle).to_have_attribute("aria-expanded", "false")
+                        expect(self.page.locator("#categoryDates tbody tr:visible")).to_have_count(5)
+                        self.assertTrue(self.page.evaluate("document.documentElement.scrollWidth <= innerWidth"))
+
+    def test_expanded_events_stay_open_after_editing_membership(self):
+        ids = self.fill_events(12)
+        self.goto_editor()
+        self.page.get_by_role("button", name="Показать ещё").click()
+        row = self.page.locator(f'tr[data-did="{ids[5]}"]')
+        row.locator(".category-event-copy > a").click()
+        expect(self.page.locator("#dateForm")).to_be_visible()
+        self.page.go_back()
+        expect(self.page.locator("#categoryDates tbody tr:visible")).to_have_count(12)
+        row.get_by_role("button", name="Убрать событие «Событие 6» из подборки").click()
+        self.page.get_by_role("alertdialog").get_by_role("button", name="Подтвердить", exact=True).click()
+        expect(self.page.locator("#categoryDates tbody tr:visible")).to_have_count(11)
+        expect(self.page.get_by_role("button", name="Свернуть", exact=True)).to_be_visible()
+        self.page.locator(".category-add-menu summary").click()
+        self.page.get_by_role("combobox", name="Существующее событие").select_option(str(ids[5]))
+        self.page.get_by_role("button", name="Добавить выбранное событие в подборку").click()
+        expect(self.page.locator("#categoryDates tbody tr:visible")).to_have_count(12)
+        expect(self.page.get_by_role("button", name="Свернуть", exact=True)).to_be_visible()
+
+    def test_sorting_reveals_the_tail_and_saves_every_event(self):
+        ids = self.fill_events(12)
+        self.goto_editor()
+        handle = self.page.locator(f'tr[data-did="{ids[4]}"] [data-sort-handle]')
+        handle.focus()
+        self.page.keyboard.press("Space")
+        expect(self.page.locator("#categoryDates tbody tr:visible")).to_have_count(12)
+        self.page.keyboard.press("ArrowDown")
+        expect(handle).to_be_focused()
+        with self.page.expect_response(lambda response: "/dates_reorder" in response.url) as saved:
+            self.page.keyboard.press("Space")
+        self.assertEqual(saved.value.status, 200)
+        ids[4], ids[5] = ids[5], ids[4]
+        conn = self.backend.db.connect()
+        try:
+            actual = [row["date_id"] for row in conn.execute(
+                "SELECT date_id FROM date_categories WHERE category_id=? ORDER BY position", (self.cid,),
+            )]
+        finally:
+            conn.close()
+        self.assertEqual(actual, ids)
+        self.page.get_by_role("button", name="Свернуть", exact=True).click()
+        expect(self.page.locator(f'tr[data-did="{ids[4]}"]')).to_be_visible()
+        expect(self.page.locator(f'tr[data-did="{ids[5]}"]')).to_be_hidden()
+
+    def test_closed_collection_can_reveal_events_without_sorting(self):
+        self.fill_events(6)
+        conn = self.backend.db.connect()
+        try:
+            conn.execute("UPDATE categories SET voting_status='resolved' WHERE id=?", (self.cid,))
+            conn.commit()
+        finally:
+            conn.close()
+        self.goto_editor()
+        expect(self.page.locator("#catRows")).to_have_count(0)
+        expect(self.page.locator("#categoryDates tbody tr:visible")).to_have_count(5)
+        self.page.get_by_role("button", name="Показать ещё").click()
+        expect(self.page.locator("#categoryDates tbody tr:visible")).to_have_count(6)
+
     def test_add_existing_event_and_remove_only_its_membership(self):
         self.goto_editor()
         menu = self.page.locator(".category-add-menu")

@@ -274,20 +274,17 @@ class CategoryCardGeometryBrowserTests(unittest.TestCase):
                             expect(self.card(count)).to_have_attribute(
                                 "data-default-image", "1" if count in (0, 1, 2) else "0",
                             )
-                            opacity = self.card(count).evaluate("""el => [
-                              Number(getComputedStyle(el.querySelector('.cat-media'),'::after').opacity),
-                              Number(getComputedStyle(el.querySelector('.cat-body'),'::before').opacity)
-                            ]""")
-                            for value in opacity:
-                                self.assertAlmostEqual(value, .35 if count in (0, 1, 2) else .7)
+                            opacity = self.card(count).evaluate("""el =>
+                              Number(getComputedStyle(el.querySelector('.cat-media'),'::after').opacity)
+                            """)
+                            self.assertAlmostEqual(opacity, .35 if count in (0, 1, 2) else .7)
                         card = self.card(0)
                         card.scroll_into_view_if_needed()
                         page.wait_for_function("el => el.complete && el.naturalWidth > 0", arg=card.locator("img").element_handle())
                         original = Image.open(BytesIO(card.locator(".cat-media").screenshot())).convert("RGB")
                         card.evaluate("el => el.dataset.shadingProbe = 'true'")
                         probe = page.add_style_tag(content="""
-                          [data-shading-probe] .cat-media::after,
-                          [data-shading-probe] .cat-body::before { display:none !important; }
+                          [data-shading-probe] .cat-media::after { display:none !important; }
                           [data-shading-probe] .cat-media,
                           [data-shading-probe] .cat-body { background:transparent !important; }
                           [data-shading-probe] .cat-thumb { filter:none !important; }
@@ -300,8 +297,7 @@ class CategoryCardGeometryBrowserTests(unittest.TestCase):
                         self.assertIsNotNone(ImageChops.difference(original, unshaded).getbbox(), "Стандартное превью должно иметь лёгкое затенение")
                         card.evaluate("el => el.dataset.shadingProbe = 'true'")
                         probe = page.add_style_tag(content="""
-                          [data-shading-probe] .cat-media::after,
-                          [data-shading-probe] .cat-body::before { opacity:.7 !important; }
+                          [data-shading-probe] .cat-media::after { opacity:.7 !important; }
                         """)
                         try:
                             full = Image.open(BytesIO(card.locator(".cat-media").screenshot())).convert("RGB")
@@ -316,6 +312,35 @@ class CategoryCardGeometryBrowserTests(unittest.TestCase):
                             self.assertGreater(max(a - b for a, b in zip(clear_pixel, full_pixel)), 20)
                             for clear, half, normal in zip(clear_pixel, half_pixel, full_pixel):
                                 self.assertAlmostEqual((clear - half) * 2, clear - normal, delta=3)
+
+    def test_vignette_keeps_an_oval_clear_center_and_darkens_each_edge(self):
+        for width in (320, 390, 1280):
+            page = self.open_list(width)
+            card = self.card(21)
+            card.scroll_into_view_if_needed()
+            page.wait_for_function("el => el.complete && el.naturalWidth > 0", arg=card.locator("img").element_handle())
+            # Убираем буквы из замера, сохраняя реальную геометрию карточки.
+            probe = page.add_style_tag(content="""
+              .cat-preview-count, .cat-body, .cat-card-menu { visibility:hidden !important; }
+            """)
+            try:
+                for skin in ("friends", "romantic"):
+                    for theme in ("light", "dark"):
+                        with self.subTest(width=width, skin=skin, theme=theme):
+                            self.appearance(page, skin, theme)
+                            picture = Image.open(BytesIO(card.locator(".cat-media").screenshot())).convert("RGB")
+
+                            def brightness(x, y):
+                                return sum(picture.getpixel((int(picture.width * x), int(picture.height * y)))) / 3
+
+                            center = brightness(.5, .5)
+                            self.assertGreater(center, 245)
+                            for x, y in ((.08, .5), (.92, .5), (.5, .08), (.5, .92)):
+                                self.assertGreater(center - brightness(x, y), 25)
+                            # Диагональ темнее осей: это виньетка, а не полосы.
+                            self.assertGreater(brightness(.08, .5) - brightness(.08, .08), 15)
+            finally:
+                probe.evaluate("el => el.remove()")
 
     def test_preview_counts_use_actual_event_totals_and_russian_plural(self):
         self.open_list()

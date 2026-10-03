@@ -2464,7 +2464,7 @@ html[data-theme="dark"] #shareCollection {
 }
 .cat-card:hover .cat-arrow { opacity: 1; transform: translateX(3px); }
 
-/* Подписи живут на превью: затемнение локальное, меню вне обрезаемого фото. */
+/* Подписи живут на превью: овальная виньетка, меню вне обрезаемого фото. */
 .category-preview-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
   gap: 16px; align-items: start;
@@ -2485,8 +2485,8 @@ html[data-theme="dark"] #shareCollection {
 .cat-card .cat-media::after {
   content: ""; position: absolute; z-index: 0; pointer-events: none;
   opacity: var(--cat-scrim-opacity);
-  inset: 0 0 auto; height: 88px;
-  background: linear-gradient(rgba(12, 15, 22, .58) 0 44px, rgba(12, 15, 22, .56) 48px, rgba(12, 15, 22, .5) 52px, rgba(12, 15, 22, .42) 58px, rgba(12, 15, 22, .27) 64px, rgba(12, 15, 22, .13) 72px, rgba(12, 15, 22, .04) 80px, transparent);
+  inset: 0;
+  background: radial-gradient(ellipse at center, transparent 24%, rgba(12, 15, 22, .07) 42%, rgba(12, 15, 22, .33) 68%, rgba(12, 15, 22, .58) 100%);
 }
 .cat-card .cat-preview-count {
   position: relative; z-index: 1; display: flex; align-items: baseline; gap: 5px;
@@ -2502,11 +2502,6 @@ html[data-theme="dark"] #shareCollection {
 .cat-card.has-thumb .cat-body {
   position: relative; z-index: 1; min-width: 0; margin-top: auto;
   padding: 28px 16px 16px;
-}
-.cat-card.has-thumb .cat-body::before {
-  content: ""; position: absolute; inset: -12px 0 0; z-index: -1; pointer-events: none;
-  opacity: var(--cat-scrim-opacity);
-  background: linear-gradient(transparent, rgba(12, 15, 22, .02) 6px, rgba(12, 15, 22, .07) 12px, rgba(12, 15, 22, .17) 18px, rgba(12, 15, 22, .33) 24px, rgba(12, 15, 22, .49) 30px, rgba(12, 15, 22, .55) 34px, rgba(12, 15, 22, .58) 36px);
 }
 .cat-card.has-thumb[data-default-image="1"] {
   --cat-scrim-opacity: .35;
@@ -2558,11 +2553,10 @@ html .cat-card.has-thumb .cat-media .cat-name {
 }
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
   .cat-card.has-thumb .cat-body { background: #141720; }
-  .cat-card.has-thumb .cat-body::before { display: none; }
   .cat-card .cat-preview-count { text-shadow: 0 1px 3px #000; }
 }
 @media (forced-colors: active) {
-  .cat-card.has-thumb .cat-body::before { display: none; }
+  .cat-card .cat-media::after { display: none; }
   .cat-card.has-thumb .cat-body,
   .cat-card .cat-preview-count { background: Canvas; color: CanvasText; }
   html .cat-card.has-thumb .cat-media .cat-name,

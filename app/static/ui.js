@@ -298,6 +298,7 @@ window.UI = (() => {
       }
       const reference = backward ? items[nextIndex] : items[nextIndex].nextSibling;
       flip(items.filter((node) => node !== item), () => container.insertBefore(item, reference));
+      handle.focus({ preventScroll: true });
       keyboardDrag.moved = true;
       announce(item, "Позиция изменена");
     });
