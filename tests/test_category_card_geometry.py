@@ -149,7 +149,7 @@ class CategoryCardGeometryBrowserTests(unittest.TestCase):
         }""", [skin, theme])
 
     def assert_text_contrast(self, locator):
-        """Проверяем фактический фон текста на белом фото, без привязки к scrim CSS."""
+        """Проверяем контраст букв с градиентом и тенью на белом фото."""
         locator.evaluate("el => el.scrollIntoView({block:'center',inline:'nearest'})")
         self.assertTrue(locator.evaluate("""el => {
           const r=el.getBoundingClientRect(), card=el.closest('.cat-card');
@@ -165,9 +165,14 @@ class CategoryCardGeometryBrowserTests(unittest.TestCase):
           return {color: style.color.match(/[\d.]+/g).map(Number), opacity};
         }""")
         old_style = locator.get_attribute("style")
-        locator.evaluate("el => {el.style.setProperty('color','transparent','important');el.style.setProperty('text-shadow','none','important')}")
-        pixels = Image.open(BytesIO(locator.screenshot())).convert("RGB")
-        locator.evaluate("(el, previous) => previous === null ? el.removeAttribute('style') : el.setAttribute('style', previous)", old_style)
+        rendered = Image.open(BytesIO(locator.screenshot())).convert("RGB")
+        try:
+            # Тень остаётся фоном букв: скрываем только сам цвет текста.
+            locator.evaluate("el => el.style.setProperty('color','transparent','important')")
+            pixels = Image.open(BytesIO(locator.screenshot())).convert("RGB")
+        finally:
+            locator.evaluate("(el, previous) => previous === null ? el.removeAttribute('style') : el.setAttribute('style', previous)", old_style)
+        self.assertEqual(rendered.size, pixels.size)
         color = appearance["color"]
         alpha = (color[3] if len(color) > 3 else 1) * appearance["opacity"]
 
@@ -176,12 +181,17 @@ class CategoryCardGeometryBrowserTests(unittest.TestCase):
             channels = [v / 12.92 if v <= .04045 else ((v + .055) / 1.055) ** 2.4 for v in channels]
             return .2126 * channels[0] + .7152 * channels[1] + .0722 * channels[2]
 
-        for x in (pixels.width // 4, pixels.width * 3 // 4):
-            for y in (pixels.height // 4, pixels.height * 3 // 4):
-                background = pixels.getpixel((x, y))
-                foreground = [color[i] * alpha + background[i] * (1 - alpha) for i in range(3)]
+        contrasts = []
+        for glyph, background in zip(rendered.getdata(), pixels.getdata()):
+            foreground = [color[i] * alpha + background[i] * (1 - alpha) for i in range(3)]
+            # Берём непрозрачные пиксели букв, исключая сглаженные края и пробелы.
+            if max(abs(glyph[i] - foreground[i]) for i in range(3)) <= 3 and max(
+                abs(glyph[i] - background[i]) for i in range(3)
+            ) > 20:
                 a, b = sorted((luminance(background), luminance(foreground)))
-                self.assertGreaterEqual((b + .05) / (a + .05), 4.5)
+                contrasts.append((b + .05) / (a + .05))
+        self.assertTrue(contrasts, "На снимке не найдены непрозрачные пиксели букв")
+        self.assertGreaterEqual(min(contrasts), 4.5)
 
     def test_photo_overlay_wraps_all_text_at_each_size_and_appearance(self):
         for enlarged in (False, True):
