@@ -3,6 +3,7 @@
 from io import BytesIO
 import json
 import re
+import time
 import unittest
 from urllib.parse import urlparse
 
@@ -22,16 +23,19 @@ BACKGROUND_PROBE = """() => {
     const listen = document.addEventListener;
     window.navigationLifecycle = {loads: [], events: []};
     ['turbo:visit', 'turbo:render', 'turbo:load', 'mousedown', 'mouseup', 'click',
-        'submit', 'invalid'].forEach(type => {
+        'submit', 'invalid', 'turbo:submit-start', 'turbo:submit-end',
+        'turbo:before-fetch-request', 'turbo:before-fetch-response'].forEach(type => {
         listen.call(document, type, event => {
             const link = event.target.closest && event.target.closest('a[href]');
             const entry = {type, path:location.pathname,
                 href:link ? new URL(link.href).pathname : null,
                 scroll:scrollY, restoring:!!sessionStorage.getItem('d4y_editor_scroll'),
+                time:performance.now(), defaultPrevented:event.defaultPrevented,
                 target:event.target.tagName, id:event.target.id || null,
                 form:event.target.form ? event.target.form.id : null,
                 x:event.clientX, y:event.clientY};
             navigationLifecycle.events.push(entry);
+            setTimeout(() => { entry.defaultPrevented = event.defaultPrevented; }, 0);
             if (navigationLifecycle.events.length > 30) navigationLifecycle.events.shift();
             if (type === 'turbo:load') navigationLifecycle.loads.push(location.pathname);
         }, true);
@@ -70,13 +74,39 @@ BACKGROUND_PROBE = """() => {
 
 
 def click_and_wait_response(page, button, predicate, *, timeout=TRANSITION_TIMEOUT):
-    # Software WebGL может задержать scroll и проверку кликабельности. Их
-    # budget независим от ожидания сети: проверяем кнопку до запуска таймера.
-    # trial оставляет нативный click и не отправляет форму самостоятельно.
-    button.click(trial=True)
-    with page.expect_response(predicate, timeout=timeout) as response:
-        button.click()
-    return response.value
+    # trial не выполняет input handlers: сам click тоже может задержаться.
+    # Ловим ранний ответ заранее, но сетевой budget начинается после click.
+    started = time.monotonic()
+    button.click(trial=True, timeout=30000)
+    actionable = time.monotonic()
+    clicked = None
+    captured = None
+
+    def capture(response):
+        nonlocal captured
+        if captured is None and predicate(response):
+            captured = response
+
+    page.on("response", capture)
+    try:
+        button.click(timeout=30000)
+        clicked = time.monotonic()
+        if captured is not None:
+            return captured
+        # В sync API проверка captured и установка waiter не отдают управление
+        # event loop: поздний ответ не теряется между двумя listeners.
+        with page.expect_response(predicate, timeout=timeout) as response:
+            pass
+        return response.value
+    except Exception:
+        print("Save action timing: " + json.dumps({
+            "actionability_seconds": round(actionable - started, 3),
+            "native_click_seconds": round(clicked - actionable, 3) if clicked else None,
+            "click_response_seconds": round(time.monotonic() - actionable, 3),
+        }), flush=True)
+        raise
+    finally:
+        page.remove_listener("response", capture)
 
 
 class BackgroundNavigationBrowserTests(unittest.TestCase):
@@ -195,12 +225,19 @@ class BackgroundNavigationBrowserTests(unittest.TestCase):
         errors = []
         responses = []
         failed_requests = []
+        requests = []
+        request_started = time.monotonic()
+        page.on("request", lambda request: requests.append({
+            "method": request.method, "path": urlparse(request.url).path,
+            "seconds": round(time.monotonic() - request_started, 3),
+        }))
         page.on("pageerror", lambda error: errors.append(str(error)))
         page.on("request", lambda request: posts.append(request)
                 if request.method == "POST" else None)
         page.on("response", lambda response: responses.append({
             "method": response.request.method, "path": urlparse(response.url).path,
             "status": response.status,
+            "seconds": round(time.monotonic() - request_started, 3),
         }))
         page.on("requestfailed", lambda request: failed_requests.append({
             "method": request.method, "path": urlparse(request.url).path,
@@ -214,6 +251,9 @@ class BackgroundNavigationBrowserTests(unittest.TestCase):
                 print("Navigation failure: " + json.dumps({
                     "path": urlparse(page.url).path, "pageerrors": errors,
                     "responses": responses[-30:], "requestfailed": failed_requests[-10:],
+                    "requests": requests[-30:],
+                    "category_name": self.backend.row("SELECT name FROM categories WHERE id=?", (self.cid,)),
+                    "ink": page.evaluate("window.__inkStats && window.__inkStats()"),
                     "lifecycle": page.evaluate("window.navigationLifecycle"),
                 }, ensure_ascii=False), flush=True)
 

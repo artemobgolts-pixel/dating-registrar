@@ -1,4 +1,4 @@
-"""Сохранение подборки не расходует timeout ответа на ожидание кнопки."""
+"""Ожидание POST-ответа не расходуется на готовность и нативный click."""
 
 import unittest
 from urllib.parse import urlparse
@@ -23,6 +23,22 @@ class BetaCollectionTitleTests(unittest.TestCase):
         cls.backend.close()
 
     def test_worker_collection_save_waits_for_actionability_before_response_budget(self):
+        self.check_worker_collection_save("""button => {
+            button.disabled = true;
+            setTimeout(() => { button.disabled = false; }, 16000);
+        }""")
+
+    def test_worker_collection_save_waits_for_native_click_before_response_budget(self):
+        # trial не выполняет обработчики input. Задержка главного потока после
+        # mousedown должна расходовать budget click, а не ожидания POST-ответа.
+        self.check_worker_collection_save("""button => {
+            button.addEventListener('mousedown', () => {
+                const until = performance.now() + 16000;
+                while (performance.now() < until) {}
+            }, {once: true});
+        }""")
+
+    def check_worker_collection_save(self, prepare_button):
         uid, cookie = self.backend.user_cookie()
         conn = self.backend.db.connect()
         try:
@@ -45,12 +61,8 @@ class BetaCollectionTitleTests(unittest.TestCase):
         page.locator("#categoryAppearance > summary").click()
         page.locator('#categoryEditForm [name="name"]').fill("Название сохранено")
         button = page.locator('button[form="categoryEditForm"][type="submit"]')
-        # Моделируем медленную actionability, которая на software WebGL может
-        # занять больше сетевого budget. Нативный click и настоящий POST остаются.
-        button.evaluate("""button => {
-            button.disabled = true;
-            setTimeout(() => { button.disabled = false; }, 16000);
-        }""")
+        # Настоящие Worker, нативный click, HTTP и SQLite остаются в проверке.
+        button.evaluate(prepare_button)
         previous_origin = page.evaluate("performance.timeOrigin")
         previous_inits = page.evaluate("backgroundProbe.inits")
         response = navigation.click_and_wait_response(page, button,
