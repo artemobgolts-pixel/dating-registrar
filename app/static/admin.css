@@ -2483,8 +2483,8 @@ html[data-theme="dark"] #shareCollection {
 }
 .cat-card .cat-media::after {
   content: ""; position: absolute; z-index: 0; pointer-events: none;
-  inset: 0 0 auto; height: 104px;
-  background: linear-gradient(rgba(12, 15, 22, .62) 0 48px, transparent);
+  inset: 0 0 auto; height: 128px;
+  background: linear-gradient(rgba(12, 15, 22, .62) 0 44px, rgba(12, 15, 22, .5) 62px, rgba(12, 15, 22, .28) 84px, rgba(12, 15, 22, .1) 108px, transparent);
 }
 .cat-card .cat-preview-count {
   position: relative; z-index: 1; display: flex; align-items: baseline; gap: 5px;
@@ -2500,7 +2500,10 @@ html[data-theme="dark"] #shareCollection {
 .cat-card.has-thumb .cat-body {
   position: relative; z-index: 1; min-width: 0; margin-top: auto;
   padding: 28px 16px 16px;
-  background: linear-gradient(transparent, rgba(12, 15, 22, .62) 28px);
+}
+.cat-card.has-thumb .cat-body::before {
+  content: ""; position: absolute; inset: -56px 0 0; z-index: -1; pointer-events: none;
+  background: linear-gradient(transparent, rgba(12, 15, 22, .06) 16px, rgba(12, 15, 22, .22) 36px, rgba(12, 15, 22, .46) 60px, rgba(12, 15, 22, .62) 84px);
 }
 .cat-card .cat-heading-line { min-width: 0; }
 html .cat-card.has-thumb .cat-media .cat-name {
@@ -2540,9 +2543,11 @@ html .cat-card.has-thumb .cat-media .cat-name {
 }
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
   .cat-card.has-thumb .cat-body { background: #141720; }
+  .cat-card.has-thumb .cat-body::before { display: none; }
   .cat-card .cat-preview-count { text-shadow: 0 1px 3px #000; }
 }
 @media (forced-colors: active) {
+  .cat-card.has-thumb .cat-body::before { display: none; }
   .cat-card.has-thumb .cat-body,
   .cat-card .cat-preview-count { background: Canvas; color: CanvasText; }
   html .cat-card.has-thumb .cat-media .cat-name,
