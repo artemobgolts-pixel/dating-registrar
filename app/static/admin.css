@@ -2484,7 +2484,7 @@ html[data-theme="dark"] #shareCollection {
 .cat-card .cat-media::after {
   content: ""; position: absolute; z-index: 0; pointer-events: none;
   inset: 0 0 auto; height: 88px;
-  background: linear-gradient(rgba(12, 15, 22, .58) 0 44px, rgba(12, 15, 22, .35) 54px, rgba(12, 15, 22, .16) 64px, rgba(12, 15, 22, .05) 78px, transparent);
+  background: linear-gradient(rgba(12, 15, 22, .58) 0 44px, rgba(12, 15, 22, .56) 48px, rgba(12, 15, 22, .5) 52px, rgba(12, 15, 22, .42) 58px, rgba(12, 15, 22, .27) 64px, rgba(12, 15, 22, .13) 72px, rgba(12, 15, 22, .04) 80px, transparent);
 }
 .cat-card .cat-preview-count {
   position: relative; z-index: 1; display: flex; align-items: baseline; gap: 5px;
@@ -2503,7 +2503,13 @@ html[data-theme="dark"] #shareCollection {
 }
 .cat-card.has-thumb .cat-body::before {
   content: ""; position: absolute; inset: -12px 0 0; z-index: -1; pointer-events: none;
-  background: linear-gradient(transparent, rgba(12, 15, 22, .03) 8px, rgba(12, 15, 22, .12) 16px, rgba(12, 15, 22, .3) 26px, rgba(12, 15, 22, .58) 36px);
+  background: linear-gradient(transparent, rgba(12, 15, 22, .02) 6px, rgba(12, 15, 22, .07) 12px, rgba(12, 15, 22, .17) 18px, rgba(12, 15, 22, .33) 24px, rgba(12, 15, 22, .49) 30px, rgba(12, 15, 22, .55) 34px, rgba(12, 15, 22, .58) 36px);
+}
+@media (prefers-contrast: no-preference) and (forced-colors: none) {
+  html[data-skin][data-theme] .cat-card.has-thumb {
+    border-block-color: color-mix(in srgb, var(--material-border) 42%, transparent);
+    box-shadow: var(--shadow-soft);
+  }
 }
 .cat-card .cat-heading-line { min-width: 0; }
 html .cat-card.has-thumb .cat-media .cat-name {
