@@ -149,6 +149,7 @@ class CategoryEditorActionsTests(unittest.TestCase):
 
     def test_deadline_follows_choice_count_and_compact_actions_fit_all_appearances(self):
         self.goto_editor()
+        self.page.locator("#categoryAppearance").evaluate("el => el.open = true")
         for width in (320, 390, 1280):
             self.page.set_viewport_size({"width": width, "height": 900})
             for skin in ("friends", "romantic"):
@@ -161,6 +162,15 @@ class CategoryEditorActionsTests(unittest.TestCase):
                         choice = self.page.locator("#categoryVoting .choice-pick").bounding_box()
                         deadline = self.page.locator("#categoryVoting .deadline-picker").bounding_box()
                         self.assertGreaterEqual(deadline["y"], choice["y"] + choice["height"])
+                        preview = self.page.locator("#categoryEditForm").evaluate("""form => {
+                          const center = el => {const r=el.getBoundingClientRect();return r.x+r.width/2};
+                          return {form:center(form),label:center(form.querySelector('.category-preview-label')),
+                            image:center(form.querySelector('#ogPreview')),
+                            labelAlign:getComputedStyle(form.querySelector('.category-preview-label')).textAlign};
+                        }""")
+                        self.assertAlmostEqual(preview["form"], preview["label"], delta=1)
+                        self.assertAlmostEqual(preview["form"], preview["image"], delta=1)
+                        self.assertEqual(preview["labelAlign"], "center")
                         menu = self.page.locator(".category-add-menu")
                         menu.locator("summary").click()
                         self.assertTrue(self.page.locator(".category-add-panel").evaluate("""panel => {

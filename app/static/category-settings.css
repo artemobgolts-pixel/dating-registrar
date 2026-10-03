@@ -8,11 +8,16 @@
   width: 100%;
   max-width: 380px;
   margin-top: 4px;
+  justify-self: center;
   text-align: center;
   font-weight: 600;
 }
 
-#categoryAppearance .og-preview { margin-top: 0; }
+#categoryAppearance .og-preview {
+  width: 100%;
+  margin-top: 0;
+  justify-self: center;
+}
 #categoryPrivacy .category-privacy-head h2 { margin: 0; }
 #categoryVoting .voting-head { align-items: center; margin-bottom: 0; }
 #categoryVoting .voting-form { grid-template-columns: minmax(0, 1fr); margin-top: 12px; }

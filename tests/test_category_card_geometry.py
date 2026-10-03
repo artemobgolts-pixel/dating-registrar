@@ -7,7 +7,7 @@ import unittest
 from io import BytesIO
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageChops
 from playwright.sync_api import expect, sync_playwright
 
 from live_backend import LiveBackend
@@ -247,6 +247,51 @@ class CategoryCardGeometryBrowserTests(unittest.TestCase):
                             self.assert_text_contrast(card.locator(".cat-count-number"))
                             self.assert_text_contrast(card.locator(".cat-count-label"))
                             self.assert_text_contrast(card.locator(".cat-status-row .entity-status > span:last-child").first)
+
+    def test_default_preview_is_unshaded_for_explicit_and_automatic_choices(self):
+        conn = self.backend.db.connect()
+        try:
+            conn.execute("UPDATE categories SET og_image=NULL WHERE id=?", (self.categories[0]["id"],))
+            conn.execute("UPDATE categories SET use_default_preview=1 WHERE id=?", (self.categories[1]["id"],))
+            conn.execute("UPDATE categories SET og_image='missing-preview.webp' WHERE id=?", (self.categories[2]["id"],))
+            conn.execute("UPDATE categories SET og_image=NULL WHERE id=?", (self.categories[11]["id"],))
+            conn.execute(
+                "INSERT INTO date_images(date_id,filename,position) "
+                "SELECT date_id,'category-white-preview.webp',0 FROM date_categories "
+                "WHERE category_id=? ORDER BY position LIMIT 1",
+                (self.categories[11]["id"],),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        for width in (320, 390, 1280):
+            page = self.open_list(width)
+            for skin in ("friends", "romantic"):
+                for theme in ("light", "dark"):
+                    with self.subTest(width=width, skin=skin, theme=theme):
+                        self.appearance(page, skin, theme)
+                        for count in (0, 1, 2, 11, 21):
+                            expect(self.card(count)).to_have_attribute(
+                                "data-default-image", "1" if count in (0, 1, 2) else "0",
+                            )
+                        card = self.card(0)
+                        card.scroll_into_view_if_needed()
+                        page.wait_for_function("el => el.complete && el.naturalWidth > 0", arg=card.locator("img").element_handle())
+                        original = Image.open(BytesIO(card.locator(".cat-media").screenshot())).convert("RGB")
+                        card.evaluate("el => el.dataset.shadingProbe = 'true'")
+                        probe = page.add_style_tag(content="""
+                          [data-shading-probe] .cat-media::after,
+                          [data-shading-probe] .cat-body::before { display:none !important; }
+                          [data-shading-probe] .cat-media,
+                          [data-shading-probe] .cat-body { background:transparent !important; }
+                          [data-shading-probe] .cat-thumb { filter:none !important; }
+                        """)
+                        try:
+                            unshaded = Image.open(BytesIO(card.locator(".cat-media").screenshot())).convert("RGB")
+                        finally:
+                            probe.evaluate("el => el.remove()")
+                            card.evaluate("el => delete el.dataset.shadingProbe")
+                        self.assertIsNone(ImageChops.difference(original, unshaded).getbbox(), "Стандартное превью затемнено")
 
     def test_preview_counts_use_actual_event_totals_and_russian_plural(self):
         self.open_list()

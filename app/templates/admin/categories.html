@@ -25,6 +25,7 @@
 {% for c in cats %}
 <div class="card cat-card has-thumb"
      data-status-tone="{{ 'success' if c['is_active'] else 'neutral' }}"
+     data-default-image="{{ '1' if c['preview_is_default'] else '0' }}"
      data-category-active="{{ 'true' if c['is_active'] else 'false' }}">
   <a class="cat-link" href="/admin/categories/{{ c['id'] }}?return_to={{ current_list_url | urlencode }}" data-tour-category-link
      aria-label="Открыть «{{ c['name'] }}»" aria-describedby="cat-status-{{ c['id'] }}"></a>

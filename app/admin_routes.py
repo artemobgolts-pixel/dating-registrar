@@ -927,6 +927,9 @@ def _categories_list_data(conn, owner_id: int, *, query: str = "") -> list[dict]
         category["has_og"] = bool(
             row["use_default_preview"] or custom_image or sources
         )
+        category["preview_is_default"] = bool(
+            row["use_default_preview"] or not (custom_image or sources)
+        )
         category["preview_revision"] = images.og_preview_revision(
             sources,
             appearance.normalize_skin(row["category_skin"]),
