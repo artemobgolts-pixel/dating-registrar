@@ -2071,7 +2071,9 @@ html.ink-static .bg-smoke span {
   box-shadow: 0 12px 30px rgba(150, 80, 95, .08), inset 0 1px 0 rgba(255, 255, 255, .8);
   transition: transform .18s ease, box-shadow .2s ease;
 }
-.dcard:hover { transform: translateY(-2px); box-shadow: 0 16px 38px rgba(150, 80, 95, .14); }
+@media (hover: hover) and (pointer: fine) {
+  .dcard:hover:not(:has(.menu-wrap:hover)) { transform: translateY(-2px); box-shadow: 0 16px 38px rgba(150, 80, 95, .14); }
+}
 .dcard .ph {
   height: auto; aspect-ratio: 16 / 9; position: relative;
   border-radius: 18px 18px 0 0; overflow: hidden;
@@ -2498,9 +2500,7 @@ html[data-theme="dark"] #shareCollection {
 .cat-card.has-thumb .cat-body {
   position: relative; z-index: 1; min-width: 0; margin-top: auto;
   padding: 28px 16px 16px;
-  background: linear-gradient(transparent, rgba(12, 15, 22, .62) 28px, rgba(12, 15, 22, .72));
-  -webkit-backdrop-filter: blur(12px);
-  backdrop-filter: blur(12px);
+  background: linear-gradient(transparent, rgba(12, 15, 22, .62) 28px);
 }
 .cat-card .cat-heading-line { min-width: 0; }
 html .cat-card.has-thumb .cat-media .cat-name {
@@ -5543,6 +5543,14 @@ html[data-skin][data-theme] .dates-bulk-form {
   box-shadow: 0 8px 24px color-mix(in srgb, var(--ink) 10%, transparent);
 }
 .has-bulk-selection .wrap { padding-bottom: 150px; }
+html :is(.dcard .card-menu, .cat-card .cat-card-menu, .cfeed-card .cfeed-menu) .more {
+  transition: transform 100ms var(--ease-press), opacity 150ms var(--ease), background 150ms var(--ease);
+}
+@media (prefers-reduced-motion: reduce) {
+  html :is(.dcard .card-menu, .cat-card .cat-card-menu, .cfeed-card .cfeed-menu) .more:active {
+    transform: none;
+  }
+}
 html .dcard .card-menu .more,
 html .cat-card .cat-card-menu .more,
 html .cfeed-card .cfeed-menu--media .more {
