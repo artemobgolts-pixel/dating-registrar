@@ -248,7 +248,7 @@ class CategoryCardGeometryBrowserTests(unittest.TestCase):
                             self.assert_text_contrast(card.locator(".cat-count-label"))
                             self.assert_text_contrast(card.locator(".cat-status-row .entity-status > span:last-child").first)
 
-    def test_default_preview_is_unshaded_for_explicit_and_automatic_choices(self):
+    def test_default_preview_uses_half_shading_for_explicit_and_automatic_choices(self):
         conn = self.backend.db.connect()
         try:
             conn.execute("UPDATE categories SET og_image=NULL WHERE id=?", (self.categories[0]["id"],))
@@ -274,6 +274,12 @@ class CategoryCardGeometryBrowserTests(unittest.TestCase):
                             expect(self.card(count)).to_have_attribute(
                                 "data-default-image", "1" if count in (0, 1, 2) else "0",
                             )
+                            opacity = self.card(count).evaluate("""el => [
+                              Number(getComputedStyle(el.querySelector('.cat-media'),'::after').opacity),
+                              Number(getComputedStyle(el.querySelector('.cat-body'),'::before').opacity)
+                            ]""")
+                            for value in opacity:
+                                self.assertAlmostEqual(value, .35 if count in (0, 1, 2) else .7)
                         card = self.card(0)
                         card.scroll_into_view_if_needed()
                         page.wait_for_function("el => el.complete && el.naturalWidth > 0", arg=card.locator("img").element_handle())
@@ -291,7 +297,25 @@ class CategoryCardGeometryBrowserTests(unittest.TestCase):
                         finally:
                             probe.evaluate("el => el.remove()")
                             card.evaluate("el => delete el.dataset.shadingProbe")
-                        self.assertIsNone(ImageChops.difference(original, unshaded).getbbox(), "Стандартное превью затемнено")
+                        self.assertIsNotNone(ImageChops.difference(original, unshaded).getbbox(), "Стандартное превью должно иметь лёгкое затенение")
+                        card.evaluate("el => el.dataset.shadingProbe = 'true'")
+                        probe = page.add_style_tag(content="""
+                          [data-shading-probe] .cat-media::after,
+                          [data-shading-probe] .cat-body::before { opacity:.7 !important; }
+                        """)
+                        try:
+                            full = Image.open(BytesIO(card.locator(".cat-media").screenshot())).convert("RGB")
+                        finally:
+                            probe.evaluate("el => el.remove()")
+                            card.evaluate("el => delete el.dataset.shadingProbe")
+                        for y in (.12, .9):
+                            point = (int(original.width * .7), int(original.height * y))
+                            clear_pixel, half_pixel, full_pixel = (
+                                picture.getpixel(point) for picture in (unshaded, original, full)
+                            )
+                            self.assertGreater(max(a - b for a, b in zip(clear_pixel, full_pixel)), 20)
+                            for clear, half, normal in zip(clear_pixel, half_pixel, full_pixel):
+                                self.assertAlmostEqual((clear - half) * 2, clear - normal, delta=3)
 
     def test_preview_counts_use_actual_event_totals_and_russian_plural(self):
         self.open_list()

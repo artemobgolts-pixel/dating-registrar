@@ -2470,6 +2470,7 @@ html[data-theme="dark"] #shareCollection {
   gap: 16px; align-items: start;
 }
 .cat-card.has-thumb {
+  --cat-scrim-opacity: .7;
   padding: 0; margin: 0; overflow: visible;
 }
 .cat-card .cat-media {
@@ -2483,6 +2484,7 @@ html[data-theme="dark"] #shareCollection {
 }
 .cat-card .cat-media::after {
   content: ""; position: absolute; z-index: 0; pointer-events: none;
+  opacity: var(--cat-scrim-opacity);
   inset: 0 0 auto; height: 88px;
   background: linear-gradient(rgba(12, 15, 22, .58) 0 44px, rgba(12, 15, 22, .56) 48px, rgba(12, 15, 22, .5) 52px, rgba(12, 15, 22, .42) 58px, rgba(12, 15, 22, .27) 64px, rgba(12, 15, 22, .13) 72px, rgba(12, 15, 22, .04) 80px, transparent);
 }
@@ -2503,13 +2505,13 @@ html[data-theme="dark"] #shareCollection {
 }
 .cat-card.has-thumb .cat-body::before {
   content: ""; position: absolute; inset: -12px 0 0; z-index: -1; pointer-events: none;
+  opacity: var(--cat-scrim-opacity);
   background: linear-gradient(transparent, rgba(12, 15, 22, .02) 6px, rgba(12, 15, 22, .07) 12px, rgba(12, 15, 22, .17) 18px, rgba(12, 15, 22, .33) 24px, rgba(12, 15, 22, .49) 30px, rgba(12, 15, 22, .55) 34px, rgba(12, 15, 22, .58) 36px);
 }
-.cat-card.has-thumb[data-default-image="1"] .cat-media::after,
-.cat-card.has-thumb[data-default-image="1"] .cat-body::before {
-  display: none;
+.cat-card.has-thumb[data-default-image="1"] {
+  --cat-scrim-opacity: .35;
 }
-.cat-card.has-thumb[data-default-image="1"] :is(.cat-preview-count, .cat-name, .cat-status-row .entity-status) {
+.cat-card.has-thumb :is(.cat-preview-count, .cat-name, .cat-status-row .entity-status) {
   text-shadow: 0 1px 2px rgba(0, 0, 0, .85), 0 0 1px rgba(0, 0, 0, .8);
 }
 @media (prefers-contrast: no-preference) and (forced-colors: none) {
@@ -2565,7 +2567,7 @@ html .cat-card.has-thumb .cat-media .cat-name {
   .cat-card .cat-preview-count { background: Canvas; color: CanvasText; }
   html .cat-card.has-thumb .cat-media .cat-name,
   .cat-card .cat-status-row .entity-status { color: CanvasText; }
-  .cat-card.has-thumb[data-default-image="1"] :is(.cat-preview-count, .cat-name, .cat-status-row .entity-status) {
+  .cat-card.has-thumb :is(.cat-preview-count, .cat-name, .cat-status-row .entity-status) {
     text-shadow: none;
   }
 }
