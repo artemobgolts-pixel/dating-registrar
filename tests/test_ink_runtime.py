@@ -5,6 +5,7 @@ import base64
 import sys
 import unittest
 from pathlib import Path
+from browser_device import device_capabilities_script
 
 
 HERE = Path(__file__).resolve().parent
@@ -73,7 +74,8 @@ class InkRuntimeBrowserTests(unittest.TestCase):
         cls._playwright.stop()
 
     def make_page(self, *, reduced=False, mobile=False, interactive=False,
-                  force_main=True, device_scale_factor=1):
+                  force_main=True, device_scale_factor=1, device_memory=8,
+                  hardware_concurrency=8, save_data=False):
         context = self.browser.new_context(
             viewport={"width": 390 if mobile else 1200,
                       "height": 780 if mobile else 760},
@@ -82,6 +84,9 @@ class InkRuntimeBrowserTests(unittest.TestCase):
             device_scale_factor=device_scale_factor,
             reduced_motion="reduce" if reduced else "no-preference",
         )
+        context.add_init_script(device_capabilities_script(
+            device_memory=device_memory, hardware_concurrency=hardware_concurrency,
+            save_data=save_data))
         page = context.new_page()
         page.set_content(HTML)
         page.evaluate(PROBE)
@@ -272,6 +277,22 @@ class InkRuntimeBrowserTests(unittest.TestCase):
             )
         finally:
             context.close()
+
+    def test_weak_device_or_save_data_uses_poster_without_webgl(self):
+        for memory, cores, save_data in ((1, 8, False), (2, 2, False), (8, 8, True)):
+            with self.subTest(memory=memory, cores=cores, save_data=save_data):
+                context, page = self.make_page(interactive=True, device_memory=memory,
+                    hardware_concurrency=cores, save_data=save_data)
+                try:
+                    self.inject_controller(page, self.tiny_poster("#faf5f2"))
+                    page.wait_for_selector(".bg-smoke.has-ink .ink-static-frame")
+                    self.assertEqual(page.evaluate("window.__inkStats().backend"), "poster")
+                    self.assertFalse(page.evaluate("window.__inkStats().worker"))
+                    self.assertEqual(page.evaluate("window.__glProbe.contexts"), 0)
+                    self.assertEqual(page.evaluate("window.__glProbe.raf"), 0)
+                    self.assertEqual(page.locator(".ink-canvas").count(), 0)
+                finally:
+                    context.close()
 
     def test_reduced_motion_uses_decoded_poster_without_webgl(self):
         context, page = self.make_page(reduced=True)

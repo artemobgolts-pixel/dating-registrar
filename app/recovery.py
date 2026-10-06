@@ -91,6 +91,29 @@ def _publish_directory(staging: Path, destination: Path) -> None:
     _sync_directory(destination.parent)
 
 
+def _snapshot_frozen_database(source: Path, destination: Path, staging: Path) -> None:
+    """SQLite пересобирает WAL/SHM только в приватной writable копии.
+
+    Даже mode=ro требует writable каталог для WAL-базы без готового SHM.
+    Исходные DB и WAL уже заморожены остановкой всех writers; копируем оба,
+    чтобы сохранить committed frames, и создаём standalone snapshot отдельно.
+    SHM — перестраиваемый индекс, его не переносим из исходного DATA_DIR.
+    """
+    wal = source.with_name(source.name + "-wal")
+    try:
+        wal_mode = wal.lstat().st_mode
+    except FileNotFoundError:
+        wal_mode = None
+    if wal_mode is not None and not stat.S_ISREG(wal_mode):
+        raise ValueError("Source app.db-wal must be an existing regular file")
+    with tempfile.TemporaryDirectory(prefix=".sqlite-input-", dir=staging) as temporary:
+        copied = Path(temporary) / source.name
+        shutil.copyfile(source, copied)
+        if wal_mode is not None:
+            shutil.copyfile(wal, copied.with_name(copied.name + "-wal"))
+        _write_snapshot(copied, destination)
+
+
 def create_recovery(data: Path, output: Path, *, quiesced: bool = False,
                     release: str = "", image: str = "") -> Path:
     if not quiesced:
@@ -108,7 +131,7 @@ def create_recovery(data: Path, output: Path, *, quiesced: bool = False,
     output.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=f".{output.name}-", suffix=".partial", dir=output.parent))
     try:
-        _write_snapshot(source_db, staging / "app.db")
+        _snapshot_frozen_database(source_db, staging / "app.db", staging)
         (staging / "uploads").mkdir()
         if source_uploads.exists():
             for relative, source in _files(source_uploads).items():

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Ежедневный quiesced DB+media bundle -> rclone; каждый retained bundle самодостаточен.
-# Требуется управляемый релиз .release/state.json. Короткая пауза traffic обязательна.
+# Поддерживает управляемый и legacy/simple релиз. Короткая пауза traffic обязательна.
 # RCLONE_REMOTE=backup:date4you KEEP_REMOTE=30 ./scripts/backup.sh
 # Telegram DB-only копия остаётся явным opt-in через TG_BACKUP_CHAT_ID.
 set -euo pipefail

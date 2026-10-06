@@ -1,9 +1,18 @@
 """Публикация цельных DB+media bundles; manifest.json — последний commit marker."""
+from contextlib import ExitStack
 import os
 from pathlib import Path
 import re
 
 import release
+
+TELEGRAM_CODE = (
+    "import backup,tasks; "
+    "enabled=bool(tasks.TG_BACKUP_CHAT_ID); "
+    "sent=tasks.ship_backup_to_tg(backup.make_backup()) if enabled else False; "
+    "print('Telegram: '+('sent' if sent else 'failed' if enabled else 'disabled')); "
+    "raise SystemExit(1 if enabled and not sent else 0)"
+)
 
 BUNDLE_NAME = re.compile(r"[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}")
 
@@ -50,16 +59,35 @@ def main():
     keep = int(os.getenv("KEEP_REMOTE", "30"))
     if keep < 1:
         raise ValueError("KEEP_REMOTE должен быть >= 1")
-    with release.release_lock():
-        bundle = release.backup()
-        publish(bundle, remote, keep)
+    with release.release_lock(), ExitStack() as locks:
+        app_id = None
+        state_file = release.STATE / "state.json"
+        if state_file.exists() or state_file.is_symlink():
+            if (release.STATE / "legacy-backup.json").exists():
+                raise ValueError("Незавершённый legacy backup: сначала восстановите исходные контейнеры")
+            bundle = release.backup()
+        else:
+            import backup_legacy
+            locks.enter_context(backup_legacy.update_lock())
+            bundle, app_id = backup_legacy.backup()
+        errors = []
+        try:
+            publish(bundle, remote, keep)
+        except Exception as exc:
+            errors.append(exc)
+            print(f"Cloud backup failed ({type(exc).__name__}); local recovery bundle retained")
         # Phase A: только явно заданный TG_BACKUP_CHAT_ID внутри актуального env.
         # Telegram получает DB-only дополнительную копию, не recovery bundle.
         try:
-            release.compose("exec", "-T", "app", "python", "-c",
-                "import backup,tasks; print('Telegram:',tasks.ship_backup_to_tg(backup.make_backup()))")
+            if app_id:
+                release.run("docker", "exec", app_id, "python", "-c", TELEGRAM_CODE, timeout=60)
+            else:
+                release.compose("exec", "-T", "app", "python", "-c", TELEGRAM_CODE, timeout=60)
         except Exception as exc:
+            errors.append(exc)
             print(f"Telegram backup failed ({type(exc).__name__}); recovery bundle retained")
+        if errors:
+            raise errors[0]
 
 
 if __name__ == "__main__":

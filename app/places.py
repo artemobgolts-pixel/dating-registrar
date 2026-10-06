@@ -230,9 +230,10 @@ def repair_legacy_places() -> int:
             if name:
                 conn.execute("UPDATE dates SET place=? WHERE id=? AND place_url=?",
                              (name, r["id"], r["place"]))
+                # Следующая ссылка требует сетевого запроса. Writer-lock должен
+                # закончиться сейчас, а не после всей очереди распознавания.
+                conn.commit()
                 resolved += 1
-        if resolved:
-            conn.commit()
         return resolved
     finally:
         conn.close()

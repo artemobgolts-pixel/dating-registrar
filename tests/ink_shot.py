@@ -19,6 +19,7 @@
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
+from browser_device import device_capabilities_script
 
 HERE = Path(__file__).resolve().parent
 INK_JS = HERE.parent / "app" / "static" / "ink.js"
@@ -81,6 +82,7 @@ def capture(out, clicks=(), frames=90, dt_ms=16, w=900, h=600, debug=False):
         if debug:
             page.on("console", lambda m: print("  [console]", m.text))
         page.set_content(PAGE_HTML)
+        page.evaluate(device_capabilities_script())
         if debug:
             page.evaluate("window.__INK_DEBUG = true;")
         # Часы ставим ДО вставки ink.js: его IIFE захватит уже наши
@@ -144,6 +146,7 @@ def capture_clicks(out, clicks, bg_time=8.0, w=900, h=600,
                                 device_scale_factor=1,
                                 reduced_motion="no-preference")
         page.set_content(PAGE_HTML)
+        page.evaluate(device_capabilities_script())
         page.evaluate("window.__INK_TEST = true;")
         page.evaluate("window.__INK_FORCE_MAIN = true;")
         page.evaluate("window.__INK_PRESERVE = true;")

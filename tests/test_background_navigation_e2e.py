@@ -11,6 +11,7 @@ from PIL import Image
 from playwright.sync_api import expect, sync_playwright
 
 from live_backend import LiveBackend
+from browser_device import device_capabilities_script
 
 
 GL_FLAGS = ["--use-gl=angle", "--use-angle=swiftshader",
@@ -18,6 +19,7 @@ GL_FLAGS = ["--use-gl=angle", "--use-angle=swiftshader",
 TRANSITION_TIMEOUT = 15000
 
 BACKGROUND_PROBE = """() => {
+""" + device_capabilities_script() + """
     const probe = window.backgroundProbe = {workers:0, inits:0, stops:0,
         contexts:0, programs:0, turboLoads:0, skinChanges:0};
     const listen = document.addEventListener;

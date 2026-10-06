@@ -1,6 +1,7 @@
 """DEPLOY-06: offline synthetic DB + all original-media recovery roundtrips."""
 
 from contextlib import closing
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -71,6 +72,72 @@ class RecoveryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "quiesced"):
             recovery.create_recovery(self.data, self.bundle)
         self.assertFalse(self.bundle.exists())
+
+    def source_database_files(self):
+        return {path.name: (hashlib.sha256(path.read_bytes()).hexdigest(), path.stat().st_mtime_ns)
+                for path in self.data.iterdir() if path.is_file()}
+
+    def test_clean_wal_header_snapshot_does_not_create_sidecars_in_frozen_source(self):
+        with closing(sqlite3.connect(self.data / "app.db")) as conn:
+            self.assertEqual(conn.execute("PRAGMA journal_mode=WAL").fetchone(), ("wal",))
+        self.assertFalse((self.data / "app.db-wal").exists())
+        before = self.source_database_files()
+        self.snapshot()
+        self.assertEqual(self.source_database_files(), before)
+        recovery.verify_recovery(self.bundle)
+
+    def test_nonregular_wal_is_rejected_without_source_read_or_publication(self):
+        (self.data / "app.db-wal").mkdir()
+        with patch.object(recovery.shutil, "copyfile") as copy:
+            with self.assertRaisesRegex(ValueError, "app.db-wal.*regular"):
+                self.snapshot()
+        copy.assert_not_called()
+        self.assertFalse(self.bundle.exists())
+        self.assertEqual(list(self.bundle.parent.iterdir()), [])
+
+    def test_symlink_wal_is_rejected_including_dangling_link(self):
+        for target in (self.data / "app.db", self.data / "missing-wal"):
+            with self.subTest(target=target.name):
+                wal = self.data / "app.db-wal"
+                # Windows developer mode may be disabled; a synthetic symlink
+                # lstat exercises the same rejection without relying on privileges.
+                if os.name == "nt":
+                    original = Path.lstat
+                    def lstat(path, *args, **kwargs):
+                        if path == wal:
+                            return os.stat_result((0o120777, 0, 0, 1, 0, 0, 0, 0, 0, 0))
+                        return original(path, *args, **kwargs)
+                    with patch.object(Path, "lstat", lstat), patch.object(recovery.shutil, "copyfile") as copy:
+                        with self.assertRaisesRegex(ValueError, "app.db-wal.*regular"):
+                            self.snapshot()
+                else:
+                    wal.symlink_to(target)
+                    with patch.object(recovery.shutil, "copyfile") as copy:
+                        with self.assertRaisesRegex(ValueError, "app.db-wal.*regular"):
+                            self.snapshot()
+                    wal.unlink()
+                copy.assert_not_called()
+                self.assertFalse(self.bundle.exists())
+
+    def test_crash_wal_committed_rows_preserved_without_changing_frozen_source(self):
+        writer = (
+            "import sqlite3,os,sys; c=sqlite3.connect(sys.argv[1]); "
+            "c.execute('PRAGMA journal_mode=WAL'); "
+            "c.execute(\"INSERT INTO date_images VALUES ('committed-wal.webp')\"); "
+            "c.commit(); os._exit(0)"
+        )
+        subprocess.run([sys.executable, "-c", writer, str(self.data / "app.db")], check=True)
+        self.assertGreater((self.data / "app.db-wal").stat().st_size, 0)
+        # A crashed writer leaves committed WAL frames. No SHM is required in
+        # the frozen input: SQLite must be able to rebuild it in private storage.
+        (self.data / "app.db-shm").unlink()
+        (self.uploads / "committed-wal.webp").write_bytes(b"committed WAL media")
+        before = self.source_database_files()
+        self.snapshot()
+        with closing(sqlite3.connect(self.bundle / "app.db")) as conn:
+            self.assertIn(("committed-wal.webp",), conn.execute("SELECT filename FROM date_images").fetchall())
+        self.assertEqual(self.source_database_files(), before)
+        recovery.verify_recovery(self.bundle)
 
     def test_missing_referenced_media_prevents_publication(self):
         (self.uploads / "avatar01.webp").unlink()

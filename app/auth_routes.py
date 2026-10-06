@@ -1038,7 +1038,29 @@ def oauth_start(provider: str, request: Request, conn=Depends(get_db)):
     mode = "link" if request.query_params.get("link") else "login"
     nxt = (_safe_next(request.query_params.get("next"))
            or _safe_next(request.session.get("login_next")))
-    state = oauth_flows.create(conn, request.session, provider, mode, nxt)
+    # Writer занят — не держим вход в ожидании штатных 15 секунд. Соединение
+    # принадлежит этому запросу; прежний timeout возвращаем для остальных шагов.
+    busy_timeout = conn.execute("PRAGMA busy_timeout").fetchone()[0]
+    conn.execute(f"PRAGMA busy_timeout={min(busy_timeout, 1000)}")
+    try:
+        state = oauth_flows.create(conn, request.session, provider, mode, nxt)
+    except sqlite3.OperationalError as exc:
+        if getattr(exc, "sqlite_errorcode", 0) & 0xff not in (
+                sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED):
+            raise
+        conn.rollback()
+        log.warning(
+            "Начало OAuth отложено: база занята другим запросом",
+            extra={"event": "oauth_database_busy", "provider": provider,
+                   "operation": "create_flow", "outcome": "busy",
+                   "exception_type": type(exc).__name__},
+        )
+        raise HTTPException(
+            503, "Вход временно недоступен. Попробуй ещё раз через секунду.",
+            headers={"Retry-After": "1"},
+        ) from exc
+    finally:
+        conn.execute(f"PRAGMA busy_timeout={busy_timeout}")
     if state is None:
         raise HTTPException(403, "Для привязки войди в аккаунт и начни заново.")
 

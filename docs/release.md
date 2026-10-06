@@ -169,6 +169,9 @@ Manifest связывает schema, release/image, hashes/размеры и сс
 приложением. Create требует остановки всех writers; один SQLite backup не защищает
 файловую систему. Restore проверяет hashes/inventory/SQLite integrity/ссылки и
 публикует **только новый** каталог, никогда не перезаписывает существующий DATA_DIR.
+Для read-only источника create сначала копирует замороженные `app.db` и имеющийся
+WAL в приватный временный каталог. SQLite создаёт SHM там, сохраняет зафиксированные
+WAL-транзакции и не меняет исходные файлы; временный input не входит в bundle.
 
 ```bash
 # Локальный полный bundle с короткой остановкой app/Caddy:
@@ -182,6 +185,24 @@ RCLONE_REMOTE=backup:date4you KEEP_REMOTE=30 ./scripts/backup.sh
 python3 app/recovery.py verify /safe/recovery/<id>
 python3 app/recovery.py restore /safe/recovery/<id> --destination /safe/restored-new
 ```
+
+`scripts/backup.sh` также поддерживает существующий legacy/simple запуск без
+`.release/state.json`. Он находит работающие app/Caddy по Compose labels,
+проверяет bind mount `/data` и отсутствие дополнительных контейнеров writers,
+останавливает traffic и app, а затем создаёт проверенный DB+uploads bundle тем
+же сохранённым app image без сети. После удаления snapshot helper возвращает
+те же контейнеры и проверяет HTTP и получение SQLite writer до открытия traffic. Отдельный journal
+`.release/legacy-backup.json` позволяет следующему запуску закончить прерванную
+операцию. Наличие managed `state.json` всегда выбирает управляемую процедуру;
+ошибку managed release нельзя обойти через legacy путь.
+Для simple установки скрипт также занимает `.release/simple/update.lock`,
+который использует прежний updater: обновление и резервирование не могут
+одновременно менять контейнеры. Чужой lock никогда не удаляется автоматически.
+
+Telegram использует существующий явно заданный `TG_BACKUP_CHAT_ID` работающего
+app. Ошибка публикации в облако не мешает попытке отправки дополнительной
+DB-only копии в Telegram; неуспешная доставка возвращает ошибку cron для
+диагностики. Пустой получатель продолжает отключать Telegram-копию.
 
 Remote publication копирует DB+media, проверяет bytes через `rclone check --download`,
 и только затем загружает manifest как commit marker. Retention после успешной

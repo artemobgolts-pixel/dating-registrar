@@ -7,12 +7,14 @@ from urllib.parse import parse_qs, urlparse
 from playwright.sync_api import expect, sync_playwright
 
 from live_backend import LiveBackend
+from browser_device import device_capabilities_script
 
 
 GL_FLAGS = ["--use-gl=angle", "--use-angle=swiftshader",
             "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"]
 TRANSITION_TIMEOUT = 15000
 PROBE = """() => {
+""" + device_capabilities_script() + """
   const probe=window.profileGraphicsProbe={workers:0,inits:0,stops:0,contexts:0,programs:0};
   const lifecycle=window.profileNavigationLifecycle={loads:[]};
   document.addEventListener('turbo:load',()=>lifecycle.loads.push(location.href));
